@@ -1,0 +1,47 @@
+{
+  "name": "dsh-activity-pane",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DeepSeek Harness Web 活动会话总览窗格：将正在运行与等待用户行动的会话集中到一个可贴边、可滚动的左侧窗格",
+  "type": "module",
+  "main": "./.dsh-plugin/index.mjs",
+  "exports": {
+    ".": "./.dsh-plugin/index.mjs",
+    "./client": "./.dsh-plugin/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    ".dsh-plugin",
+    "src",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build:client": "node scripts/build-client.mjs",
+    "check": "node scripts/check.mjs",
+    "test": "node scripts/check.mjs",
+    "accept:manual": "node scripts/acceptance.mjs",
+    "lint": "python3 tools/agentmap_lint.py --report"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "activity-overview",
+    "session-pane",
+    "multi-session"
+  ],
+  "license": "MIT"
+}

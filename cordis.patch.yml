@@ -1,0 +1,7 @@
+# Mount the activity pane as its own bundle. The plugin only augments the web
+# client; the host half is a no-op. It does not depend on nor patch
+# dsh-answer-pet — all session data comes from DSH's native sessions/workspaces
+# client services.
+- insert:
+    - id: dsh-activity-pane
+      name: dsh-activity-pane

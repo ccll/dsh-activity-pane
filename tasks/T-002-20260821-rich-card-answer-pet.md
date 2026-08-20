@@ -6,7 +6,7 @@ id: T-002
 
 # T-002 运行卡向 answer-pet 富化（参数摘要/Token/速率/进度/流程节点轨迹）
 
-状态: active
+状态: completed
 关联: R-01-009 → 活动状态模型；R-01-009 → 窗格渲染器
 风险等级: standard
 
@@ -59,8 +59,13 @@ id: T-002
 
 ## 终态与证据
 
-- 实现: （关闭时填写）
-- 测试: （关闭时填写）
-- DESIGN 对照: （关闭时填写）
-- commit: （关闭时填写）
-- review: （关闭时填写，含独立代码审核证据）
+- 实现: 运行卡向 answer-pet 富化：白名单参数摘要（`summarizeToolArguments`，覆盖 description/query/pattern/file_path/path/url）、输出 token 计数与 ≈速率（`fmtTokens` + `statusLine` 扩展，取 `sessions.list` 条目 `projectionValues.tokenUsage`/`sessionStats`）、阶段进度（`progressOf` 估计 + 渲染层按回合 token 差分单调下限，tool 阶段冻结、回合切换重置）、最近流程节点轨迹（`buildTrace`：`legacy.nodes` 已定案工具调用 + `runningCalls`/`partial` 当前阶段，含状态与耗时）、子代理卡当前阶段摘要行；`cardSignature` 并入 progress/trace。实现链：a6956d7、b46bd7d、bc98512。
+- 测试: `node scripts/check.mjs` 全过（含 R-01-009/AC-04 白名单摘要、AC-05 token/≈速率与向后兼容、AC-06 progressOf 各阶段与 PROGRESS_THINK_BASE 同源、AC-07 buildTrace 节点/状态/耗时/上限/不泄密、签名并入 progress/trace 断言、bundle 无 `fetch(` 契约）；GUI 交互验收见 `scripts/acceptance.mjs`（R-01-009/AC-04..07 人工清单）。`agentmap_lint` 全绿（15 需求 / 39 AC / 锚定 39 / design-covered 15）。
+- DESIGN 对照: 按 AgentMap「实现后调和」：新增行为（白名单摘要/token 计数与 ≈速率/阶段进度/流程节点轨迹/子代理当前阶段/回合 token 差分重置）已同步进 DESIGN「边界与对外契约 / 核心数据与不变量 / 产品契约 / 子系统与模块」，DOMAIN 术语与 DECISIONS C-005 同步；DESIGN 与实现对照无差异。
+- commit: bc98512
+- review:
+  - 审核方: standards 子代理 d8950ae4 / spec 子代理 ab3533eb（同一审核方复审修复提交）
+  - 目的理解: 审核 T-002 实现相对 PRD R-01-009/AC-04..07 与 DESIGN（statusLine 契约、buildTrace/summarizeToolArguments/progressOf、R-02-001/R-02-004 订阅纪律）的符合度，以及仓库标准（AGENTS.md 工程原则、DESIGN 横切约束、DOMAIN 术语）遵循。
+  - 执行方式: code-review skill 双轴（Standards+Spec）并行子代理，评审基线 62c5a8f..a6956d7；修复提交 b46bd7d 由同一审核方复审；复审建议的 NaN 防护补入 bc98512。
+  - 问题与修复: Standards — ①「输出速率」DOMAIN 承诺"标注为近似值"未上卡 → statusLine 速率加 ≈ 前缀、DOMAIN 同步；②renderTrace/renderCurrentTrace 重复 → 合并为 renderTrace(…,{lastOnly})；③pct 兜底 5 与 progressOf think 起点漂移 → 导出 PROGRESS_THINK_BASE 共用 + 同源断言；④DOMAIN「轮内状态」术语滞后 → 扩展含 token/速率/推理/流程节点/进度。Spec — ①验证门禁红（提交前修复未同步测试）→ check.mjs 锚点同步 `≈12 tok/s`、PROGRESS_THINK_BASE 断言；②AC-06「回合切换重置」在累计 token 下架空 → 进度改按回合 token 差分（tokensBase 随回合切换重记）；③复审非阻断注 NaN 基线污染 → 累计口径先 Number.isFinite 净化（bc98512）。
+  - 复审结论: 两轴复审确认 b46bd7d 修复后全部发现已解决、无新增问题；NaN 防护按 reviewer 建议补入 bc98512。残留判断性提示（非偏差）：token/速率/进度为估计口径且已 ≈/近似标注、暂停等待的子代理仅显示标题（计划内取舍）、turnTokens 差分属渲染层实现细节（DESIGN 契约已覆盖 AC-06）。

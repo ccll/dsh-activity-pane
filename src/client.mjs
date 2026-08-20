@@ -400,6 +400,12 @@ function apply(ctx) {
 		const margin = desktopQuery.matches ? (collapsed ? COLLAPSED_WIDTH : DEFAULT_WIDTH) : 0;
 		if (seat.style.marginLeft !== `${margin}px`) {
 			seat.style.marginLeft = `${margin}px`;
+			// 会话内容被右移只改变位置、不改变尺寸：ResizeObserver 不触发，依赖
+			// `window resize` 重测的 sibling 插件（如 dsh-session-timeline）会停在
+			// 旧位置并盖住本窗格。派发合成 resize 让它们按新布局重测。
+			try {
+				window.dispatchEvent(new Event("resize"));
+			} catch {}
 		}
 	}
 

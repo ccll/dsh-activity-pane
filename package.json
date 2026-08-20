@@ -23,6 +23,7 @@
     "build:client": "node scripts/build-client.mjs",
     "check": "node scripts/check.mjs",
     "test": "node scripts/check.mjs",
+    "dev:watch": "node scripts/watch.mjs",
     "accept:manual": "node scripts/acceptance.mjs",
     "lint": "python3 tools/agentmap_lint.py --report"
   },

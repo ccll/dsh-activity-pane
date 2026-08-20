@@ -321,10 +321,8 @@ const CLOCK_MS = 1000;
 const CSS = `
 [data-dsh-activity-pane] {
   --dap-width: ${DEFAULT_WIDTH}px;
-  flex: 0 0 var(--dap-width);
   min-width: 0;
   min-height: 0;
-  position: relative;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -440,9 +438,19 @@ const CSS = `
   background: linear-gradient(180deg, #ffb4b4, #f06a72);
   color: #2a1012;
 }
+/* 桌面：窗格是中间列（position:relative）内的绝对定位左贴边列，位于侧栏旁；
+   会话内容经 margin-left 推挤而非被覆盖。折叠时收窄为窄条。 */
 @media (min-width: 768px) {
+  [data-dsh-activity-pane] {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: var(--dap-width);
+    z-index: 5;
+  }
   [data-dsh-activity-pane] .dap-collapse { display: inline-block; }
-  [data-dsh-activity-pane][data-collapsed="true"] { flex: 0 0 ${COLLAPSED_WIDTH}px; }
+  [data-dsh-activity-pane][data-collapsed="true"] { width: ${COLLAPSED_WIDTH}px; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-scroll,
   [data-dsh-activity-pane][data-collapsed="true"] .dap-count,
   [data-dsh-activity-pane][data-collapsed="true"] .dap-collapse { display: none; }
@@ -677,6 +685,17 @@ function apply(ctx) {
 		"<span>活动会话</span><span class=\"dap-toggle-count\"></span>";
 	document.body.appendChild(toggle);
 
+	// 桌面判定与"会话区推挤"（pane 绝对定位贴左，会话内容以 margin 让位）。
+	const desktopQuery = window.matchMedia("(min-width: 768px)");
+	function applySeatMargin() {
+		const seat = document.querySelector(CONVERSATION_SELECTOR);
+		if (seat === null) return;
+		const margin = desktopQuery.matches ? (collapsed ? COLLAPSED_WIDTH : DEFAULT_WIDTH) : 0;
+		if (seat.style.marginLeft !== `${margin}px`) {
+			seat.style.marginLeft = `${margin}px`;
+		}
+	}
+
 	function queueSync() {
 		if (disposed || syncScheduled) return;
 		syncScheduled = true;
@@ -709,12 +728,17 @@ function apply(ctx) {
 	function ensurePane() {
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
 		if (seat === null || seat.parentElement === null) return null;
-		let pane = seat.parentElement.querySelector(`[${PANE_ATTR}]`);
+		// [data-slot="conversation"] 的父级是 AppFrame 的中间列（flex column），
+		// 它不是 grid 行——窗格不能插进该父级当块（会跑到会话上方）。改为在该
+		// 父级内“绝对定位左贴边列”，并以其为定位上下文。
+		const center = seat.parentElement;
+		center.style.position = "relative";
+		let pane = center.querySelector(`[${PANE_ATTR}]`);
 		if (pane === null) {
 			pane = document.createElement("aside");
 			pane.setAttribute(PANE_ATTR, "");
 			pane.className = PANE_CLASS;
-			seat.parentElement.insertBefore(pane, seat);
+			center.appendChild(pane);
 			pane.innerHTML = `
 				<div class="dap-header">
 					<span>活动会话</span>
@@ -907,6 +931,7 @@ function apply(ctx) {
 	function render() {
 		const pane = ensurePane();
 		if (pane === null) return;
+		applySeatMargin();
 		const activeList = pane.querySelector(`.${LIST_CLASS}`);
 		const recentSection = pane.querySelector(`.${RECENT_CLASS}`);
 		if (activeList === null || recentSection === null) return;
@@ -1026,6 +1051,8 @@ function apply(ctx) {
 		return undefined;
 	}
 	function openCard(event) {
+		// 守卫：只处理落在窗格内部的点击，任何主会话区/外壳点击都不拦截。
+		if (!event.target?.closest?.(`[${PANE_ATTR}]`)) return;
 		const sessionId =
 			sessionIdAtPoint(event.clientX, event.clientY) ??
 			event.target
@@ -1099,6 +1126,8 @@ function apply(ctx) {
 	}
 	toggle.addEventListener("click", onToggleClick);
 	document.addEventListener("click", onPaneClick);
+	const onResize = () => queueSync();
+	desktopQuery.addEventListener("change", onResize);
 
 	installServiceSubscriptions();
 	if (sessions === null || workspaces === null) {
@@ -1125,6 +1154,9 @@ function apply(ctx) {
 		if (frameProbeTimer !== null) clearInterval(frameProbeTimer);
 		toggle.removeEventListener("click", onToggleClick);
 		document.removeEventListener("click", onPaneClick);
+		desktopQuery.removeEventListener("change", onResize);
+		const seat = document.querySelector(CONVERSATION_SELECTOR);
+		if (seat !== null) seat.style.marginLeft = "";
 		document.removeEventListener("click", openCard, true);
 		document.removeEventListener("keydown", onKeyDown);
 		toggle.remove();

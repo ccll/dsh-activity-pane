@@ -385,9 +385,26 @@ function apply(ctx) {
 		"<span>活动会话</span><span class=\"dap-toggle-count\"></span>";
 	document.body.appendChild(toggle);
 
-	// 桌面判定与"真实参与布局"：中间列切为行方向，窗格固定宽、会话座弹性收缩，
-	// 让会话内容（标题/tabs/后台任务/滚动区/输入框）被真实挤到窗格右侧。
+	// 桌面判定与"真实参与布局"：中间列切为行方向，窗格固定宽、会话根弹性填充
+	// 剩余宽度（flex:1 + min-width:0），让会话内容（标题/tabs/滚动区/输入框）
+	// 被真实挤到窗格右侧，且聊天列在增宽的会话带内自动居中。
 	const desktopQuery = window.matchMedia("(min-width: 768px)");
+	/** 找到作为 center 弹性子项的真实会话盒（跳过 display:contents 占位层）。 */
+	function conversationFlexItem(center) {
+		const scroll = document.querySelector("[data-conversation-scroll]");
+		if (scroll === null) return null;
+		let node = scroll;
+		let candidate = null;
+		while (node !== null && node !== center && node !== document.body) {
+			let display = "";
+			try {
+				display = window.getComputedStyle(node).display;
+			} catch {}
+			if (display !== "contents") candidate = node;
+			node = node.parentElement;
+		}
+		return candidate;
+	}
 	function applyLayout() {
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
 		if (seat === null || seat.parentElement === null) return;
@@ -396,9 +413,11 @@ function apply(ctx) {
 			center.style.flexDirection = "row";
 		if (center.style.alignItems !== "stretch")
 			center.style.alignItems = "stretch";
-		if (seat.style.flex !== "1 1 0%") seat.style.flex = "1 1 0%";
-		if (seat.style.minWidth !== "0") seat.style.minWidth = "0";
-		if (seat.style.width !== "auto") seat.style.width = "auto";
+		const flex = conversationFlexItem(center);
+		if (flex !== null) {
+			if (flex.style.flex !== "1 1 0%") flex.style.flex = "1 1 0%";
+			if (flex.style.minWidth !== "0") flex.style.minWidth = "0";
+		}
 	}
 
 	function queueSync() {
@@ -864,9 +883,11 @@ function apply(ctx) {
 			const center = seat.parentElement;
 			center.style.flexDirection = "";
 			center.style.alignItems = "";
-			seat.style.flex = "";
-			seat.style.minWidth = "";
-			seat.style.width = "";
+			const flex = conversationFlexItem(center);
+			if (flex !== null) {
+				flex.style.flex = "";
+				flex.style.minWidth = "";
+			}
 		}
 		document.removeEventListener("click", openCard, true);
 		document.removeEventListener("keydown", onKeyDown);

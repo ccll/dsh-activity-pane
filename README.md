@@ -15,7 +15,7 @@ DeepSeek Harness Web 的**活动会话总览窗格**插件：把正在运行的�
 ## 安装与开发
 
 ```sh
-# 本地开发安装（在 profile 中挂载；`file:` 依赖在磁盘上硬链接到本仓库）
+# 本地开发安装（在 profile 中挂载；pnpm `link:` 使 profile 内为指向本仓库的符号链接）
 dsh plugin --profile web add ./dsh-activity-pane
 
 pnpm build:client   # 生成 .dsh-plugin/client.js
@@ -29,8 +29,8 @@ DSH 通过 `dsh-client-hmr` 监视已安装插件的 **client bundle 文件**，
 `rebuilt` 帧，浏览器单独热装该插件——**不需要整页刷新，也不需要重启 `dsh web`**
 （host 侧改动除外，本项目 host 侧为空）。
 
-由于本插件以 `file:` 依赖装入 profile（硬链接），且 `scripts/build-client.mjs`
-采用**原地写入**，流程是：
+由于本插件以 `link:` 依赖装入 profile（profile 内为指向本仓库的符号链接），且
+`scripts/build-client.mjs` 采用**原子写入**（临时文件 + rename），流程是：
 
 1. `dsh plugin --profile web add ./dsh-activity-pane`，然后**重启一次 `dsh web`**
    （新增 bundle 需重启才进入加载名单；之后的热更无需再重启）。

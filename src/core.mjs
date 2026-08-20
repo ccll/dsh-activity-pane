@@ -119,20 +119,18 @@ export function buildEntries(snapshot, workspaceItems) {
 		: {};
 	const rank = workspaceRank(workspaceItems ?? []);
 
-	// 第一遍：层级关系 + 显示判定。
+	// 第一遍：层级关系 + 显示判定（show 同 isActiveRow，单点实现避免漂移）。
 	const rootIds = [];
 	const childIds = new Map();
 	const meta = new Map();
 	for (const id of ids) {
 		const row = byId[id];
 		if (!isRecord(row)) continue;
-		const parentId = row.parentId;
-		const hasParent =
-			parentId !== undefined && parentId !== null && isRecord(byId[parentId]);
+		const hasParent = isSubagentRow(row, byId);
 		if (hasParent) {
-			const list = childIds.get(String(parentId)) ?? [];
+			const list = childIds.get(String(row.parentId)) ?? [];
 			list.push(id);
-			childIds.set(String(parentId), list);
+			childIds.set(String(row.parentId), list);
 		} else {
 			rootIds.push(id);
 		}
@@ -140,9 +138,7 @@ export function buildEntries(snapshot, workspaceItems) {
 		const pending = row.pendingInteraction !== undefined;
 		const isSub = hasParent;
 		// 子代理完成后即消失；主会话完成后保留为"等待打开"。
-		const show = isSub
-			? running || pending
-			: running || pending || row.completed === true;
+		const show = isActiveRow(row, byId);
 		meta.set(id, { row, running, pending, isSub, show, depth: 0 });
 	}
 
@@ -218,19 +214,27 @@ export const HISTORY_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** 历史区最多展示的最近会话条数。 */
 export const HISTORY_MAX = 20;
 
-/** 会话行是否满足"活动区显示"判定（与 buildEntries 的 show 判定一致）。 */
+/** 会话行是否为某主会话的直属子代理。 */
+export function isSubagentRow(row, byId = {}) {
+	const id = row?.parentId;
+	return id !== undefined && id !== null && isRecord(byId[id]);
+}
+
+/**
+ * 会话行是否满足"活动区显示"判定（buildEntries 的 show 与此共用，单点实现）。
+ * 主会话：running || pendingInteraction || completed；
+ * 子代理：仅 running || pendingInteraction（结束后消失）。
+ */
 export function isActiveRow(row, byId = {}) {
-	const parentId = row.parentId;
-	const hasParent =
-		parentId !== undefined && parentId !== null && isRecord(byId[parentId]);
 	const running = row.running === true;
 	const pending = row.pendingInteraction !== undefined;
-	if (hasParent) return running || pending;
+	if (isSubagentRow(row, byId)) return running || pending;
 	return running || pending || row.completed === true;
 }
 
 /**
- * 构建最近历史区条目：当前非活动、但在历史窗口内最后一次活动过的会话，
+ * 构建最近历史区条目：当前非活动、且在历史窗口内最后一次活动过的**主会话**
+ * （子代理是临时工作单元，不入最近历史；故需同时排除表白会话与已结束子代理），
  * 按最后活动时间从新到旧，最多 HISTORY_MAX 条。blank 会话不出现（从未用过）。
  */
 export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS) {
@@ -244,6 +248,7 @@ export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WI
 		const row = byId[id];
 		if (!isRecord(row)) continue;
 		if (row.blank === true) continue;
+		if (isSubagentRow(row, byId)) continue; // 子代理（含已结束）不入最近历史
 		if (isActiveRow(row, byId)) continue;
 		const updatedAt = Number(row.updatedAt);
 		if (!Number.isFinite(updatedAt)) continue;

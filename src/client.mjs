@@ -317,29 +317,31 @@ function schedule(callback) {
 	}
 }
 
-/** 从原生会话快照归一为 statusLine 输入：工具名 / 是否流式 / 时长。 */
-function livenessFromSnapshot(snap, now = Date.now()) {
+/** 从原生会话快照归一为运行卡输入：工具名 / 是否流式 / 当前回合开始时间。
+ *  elapsed 不在快照事件时固化——渲染期用 Date.now()-startTime 实时算，时长才能
+ *  随 1s 时钟逐秒跳动（R-01-009/AC-03）。 */
+function livenessFromSnapshot(snap) {
 	const runningCalls = Array.isArray(snap?.runningCalls) ? snap.runningCalls : [];
 	const runningTool =
 		runningCalls.length > 0 && runningCalls[0]?.name
 			? String(runningCalls[0].name)
 			: null;
 	const streaming = snap?.partial != null && snap?.running !== false;
-	let elapsedMs = null;
+	let startTime = null;
 	const timings = snap?.turnTimings;
 	if (timings instanceof Map) {
-		for (const [_, timing] of timings) {
+		for (const [, timing] of timings) {
 			if (
 				timing &&
 				Number.isFinite(timing.startTime) &&
 				timing.endTime === undefined
 			) {
-				elapsedMs = now - timing.startTime;
+				startTime = timing.startTime;
 				break;
 			}
 		}
 	}
-	return { runningTool, streaming, elapsedMs };
+	return { runningTool, streaming, startTime };
 }
 
 function fmtRecentTime(ts) {
@@ -409,6 +411,20 @@ function apply(ctx) {
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
 		if (seat === null || seat.parentElement === null) return;
 		const center = seat.parentElement;
+		if (!desktopQuery.matches) {
+			// 移动端：抽屉脱离文档流（fixed），不参与主会话布局；恢复外壳默认
+			// 列布局，避免行方向扰动移动端主会话显示（R-01-008）。
+			if (center.style.flexDirection !== "")
+				center.style.flexDirection = "";
+			if (center.style.alignItems !== "")
+				center.style.alignItems = "";
+			const flex = conversationFlexItem(center);
+			if (flex !== null) {
+				if (flex.style.flex !== "") flex.style.flex = "";
+				if (flex.style.minWidth !== "") flex.style.minWidth = "";
+			}
+			return;
+		}
 		if (center.style.flexDirection !== "row")
 			center.style.flexDirection = "row";
 		if (center.style.alignItems !== "stretch")
@@ -672,9 +688,16 @@ function apply(ctx) {
 		syncLiveness(runningIds);
 		for (const entry of active) {
 			if (entry.kind === "running") {
-				entry.status = statusLine(
-					livenessById.get(entry.id)?.liveness ?? {},
-				);
+				const live = livenessById.get(entry.id)?.liveness ?? null;
+				const elapsedMs =
+					live?.startTime != null
+						? Math.max(0, Date.now() - live.startTime)
+						: null;
+				entry.status = statusLine({
+					runningTool: live?.runningTool ?? null,
+					streaming: live?.streaming ?? false,
+					elapsedMs,
+				});
 			}
 		}
 		const recent = buildRecent(snapshot, workspaceItems, now);

@@ -189,6 +189,21 @@ assert.deepEqual(
 	"历史区按最近活动时间倒序",
 );
 
+// ---- R-01-003/AC-02、R-01-010/AC-01 已结束子代理不入最近历史 ----
+const recentSubSnap = {
+	ids: ["m", "m-c1"],
+	byId: {
+		m: { id: "m", displayTitle: "主M", running: false, completed: false, updatedAt: NOW - 1_000 },
+		"m-c1": { id: "m-c1", displayTitle: "子S", running: false, completed: false, parentId: "m", updatedAt: NOW - 500 },
+	},
+	current: null,
+};
+const recentSub = buildRecent(recentSubSnap, [], NOW);
+assert.ok(
+	recentSub.some((e) => e.id === "m") && !recentSub.some((e) => e.id === "m-c1"),
+	"最近历史仅主会话，已结束子代理不入历史区",
+);
+
 // ---- 重建 client bundle 并校验产物契约 ----
 await mkdir(join(root, ".dsh-plugin"), { recursive: true });
 execFileSync(process.execPath, [join(root, "scripts/build-client.mjs")], {

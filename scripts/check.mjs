@@ -18,6 +18,7 @@ import {
 	fmtTokens,
 	isActiveRow,
 	pendingText,
+	PROGRESS_THINK_BASE,
 	progressOf,
 	statusLine,
 	subagentTitle,
@@ -167,8 +168,8 @@ assert.equal(fmtTokens(-1), null, "负数不展示");
 assert.equal(fmtTokens(NaN), null, "非有限数不展示");
 assert.equal(
 	statusLine({ streaming: true, outputTokens: 1200, rateTokS: 12.3, elapsedMs: 47_000 }),
-	"正在回复… · 1.2k tok · 12 tok/s · 47s",
-	"状态行拼接 token 计数与速率",
+	"正在回复… · 1.2k tok · ≈12 tok/s · 47s",
+	"状态行拼接 token 计数与（近似标记）速率",
 );
 assert.equal(
 	statusLine({ runningTool: "bash", elapsedMs: 125_000 }),
@@ -183,6 +184,7 @@ assert.ok(pStream > 10 && pStream <= 90, "流式 token 越多进度越高且在 
 const pThinkEarly = progressOf({ phase: "think", outputTokens: 0, elapsedMs: 0 });
 const pThinkLate = progressOf({ phase: "think", outputTokens: 0, elapsedMs: 10_000 });
 assert.ok(pThinkLate >= pThinkEarly, "think 阶段随时长爬升不倒退");
+assert.equal(pThinkEarly, PROGRESS_THINK_BASE, "think 起点与渲染兜底共用 PROGRESS_THINK_BASE，防两处漂移");
 assert.equal(progressOf({ phase: "tool", outputTokens: 100, elapsedMs: 1000 }), null, "tool 阶段冻结返回 null（渲染层保持上一进度）");
 assert.ok(progressOf({ phase: "stream", outputTokens: 1_000_000 }) <= 90, "进度有上界");
 // 注：R-01-009/AC-06 的"同回合不倒退/回合重置"为渲染层单调下限，属 GUI 验收项（scripts/acceptance.mjs）。

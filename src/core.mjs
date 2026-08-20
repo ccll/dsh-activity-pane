@@ -25,6 +25,8 @@ const PENDING_LABELS = {
 const TRACE_DETAIL_KEYS = ["description", "query", "pattern", "file_path", "path", "url"];
 /** 运行卡最多展示的流程节点数（已定案工具调用 + 当前阶段）。 */
 export const TRACE_MAX_ITEMS = 4;
+/** think 阶段进度起点（%）：progressOf 与渲染层兜底共用的同源常量，防两处"5"漂移。 */
+export const PROGRESS_THINK_BASE = 5;
 
 function isRecord(value) {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -334,7 +336,7 @@ export function progressOf({ phase = "think", outputTokens = 0, elapsedMs = 0 } 
 		const fill = Math.min(1, 1 - Math.exp(-out / 600));
 		return Math.round((10 + 80 * fill) * 10) / 10;
 	}
-	return Math.round(Math.min(10, 5 + sec * 0.5) * 10) / 10;
+	return Math.round(Math.min(10, PROGRESS_THINK_BASE + sec * 0.5) * 10) / 10;
 }
 
 /** 已定案工具调用节点：`legacy.nodes` 中的工具结果（含 call 信息）。 */
@@ -440,7 +442,7 @@ export function statusLine({
 	const tokens = fmtTokens(outputTokens);
 	if (tokens !== null) parts.push(`${tokens} tok`);
 	if (Number.isFinite(rateTokS) && rateTokS >= 0)
-		parts.push(`${Math.round(rateTokS)} tok/s`);
+		parts.push(`≈${Math.round(rateTokS)} tok/s`);
 	if (Number.isFinite(elapsedMs) && elapsedMs >= 0)
 		parts.push(fmtElapsedMs(elapsedMs));
 	return parts.join(" · ");

@@ -616,10 +616,15 @@ function apply(ctx) {
 		];
 	}
 
-	/** 重绘 trace 容器（运行卡多行；全量重绘，受签名去重闸门保护）。 */
-	function renderTrace(container, items) {
+	/**
+	 * 重绘 trace 容器。lastOnly 时只显示最后一项（子代理当前阶段）且省略每项耗时；
+	 * 全量重绘，受签名去重闸门保护，故无需逐项 diff（R-02-003/AC-01）。
+	 */
+	function renderTrace(container, items, { lastOnly = false } = {}) {
 		container.replaceChildren();
-		for (const item of Array.isArray(items) ? items : []) {
+		const list = Array.isArray(items) ? items : [];
+		const sources = lastOnly ? (list.length === 0 ? [] : [list[list.length - 1]]) : list;
+		for (const item of sources) {
 			if (item === null || typeof item !== "object") continue;
 			const line = makeEl("div", "dap-trace-item");
 			line.dataset.status = typeof item.status === "string" ? item.status : "running";
@@ -630,32 +635,16 @@ function apply(ctx) {
 				detail.textContent = ` · ${item.detail}`;
 				main.append(detail);
 			}
-			const time = makeEl("span", "dap-trace-time");
-			time.textContent = Number.isFinite(item.durationMs)
-				? fmtElapsedMs(item.durationMs)
-				: "";
-			line.append(main, time);
+			line.append(main);
+			if (!lastOnly) {
+				const time = makeEl("span", "dap-trace-time");
+				time.textContent = Number.isFinite(item.durationMs)
+					? fmtElapsedMs(item.durationMs)
+					: "";
+				line.append(time);
+			}
 			container.append(line);
 		}
-	}
-
-	/** 子代理卡只显示当前阶段：trace 的最后一项（即正在进行的阶段/工具）。 */
-	function renderCurrentTrace(container, items) {
-		container.replaceChildren();
-		const list = Array.isArray(items) ? items : [];
-		const current = list[list.length - 1];
-		if (current === null || typeof current !== "object") return;
-		const line = makeEl("div", "dap-trace-item");
-		line.dataset.status = typeof current.status === "string" ? current.status : "running";
-		const main = makeEl("span", "dap-trace-main");
-		main.textContent = current.label ?? "";
-		if (typeof current.detail === "string" && current.detail.length > 0) {
-			const detail = makeEl("span", "dap-trace-detail");
-			detail.textContent = ` · ${current.detail}`;
-			main.append(detail);
-		}
-		line.append(main);
-		container.append(line);
 	}
 
 	function renderCardInto(el, entry) {
@@ -679,7 +668,8 @@ function apply(ctx) {
 
 		if (entry.kind === "running") {
 			const pct = el.querySelector(".dap-pct");
-			if (pct !== null) pct.textContent = `${Math.round(entry.progress ?? 5)}%`;
+			if (pct !== null)
+				pct.textContent = `${Math.round(entry.progress ?? PROGRESS_THINK_BASE)}%`;
 			const status = el.querySelector(".dap-status");
 			const next = entry.status ?? "运行中…";
 			if (status !== null && status.textContent !== next)
@@ -697,7 +687,7 @@ function apply(ctx) {
 		if (entry.kind === "subagent") {
 			const traceContainer = el.querySelector(".dap-subtrace");
 			if (traceContainer !== null)
-				renderCurrentTrace(traceContainer, entry.trace);
+				renderTrace(traceContainer, entry.trace, { lastOnly: true });
 			return;
 		}
 
@@ -866,19 +856,25 @@ function apply(ctx) {
 					rateTokS,
 				});
 				// 阶段进度：progressOf 估计 + 按回合单调下限（tool 阶段冻结、回合切换重置）。
-				let progress = progressOf({
-					phase: live?.runningTool ? "tool" : live?.streaming ? "stream" : "think",
-					outputTokens: outputTokens ?? 0,
-					elapsedMs: elapsedMs ?? 0,
-				});
+				// tokenUsage 是跨回合累计口径，因此进度填充用「本回合增量」——
+				// 回合切换时记录 token 基线，新回合从基线差分，进度才会真正回落重置
+				// （R-01-009/AC-06）。
 				const prev = progressFloor.get(entry.id);
 				const turn = live?.turn ?? null;
-				const floor = prev !== undefined && prev.turn === turn ? prev.floor : 0;
+				const sameTurn = prev !== undefined && prev.turn === turn;
+				const tokensBase = sameTurn ? prev.tokensBase : outputTokens ?? 0;
+				const turnTokens = Math.max(0, (outputTokens ?? 0) - Math.min(tokensBase, outputTokens ?? 0));
+				const floor = sameTurn ? prev.floor : 0;
+				let progress = progressOf({
+					phase: live?.runningTool ? "tool" : live?.streaming ? "stream" : "think",
+					outputTokens: turnTokens,
+					elapsedMs: elapsedMs ?? 0,
+				});
 				if (progress !== null) {
 					progress = Math.max(floor, progress);
-					progressFloor.set(entry.id, { turn, floor: progress });
+					progressFloor.set(entry.id, { turn, floor: progress, tokensBase });
 				} else {
-					progress = prev !== undefined && prev.turn === turn ? prev.floor : 0;
+					progress = sameTurn ? prev.floor : 0;
 				}
 				entry.progress = progress;
 			}

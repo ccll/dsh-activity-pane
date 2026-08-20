@@ -6,7 +6,7 @@ id: T-001
 
 # T-001 双区 + 富卡 + 折叠 + 轮内状态订阅
 
-状态: active
+状态: completed
 关联: R-01-009 → 活动状态模型；R-01-010 → 活动状态模型；R-01-011 → 窗格渲染器；R-02-004 → 窗格渲染器
 风险等级: standard
 
@@ -50,4 +50,13 @@ id: T-001
 
 ## 终态与证据
 
-（实现完成后填写：实现 / 测试 / DESIGN 对照 / commit 四行证据，并记录独立代码审核 review 证据）
+- 实现: 双区（上活动会话 / 下最近历史 24h，仅主会话）、运行富卡（工具/流式，时长渲染期按 startTime 实时算）、桌面折叠窄条、移动端抽屉、轮内原生订阅（随运行建立、停止/卸载断开）、真实参与布局（中间列行方向 + 会话根弹性填充 + 内容让位 + 聊天列居中）。实现链：ff6df00、f84e7e2、3e0b571、265acb3、c30e0f2、b56621f、299fa18、cd30e4e、2f93787。
+- 测试: `node scripts/check.mjs` 全过（含 buildRecent 24h/倒序/迁移/子代理排除、statusLine 各阶段、签名去重、bundle 语法与契约断言）；GUI 交互验收见 `scripts/acceptance.mjs`（富卡实时刷新/空态/折叠/订阅断开/双区呈现/外壳重挂载）。`agentmap_lint` 全绿（15 需求 / 35 AC / 锚定 35 / design-covered 15）。
+- DESIGN 对照: 按 AgentMap「实现后调和」，新增/确认的行为（真实参与布局、内容随折叠让位、仅主会话历史、时长实时计算、移动端守卫）已同步进 DESIGN「边界与对外契约 / 核心数据与不变量 / 子系统与模块」，DOMAIN 术语与 DECISIONS C-004 同步；DESIGN 与实现对照无差异。
+- commit: 2f93787
+- review:
+  - 审核方: standards 子代理 fd9dbedd / spec 子代理 5fc3ed1d（同一审核方复审修复提交）
+  - 目的理解: 审核 T-001 实现相对 PRD R-01-001/004/005/006/007/008/009/010/011、R-02-001/002/003/004 与 DESIGN/任务档的符合度，以及仓库标准（AGENTS.md 工程原则、DESIGN 横切约束、CONVENTIONS）遵循。
+  - 执行方式: code-review skill 双轴（Standards+Spec）并行子代理，评审基线 e579de9..HEAD；修复提交 2f93787 由同一审核方复审。
+  - 问题与修复: Standards — Duplicated Code（isActiveRow/buildEntries 显示判定二重）→ core 单点化 isActiveRow/isSubagentRow；无文档化硬性违规。Spec — ①运行时长未逐秒刷新 → 改存 startTime、渲染期 Date.now()-startTime 实时算；②applyLayout 无移动端守卫 → 加 desktopQuery 分支复位默认列布局；③已结束子代理计入最近历史 → buildRecent 排除 isSubagentRow；④宿主布局强改超出 PRD 字面 → 同步折进 DESIGN/DOMAIN/DECISIONS C-004。
+  - 复审结论: 两轴复审确认 2f93787 修复后全部发现已解决、无新增问题或偏差；残留为判断性提示（轻微 Primitive Obsession 非本次引入；时长实时化待浏览器 E2E 或纯函数化，已记 TODO）。

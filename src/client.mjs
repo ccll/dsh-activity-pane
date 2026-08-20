@@ -84,39 +84,46 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-collapse { display: none; font-size: 13px; }
 [data-dsh-activity-pane] .dap-close { display: none; font-size: 14px; }
-.dap-list {
+/* 单一滚动区：活动区与最近历史同一容器滚动；touch-action/overscroll 防止
+   触屏滚动穿透到下层页面（移动端 `滚的是下面的会话界面` 即根因）。 */
+[data-dsh-activity-pane] .dap-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 0 10px;
+}
+[data-dsh-activity-pane] .dap-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 0 8px 10px;
+  padding: 0 8px;
 }
-/* 最近历史区：整段可隐藏；头部一行小字。 */
+/* 最近历史区：同一滚动区内的块段；整段可隐藏。 */
 [data-dsh-activity-pane] .dap-recent {
   flex: none;
   display: flex;
   flex-direction: column;
-  max-height: 40%;
-  min-height: 0;
+  gap: 6px;
   border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent);
-  padding-top: 6px;
+  padding: 6px 8px 0;
+  margin-top: 4px;
 }
 [data-dsh-activity-pane] .dap-recent[hidden] { display: none; }
 [data-dsh-activity-pane] .dap-recent-head {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 10px 6px;
+  padding: 2px 2px 0;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.06em;
   color: color-mix(in srgb, currentColor 52%, transparent);
   text-transform: uppercase;
 }
-[data-dsh-activity-pane] .dap-recent .dap-list { flex: 1; overflow-y: auto; }
 /* 折叠：仅桌面生效；窄条 + 竖直计数。 */
 [data-dsh-activity-pane] .dap-rail {
   display: none;
@@ -143,8 +150,7 @@ const CSS = `
 @media (min-width: 768px) {
   [data-dsh-activity-pane] .dap-collapse { display: inline-block; }
   [data-dsh-activity-pane][data-collapsed="true"] { flex: 0 0 ${COLLAPSED_WIDTH}px; }
-  [data-dsh-activity-pane][data-collapsed="true"] .dap-list,
-  [data-dsh-activity-pane][data-collapsed="true"] .dap-recent,
+  [data-dsh-activity-pane][data-collapsed="true"] .dap-scroll,
   [data-dsh-activity-pane][data-collapsed="true"] .dap-count,
   [data-dsh-activity-pane][data-collapsed="true"] .dap-collapse { display: none; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-rail { display: flex; cursor: pointer; }
@@ -272,7 +278,8 @@ const CSS = `
   animation: dap-await-pulse 1.2s ease-in-out infinite;
 }
 /* 窄屏：窗格变为固定抽屉 + 浮动开关按钮；抽屉默认隐藏在屏外。
-   抽屉需不透明背景（否则透出下层会话内容），桌面列则保持低透明分界。 */
+   抽屉需不透明背景（否则透出下层会话内容）+ touch-action:none（把手/头部的
+   触摸不滚动下层页面），桌面列则保持低透明分界。 */
 @media (max-width: ${MOBILE_BREAKPOINT}) {
   [data-dsh-activity-pane] {
     position: fixed; left: 0; top: 0; bottom: 0;
@@ -286,6 +293,7 @@ const CSS = `
     transform: translateX(-102%);
     transition: transform 180ms ease;
     z-index: 2147482990;
+    touch-action: none;
   }
   [data-dsh-activity-pane][data-open="true"] { transform: translateX(0); }
   .dap-toggle { display: flex; }
@@ -421,10 +429,11 @@ function apply(ctx) {
 					<button class="dap-collapse" type="button" aria-label="收起窗格" title="收起">«</button>
 					<button class="dap-close" type="button" aria-label="收起抽屉">×</button>
 				</div>
-				<div class="dap-list" tabindex="-1"></div>
-				<div class="dap-recent">
-					<div class="dap-recent-head"><span>最近历史 · 24h</span></div>
+				<div class="dap-scroll">
 					<div class="dap-list" tabindex="-1"></div>
+					<div class="dap-recent">
+						<div class="dap-recent-head"><span>最近历史 · 24h</span></div>
+					</div>
 				</div>
 				<div class="dap-rail">
 					<span class="dap-rail-count" role="status" aria-live="polite"></span>
@@ -607,8 +616,7 @@ function apply(ctx) {
 		if (pane === null) return;
 		const activeList = pane.querySelector(`.${LIST_CLASS}`);
 		const recentSection = pane.querySelector(`.${RECENT_CLASS}`);
-		const recentList = recentSection?.querySelector(`.${LIST_CLASS}`);
-		if (activeList === null || recentList === null) return;
+		if (activeList === null || recentSection === null) return;
 
 		const snapshot = getSnapshot(sessions, "list");
 		const workspaceItems = getSnapshot(workspaces, "list")?.items ?? [];
@@ -643,7 +651,7 @@ function apply(ctx) {
 
 		const aliveRecent = new Set();
 		for (const entry of recent)
-			if (renderCardIntoList(recentList, entry, recentCardsById))
+			if (renderCardIntoList(recentSection, entry, recentCardsById))
 				aliveRecent.add(entry.id);
 		pruneCards(recentCardsById, aliveRecent);
 		if (recentSection !== null) recentSection.hidden = recent.length === 0;

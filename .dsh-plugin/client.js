@@ -215,6 +215,80 @@ function cardSignature(entries) {
 	);
 }
 
+// ---- 最近历史区（R-01-010）与轮内状态文案（R-01-009） ----
+
+/** 历史窗口：会话最后一次活动距现在不超过该毫秒数则视为"最近使用过"。 */
+const HISTORY_WINDOW_MS = 24 * 60 * 60 * 1000;
+/** 历史区最多展示的最近会话条数。 */
+const HISTORY_MAX = 20;
+
+/** 会话行是否满足"活动区显示"判定（与 buildEntries 的 show 判定一致）。 */
+function isActiveRow(row, byId = {}) {
+	const parentId = row.parentId;
+	const hasParent =
+		parentId !== undefined && parentId !== null && isRecord(byId[parentId]);
+	const running = row.running === true;
+	const pending = row.pendingInteraction !== undefined;
+	if (hasParent) return running || pending;
+	return running || pending || row.completed === true;
+}
+
+/**
+ * 构建最近历史区条目：当前非活动、但在历史窗口内最后一次活动过的会话，
+ * 按最后活动时间从新到旧，最多 HISTORY_MAX 条。blank 会话不出现（从未用过）。
+ */
+function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS) {
+	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
+	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
+	const current = snapshot?.current ?? null;
+	const items = Array.isArray(workspaceItems) ? workspaceItems : [];
+	const entries = [];
+
+	for (const id of ids) {
+		const row = byId[id];
+		if (!isRecord(row)) continue;
+		if (row.blank === true) continue;
+		if (isActiveRow(row, byId)) continue;
+		const updatedAt = Number(row.updatedAt);
+		if (!Number.isFinite(updatedAt)) continue;
+		if (updatedAt > now || now - updatedAt > windowMs) continue;
+		entries.push({
+			id,
+			kind: "recent",
+			depth: 0,
+			title: mainTitle(byId, id),
+			workspaceTitle: workspaceTitleForSession(id, items, byId),
+			isCurrent: current !== null && String(current) === String(id),
+			updatedAt,
+		});
+	}
+
+	entries.sort((a, b) => b.updatedAt - a.updatedAt);
+	return entries.slice(0, HISTORY_MAX);
+}
+
+/** 毫秒时长的人性化短格式，例如 "47s"、"3m12s"。 */
+function fmtElapsedMs(ms) {
+	const s = Math.round(ms / 1000);
+	if (s < 60) return `${s}s`;
+	return `${Math.floor(s / 60)}m${s % 60}s`;
+}
+
+/**
+ * 轮内状态文案：由渲染器把运行中会话的原生订阅快照映射为
+ * `{ runningTool, streaming, elapsedMs }` 后调用。无任何宿主依赖。
+ */
+function statusLine({ runningTool = null, streaming = false, elapsedMs = null } = {}) {
+	const head = runningTool
+		? `工具：${runningTool}`
+		: streaming
+			? "正在回复…"
+			: "运行中…";
+	if (Number.isFinite(elapsedMs) && elapsedMs >= 0)
+		return `${head} · ${fmtElapsedMs(elapsedMs)}`;
+	return head;
+}
+
 // dsh-activity-pane 浏览器运行时。
 //
 // 挂载策略：把窗格作为 AppFrame 中 `conversation` 槽座的前置兄弟列插入

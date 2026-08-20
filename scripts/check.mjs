@@ -10,8 +10,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	buildEntries,
+	buildRecent,
 	cardSignature,
+	fmtElapsedMs,
+	isActiveRow,
 	pendingText,
+	statusLine,
 	subagentTitle,
 	workspaceTitleForSession,
 } from "../src/core.mjs";
@@ -102,6 +106,89 @@ assert.equal(
 	"子2",
 );
 
+// ---- R-01-009/AC-01 工具调用显示工具名 ----
+assert.equal(statusLine({ runningTool: "bash" }), "工具：bash", "进行中的工具调用显示工具名");
+assert.equal(
+	statusLine({ runningTool: "web_search" }),
+	"工具：web_search",
+	"任意工具名如实显示",
+);
+
+// ---- R-01-009/AC-02 正在流式回复 ----
+assert.equal(statusLine({ streaming: true }), "正在回复…", "流式回复中显示提示");
+
+// ---- R-01-009/AC-03 状态描述随轮内阶段更新 ----
+const stTool = statusLine({ runningTool: "bash", elapsedMs: 125000 });
+const stStream = statusLine({ streaming: true, elapsedMs: 125000 });
+const stPlain = statusLine({});
+assert.notEqual(stTool, stStream, "工具→流式 状态文案变化");
+assert.notEqual(stStream, stPlain, "流式→闲置 状态文案变化");
+assert.equal(stTool, "工具：bash · 2m5s", "工具状态含运行时长");
+assert.equal(fmtElapsedMs(47_000), "47s", "时长短格式");
+assert.equal(fmtElapsedMs(193_000), "3m13s", "时长分秒格式");
+
+// ---- R-01-010/AC-01 非活动且 24h 内→最近历史区 ----
+const NOW = 2_000_000_000_000; // 固定时钟便于确定性断言
+// 注意：completed:true 的主会话是"待打开"的活动卡（在活动区），不属历史区；
+// 真实"最近历史"是已打开/已处理的非活动会话（running:false 且 completed:false）。
+const recentSnap = {
+	ids: ["sA", "sB", "sOld", "sBlank", "sAwait"],
+	byId: {
+		sA: { id: "sA", displayTitle: "运行A", running: true, completed: false, updatedAt: NOW },
+		sB: { id: "sB", displayTitle: "旧B", running: false, completed: false, updatedAt: NOW - 3_600_000 },
+		sOld: { id: "sOld", displayTitle: "太旧C", running: false, completed: false, updatedAt: NOW - 26 * 60 * 60 * 1000 },
+		sBlank: { id: "sBlank", displayTitle: "空白D", blank: true, running: false, updatedAt: NOW - 1_000 },
+		sAwait: { id: "sAwait", displayTitle: "待开E", running: false, completed: true, updatedAt: NOW - 2_000 },
+	},
+	current: null,
+};
+const recent = buildRecent(recentSnap, [], NOW);
+assert.deepEqual(
+	recent.map((e) => e.id),
+	["sB"],
+	"仅 24h 内已处理会话进入历史区；运行/待打开/超期/空白被过滤",
+);
+
+// ---- R-01-010/AC-02 活动→非活动 移入历史区 ----
+// 同一会话：运行态时出现在活动区、不在历史区；转为非活动后从活动区消失并进入历史区。
+const activeDuringRun = buildRecent(
+	{
+		ids: ["sB"],
+		byId: { sB: { id: "sB", displayTitle: "旧B", running: true, updatedAt: NOW - 60_000 } },
+		current: null,
+	},
+	[],
+	NOW,
+);
+assert.equal(activeDuringRun.length, 0, "运行中会话不在历史区");
+const viaRunToIdle = buildEntries(
+	{ ids: ["sB"], byId: { sB: { id: "sB", displayTitle: "旧B", running: true } }, current: null },
+	[],
+);
+assert.deepEqual(viaRunToIdle.map((e) => e.id), ["sB"], "运行中会话在活动区");
+const recentAfterIdle = buildRecent(recentSnap, [], NOW);
+assert.ok(recentAfterIdle.some((e) => e.id === "sB"), "转为非活动后进入历史区");
+
+// ---- R-01-010/AC-03 历史区按最后活动时间从新到旧 ----
+const multiRecent = buildRecent(
+	{
+		ids: ["r1", "r2", "r3"],
+		byId: {
+			r1: { id: "r1", displayTitle: "R1", running: false, updatedAt: NOW - 2_000 },
+			r2: { id: "r2", displayTitle: "R2", running: false, updatedAt: NOW - 5_000 },
+			r3: { id: "r3", displayTitle: "R3", running: false, updatedAt: NOW - 1_000 },
+		},
+		current: null,
+	},
+	[],
+	NOW,
+);
+assert.deepEqual(
+	multiRecent.map((e) => e.id),
+	["r3", "r1", "r2"],
+	"历史区按最近活动时间倒序",
+);
+
 // ---- 重建 client bundle 并校验产物契约 ----
 await mkdir(join(root, ".dsh-plugin"), { recursive: true });
 execFileSync(process.execPath, [join(root, "scripts/build-client.mjs")], {
@@ -110,7 +197,8 @@ execFileSync(process.execPath, [join(root, "scripts/build-client.mjs")], {
 });
 const bundle = await readFile(join(root, ".dsh-plugin/client.js"), "utf8");
 
-// ---- R-02-001/AC-01 未安装任何第三方宠物插件时仍可用；R-02-001/AC-02 无第三方状态路由 ----
+// ---- R-02-001/AC-01 未安装任何第三方宠物插件时仍可用；R-02-001/AC-02 无第三方状态路由；
+//      R-02-004/AC-02 轮内状态不引入新的 HTTP 轮询 ----
 // 校验的是运行时引用：不得注入第三方插件服务、不得请求其状态路由、不得发起状态轮询
 // （文档注释中的上位名提及属来源声明，不构成依赖）。
 assert.ok(bundle.includes('id: "dsh-activity-pane"'), "bundle 含插件 id");
@@ -122,7 +210,7 @@ assert.ok(
 );
 assert.ok(
 	!bundle.includes("fetch("),
-	"bundle 不得发起任何状态路由请求或状态轮询",
+	"bundle 不得发起任何状态路由请求或状态轮询（R-02-004/AC-02）",
 );
 
 // ---- R-02-003/AC-02 卸载时清理注入元素、样式与监听 ----

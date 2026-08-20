@@ -1318,8 +1318,13 @@ function apply(ctx) {
 				const prev = progressFloor.get(entry.id);
 				const turn = live?.turn ?? null;
 				const sameTurn = prev !== undefined && prev.turn === turn;
-				const tokensBase = sameTurn ? prev.tokensBase : outputTokens ?? 0;
-				const turnTokens = Math.max(0, (outputTokens ?? 0) - Math.min(tokensBase, outputTokens ?? 0));
+				// 累计口径必须先经 Number.isFinite 净化：NaN 会污染 tokensBase、把
+				// 本回合进度锁死于 ~10%（progressOf 内部虽兜底，但基线会被固化）。
+				const cumulative =
+					Number.isFinite(outputTokens) && outputTokens >= 0 ? outputTokens : 0;
+				const tokensBase = sameTurn ? prev.tokensBase : cumulative;
+				const turnTokens =
+					Math.max(0, cumulative - Math.min(tokensBase, cumulative));
 				const floor = sameTurn ? prev.floor : 0;
 				let progress = progressOf({
 					phase: live?.runningTool ? "tool" : live?.streaming ? "stream" : "think",

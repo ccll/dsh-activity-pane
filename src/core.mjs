@@ -205,6 +205,8 @@ export function cardSignature(entries) {
 			entry.workspaceTitle,
 			entry.isCurrent,
 			entry.pendingText ?? null,
+			entry.status ?? null,
+			entry.updatedAt ?? null,
 		]),
 	);
 }

@@ -211,6 +211,8 @@ function cardSignature(entries) {
 			entry.workspaceTitle,
 			entry.isCurrent,
 			entry.pendingText ?? null,
+			entry.status ?? null,
+			entry.updatedAt ?? null,
 		]),
 	);
 }
@@ -295,8 +297,9 @@ function statusLine({ runningTool = null, streaming = false, elapsedMs = null } 
 // （`#root [data-slot="conversation"] || .parentElement` 即 flex 行），让外壳的
 // 让步链挤压中间栏；窄屏（<=767px）转为固定抽屉 + 浮动开关按钮。
 //
-// 数据来源：DSH 原生 `sessions` / `workspaces` 客户端服务（推送式快照），
-// 不依赖 dsh-answer-pet 的 /answer-pet/state 路由，因此无需轮询。
+// 数据来源：DSH 原生 `sessions` / `workspaces` 客户端服务（推送式快照）+ 对
+// 运行中会话的原生订阅（binding().session），不依赖任何第三方插件数据路由，
+// 也无需轮询。窗格内容分上下两段：上「活动会话」、下「最近历史」（24h）。
 
 const name = "dsh-activity-pane";
 const inject = [];
@@ -305,11 +308,15 @@ const CONVERSATION_SELECTOR = "#root [data-slot=\"conversation\"]";
 const PANE_ATTR = "data-dsh-activity-pane";
 const PANE_CLASS = "dap-pane";
 const LIST_CLASS = "dap-list";
+const RECENT_CLASS = "dap-recent";
 const CARD_CLASS = "dap-card";
 const STYLE_ID = "dsh-activity-pane-style";
 const DEFAULT_WIDTH = 280;
+const COLLAPSED_WIDTH = 34;
 const INDENT_PX = 16;
 const MOBILE_BREAKPOINT = "767px";
+/** 运行卡时钟：只要存在运行中会话，就以该周期刷新时长显示。 */
+const CLOCK_MS = 1000;
 
 const CSS = `
 [data-dsh-activity-pane] {
@@ -338,6 +345,7 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-count {
   flex: none;
+  margin-left: auto;
   font-size: 10px;
   line-height: 16px;
   font-weight: 600;
@@ -352,7 +360,24 @@ const CSS = `
   animation: dap-await-pulse 1.2s ease-in-out infinite;
 }
 @keyframes dap-await-pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
-[data-dsh-activity-pane] .dap-list {
+[data-dsh-activity-pane] .dap-collapse,
+[data-dsh-activity-pane] .dap-close {
+  flex: none;
+  margin: 0;
+  cursor: pointer;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 999px;
+  min-width: 20px;
+  min-height: 20px;
+  line-height: 18px;
+  text-align: center;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  color: currentColor;
+  padding: 0 5px;
+}
+[data-dsh-activity-pane] .dap-collapse { display: none; font-size: 13px; }
+[data-dsh-activity-pane] .dap-close { display: none; font-size: 14px; }
+.dap-list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -361,6 +386,64 @@ const CSS = `
   flex-direction: column;
   gap: 6px;
   padding: 0 8px 10px;
+}
+/* 最近历史区：整段可隐藏；头部一行小字。 */
+[data-dsh-activity-pane] .dap-recent {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  max-height: 40%;
+  min-height: 0;
+  border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+  padding-top: 6px;
+}
+[data-dsh-activity-pane] .dap-recent[hidden] { display: none; }
+[data-dsh-activity-pane] .dap-recent-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, currentColor 52%, transparent);
+  text-transform: uppercase;
+}
+[data-dsh-activity-pane] .dap-recent .dap-list { flex: 1; overflow-y: auto; }
+/* 折叠：仅桌面生效；窄条 + 竖直计数。 */
+[data-dsh-activity-pane] .dap-rail {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+}
+[data-dsh-activity-pane] .dap-rail-count {
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  padding: 0 5px;
+  text-align: center;
+  line-height: 20px;
+  font-size: 10px;
+  font-weight: 700;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+[data-dsh-activity-pane] .dap-rail-count[data-awaiting] {
+  background: linear-gradient(180deg, #ffb4b4, #f06a72);
+  color: #2a1012;
+}
+@media (min-width: 768px) {
+  [data-dsh-activity-pane] .dap-collapse { display: inline-block; }
+  [data-dsh-activity-pane][data-collapsed="true"] { flex: 0 0 ${COLLAPSED_WIDTH}px; }
+  [data-dsh-activity-pane][data-collapsed="true"] .dap-list,
+  [data-dsh-activity-pane][data-collapsed="true"] .dap-recent,
+  [data-dsh-activity-pane][data-collapsed="true"] .dap-count,
+  [data-dsh-activity-pane][data-collapsed="true"] .dap-collapse { display: none; }
+  [data-dsh-activity-pane][data-collapsed="true"] .dap-rail { display: flex; cursor: pointer; }
+}
+@media (max-width: ${MOBILE_BREAKPOINT}) {
+  [data-dsh-activity-pane] .dap-close { display: inline-block; }
 }
 /* 卡片视觉沿用 answer-pet 的多会话卡片设计（MIT 参考，见 README）。 */
 [data-dsh-activity-pane] .dap-card {
@@ -387,11 +470,17 @@ const CSS = `
   border-radius: 12px;
   background: rgba(25, 27, 32, 0.95);
 }
+[data-dsh-activity-pane] .dap-card[data-kind="recent"] {
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: rgba(22, 24, 29, 0.9);
+  border-color: transparent;
+}
 [data-dsh-activity-pane] .dap-card[data-current] {
   border-color: color-mix(in srgb, #65a0ff 75%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, #65a0ff 45%, transparent), 0 0 12px color-mix(in srgb, #65a0ff 30%, transparent);
 }
-[data-dsh-activity-pane] .dap-card[data-awaiting] {
+[data-dsh-activity-pane] .dap-card[data-kind="awaiting"] {
   border-color: color-mix(in srgb, #e8a33d 55%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, #e8a33d 35%, transparent), 0 6px 16px rgba(0,0,0,.3);
   background: rgba(35, 31, 25, 0.97);
@@ -414,9 +503,14 @@ const CSS = `
   animation: dap-pulse 1.2s ease-in-out infinite;
 }
 @keyframes dap-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
-[data-dsh-activity-pane] .dap-card[data-awaiting] .dap-dot {
+[data-dsh-activity-pane] .dap-card[data-kind="awaiting"] .dap-dot {
   background: #e8a33d;
   box-shadow: 0 0 8px rgba(232,163,61,.85);
+}
+[data-dsh-activity-pane] .dap-card[data-kind="recent"] .dap-dot {
+  background: #8a94a3;
+  box-shadow: none;
+  animation: none;
 }
 [data-dsh-activity-pane] .dap-title {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
@@ -446,12 +540,6 @@ const CSS = `
   padding: 14px 12px; font-size: 12px; text-align: center;
   color: color-mix(in srgb, currentColor 45%, transparent);
 }
-[data-dsh-activity-pane] .dap-close {
-  margin-left: auto; cursor: pointer; border: 0; border-radius: 999px;
-  font-size: 14px; line-height: 20px; min-width: 20px; text-align: center;
-  background: color-mix(in srgb, currentColor 14%, transparent);
-  color: currentColor;
-}
 /* 移动端浮动开关按钮：仅在窄屏显示（桌面隐藏）。 */
 .dap-toggle {
   position: fixed; top: 12px; right: 12px; z-index: 2147482991;
@@ -476,7 +564,7 @@ const CSS = `
   color: #2a1012;
   animation: dap-await-pulse 1.2s ease-in-out infinite;
 }
-/* 窄屏：窗格变为固定抽屉 + 浮动开关按钮；抽屉默认隐藏在屏幕外。 */
+/* 窄屏：窗格变为固定抽屉 + 浮动开关按钮；抽屉默认隐藏在屏外。 */
 @media (max-width: ${MOBILE_BREAKPOINT}) {
   [data-dsh-activity-pane] {
     position: fixed; left: 0; top: 0; bottom: 0;
@@ -509,6 +597,42 @@ function schedule(callback) {
 	}
 }
 
+/** 从原生会话快照归一为 statusLine 输入：工具名 / 是否流式 / 时长。 */
+function livenessFromSnapshot(snap, now = Date.now()) {
+	const runningCalls = Array.isArray(snap?.runningCalls) ? snap.runningCalls : [];
+	const runningTool =
+		runningCalls.length > 0 && runningCalls[0]?.name
+			? String(runningCalls[0].name)
+			: null;
+	const streaming = snap?.partial != null && snap?.running !== false;
+	let elapsedMs = null;
+	const timings = snap?.turnTimings;
+	if (timings instanceof Map) {
+		for (const [_, timing] of timings) {
+			if (
+				timing &&
+				Number.isFinite(timing.startTime) &&
+				timing.endTime === undefined
+			) {
+				elapsedMs = now - timing.startTime;
+				break;
+			}
+		}
+	}
+	return { runningTool, streaming, elapsedMs };
+}
+
+function fmtRecentTime(ts) {
+	try {
+		return `最近 ${new Date(ts).toLocaleTimeString([], {
+			hour: "2-digit",
+			minute: "2-digit",
+		})}`;
+	} catch {
+		return "";
+	}
+}
+
 function apply(ctx) {
 	let disposed = false;
 	let sessions = null;
@@ -516,10 +640,16 @@ function apply(ctx) {
 	let sessionUnsubscribe = null;
 	let workspaceUnsubscribe = null;
 	let serviceTimer = null;
+	let clockTimer = null;
 	let syncScheduled = false;
 	let lastSig = "";
-	/** id → { el, kind } 复用表；kind 变化时重建卡片内部 DOM。 */
+	let collapsed = false;
+	/** 活动区卡片 id → { el, kind } 复用表。 */
 	const cardsById = new Map();
+	/** 历史区卡片 id → { el } 复用表。 */
+	const recentCardsById = new Map();
+	/** 运行中会话轮内状态订阅：id → { unsubscribe, liveness }。 */
+	const livenessById = new Map();
 
 	const style = document.createElement("style");
 	style.id = STYLE_ID;
@@ -530,10 +660,7 @@ function apply(ctx) {
 	const toggle = document.createElement("button");
 	toggle.className = "dap-toggle";
 	toggle.type = "button";
-	toggle.setAttribute(
-		"aria-label",
-		"切换活动会话窗格",
-	);
+	toggle.setAttribute("aria-label", "切换活动会话窗格");
 	toggle.innerHTML =
 		"<span>活动会话</span><span class=\"dap-toggle-count\"></span>";
 	document.body.appendChild(toggle);
@@ -580,9 +707,17 @@ function apply(ctx) {
 				<div class="dap-header">
 					<span>活动会话</span>
 					<span class="dap-count" role="status" aria-live="polite"></span>
-					<button class="dap-close" type="button" aria-label="收起窗格">×</button>
+					<button class="dap-collapse" type="button" aria-label="收起窗格" title="收起">«</button>
+					<button class="dap-close" type="button" aria-label="收起抽屉">×</button>
 				</div>
 				<div class="dap-list" tabindex="-1"></div>
+				<div class="dap-recent">
+					<div class="dap-recent-head"><span>最近历史 · 24h</span></div>
+					<div class="dap-list" tabindex="-1"></div>
+				</div>
+				<div class="dap-rail">
+					<span class="dap-rail-count" role="status" aria-live="polite"></span>
+				</div>
 			`;
 		}
 		return pane;
@@ -600,6 +735,11 @@ function apply(ctx) {
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
 			return [row];
+		}
+		if (kind === "recent") {
+			const row = makeEl("div", "dap-row");
+			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
+			return [row, makeEl("div", "dap-note")];
 		}
 		if (kind === "awaiting") {
 			const row = makeEl("div", "dap-row");
@@ -637,81 +777,181 @@ function apply(ctx) {
 		const note = el.querySelector(".dap-note");
 		if (note !== null) {
 			const next =
-				entry.kind === "awaiting"
-					? entry.pendingText === "需要响应"
-						? "本轮已完成，等待你处理"
-						: `等待你的回应（${entry.pendingText}）`
-					: "运行中…";
+				entry.kind === "running"
+					? (entry.status ?? "运行中…")
+					: entry.kind === "awaiting"
+						? entry.pendingText === "需要响应"
+							? "本轮已完成，等待你处理"
+							: `等待你的回应（${entry.pendingText}）`
+						: entry.kind === "recent"
+							? fmtRecentTime(entry.updatedAt)
+							: "";
 			if (note.textContent !== next) note.textContent = next;
+		}
+	}
+
+	// ---- 轮内状态订阅生命周期（R-01-009、R-02-004） ----
+	function syncLiveness(runningIds) {
+		for (const id of runningIds) {
+			if (livenessById.has(id)) continue;
+			let session = null;
+			try {
+				session = sessions?.binding?.(id)?.session ?? null;
+			} catch {
+				session = null;
+			}
+			if (session === null) continue; // 下次渲染再试
+			let unsubscribe = null;
+			unsubscribe = session.subscribe(() => {
+				if (disposed) return;
+				const live = livenessFromSnapshot(getSessionSnapshot(session));
+				livenessById.set(id, { unsubscribe, liveness: live });
+				queueSync();
+			});
+			livenessById.set(id, {
+				unsubscribe,
+				liveness: livenessFromSnapshot(getSessionSnapshot(session)),
+			});
+		}
+		for (const [id, rec] of livenessById) {
+			if (runningIds.has(id)) continue;
+			try {
+				rec.unsubscribe?.();
+			} catch {}
+			livenessById.delete(id);
+		}
+		// 运行卡时钟：有运行中会话才启动，无则停。
+		if (runningIds.size > 0 && clockTimer === null) {
+			clockTimer = setInterval(() => queueSync(), CLOCK_MS);
+		} else if (runningIds.size === 0 && clockTimer !== null) {
+			clearInterval(clockTimer);
+			clockTimer = null;
+		}
+	}
+
+	function getSessionSnapshot(session) {
+		try {
+			return session?.getSnapshot?.() ?? null;
+		} catch {
+			return null;
+		}
+	}
+
+	/** 保证 list 内存在/移除空态节点（R-01-001/AC-02）。 */
+	function ensureEmpty(list, show, text) {
+		let node = list.querySelector(".dap-empty");
+		if (show) {
+			if (node === null) {
+				node = makeEl("div", "dap-empty");
+				list.appendChild(node);
+			}
+			if (node.textContent !== text) node.textContent = text;
+		} else if (node !== null) {
+			node.remove();
+		}
+	}
+
+	/** 渲染某一张卡片进指定列表容器（活动/历史通用）。 */
+	function renderCardIntoList(list, entry, reuseMap) {
+		let rec = reuseMap.get(entry.id);
+		if (rec === undefined) {
+			const el = document.createElement("div");
+			el.className = CARD_CLASS;
+			rec = { el, kind: null };
+			reuseMap.set(entry.id, rec);
+		}
+		if (rec.kind !== entry.kind) {
+			rec.el.dataset.kind = entry.kind;
+			rec.el.dataset.sessionId = entry.id;
+			rec.el.dataset.depth = String(entry.depth ?? 0);
+			rec.el.setAttribute("role", "button");
+			rec.el.tabIndex = 0;
+			rec.el.replaceChildren(...cardChildren(entry.kind));
+			rec.kind = entry.kind;
+		}
+		rec.el.style.marginLeft = `${(entry.depth ?? 0) * INDENT_PX}px`;
+		rec.el.toggleAttribute("data-current", entry.isCurrent);
+		rec.el.toggleAttribute("data-awaiting", entry.kind === "awaiting");
+		rec.el.setAttribute(
+			"aria-label",
+			`${entry.workspaceTitle ? entry.workspaceTitle + " - " : ""}${entry.title}${
+				entry.pendingText ? "，" + entry.pendingText : ""
+			}`,
+		);
+		renderCardInto(rec.el, entry);
+		list.appendChild(rec.el);
+		return true;
+	}
+
+	function pruneCards(reuseMap, alive) {
+		for (const [id, rec] of reuseMap) {
+			if (alive.has(id)) continue;
+			rec.el.remove();
+			reuseMap.delete(id);
 		}
 	}
 
 	function render() {
 		const pane = ensurePane();
 		if (pane === null) return;
-		const list = pane.querySelector(`.${LIST_CLASS}`);
-		if (list === null) return;
+		const activeList = pane.querySelector(`.${LIST_CLASS}`);
+		const recentSection = pane.querySelector(`.${RECENT_CLASS}`);
+		const recentList = recentSection?.querySelector(`.${LIST_CLASS}`);
+		if (activeList === null || recentList === null) return;
 
-		const entries = buildEntries(
-			getSnapshot(sessions, "list"),
-			getSnapshot(workspaces, "list")?.items ?? [],
+		const snapshot = getSnapshot(sessions, "list");
+		const workspaceItems = getSnapshot(workspaces, "list")?.items ?? [];
+		const now = Date.now();
+
+		const active = buildEntries(snapshot, workspaceItems);
+		const runningIds = new Set(
+			active
+				.filter((entry) => entry.kind === "running")
+				.map((entry) => entry.id),
 		);
+		syncLiveness(runningIds);
+		for (const entry of active) {
+			if (entry.kind === "running") {
+				entry.status = statusLine(
+					livenessById.get(entry.id)?.liveness ?? {},
+				);
+			}
+		}
+		const recent = buildRecent(snapshot, workspaceItems, now);
 
-		const sig = cardSignature(entries);
+		const sig = cardSignature([...active, ...recent]);
 		if (sig === lastSig) return;
 		lastSig = sig;
 
-		const alive = new Set();
-		for (const entry of entries) {
-			let rec = cardsById.get(entry.id);
-			if (rec === undefined) {
-				const el = document.createElement("div");
-				el.className = CARD_CLASS;
-				rec = { el, kind: null };
-				cardsById.set(entry.id, rec);
-			}
-			if (rec.kind !== entry.kind) {
-				rec.el.dataset.kind = entry.kind;
-				rec.el.dataset.sessionId = entry.id;
-				rec.el.dataset.depth = String(entry.depth);
-				rec.el.setAttribute("role", "button");
-				rec.el.tabIndex = 0;
-				rec.el.replaceChildren(...cardChildren(entry.kind));
-				rec.kind = entry.kind;
-			}
-			rec.el.style.marginLeft = `${entry.depth * INDENT_PX}px`;
-			rec.el.toggleAttribute("data-current", entry.isCurrent);
-			rec.el.toggleAttribute("data-awaiting", entry.kind === "awaiting");
-			rec.el.setAttribute(
-				"aria-label",
-				`${entry.workspaceTitle ? entry.workspaceTitle + " - " : ""}${entry.title}${
-					entry.pendingText ? "，" + entry.pendingText : ""
-				}`,
-			);
-			renderCardInto(rec.el, entry);
-			list.appendChild(rec.el);
-			alive.add(entry.id);
-		}
-		for (const [id, rec] of cardsById) {
-			if (alive.has(id)) continue;
-			rec.el.remove();
-			cardsById.delete(id);
-		}
+		const aliveActive = new Set();
+		for (const entry of active)
+			if (renderCardIntoList(activeList, entry, cardsById))
+				aliveActive.add(entry.id);
+		pruneCards(cardsById, aliveActive);
+		ensureEmpty(activeList, active.length === 0, "暂无活动会话");
 
+		const aliveRecent = new Set();
+		for (const entry of recent)
+			if (renderCardIntoList(recentList, entry, recentCardsById))
+				aliveRecent.add(entry.id);
+		pruneCards(recentCardsById, aliveRecent);
+		if (recentSection !== null) recentSection.hidden = recent.length === 0;
+
+		// 计数与折叠
 		const count = pane.querySelector(".dap-count");
-		if (count !== null) {
-			count.textContent = String(entries.length);
-			count.toggleAttribute("data-awaiting", entries.some((e) => e.kind === "awaiting"));
-		}
+		const railCount = pane.querySelector(".dap-rail-count");
+		const hasAwaiting = active.some((entry) => entry.kind === "awaiting");
+		for (const el of [count, railCount])
+			if (el !== null) {
+				el.textContent = String(active.length);
+				el.toggleAttribute("data-awaiting", hasAwaiting);
+			}
 		const toggleCount = toggle.querySelector(".dap-toggle-count");
 		if (toggleCount !== null) {
-			toggleCount.textContent = String(entries.length);
-			toggle.toggleAttribute(
-				"data-awaiting",
-				entries.some((e) => e.kind === "awaiting"),
-			);
-			toggle.setAttribute("data-count", String(entries.length));
+			toggleCount.textContent = String(active.length);
+			toggle.toggleAttribute("data-awaiting", hasAwaiting);
 		}
+		pane.toggleAttribute("data-collapsed", collapsed ? "true" : "false");
 	}
 
 	// ---- 打开会话（复用 companion 验证过的：list 未就绪时 refresh + 重试） ----
@@ -816,7 +1056,7 @@ function apply(ctx) {
 	installFrameObserver();
 	if (frameObserver === null) frameProbeTimer = setInterval(installFrameObserver, 500);
 
-	// ---- 移动端开关：浮动按钮打开抽屉，头部关闭按钮收起 ----
+	// ---- 交互：移动端抽屉开关、弹窗收起、桌面折叠 ----
 	function togglePane(open) {
 		const pane = document.querySelector(`[${PANE_ATTR}]`);
 		if (pane === null) return;
@@ -831,6 +1071,18 @@ function apply(ctx) {
 		const inPane = event.target?.closest?.(`[${PANE_ATTR}]`) !== null;
 		if (inPane && event.target?.closest?.(".dap-close") !== null) {
 			togglePane(false);
+			return;
+		}
+		if (inPane && event.target?.closest?.(".dap-collapse") !== null) {
+			collapsed = !collapsed;
+			const pane = document.querySelector(`[${PANE_ATTR}]`);
+			pane?.setAttribute("data-collapsed", collapsed ? "true" : "false");
+			return;
+		}
+		if (inPane && event.target?.closest?.(".dap-rail") !== null) {
+			collapsed = false;
+			const pane = document.querySelector(`[${PANE_ATTR}]`);
+			pane?.setAttribute("data-collapsed", "false");
 		}
 	}
 	toggle.addEventListener("click", onToggleClick);
@@ -849,6 +1101,13 @@ function apply(ctx) {
 		sessionUnsubscribe?.();
 		workspaceUnsubscribe?.();
 		if (serviceTimer !== null) clearInterval(serviceTimer);
+		if (clockTimer !== null) clearInterval(clockTimer);
+		for (const [, rec] of livenessById) {
+			try {
+				rec.unsubscribe?.();
+			} catch {}
+		}
+		livenessById.clear();
 		bodyObserver.disconnect();
 		frameObserver?.disconnect();
 		if (frameProbeTimer !== null) clearInterval(frameProbeTimer);

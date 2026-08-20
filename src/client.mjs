@@ -271,13 +271,17 @@ const CSS = `
   color: #2a1012;
   animation: dap-await-pulse 1.2s ease-in-out infinite;
 }
-/* 窄屏：窗格变为固定抽屉 + 浮动开关按钮；抽屉默认隐藏在屏外。 */
+/* 窄屏：窗格变为固定抽屉 + 浮动开关按钮；抽屉默认隐藏在屏外。
+   抽屉需不透明背景（否则透出下层会话内容），桌面列则保持低透明分界。 */
 @media (max-width: ${MOBILE_BREAKPOINT}) {
   [data-dsh-activity-pane] {
     position: fixed; left: 0; top: 0; bottom: 0;
     width: min(84vw, 320px);
     margin: 0;
     border-right: 1px solid currentColor;
+    background: var(--dsw-alias-bg-layer-2, rgba(18, 21, 27, 0.97));
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     box-shadow: 8px 0 28px rgba(0,0,0,.5);
     transform: translateX(-102%);
     transition: transform 180ms ease;

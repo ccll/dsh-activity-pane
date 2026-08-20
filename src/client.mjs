@@ -28,6 +28,7 @@ const CLOCK_MS = 1000;
 const CSS = `
 [data-dsh-activity-pane] {
   --dap-width: ${DEFAULT_WIDTH}px;
+  flex: 0 0 var(--dap-width);
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -145,19 +146,11 @@ const CSS = `
   background: linear-gradient(180deg, #ffb4b4, #f06a72);
   color: #2a1012;
 }
-/* 桌面：窗格是中间列（position:relative）内的绝对定位左贴边列，位于侧栏旁；
-   会话内容经 margin-left 推挤而非被覆盖。折叠时收窄为窄条。 */
+/* 桌面：窗格作为中间列内的真实 flex 行元素参与布局——中间列被置为行方向，
+   窗格固定宽、会话区弹性收缩，整个会话内容被真实挤到右边；折叠时收窄为窄条。 */
 @media (min-width: 768px) {
-  [data-dsh-activity-pane] {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    width: var(--dap-width);
-    z-index: 5;
-  }
   [data-dsh-activity-pane] .dap-collapse { display: inline-block; }
-  [data-dsh-activity-pane][data-collapsed="true"] { width: ${COLLAPSED_WIDTH}px; }
+  [data-dsh-activity-pane][data-collapsed="true"] { flex-basis: ${COLLAPSED_WIDTH}px; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-scroll,
   [data-dsh-activity-pane][data-collapsed="true"] .dap-count,
   [data-dsh-activity-pane][data-collapsed="true"] .dap-collapse { display: none; }
@@ -392,21 +385,20 @@ function apply(ctx) {
 		"<span>活动会话</span><span class=\"dap-toggle-count\"></span>";
 	document.body.appendChild(toggle);
 
-	// 桌面判定与"会话区推挤"（pane 绝对定位贴左，会话内容以 margin 让位）。
+	// 桌面判定与"真实参与布局"：中间列切为行方向，窗格固定宽、会话座弹性收缩，
+	// 让会话内容（标题/tabs/后台任务/滚动区/输入框）被真实挤到窗格右侧。
 	const desktopQuery = window.matchMedia("(min-width: 768px)");
-	function applySeatMargin() {
+	function applyLayout() {
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
-		if (seat === null) return;
-		const margin = desktopQuery.matches ? (collapsed ? COLLAPSED_WIDTH : DEFAULT_WIDTH) : 0;
-		if (seat.style.marginLeft !== `${margin}px`) {
-			seat.style.marginLeft = `${margin}px`;
-			// 会话内容被右移只改变位置、不改变尺寸：ResizeObserver 不触发，依赖
-			// `window resize` 重测的 sibling 插件（如 dsh-session-timeline）会停在
-			// 旧位置并盖住本窗格。派发合成 resize 让它们按新布局重测。
-			try {
-				window.dispatchEvent(new Event("resize"));
-			} catch {}
-		}
+		if (seat === null || seat.parentElement === null) return;
+		const center = seat.parentElement;
+		if (center.style.flexDirection !== "row")
+			center.style.flexDirection = "row";
+		if (center.style.alignItems !== "stretch")
+			center.style.alignItems = "stretch";
+		if (seat.style.flex !== "1 1 0%") seat.style.flex = "1 1 0%";
+		if (seat.style.minWidth !== "0") seat.style.minWidth = "0";
+		if (seat.style.width !== "auto") seat.style.width = "auto";
 	}
 
 	function queueSync() {
@@ -441,17 +433,16 @@ function apply(ctx) {
 	function ensurePane() {
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
 		if (seat === null || seat.parentElement === null) return null;
-		// [data-slot="conversation"] 的父级是 AppFrame 的中间列（flex column），
-		// 它不是 grid 行——窗格不能插进该父级当块（会跑到会话上方）。改为在该
-		// 父级内“绝对定位左贴边列”，并以其为定位上下文。
+		// [data-slot="conversation"] 的父级是 AppFrame 的中间列（flex column）。
+		// 窗格作为该父级的真实 flex 子项、插在会话座之前（行方向 → 窗格在左），
+		// 与其它元素一起参与布局，而不是浮层。
 		const center = seat.parentElement;
-		center.style.position = "relative";
 		let pane = center.querySelector(`[${PANE_ATTR}]`);
 		if (pane === null) {
 			pane = document.createElement("aside");
 			pane.setAttribute(PANE_ATTR, "");
 			pane.className = PANE_CLASS;
-			center.appendChild(pane);
+			center.insertBefore(pane, seat);
 			pane.innerHTML = `
 				<div class="dap-header">
 					<span>活动会话</span>
@@ -644,7 +635,7 @@ function apply(ctx) {
 	function render() {
 		const pane = ensurePane();
 		if (pane === null) return;
-		applySeatMargin();
+		applyLayout();
 		const activeList = pane.querySelector(`.${LIST_CLASS}`);
 		const recentSection = pane.querySelector(`.${RECENT_CLASS}`);
 		if (activeList === null || recentSection === null) return;
@@ -869,7 +860,14 @@ function apply(ctx) {
 		document.removeEventListener("click", onPaneClick);
 		desktopQuery.removeEventListener("change", onResize);
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
-		if (seat !== null) seat.style.marginLeft = "";
+		if (seat !== null && seat.parentElement !== null) {
+			const center = seat.parentElement;
+			center.style.flexDirection = "";
+			center.style.alignItems = "";
+			seat.style.flex = "";
+			seat.style.minWidth = "";
+			seat.style.width = "";
+		}
 		document.removeEventListener("click", openCard, true);
 		document.removeEventListener("keydown", onKeyDown);
 		toggle.remove();

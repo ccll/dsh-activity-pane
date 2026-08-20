@@ -27,12 +27,25 @@ const PENDING_LABELS = {
 	question: "待回复",
 };
 
+/** 工具参数白名单：只在其中提取摘要，绝不展示完整命令或原始 JSON（沿用 answer-pet trace 摘要，MIT 参考）。 */
+const TRACE_DETAIL_KEYS = ["description", "query", "pattern", "file_path", "path", "url"];
+/** 运行卡最多展示的流程节点数（已定案工具调用 + 当前阶段）。 */
+const TRACE_MAX_ITEMS = 4;
+
 function isRecord(value) {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function cleanText(value) {
 	return typeof value === "string" ? value.trim() : "";
+}
+
+/** 展示摘要文本：折叠空白并截断到 max 字符（用于工具参数摘要等长文本）；非字符串返回 null。 */
+function cleanPreview(value, max = 88) {
+	if (typeof value !== "string") return null;
+	const text = value.replace(/\s+/g, " ").trim();
+	if (text.length === 0) return null;
+	return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
 /** 需要用户行动的种类的展示文案。 */
@@ -209,6 +222,8 @@ function cardSignature(entries) {
 			entry.pendingText ?? null,
 			entry.status ?? null,
 			entry.updatedAt ?? null,
+			entry.progress ?? null,
+			entry.trace ?? null,
 		]),
 	);
 }
@@ -281,19 +296,160 @@ function fmtElapsedMs(ms) {
 	return `${Math.floor(s / 60)}m${s % 60}s`;
 }
 
+/** token 计数的人性化短格式，例如 "847"、"1.2k"；非有限非负时返回 null。 */
+function fmtTokens(n) {
+	if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return null;
+	return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n));
+}
+
 /**
- * 轮内状态文案：由渲染器把运行中会话的原生订阅快照映射为
- * `{ runningTool, streaming, elapsedMs }` 后调用。无任何宿主依赖。
+ * 从工具参数中提取安全短摘要：只从白名单字段取，绝不展示完整命令或原始 JSON。
+ * 参数为字符串时先尝试 JSON 解析；解析失败或非对象一律返回 null（R-01-009/AC-04）。
  */
-function statusLine({ runningTool = null, streaming = false, elapsedMs = null } = {}) {
-	const head = runningTool
-		? `工具：${runningTool}`
-		: streaming
-			? "正在回复…"
-			: "运行中…";
+function summarizeToolArguments(raw) {
+	let args = raw;
+	if (typeof raw === "string") {
+		try {
+			args = JSON.parse(raw);
+		} catch {
+			return null;
+		}
+	}
+	if (args === null || typeof args !== "object" || Array.isArray(args)) return null;
+	for (const key of TRACE_DETAIL_KEYS) {
+		const text = cleanPreview(args[key]);
+		if (text !== null) return text;
+	}
+	return null;
+}
+
+/**
+ * 轮内进度估计（0–100）：阶段权重 + 输出 token 累计填充（无 maxTokens 时用饱和
+ * 曲线）。纯函数给出阶段式估计；tool 阶段冻结返回 null（由渲染层保持上一进度）；
+ * 渲染层再按回合叠加单调下限，保证同回合不倒退（R-01-009/AC-06）。
+ */
+function progressOf({ phase = "think", outputTokens = 0, elapsedMs = 0 } = {}) {
+	const out = Number.isFinite(outputTokens) && outputTokens >= 0 ? outputTokens : 0;
+	const sec =
+		Math.max(
+			0,
+			(Number.isFinite(elapsedMs) && elapsedMs >= 0 ? elapsedMs : 0) / 1000,
+		);
+	if (phase === "tool") return null;
+	if (phase === "stream") {
+		const fill = Math.min(1, 1 - Math.exp(-out / 600));
+		return Math.round((10 + 80 * fill) * 10) / 10;
+	}
+	return Math.round(Math.min(10, 5 + sec * 0.5) * 10) / 10;
+}
+
+/** 已定案工具调用节点：`legacy.nodes` 中的工具结果（含 call 信息）。 */
+function isTraceToolNode(node) {
+	return isRecord(node) && isRecord(node.call) && typeof node.call.name === "string";
+}
+
+/** 节点是否带 (time, callTime) 双时间戳，可用其近似耗时。 */
+function hasTraceTimes(node) {
+	return Number.isFinite(node.time) && Number.isFinite(node.callTime);
+}
+
+/**
+ * 构建运行卡「最近流程节点」轨迹：已定案工具调用（来自 legacy.nodes，含
+ * label/detail/status/durationMs）+ 当前阶段节点（运行中），最多 TRACE_MAX_ITEMS。
+ * durationMs 为近似值：工具节点用 time-callTime，当前阶段用回合已运行时长。
+ * 节点文案只经白名单摘要，不泄露敏感参数（R-01-009/AC-07）。
+ */
+function buildTrace({
+	nodes = [],
+	runningTool = null,
+	runningArgs = null,
+	streaming = false,
+	reasoning = false,
+	turnStartTime = null,
+	now = Date.now(),
+} = {}) {
+	const items = [];
+	for (const node of nodes) {
+		if (!isTraceToolNode(node)) continue;
+		items.push({
+			id: typeof node.callId === "string" ? node.callId : `tool:${items.length}`,
+			kind: "tool",
+			label: `调用 ${node.call.name}`,
+			detail: summarizeToolArguments(node.call.argsRaw),
+			status: node.isError === true ? "error" : "done",
+			durationMs: hasTraceTimes(node) ? Math.max(0, node.time - node.callTime) : null,
+		});
+	}
+	const elapsedMs =
+		Number.isFinite(turnStartTime) ? Math.max(0, now - turnStartTime) : null;
+	let current;
+	if (runningTool) {
+		current = {
+			id: `run:${runningTool}`,
+			kind: "tool",
+			label: `调用 ${runningTool}`,
+			detail: summarizeToolArguments(runningArgs),
+			status: "running",
+			durationMs: elapsedMs,
+		};
+	} else if (streaming) {
+		current = {
+			id: "run:stream",
+			kind: "phase",
+			label: "组织回答",
+			detail: null,
+			status: "running",
+			durationMs: elapsedMs,
+		};
+	} else if (reasoning) {
+		current = {
+			id: "run:reason",
+			kind: "phase",
+			label: "推理与规划",
+			detail: null,
+			status: "running",
+			durationMs: elapsedMs,
+		};
+	} else {
+		current = {
+			id: "run:think",
+			kind: "phase",
+			label: "运行中…",
+			detail: null,
+			status: "running",
+			durationMs: elapsedMs,
+		};
+	}
+	items.push(current);
+	return items.slice(-TRACE_MAX_ITEMS);
+}
+
+/**
+ * 轮内状态文案：由渲染器把运行中会话的原生订阅快照归一为
+ * `{ runningTool, streaming, elapsedMs, outputTokens, rateTokS }` 后调用。
+ * 状态行 = 头（工具/流式/运行中） · token 计数 · 速率 · 时长（按字段存在拼接）。无任何宿主依赖。
+ */
+function statusLine({
+	runningTool = null,
+	streaming = false,
+	elapsedMs = null,
+	outputTokens = null,
+	rateTokS = null,
+} = {}) {
+	const parts = [
+		runningTool
+			? `工具：${runningTool}`
+			: streaming
+				? "正在回复…"
+				: "运行中…",
+	];
+	const tokens = fmtTokens(outputTokens);
+	if (tokens !== null) parts.push(`${tokens} tok`);
+	if (Number.isFinite(rateTokS) && rateTokS >= 0)
+		parts.push(`${Math.round(rateTokS)} tok/s`);
 	if (Number.isFinite(elapsedMs) && elapsedMs >= 0)
-		return `${head} · ${fmtElapsedMs(elapsedMs)}`;
-	return head;
+		parts.push(fmtElapsedMs(elapsedMs));
+	return parts.join(" · ");
 }
 
 // dsh-activity-pane 浏览器运行时。
@@ -548,6 +704,64 @@ const CSS = `
   font-size: 11px; line-height: 15px;
   color: color-mix(in srgb, currentColor 62%, transparent);
 }
+/* 运行卡富化（对齐 answer-pet 卡片；MIT 参考，见 README）。 */
+[data-dsh-activity-pane] .dap-pct {
+  flex: none; font-size: 10px; line-height: 15px; font-weight: 700;
+  color: color-mix(in srgb, currentColor 64%, transparent);
+}
+[data-dsh-activity-pane] .dap-status {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; line-height: 15px;
+  color: color-mix(in srgb, currentColor 62%, transparent);
+}
+[data-dsh-activity-pane] .dap-trace {
+  display: flex; flex-direction: column; gap: 1px;
+  min-width: 0;
+}
+[data-dsh-activity-pane] .dap-trace-item {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10px; line-height: 15px;
+  color: color-mix(in srgb, currentColor 74%, transparent);
+  display: flex; align-items: baseline; gap: 6px;
+}
+[data-dsh-activity-pane] .dap-trace-item::before {
+  content: ""; flex: none; width: 5px; height: 5px; border-radius: 50%;
+  align-self: center;
+  background: #8a94a3;
+}
+[data-dsh-activity-pane] .dap-trace-item[data-status="running"]::before {
+  background: #58c98f; box-shadow: 0 0 6px rgba(88,201,143,.8);
+}
+[data-dsh-activity-pane] .dap-trace-item[data-status="error"]::before {
+  background: #f06a72;
+}
+[data-dsh-activity-pane] .dap-trace-main {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+[data-dsh-activity-pane] .dap-trace-detail {
+  color: color-mix(in srgb, currentColor 60%, transparent);
+}
+[data-dsh-activity-pane] .dap-trace-time {
+  flex: none; font-size: 9.5px; color: color-mix(in srgb, currentColor 52%, transparent);
+}
+[data-dsh-activity-pane] .dap-subtrace {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10px; line-height: 14px;
+  color: color-mix(in srgb, currentColor 72%, transparent);
+}
+[data-dsh-activity-pane] .dap-subtrace .dap-trace-item {
+  color: inherit;
+}
+[data-dsh-activity-pane] .dap-track {
+  height: 4px; border-radius: 999px; overflow: hidden;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+[data-dsh-activity-pane] .dap-fill {
+  height: 100%; width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #58c98f, #4fb0e0);
+  transition: width 320ms ease;
+}
 [data-dsh-activity-pane] .dap-empty {
   padding: 14px 12px; font-size: 12px; text-align: center;
   color: color-mix(in srgb, currentColor 45%, transparent);
@@ -615,31 +829,43 @@ function schedule(callback) {
 	}
 }
 
-/** 从原生会话快照归一为运行卡输入：工具名 / 是否流式 / 当前回合开始时间。
+/** 从原生会话快照归一为运行卡输入：工具名/参数/是否流式或推理/回合开始时间/流程节点。
  *  elapsed 不在快照事件时固化——渲染期用 Date.now()-startTime 实时算，时长才能
  *  随 1s 时钟逐秒跳动（R-01-009/AC-03）。 */
 function livenessFromSnapshot(snap) {
 	const runningCalls = Array.isArray(snap?.runningCalls) ? snap.runningCalls : [];
-	const runningTool =
-		runningCalls.length > 0 && runningCalls[0]?.name
-			? String(runningCalls[0].name)
-			: null;
-	const streaming = snap?.partial != null && snap?.running !== false;
+	const call = runningCalls[0];
+	const runningTool = call?.name ? String(call.name) : null;
+	const runningArgs = runningTool !== null ? call?.argsRaw : null;
+	const blocks = Array.isArray(snap?.partial?.blocks) ? snap.partial.blocks : [];
+	const live = snap?.partial != null && snap?.running !== false;
+	const streaming = live && blocks.some((b) => b?.kind === "text");
+	const reasoning = live && blocks.some((b) => b?.kind === "reasoning");
 	let startTime = null;
+	let turn = null;
 	const timings = snap?.turnTimings;
 	if (timings instanceof Map) {
-		for (const [, timing] of timings) {
+		for (const [key, timing] of timings) {
 			if (
 				timing &&
 				Number.isFinite(timing.startTime) &&
 				timing.endTime === undefined
 			) {
 				startTime = timing.startTime;
+				turn = key;
 				break;
 			}
 		}
 	}
-	return { runningTool, streaming, startTime };
+	return {
+		runningTool,
+		runningArgs,
+		streaming,
+		reasoning,
+		startTime,
+		turn,
+		nodes: Array.isArray(snap?.nodes) ? snap.nodes : [],
+	};
 }
 
 function fmtRecentTime(ts) {
@@ -670,6 +896,8 @@ function apply(ctx) {
 	const recentCardsById = new Map();
 	/** 运行中会话轮内状态订阅：id → { unsubscribe, liveness }。 */
 	const livenessById = new Map();
+	/** 运行卡进度单调下限：id → { turn, floor }；随运行集清理、卸载清空。 */
+	const progressFloor = new Map();
 
 	const style = document.createElement("style");
 	style.id = STYLE_ID;
@@ -808,7 +1036,7 @@ function apply(ctx) {
 		if (kind === "subagent") {
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
-			return [row];
+			return [row, makeEl("div", "dap-subtrace")];
 		}
 		if (kind === "recent") {
 			const row = makeEl("div", "dap-row");
@@ -824,9 +1052,64 @@ function apply(ctx) {
 			);
 			return [makeEl("div", "dap-workspace"), row, makeEl("div", "dap-note")];
 		}
+		// 运行卡骨架对齐 answer-pet：徽标 + 头行（dot/标题/百分比）+ 状态行 + trace + 进度条。
 		const row = makeEl("div", "dap-row");
-		row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
-		return [makeEl("div", "dap-workspace"), row, makeEl("div", "dap-note")];
+		row.append(
+			makeEl("span", "dap-dot"),
+			makeEl("span", "dap-title"),
+			makeEl("span", "dap-pct"),
+		);
+		const track = makeEl("div", "dap-track");
+		track.append(makeEl("div", "dap-fill"));
+		return [
+			makeEl("div", "dap-workspace"),
+			row,
+			makeEl("div", "dap-status"),
+			makeEl("div", "dap-trace"),
+			track,
+		];
+	}
+
+	/** 重绘 trace 容器（运行卡多行；全量重绘，受签名去重闸门保护）。 */
+	function renderTrace(container, items) {
+		container.replaceChildren();
+		for (const item of Array.isArray(items) ? items : []) {
+			if (item === null || typeof item !== "object") continue;
+			const line = makeEl("div", "dap-trace-item");
+			line.dataset.status = typeof item.status === "string" ? item.status : "running";
+			const main = makeEl("span", "dap-trace-main");
+			main.textContent = item.label ?? "";
+			if (typeof item.detail === "string" && item.detail.length > 0) {
+				const detail = makeEl("span", "dap-trace-detail");
+				detail.textContent = ` · ${item.detail}`;
+				main.append(detail);
+			}
+			const time = makeEl("span", "dap-trace-time");
+			time.textContent = Number.isFinite(item.durationMs)
+				? fmtElapsedMs(item.durationMs)
+				: "";
+			line.append(main, time);
+			container.append(line);
+		}
+	}
+
+	/** 子代理卡只显示当前阶段：trace 的最后一项（即正在进行的阶段/工具）。 */
+	function renderCurrentTrace(container, items) {
+		container.replaceChildren();
+		const list = Array.isArray(items) ? items : [];
+		const current = list[list.length - 1];
+		if (current === null || typeof current !== "object") return;
+		const line = makeEl("div", "dap-trace-item");
+		line.dataset.status = typeof current.status === "string" ? current.status : "running";
+		const main = makeEl("span", "dap-trace-main");
+		main.textContent = current.label ?? "";
+		if (typeof current.detail === "string" && current.detail.length > 0) {
+			const detail = makeEl("span", "dap-trace-detail");
+			detail.textContent = ` · ${current.detail}`;
+			main.append(detail);
+		}
+		line.append(main);
+		container.append(line);
 	}
 
 	function renderCardInto(el, entry) {
@@ -848,18 +1131,40 @@ function apply(ctx) {
 		if (badge !== null && badge.textContent !== (entry.pendingText ?? ""))
 			badge.textContent = entry.pendingText ?? "";
 
+		if (entry.kind === "running") {
+			const pct = el.querySelector(".dap-pct");
+			if (pct !== null) pct.textContent = `${Math.round(entry.progress ?? 5)}%`;
+			const status = el.querySelector(".dap-status");
+			const next = entry.status ?? "运行中…";
+			if (status !== null && status.textContent !== next)
+				status.textContent = next;
+			const traceContainer = el.querySelector(".dap-trace");
+			if (traceContainer !== null) renderTrace(traceContainer, entry.trace);
+			const fill = el.querySelector(".dap-fill");
+			if (fill !== null) {
+				const width = `${Math.min(100, Math.max(0, entry.progress ?? 0))}%`;
+				if (fill.style.width !== width) fill.style.width = width;
+			}
+			return;
+		}
+
+		if (entry.kind === "subagent") {
+			const traceContainer = el.querySelector(".dap-subtrace");
+			if (traceContainer !== null)
+				renderCurrentTrace(traceContainer, entry.trace);
+			return;
+		}
+
 		const note = el.querySelector(".dap-note");
 		if (note !== null) {
 			const next =
-				entry.kind === "running"
-					? (entry.status ?? "运行中…")
-					: entry.kind === "awaiting"
-						? entry.pendingText === "需要响应"
-							? "本轮已完成，等待你处理"
-							: `等待你的回应（${entry.pendingText}）`
-						: entry.kind === "recent"
-							? fmtRecentTime(entry.updatedAt)
-							: "";
+				entry.kind === "awaiting"
+					? entry.pendingText === "需要响应"
+						? "本轮已完成，等待你处理"
+						: `等待你的回应（${entry.pendingText}）`
+					: entry.kind === "recent"
+						? fmtRecentTime(entry.updatedAt)
+						: "";
 			if (note.textContent !== next) note.textContent = next;
 		}
 	}
@@ -978,26 +1283,74 @@ function apply(ctx) {
 		const now = Date.now();
 
 		const active = buildEntries(snapshot, workspaceItems);
-		const runningIds = new Set(
+		// 轮内订阅仅对"运行中"会话建立（主会话 + 运行中的子代理），保持在运行中的订阅
+		// 数量 == 运行中会话数量（R-02-004/AC-01）；暂停等待的子代理只显示标题。
+		const runLikeIds = new Set(
 			active
-				.filter((entry) => entry.kind === "running")
+				.filter((entry) => {
+					if (entry.kind === "running") return true;
+					if (entry.kind === "subagent")
+						return snapshot?.byId?.[entry.id]?.running === true;
+					return false;
+				})
 				.map((entry) => entry.id),
 		);
-		syncLiveness(runningIds);
+		syncLiveness(runLikeIds);
 		for (const entry of active) {
+			const live = livenessById.get(entry.id)?.liveness ?? null;
 			if (entry.kind === "running") {
-				const live = livenessById.get(entry.id)?.liveness ?? null;
 				const elapsedMs =
 					live?.startTime != null
 						? Math.max(0, Date.now() - live.startTime)
+						: null;
+				// token/速率取自 sessions.list 条目的投影（tokenUsage/sessionStats），
+				// 复用既有列表订阅，无新增轮询（R-01-009/AC-05、R-02-004/AC-02）。
+				const projection = snapshot?.byId?.[entry.id]?.projectionValues;
+				const outputTokens = projection?.tokenUsage?.outputTokens ?? null;
+				const stats = projection?.sessionStats;
+				const rateTokS =
+					stats && Number.isFinite(stats.decodeMs) && stats.decodeMs > 0
+						? stats.decodeTokens / (stats.decodeMs / 1000)
 						: null;
 				entry.status = statusLine({
 					runningTool: live?.runningTool ?? null,
 					streaming: live?.streaming ?? false,
 					elapsedMs,
+					outputTokens,
+					rateTokS,
+				});
+				// 阶段进度：progressOf 估计 + 按回合单调下限（tool 阶段冻结、回合切换重置）。
+				let progress = progressOf({
+					phase: live?.runningTool ? "tool" : live?.streaming ? "stream" : "think",
+					outputTokens: outputTokens ?? 0,
+					elapsedMs: elapsedMs ?? 0,
+				});
+				const prev = progressFloor.get(entry.id);
+				const turn = live?.turn ?? null;
+				const floor = prev !== undefined && prev.turn === turn ? prev.floor : 0;
+				if (progress !== null) {
+					progress = Math.max(floor, progress);
+					progressFloor.set(entry.id, { turn, floor: progress });
+				} else {
+					progress = prev !== undefined && prev.turn === turn ? prev.floor : 0;
+				}
+				entry.progress = progress;
+			}
+			if (entry.kind === "running" || entry.kind === "subagent") {
+				entry.trace = buildTrace({
+					nodes: live?.nodes ?? [],
+					runningTool: live?.runningTool ?? null,
+					runningArgs: live?.runningArgs ?? null,
+					streaming: live?.streaming ?? false,
+					reasoning: live?.reasoning ?? false,
+					turnStartTime: live?.startTime ?? null,
+					now: Date.now(),
 				});
 			}
 		}
+		// 清理已不在运行/子代理集的进度下限，避免残留。
+		for (const id of progressFloor.keys())
+			if (!runLikeIds.has(id)) progressFloor.delete(id);
 		const recent = buildRecent(snapshot, workspaceItems, now);
 
 		const sig = cardSignature([...active, ...recent]);
@@ -1193,6 +1546,7 @@ function apply(ctx) {
 			} catch {}
 		}
 		livenessById.clear();
+		progressFloor.clear();
 		bodyObserver.disconnect();
 		frameObserver?.disconnect();
 		if (frameProbeTimer !== null) clearInterval(frameProbeTimer);

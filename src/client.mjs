@@ -250,6 +250,64 @@ const CSS = `
   font-size: 11px; line-height: 15px;
   color: color-mix(in srgb, currentColor 62%, transparent);
 }
+/* 运行卡富化（对齐 answer-pet 卡片；MIT 参考，见 README）。 */
+[data-dsh-activity-pane] .dap-pct {
+  flex: none; font-size: 10px; line-height: 15px; font-weight: 700;
+  color: color-mix(in srgb, currentColor 64%, transparent);
+}
+[data-dsh-activity-pane] .dap-status {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; line-height: 15px;
+  color: color-mix(in srgb, currentColor 62%, transparent);
+}
+[data-dsh-activity-pane] .dap-trace {
+  display: flex; flex-direction: column; gap: 1px;
+  min-width: 0;
+}
+[data-dsh-activity-pane] .dap-trace-item {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10px; line-height: 15px;
+  color: color-mix(in srgb, currentColor 74%, transparent);
+  display: flex; align-items: baseline; gap: 6px;
+}
+[data-dsh-activity-pane] .dap-trace-item::before {
+  content: ""; flex: none; width: 5px; height: 5px; border-radius: 50%;
+  align-self: center;
+  background: #8a94a3;
+}
+[data-dsh-activity-pane] .dap-trace-item[data-status="running"]::before {
+  background: #58c98f; box-shadow: 0 0 6px rgba(88,201,143,.8);
+}
+[data-dsh-activity-pane] .dap-trace-item[data-status="error"]::before {
+  background: #f06a72;
+}
+[data-dsh-activity-pane] .dap-trace-main {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+[data-dsh-activity-pane] .dap-trace-detail {
+  color: color-mix(in srgb, currentColor 60%, transparent);
+}
+[data-dsh-activity-pane] .dap-trace-time {
+  flex: none; font-size: 9.5px; color: color-mix(in srgb, currentColor 52%, transparent);
+}
+[data-dsh-activity-pane] .dap-subtrace {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10px; line-height: 14px;
+  color: color-mix(in srgb, currentColor 72%, transparent);
+}
+[data-dsh-activity-pane] .dap-subtrace .dap-trace-item {
+  color: inherit;
+}
+[data-dsh-activity-pane] .dap-track {
+  height: 4px; border-radius: 999px; overflow: hidden;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+[data-dsh-activity-pane] .dap-fill {
+  height: 100%; width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #58c98f, #4fb0e0);
+  transition: width 320ms ease;
+}
 [data-dsh-activity-pane] .dap-empty {
   padding: 14px 12px; font-size: 12px; text-align: center;
   color: color-mix(in srgb, currentColor 45%, transparent);
@@ -317,31 +375,43 @@ function schedule(callback) {
 	}
 }
 
-/** 从原生会话快照归一为运行卡输入：工具名 / 是否流式 / 当前回合开始时间。
+/** 从原生会话快照归一为运行卡输入：工具名/参数/是否流式或推理/回合开始时间/流程节点。
  *  elapsed 不在快照事件时固化——渲染期用 Date.now()-startTime 实时算，时长才能
  *  随 1s 时钟逐秒跳动（R-01-009/AC-03）。 */
 function livenessFromSnapshot(snap) {
 	const runningCalls = Array.isArray(snap?.runningCalls) ? snap.runningCalls : [];
-	const runningTool =
-		runningCalls.length > 0 && runningCalls[0]?.name
-			? String(runningCalls[0].name)
-			: null;
-	const streaming = snap?.partial != null && snap?.running !== false;
+	const call = runningCalls[0];
+	const runningTool = call?.name ? String(call.name) : null;
+	const runningArgs = runningTool !== null ? call?.argsRaw : null;
+	const blocks = Array.isArray(snap?.partial?.blocks) ? snap.partial.blocks : [];
+	const live = snap?.partial != null && snap?.running !== false;
+	const streaming = live && blocks.some((b) => b?.kind === "text");
+	const reasoning = live && blocks.some((b) => b?.kind === "reasoning");
 	let startTime = null;
+	let turn = null;
 	const timings = snap?.turnTimings;
 	if (timings instanceof Map) {
-		for (const [, timing] of timings) {
+		for (const [key, timing] of timings) {
 			if (
 				timing &&
 				Number.isFinite(timing.startTime) &&
 				timing.endTime === undefined
 			) {
 				startTime = timing.startTime;
+				turn = key;
 				break;
 			}
 		}
 	}
-	return { runningTool, streaming, startTime };
+	return {
+		runningTool,
+		runningArgs,
+		streaming,
+		reasoning,
+		startTime,
+		turn,
+		nodes: Array.isArray(snap?.nodes) ? snap.nodes : [],
+	};
 }
 
 function fmtRecentTime(ts) {
@@ -372,6 +442,8 @@ function apply(ctx) {
 	const recentCardsById = new Map();
 	/** 运行中会话轮内状态订阅：id → { unsubscribe, liveness }。 */
 	const livenessById = new Map();
+	/** 运行卡进度单调下限：id → { turn, floor }；随运行集清理、卸载清空。 */
+	const progressFloor = new Map();
 
 	const style = document.createElement("style");
 	style.id = STYLE_ID;
@@ -510,7 +582,7 @@ function apply(ctx) {
 		if (kind === "subagent") {
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
-			return [row];
+			return [row, makeEl("div", "dap-subtrace")];
 		}
 		if (kind === "recent") {
 			const row = makeEl("div", "dap-row");
@@ -526,9 +598,64 @@ function apply(ctx) {
 			);
 			return [makeEl("div", "dap-workspace"), row, makeEl("div", "dap-note")];
 		}
+		// 运行卡骨架对齐 answer-pet：徽标 + 头行（dot/标题/百分比）+ 状态行 + trace + 进度条。
 		const row = makeEl("div", "dap-row");
-		row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
-		return [makeEl("div", "dap-workspace"), row, makeEl("div", "dap-note")];
+		row.append(
+			makeEl("span", "dap-dot"),
+			makeEl("span", "dap-title"),
+			makeEl("span", "dap-pct"),
+		);
+		const track = makeEl("div", "dap-track");
+		track.append(makeEl("div", "dap-fill"));
+		return [
+			makeEl("div", "dap-workspace"),
+			row,
+			makeEl("div", "dap-status"),
+			makeEl("div", "dap-trace"),
+			track,
+		];
+	}
+
+	/** 重绘 trace 容器（运行卡多行；全量重绘，受签名去重闸门保护）。 */
+	function renderTrace(container, items) {
+		container.replaceChildren();
+		for (const item of Array.isArray(items) ? items : []) {
+			if (item === null || typeof item !== "object") continue;
+			const line = makeEl("div", "dap-trace-item");
+			line.dataset.status = typeof item.status === "string" ? item.status : "running";
+			const main = makeEl("span", "dap-trace-main");
+			main.textContent = item.label ?? "";
+			if (typeof item.detail === "string" && item.detail.length > 0) {
+				const detail = makeEl("span", "dap-trace-detail");
+				detail.textContent = ` · ${item.detail}`;
+				main.append(detail);
+			}
+			const time = makeEl("span", "dap-trace-time");
+			time.textContent = Number.isFinite(item.durationMs)
+				? fmtElapsedMs(item.durationMs)
+				: "";
+			line.append(main, time);
+			container.append(line);
+		}
+	}
+
+	/** 子代理卡只显示当前阶段：trace 的最后一项（即正在进行的阶段/工具）。 */
+	function renderCurrentTrace(container, items) {
+		container.replaceChildren();
+		const list = Array.isArray(items) ? items : [];
+		const current = list[list.length - 1];
+		if (current === null || typeof current !== "object") return;
+		const line = makeEl("div", "dap-trace-item");
+		line.dataset.status = typeof current.status === "string" ? current.status : "running";
+		const main = makeEl("span", "dap-trace-main");
+		main.textContent = current.label ?? "";
+		if (typeof current.detail === "string" && current.detail.length > 0) {
+			const detail = makeEl("span", "dap-trace-detail");
+			detail.textContent = ` · ${current.detail}`;
+			main.append(detail);
+		}
+		line.append(main);
+		container.append(line);
 	}
 
 	function renderCardInto(el, entry) {
@@ -550,18 +677,40 @@ function apply(ctx) {
 		if (badge !== null && badge.textContent !== (entry.pendingText ?? ""))
 			badge.textContent = entry.pendingText ?? "";
 
+		if (entry.kind === "running") {
+			const pct = el.querySelector(".dap-pct");
+			if (pct !== null) pct.textContent = `${Math.round(entry.progress ?? 5)}%`;
+			const status = el.querySelector(".dap-status");
+			const next = entry.status ?? "运行中…";
+			if (status !== null && status.textContent !== next)
+				status.textContent = next;
+			const traceContainer = el.querySelector(".dap-trace");
+			if (traceContainer !== null) renderTrace(traceContainer, entry.trace);
+			const fill = el.querySelector(".dap-fill");
+			if (fill !== null) {
+				const width = `${Math.min(100, Math.max(0, entry.progress ?? 0))}%`;
+				if (fill.style.width !== width) fill.style.width = width;
+			}
+			return;
+		}
+
+		if (entry.kind === "subagent") {
+			const traceContainer = el.querySelector(".dap-subtrace");
+			if (traceContainer !== null)
+				renderCurrentTrace(traceContainer, entry.trace);
+			return;
+		}
+
 		const note = el.querySelector(".dap-note");
 		if (note !== null) {
 			const next =
-				entry.kind === "running"
-					? (entry.status ?? "运行中…")
-					: entry.kind === "awaiting"
-						? entry.pendingText === "需要响应"
-							? "本轮已完成，等待你处理"
-							: `等待你的回应（${entry.pendingText}）`
-						: entry.kind === "recent"
-							? fmtRecentTime(entry.updatedAt)
-							: "";
+				entry.kind === "awaiting"
+					? entry.pendingText === "需要响应"
+						? "本轮已完成，等待你处理"
+						: `等待你的回应（${entry.pendingText}）`
+					: entry.kind === "recent"
+						? fmtRecentTime(entry.updatedAt)
+						: "";
 			if (note.textContent !== next) note.textContent = next;
 		}
 	}
@@ -680,26 +829,74 @@ function apply(ctx) {
 		const now = Date.now();
 
 		const active = buildEntries(snapshot, workspaceItems);
-		const runningIds = new Set(
+		// 轮内订阅仅对"运行中"会话建立（主会话 + 运行中的子代理），保持在运行中的订阅
+		// 数量 == 运行中会话数量（R-02-004/AC-01）；暂停等待的子代理只显示标题。
+		const runLikeIds = new Set(
 			active
-				.filter((entry) => entry.kind === "running")
+				.filter((entry) => {
+					if (entry.kind === "running") return true;
+					if (entry.kind === "subagent")
+						return snapshot?.byId?.[entry.id]?.running === true;
+					return false;
+				})
 				.map((entry) => entry.id),
 		);
-		syncLiveness(runningIds);
+		syncLiveness(runLikeIds);
 		for (const entry of active) {
+			const live = livenessById.get(entry.id)?.liveness ?? null;
 			if (entry.kind === "running") {
-				const live = livenessById.get(entry.id)?.liveness ?? null;
 				const elapsedMs =
 					live?.startTime != null
 						? Math.max(0, Date.now() - live.startTime)
+						: null;
+				// token/速率取自 sessions.list 条目的投影（tokenUsage/sessionStats），
+				// 复用既有列表订阅，无新增轮询（R-01-009/AC-05、R-02-004/AC-02）。
+				const projection = snapshot?.byId?.[entry.id]?.projectionValues;
+				const outputTokens = projection?.tokenUsage?.outputTokens ?? null;
+				const stats = projection?.sessionStats;
+				const rateTokS =
+					stats && Number.isFinite(stats.decodeMs) && stats.decodeMs > 0
+						? stats.decodeTokens / (stats.decodeMs / 1000)
 						: null;
 				entry.status = statusLine({
 					runningTool: live?.runningTool ?? null,
 					streaming: live?.streaming ?? false,
 					elapsedMs,
+					outputTokens,
+					rateTokS,
+				});
+				// 阶段进度：progressOf 估计 + 按回合单调下限（tool 阶段冻结、回合切换重置）。
+				let progress = progressOf({
+					phase: live?.runningTool ? "tool" : live?.streaming ? "stream" : "think",
+					outputTokens: outputTokens ?? 0,
+					elapsedMs: elapsedMs ?? 0,
+				});
+				const prev = progressFloor.get(entry.id);
+				const turn = live?.turn ?? null;
+				const floor = prev !== undefined && prev.turn === turn ? prev.floor : 0;
+				if (progress !== null) {
+					progress = Math.max(floor, progress);
+					progressFloor.set(entry.id, { turn, floor: progress });
+				} else {
+					progress = prev !== undefined && prev.turn === turn ? prev.floor : 0;
+				}
+				entry.progress = progress;
+			}
+			if (entry.kind === "running" || entry.kind === "subagent") {
+				entry.trace = buildTrace({
+					nodes: live?.nodes ?? [],
+					runningTool: live?.runningTool ?? null,
+					runningArgs: live?.runningArgs ?? null,
+					streaming: live?.streaming ?? false,
+					reasoning: live?.reasoning ?? false,
+					turnStartTime: live?.startTime ?? null,
+					now: Date.now(),
 				});
 			}
 		}
+		// 清理已不在运行/子代理集的进度下限，避免残留。
+		for (const id of progressFloor.keys())
+			if (!runLikeIds.has(id)) progressFloor.delete(id);
 		const recent = buildRecent(snapshot, workspaceItems, now);
 
 		const sig = cardSignature([...active, ...recent]);
@@ -895,6 +1092,7 @@ function apply(ctx) {
 			} catch {}
 		}
 		livenessById.clear();
+		progressFloor.clear();
 		bodyObserver.disconnect();
 		frameObserver?.disconnect();
 		if (frameProbeTimer !== null) clearInterval(frameProbeTimer);

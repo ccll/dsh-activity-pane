@@ -11,12 +11,18 @@ import { fileURLToPath } from "node:url";
 import {
 	buildEntries,
 	buildRecent,
+	buildTrace,
 	cardSignature,
+	cleanPreview,
 	fmtElapsedMs,
+	fmtTokens,
 	isActiveRow,
 	pendingText,
+	progressOf,
 	statusLine,
 	subagentTitle,
+	summarizeToolArguments,
+	TRACE_MAX_ITEMS,
 	workspaceTitleForSession,
 } from "../src/core.mjs";
 
@@ -126,6 +132,111 @@ assert.notEqual(stStream, stPlain, "流式→闲置 状态文案变化");
 assert.equal(stTool, "工具：bash · 2m5s", "工具状态含运行时长");
 assert.equal(fmtElapsedMs(47_000), "47s", "时长短格式");
 assert.equal(fmtElapsedMs(193_000), "3m13s", "时长分秒格式");
+
+// ---- R-01-009/AC-04 工具参数白名单摘要（不含完整命令/原始 JSON）----
+assert.equal(
+	summarizeToolArguments('{"command":"rm -rf /","description":"清理目录"}'),
+	"清理目录",
+	"白名单 description 字段提取摘要",
+);
+assert.equal(
+	summarizeToolArguments('{"path":"/srv/ops/a.log"}'),
+	"/srv/ops/a.log",
+	"白名单 path 字段提取摘要",
+);
+assert.equal(
+	summarizeToolArguments('{"url":"https://example.com/x"}'),
+	"https://example.com/x",
+	"白名单 url 字段提取摘要",
+);
+assert.equal(
+	summarizeToolArguments('{"command":"top","cwd":"/srv"}'),
+	null,
+	"仅 command/cwd 不入摘要（不含完整命令）",
+);
+assert.equal(summarizeToolArguments("not-json{{"), null, "不可解析参数返回 null");
+assert.equal(summarizeToolArguments(123), null, "非对象参数返回 null");
+assert.equal(cleanPreview("  a   b "), "a b", "摘要文本折叠空白");
+assert.equal(cleanPreview("", 10), null, "空文本返回 null");
+assert.equal(cleanPreview("x".repeat(100), 88)?.length, 88, "超长摘要在 88 字符内截断");
+
+// ---- R-01-009/AC-05 输出 token 计数与速率 ----
+assert.equal(fmtTokens(847), "847", "千以下原样计数");
+assert.equal(fmtTokens(1200), "1.2k", "千以上缩写");
+assert.equal(fmtTokens(-1), null, "负数不展示");
+assert.equal(fmtTokens(NaN), null, "非有限数不展示");
+assert.equal(
+	statusLine({ streaming: true, outputTokens: 1200, rateTokS: 12.3, elapsedMs: 47_000 }),
+	"正在回复… · 1.2k tok · 12 tok/s · 47s",
+	"状态行拼接 token 计数与速率",
+);
+assert.equal(
+	statusLine({ runningTool: "bash", elapsedMs: 125_000 }),
+	"工具：bash · 2m5s",
+	"不传 token/速率时保持原有状态行（向后兼容）",
+);
+
+// ---- R-01-009/AC-06 阶段进度（tool 冻结由渲染层按回合单调下限保持）----
+assert.equal(progressOf({ phase: "stream", outputTokens: 0, elapsedMs: 0 }), 10, "流式起始 10%");
+const pStream = progressOf({ phase: "stream", outputTokens: 5000, elapsedMs: 0 });
+assert.ok(pStream > 10 && pStream <= 90, "流式 token 越多进度越高且在 90 内");
+const pThinkEarly = progressOf({ phase: "think", outputTokens: 0, elapsedMs: 0 });
+const pThinkLate = progressOf({ phase: "think", outputTokens: 0, elapsedMs: 10_000 });
+assert.ok(pThinkLate >= pThinkEarly, "think 阶段随时长爬升不倒退");
+assert.equal(progressOf({ phase: "tool", outputTokens: 100, elapsedMs: 1000 }), null, "tool 阶段冻结返回 null（渲染层保持上一进度）");
+assert.ok(progressOf({ phase: "stream", outputTokens: 1_000_000 }) <= 90, "进度有上界");
+// 注：R-01-009/AC-06 的"同回合不倒退/回合重置"为渲染层单调下限，属 GUI 验收项（scripts/acceptance.mjs）。
+
+// ---- R-01-009/AC-07 流程节点轨迹（阶段/工具、状态、耗时、不泄密）----
+const traceNodes = [
+	{ callId: "c1", call: { name: "bash", argsRaw: '{"command":"ls","path":"/tmp"}' }, callTime: 1000, time: 3000, isError: false },
+	{ callId: "c2", call: { name: "read", argsRaw: '{"file_path":"/a/b.txt"}' }, callTime: 4000, time: 6000, isError: true },
+];
+const trace = buildTrace({
+	nodes: traceNodes,
+	runningTool: "web_search",
+	runningArgs: '{"query":"dsh","url":"https://x"}',
+	turnStartTime: 100,
+	now: 1000,
+});
+assert.equal(trace[0].label, "调用 bash", "已定案工具节点标签");
+assert.equal(trace[0].detail, "/tmp", "已定案节点参数摘要（path 白名单）");
+assert.equal(trace[0].status, "done", "成功节点状态");
+assert.equal(trace[0].durationMs, 2000, "已定案节点耗时=time-callTime");
+assert.equal(trace[1].status, "error", "出错节点状态");
+assert.equal(trace[1].detail, "/a/b.txt", "file_path 白名单摘要");
+const current = trace[trace.length - 1];
+assert.equal(current.label, "调用 web_search", "当前阶段=进行中的工具");
+assert.equal(current.status, "running", "当前阶段为运行中");
+assert.equal(current.detail, "dsh", "当前工具参数摘要（白名单按序取 describe/query/path/url）");
+assert.ok(!JSON.stringify(trace).includes('"ls"'), "摘要不含完整命令/原始 JSON");
+const manyNodes = Array.from({ length: 10 }, (_, i) => ({
+	callId: `t${i}`,
+	call: { name: `tool${i}`, argsRaw: "{}" },
+	callTime: i,
+	time: i + 1,
+}));
+assert.ok(
+	buildTrace({ nodes: manyNodes, turnStartTime: 1, now: 9 }).length <= TRACE_MAX_ITEMS,
+	"trace 上限裁剪",
+);
+// 纯流式阶段节点
+const phaseTrace = buildTrace({ streaming: true, turnStartTime: 100, now: 1000 });
+assert.equal(phaseTrace[0].label, "组织回答", "流式阶段节点文案");
+const thinkTrace = buildTrace({ turnStartTime: 100, now: 1000 });
+assert.equal(thinkTrace[0].label, "运行中…", "无流式/工具时显示运行中文案");
+
+// ---- R-02-003/AC-01 富卡字段并入签名后，进度/轨迹变化必触重重绘 ----
+assert.notEqual(
+	cardSignature([...entries, { ...entries[0], progress: 42 }]),
+	cardSignature(entries),
+	"progress 变化签必变",
+);
+assert.notEqual(
+	cardSignature([...entries, { ...entries[0], trace: [{ id: "x", label: "调用 bash" }] }]),
+	cardSignature(entries),
+	"trace 变化签名必变",
+);
 
 // ---- R-01-010/AC-01 非活动且 24h 内→最近历史区 ----
 const NOW = 2_000_000_000_000; // 固定时钟便于确定性断言

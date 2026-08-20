@@ -21,12 +21,25 @@ const PENDING_LABELS = {
 	question: "待回复",
 };
 
+/** 工具参数白名单：只在其中提取摘要，绝不展示完整命令或原始 JSON（沿用 answer-pet trace 摘要，MIT 参考）。 */
+const TRACE_DETAIL_KEYS = ["description", "query", "pattern", "file_path", "path", "url"];
+/** 运行卡最多展示的流程节点数（已定案工具调用 + 当前阶段）。 */
+export const TRACE_MAX_ITEMS = 4;
+
 function isRecord(value) {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function cleanText(value) {
 	return typeof value === "string" ? value.trim() : "";
+}
+
+/** 展示摘要文本：折叠空白并截断到 max 字符（用于工具参数摘要等长文本）；非字符串返回 null。 */
+export function cleanPreview(value, max = 88) {
+	if (typeof value !== "string") return null;
+	const text = value.replace(/\s+/g, " ").trim();
+	if (text.length === 0) return null;
+	return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
 /** 需要用户行动的种类的展示文案。 */
@@ -203,6 +216,8 @@ export function cardSignature(entries) {
 			entry.pendingText ?? null,
 			entry.status ?? null,
 			entry.updatedAt ?? null,
+			entry.progress ?? null,
+			entry.trace ?? null,
 		]),
 	);
 }
@@ -275,17 +290,158 @@ export function fmtElapsedMs(ms) {
 	return `${Math.floor(s / 60)}m${s % 60}s`;
 }
 
+/** token 计数的人性化短格式，例如 "847"、"1.2k"；非有限非负时返回 null。 */
+export function fmtTokens(n) {
+	if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return null;
+	return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n));
+}
+
 /**
- * 轮内状态文案：由渲染器把运行中会话的原生订阅快照映射为
- * `{ runningTool, streaming, elapsedMs }` 后调用。无任何宿主依赖。
+ * 从工具参数中提取安全短摘要：只从白名单字段取，绝不展示完整命令或原始 JSON。
+ * 参数为字符串时先尝试 JSON 解析；解析失败或非对象一律返回 null（R-01-009/AC-04）。
  */
-export function statusLine({ runningTool = null, streaming = false, elapsedMs = null } = {}) {
-	const head = runningTool
-		? `工具：${runningTool}`
-		: streaming
-			? "正在回复…"
-			: "运行中…";
+export function summarizeToolArguments(raw) {
+	let args = raw;
+	if (typeof raw === "string") {
+		try {
+			args = JSON.parse(raw);
+		} catch {
+			return null;
+		}
+	}
+	if (args === null || typeof args !== "object" || Array.isArray(args)) return null;
+	for (const key of TRACE_DETAIL_KEYS) {
+		const text = cleanPreview(args[key]);
+		if (text !== null) return text;
+	}
+	return null;
+}
+
+/**
+ * 轮内进度估计（0–100）：阶段权重 + 输出 token 累计填充（无 maxTokens 时用饱和
+ * 曲线）。纯函数给出阶段式估计；tool 阶段冻结返回 null（由渲染层保持上一进度）；
+ * 渲染层再按回合叠加单调下限，保证同回合不倒退（R-01-009/AC-06）。
+ */
+export function progressOf({ phase = "think", outputTokens = 0, elapsedMs = 0 } = {}) {
+	const out = Number.isFinite(outputTokens) && outputTokens >= 0 ? outputTokens : 0;
+	const sec =
+		Math.max(
+			0,
+			(Number.isFinite(elapsedMs) && elapsedMs >= 0 ? elapsedMs : 0) / 1000,
+		);
+	if (phase === "tool") return null;
+	if (phase === "stream") {
+		const fill = Math.min(1, 1 - Math.exp(-out / 600));
+		return Math.round((10 + 80 * fill) * 10) / 10;
+	}
+	return Math.round(Math.min(10, 5 + sec * 0.5) * 10) / 10;
+}
+
+/** 已定案工具调用节点：`legacy.nodes` 中的工具结果（含 call 信息）。 */
+function isTraceToolNode(node) {
+	return isRecord(node) && isRecord(node.call) && typeof node.call.name === "string";
+}
+
+/** 节点是否带 (time, callTime) 双时间戳，可用其近似耗时。 */
+function hasTraceTimes(node) {
+	return Number.isFinite(node.time) && Number.isFinite(node.callTime);
+}
+
+/**
+ * 构建运行卡「最近流程节点」轨迹：已定案工具调用（来自 legacy.nodes，含
+ * label/detail/status/durationMs）+ 当前阶段节点（运行中），最多 TRACE_MAX_ITEMS。
+ * durationMs 为近似值：工具节点用 time-callTime，当前阶段用回合已运行时长。
+ * 节点文案只经白名单摘要，不泄露敏感参数（R-01-009/AC-07）。
+ */
+export function buildTrace({
+	nodes = [],
+	runningTool = null,
+	runningArgs = null,
+	streaming = false,
+	reasoning = false,
+	turnStartTime = null,
+	now = Date.now(),
+} = {}) {
+	const items = [];
+	for (const node of nodes) {
+		if (!isTraceToolNode(node)) continue;
+		items.push({
+			id: typeof node.callId === "string" ? node.callId : `tool:${items.length}`,
+			kind: "tool",
+			label: `调用 ${node.call.name}`,
+			detail: summarizeToolArguments(node.call.argsRaw),
+			status: node.isError === true ? "error" : "done",
+			durationMs: hasTraceTimes(node) ? Math.max(0, node.time - node.callTime) : null,
+		});
+	}
+	const elapsedMs =
+		Number.isFinite(turnStartTime) ? Math.max(0, now - turnStartTime) : null;
+	let current;
+	if (runningTool) {
+		current = {
+			id: `run:${runningTool}`,
+			kind: "tool",
+			label: `调用 ${runningTool}`,
+			detail: summarizeToolArguments(runningArgs),
+			status: "running",
+			durationMs: elapsedMs,
+		};
+	} else if (streaming) {
+		current = {
+			id: "run:stream",
+			kind: "phase",
+			label: "组织回答",
+			detail: null,
+			status: "running",
+			durationMs: elapsedMs,
+		};
+	} else if (reasoning) {
+		current = {
+			id: "run:reason",
+			kind: "phase",
+			label: "推理与规划",
+			detail: null,
+			status: "running",
+			durationMs: elapsedMs,
+		};
+	} else {
+		current = {
+			id: "run:think",
+			kind: "phase",
+			label: "运行中…",
+			detail: null,
+			status: "running",
+			durationMs: elapsedMs,
+		};
+	}
+	items.push(current);
+	return items.slice(-TRACE_MAX_ITEMS);
+}
+
+/**
+ * 轮内状态文案：由渲染器把运行中会话的原生订阅快照归一为
+ * `{ runningTool, streaming, elapsedMs, outputTokens, rateTokS }` 后调用。
+ * 状态行 = 头（工具/流式/运行中） · token 计数 · 速率 · 时长（按字段存在拼接）。无任何宿主依赖。
+ */
+export function statusLine({
+	runningTool = null,
+	streaming = false,
+	elapsedMs = null,
+	outputTokens = null,
+	rateTokS = null,
+} = {}) {
+	const parts = [
+		runningTool
+			? `工具：${runningTool}`
+			: streaming
+				? "正在回复…"
+				: "运行中…",
+	];
+	const tokens = fmtTokens(outputTokens);
+	if (tokens !== null) parts.push(`${tokens} tok`);
+	if (Number.isFinite(rateTokS) && rateTokS >= 0)
+		parts.push(`${Math.round(rateTokS)} tok/s`);
 	if (Number.isFinite(elapsedMs) && elapsedMs >= 0)
-		return `${head} · ${fmtElapsedMs(elapsedMs)}`;
-	return head;
+		parts.push(fmtElapsedMs(elapsedMs));
+	return parts.join(" · ");
 }

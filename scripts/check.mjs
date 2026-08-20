@@ -197,6 +197,13 @@ execFileSync(process.execPath, [join(root, "scripts/build-client.mjs")], {
 });
 const bundle = await readFile(join(root, ".dsh-plugin/client.js"), "utf8");
 
+// bundle 必须是可解析的合法 JS（new Function 只编译不执行）——防止 CSS 模板内
+// 误插反引号这类"字符串检查能过、但 loader 导入即失败"的损坏。
+assert.doesNotThrow(
+	() => new Function(bundle),
+	"bundle 必须是合法 JS（可被 loader 导入注册）",
+);
+
 // ---- R-02-001/AC-01 未安装任何第三方宠物插件时仍可用；R-02-001/AC-02 无第三方状态路由；
 //      R-02-004/AC-02 轮内状态不引入新的 HTTP 轮询 ----
 // 校验的是运行时引用：不得注入第三方插件服务、不得请求其状态路由、不得发起状态轮询

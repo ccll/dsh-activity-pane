@@ -85,7 +85,7 @@ const CSS = `
 [data-dsh-activity-pane] .dap-collapse { display: none; font-size: 13px; }
 [data-dsh-activity-pane] .dap-close { display: none; font-size: 14px; }
 /* 单一滚动区：活动区与最近历史同一容器滚动；touch-action/overscroll 防止
-   触屏滚动穿透到下层页面（移动端 `滚的是下面的会话界面` 即根因）。 */
+   触屏滚动穿透到下层页面（移动端「滚的是下面的会话界面」即根因）。 */
 [data-dsh-activity-pane] .dap-scroll {
   flex: 1;
   min-height: 0;

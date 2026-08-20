@@ -1,14 +1,13 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 
 /**
- * 生成 .dsh-plugin/client.js。使用原地写入（fs.writeFile 截断同一文件），
- * 保证以 `file:` 依赖安装进 profile 时的硬链接 inode 不被破坏——这样写一次
- * 既能更新 source 副本，也能即时刷新 DSH 服务器侧面 HMR 监视的那个 bundle
- * 文件。watch.mjs 与 check.mjs 都调用本函数。
+ * 生成 .dsh-plugin/client.js。采用"写临时文件 + 原子 rename"，保证任何并发写入
+ * 或 HTTP 读取都只看到完整文件（杜绝就地截断写入的撕裂竞态）；profile 侧经
+ * `link:` 符号链接指向本仓库，rename 后立即可见，HMR 的 stat-poll 照常触发。
  */
 export async function build() {
 	const core = (await readFile(join(root, 'src/core.mjs'), 'utf8')).replace(
@@ -28,7 +27,9 @@ ${client}
   }
 });
 `
-	await writeFile(join(root, '.dsh-plugin/client.js'), bundle)
+	const tmp = join(root, '.dsh-plugin/client.js.tmp')
+	await writeFile(tmp, bundle)
+	await rename(tmp, join(root, '.dsh-plugin/client.js'))
 }
 
 // CLI 入口：node scripts/build-client.mjs

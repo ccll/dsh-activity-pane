@@ -526,6 +526,24 @@ assert.ok(bundle.includes("style.remove()"), "卸载移除注入样式");
 assert.ok(bundle.includes("bodyObserver.disconnect()"), "卸载断开观察者");
 assert.ok(bundle.includes("removeEventListener"), "卸载移除事件监听");
 
+// R-01-012/AC-05
+// R-01-012/AC-06
+// R-01-012/AC-07
+// R-01-012/AC-08
+// ---- 回归锚点：动作图标、错误呈现与标题摘要分隔符 ----
+assert.ok(bundle.includes("createUserIcon"), "用户工作项使用人物 SVG 图标");
+assert.ok(bundle.includes('item.kind === "user"'), "用户图标按工作项语义固定选择");
+assert.ok(bundle.includes("createBashIcon"), "Bash 使用稳定的 canonical 图标");
+assert.ok(bundle.includes('item.toolName === "bash"'), "Bash 图标不随原生行状态/展开态漂移");
+assert.ok(bundle.includes('[class*="iconIdle"] svg'), "原生动作图标从 iconIdle 读取而非 disclosure 箭头");
+assert.ok(bundle.includes("nativeIconsByTraceKey"), "错误状态复用此前缓存的动作图标");
+assert.ok(!bundle.includes('disclosure?.querySelector("svg")'), "不得直接复制 disclosure 内第一个 SVG");
+assert.ok(bundle.includes("dap-trace-separator"), "标题与摘要之间有圆点分隔符");
+assert.ok(bundle.includes('main.append(makeEl("span", "dap-trace-separator"))'), "仅在标题和摘要同时存在时插入分隔符");
+assert.ok(bundle.includes('[data-status="error"] .dap-trace-icon'), "错误时动作图标染红");
+assert.ok(bundle.includes('[data-status="error"] .dap-trace-label'), "错误时动作标题染红");
+assert.ok(bundle.includes('[data-status="error"] .dap-trace-summary'), "错误时动作摘要染红");
+
 // R-01-009/AC-09
 // ---- 回归锚点：时间线几何/状态动画（R-01-009/AC-08、AC-09 呈现细节）----
 // 圆点与竖线从卡片内容左边起步：末项不画连接竖线、竖线 left 3px 与 7px 圆点

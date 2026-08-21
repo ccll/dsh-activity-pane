@@ -1101,6 +1101,19 @@ const CSS = `
 [data-dsh-activity-pane] .dap-trace-detail {
   color: #8f9aaa;
 }
+[data-dsh-activity-pane] .dap-trace-separator {
+   width: 2px; height: 2px; flex: none; border-radius: 50%;
+   background: #778394;
+}
+[data-dsh-activity-pane] .dap-trace-item[data-status="error"] .dap-trace-icon,
+[data-dsh-activity-pane] .dap-trace-item[data-status="error"] .dap-trace-label,
+[data-dsh-activity-pane] .dap-trace-item[data-status="error"] .dap-trace-summary,
+[data-dsh-activity-pane] .dap-trace-item[data-status="error"] .dap-trace-separator {
+   color: #f06a72;
+}
+[data-dsh-activity-pane] .dap-trace-item[data-status="error"] .dap-trace-separator {
+   background: currentColor;
+}
 [data-dsh-activity-pane] .dap-trace-time {
   flex: none; font-size: 9.5px; color: #7f8998;
   font-variant-numeric: tabular-nums;
@@ -1287,6 +1300,8 @@ function apply(ctx) {
 	const sessionDetailsById = new Map();
 	/** 运行卡进度单调下限：id → { turn, floor }；随运行集清理、卸载清空。 */
 	const progressFloor = new Map();
+	/** 工作项动作图标缓存：状态切换为 error 时继续复用原动作图标。 */
+	const nativeIconsByTraceKey = new Map();
 	/** 会话跳转的单一重试链；避免重复点击叠加 refresh/timer。 */
 	const openRetryStates = new Map();
 	/** native cold-session reads, one promise per session and no polling. */
@@ -1574,18 +1589,87 @@ function apply(ctx) {
 		return svg;
 	}
 
+	function createInlineIcon({ viewBox, width = 12, height = 12, parts }) {
+		const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+		svg.setAttribute("viewBox", viewBox);
+		svg.setAttribute("width", String(width));
+		svg.setAttribute("height", String(height));
+		svg.setAttribute("fill", "none");
+		svg.setAttribute("aria-hidden", "true");
+		for (const part of parts) {
+			const node = document.createElementNS("http://www.w3.org/2000/svg", part.tag ?? "path");
+			for (const [name, value] of Object.entries(part.attrs)) node.setAttribute(name, value);
+			svg.append(node);
+		}
+		return svg;
+	}
+
+	function createUserIcon() {
+		return createInlineIcon({
+			viewBox: "0 0 16 16",
+			parts: [
+				{ attrs: { d: "M11.0307 5.46369C11.0305 3.78995 9.6734 2.43357 7.99961 2.43357C6.32601 2.43379 4.96972 3.79009 4.96949 5.46369C4.96949 7.13748 6.32587 8.49455 7.99961 8.49477C9.67354 8.49477 11.0307 7.13762 11.0307 5.46369ZM12.3163 5.46369C12.3163 7.84777 10.3837 9.78042 7.99961 9.78042C5.61572 9.7802 3.68288 7.84763 3.68288 5.46369C3.6831 3.07993 5.61586 1.14718 7.99961 1.14695C10.3836 1.14695 12.3161 3.0798 12.3163 5.46369Z", fill: "currentColor" } },
+				{ attrs: { d: "M8.00002 10.3316C11.7343 10.3316 14.1864 11.8997 15.0387 14.4445L14.4292 14.6483L13.8197 14.8531C13.1955 12.9893 11.3673 11.6182 8.00002 11.6182C4.63277 11.6182 2.80455 12.9893 2.18031 14.8531L1.5708 14.6483L0.961304 14.4445C1.81368 11.8997 4.26579 10.3316 8.00002 10.3316Z", fill: "currentColor" } },
+			],
+		});
+	}
+
+	function createBashIcon() {
+		return createInlineIcon({
+			viewBox: "0 0 14 14",
+			parts: [
+				{ tag: "rect", attrs: { x: "1", y: "1", width: "12", height: "12", rx: "2", stroke: "currentColor", "stroke-width": "1.2" } },
+				{ attrs: { d: "M4 5.25L6.75 7.5L4 9.75", stroke: "currentColor", "stroke-width": "1.1", "stroke-linecap": "round", "stroke-linejoin": "round" } },
+				{ attrs: { d: "M7.5 9.5H10", stroke: "currentColor", "stroke-width": "1.1", "stroke-linecap": "round" } },
+			],
+		});
+	}
+
+	function nativeIdleIcon(row) {
+		return row?.querySelector('[class*="iconIdle"] svg') ?? null;
+	}
+
+	function findNativeActionIcon(item, row) {
+		const direct = nativeIdleIcon(row);
+		if (direct !== null) return direct;
+		const conversation = document.querySelector(CONVERSATION_SELECTOR);
+		if (conversation === null) return null;
+		if (item.label === "Think") {
+			for (const candidate of conversation.querySelectorAll('[data-variant="think"]')) {
+				const icon = nativeIdleIcon(candidate);
+				if (icon !== null) return icon;
+			}
+			return null;
+		}
+		if (!item.toolName) return null;
+		for (const candidate of conversation.querySelectorAll("[data-chat-call-id]")) {
+			const tool = candidate.getAttribute("data-tool") ?? candidate.querySelector("[data-tool]")?.getAttribute("data-tool");
+			if (tool !== item.toolName) continue;
+			const icon = nativeIdleIcon(candidate);
+			if (icon !== null) return icon;
+		}
+		return null;
+	}
+
 	function nativeWorkItemPresentation(item) {
 		const row = nativeWorkItemRow(item);
-		if (row === null) return null;
+		const cacheKey = String(item.id ?? "");
+		if (row === null) {
+			return item.toolName === "bash"
+				? { label: item.label ?? "Bash", summary: item.summary ?? item.detail ?? item.text ?? "", state: item.status ?? "running", icon: createBashIcon() }
+				: null;
+		}
 		const disclosure = row.querySelector("[data-disclosure-row]");
 		const children = disclosure === null ? [] : [...disclosure.children];
 		const label = children[1]?.textContent?.trim() ?? "";
 		const summary = children.slice(2).map((child) => child.textContent.trim()).find(Boolean)
 			?? row.querySelector("[data-follow-end]")?.textContent?.trim()
 			?? "";
-		const sourceIcon = disclosure?.querySelector("svg") ?? row.querySelector("svg");
-		const icon = cloneNativeIcon(sourceIcon);
 		const state = row.getAttribute("data-state") ?? row.querySelector("[data-state]")?.getAttribute("data-state") ?? "";
+		const icon = cloneNativeIcon(findNativeActionIcon(item, row))
+			?? nativeIconsByTraceKey.get(cacheKey)?.cloneNode(true)
+			?? (item.toolName === "bash" ? createBashIcon() : null);
+		if (icon instanceof SVGElement && cacheKey) nativeIconsByTraceKey.set(cacheKey, icon.cloneNode(true));
 		return { label, summary, state, icon };
 	}
 
@@ -1608,7 +1692,9 @@ function apply(ctx) {
 			const key = String(item.id ?? index);
 			const line = lines[index] ?? makeEl("div", "dap-trace-item");
 			line.dataset.traceKey = key;
-			const presentation = nativeWorkItemPresentation(item);
+			const presentation = item.kind === "user"
+				? { label: "", summary: "", state: "done", icon: createUserIcon() }
+				: nativeWorkItemPresentation(item);
 			const nativeState = presentation?.state;
 			line.dataset.status = nativeState === "ok" ? "done" : nativeState || (typeof item.status === "string" ? item.status : "running");
 			line.dataset.icon = typeof item.icon === "string" ? item.icon : "other";
@@ -1634,6 +1720,7 @@ function apply(ctx) {
 				main.append(label);
 			}
 			if (summaryText) {
+				if (labelText) main.append(makeEl("span", "dap-trace-separator"));
 				const summary = makeEl("span", "dap-trace-summary");
 				summary.textContent = summaryText;
 				main.append(summary);
@@ -2176,6 +2263,7 @@ function apply(ctx) {
 		}
 		livenessById.clear();
 		progressFloor.clear();
+		nativeIconsByTraceKey.clear();
 		for (const sessionId of openRetryStates.keys()) cancelOpenRetry(sessionId);
 		openRetryStates.clear();
 		renderedPane = null;

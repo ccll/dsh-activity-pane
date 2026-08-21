@@ -103,7 +103,7 @@ sequenceDiagram
   - 工作项数据优先从原生 `ConversationSnapshot.chat` 的 `order` / `nodes` 读取，按主会话窗口显示顺序取尾部 4 项；冷会话使用 native `sessions.history` 的一次性读取补齐，不克隆第三方 UI 路由。运行中当前项由原生 `session.subscribe` 推送刷新（R-01-012）。
   - 模型上下文从 native `sessions.models` 的当前选择与 catalog metadata 归一，模型名称与 reasoning level 缺失时保持空值；不使用 `agentPreset` 冒充模型（R-01-012）。
   - 富卡统计：运行卡展示工具白名单参数摘要、输出 token/速率、阶段进度与最近流程节点轨迹；原始参数经 `summarizeToolArguments` 白名单过滤后再上卡（R-01-009）。
-  - 运行卡外观沿用 answer-pet 的卡片质感：工作项时间线从卡片内容左边界起步，竖线与圆点严格同圆心、当前节点带半透明外环并闪烁；进度条为 5px 圆角，流式阶段内部向右滚动条纹动画，经 `data-streaming` 驱动；卡片不渲染独立当前动作状态行（R-01-009/AC-02、AC-08、AC-09；R-01-012/AC-03、AC-04）。
+  - 运行卡外观沿用 answer-pet 的卡片质感：工作项时间线从卡片内容左边界起步，竖线与圆点严格同圆心、当前节点带半透明外环并闪烁；进度条为 5px 圆角，流式阶段内部向右滚动条纹动画，经 `data-streaming` 驱动；卡片不渲染独立当前动作状态行；工作项标题与摘要之间显示小圆点，用户项使用人物图标，错误项保留动作图标并将图标/文字染为错误红色；Bash 使用稳定的原生 API 图标，不读取展开态下的 disclosure 箭头（R-01-009/AC-02、AC-08、AC-09；R-01-012/AC-03～AC-08）。
   - 桌面列提供折叠控制，折叠为不占正文宽度的窄条（R-01-011）。
 
 ## 核心数据与不变量
@@ -159,7 +159,7 @@ sequenceDiagram
 - 活动卡片集合：`活动状态模型#buildEntries(snapshot, workspaceItems)` 产出已排序的活动卡片条目数组（R-01-001）。
 - 最近历史集合：`活动状态模型#buildRecent(snapshot, workspaceItems, now)` 产出按最近活动时间倒序、容限 24h、上限 20 条的最近卡片（R-01-010）。
 - 轮内状态数据：`活动状态模型#runtimeStats({ runningTool, streaming, elapsedMs, outputTokens, rateTokS })` 产出运行卡所需的时长、token 与速率字段；当前动作不再单独输出为卡片状态行，工具名、回复文本与详情进入 `工作项时间线`（R-01-009/AC-01、AC-02、AC-03、AC-05）。
-- 流程节点轨迹：`活动状态模型#buildTrace(...)` 产出最近少量流程节点（已定案工具调用 + 当前阶段），含 label/detail/status/durationMs；`summarizeToolArguments` 只从白名单字段提取摘要（R-01-009/AC-07）。渲染层以竖线串圆点的时间线呈现：轨道从卡片内容左边界起步，竖线与圆点严格同圆心（整数像素位，避免 1px 竖线分数位吸附偏移）、穿过首个节点圆点并向上引出（表示更早历史被省略）、终点没入最新动作圆点内部不外露；圆点带半透明外环、正在执行节点蓝色外环 + 闪烁、已定案节点绿/红实心圆点，且圆点位于内容区不被容器裁切（R-01-009/AC-09）。
+- 流程节点轨迹：`活动状态模型#buildTrace(...)` 产出最近少量流程节点（已定案工具调用 + 当前阶段），含 label/detail/status/durationMs；`summarizeToolArguments` 只从白名单字段提取摘要（R-01-009/AC-07）。渲染层以竖线串圆点的时间线呈现：轨道从卡片内容左边界起步，竖线与圆点严格同圆心（整数像素位，避免 1px 竖线分数位吸附偏移）、穿过首个节点圆点并向上引出（表示更早历史被省略）、终点没入最新动作圆点内部不外露；圆点带半透明外环、正在执行节点蓝色外环 + 闪烁、已定案节点绿/红实心圆点，且圆点位于内容区不被容器裁切。工作项渲染优先读取原生 `iconIdle` 中的动作图标，排除 hover/open disclosure 箭头与错误 `StateDot`；用户项用人物 SVG，Bash 无论状态/展开态均使用稳定的原生 API 图标；错误项只改变图标与标题/摘要颜色，不替换图标；标题和摘要之间插入 2px 圆形分隔符（R-01-009/AC-09、R-01-012/AC-03～AC-08）。
 - 阶段进度：`活动状态模型#progressOf({ phase, outputTokens, elapsedMs })` 产出 0–100 的估计百分比（tool 阶段冻结返回 null）；渲染层按回合叠加单调下限，保证同回合不倒退；首观测即 tool 阶段（中途接入）以思考基线兜底防 0（R-01-009/AC-06）。渲染层以 5px 圆角进度条呈现，流式阶段（`data-streaming`）填充为向右滚动条纹动画（R-01-009/AC-08）。
 - 等待文案：`pendingText(kind)` 将待确认/待审查/待回复归一为中文标识；完成态默认"需要响应"（R-01-002）。
 - 层级结构：子代理经 `parentId` 关联并以 `depth` 表达缩进；子代理标题优先取目录 label，其次显示标题（R-01-003）。
@@ -196,7 +196,7 @@ sequenceDiagram
   - 内容区为上「活动会话」下「最近历史」两段，各自带空态；由同一快照派生。
   - 卡片按 id 复用，流程节点按稳定 id 复用 DOM；配合签名去重避免无谓 DOM 写入，并保持运行节点脉冲动画连续。
   - 对每个运行中会话经 `sessions.binding(id).session` 订阅轮内状态与 ChatSnapshot，归一为 `runtimeStats` 与工作项时间线；时长在渲染期按起始时间实时计算；停止运行或卸载即 `unsubscribe`。冷会话只通过 native history/model 的一次性读取补齐，不进行状态轮询。
-  - 运行卡外观对齐 answer-pet：CSS 实现动作时间线（从卡片内容左边界起步、竖线 + 圆点半透明外环 + 运行节点闪烁）与进度条（5px、流式 `data-streaming` 条纹动画）；`prefers-reduced-motion` 仅关闭填充宽度 transition，不关闭状态脉冲/流式条纹；`streaming` 字段并入稳定签名以驱动属性翻转重绘。
+  - 运行卡外观对齐 answer-pet：CSS 实现动作时间线（从卡片内容左边界起步、竖线 + 圆点半透明外环 + 运行节点闪烁）与进度条（5px、流式 `data-streaming` 条纹动画）；工作项标题与摘要之间渲染小圆点；错误项通过 `data-status="error"` 将保留的动作 SVG、标题和摘要染红；`prefers-reduced-motion` 仅关闭填充宽度 transition，不关闭状态脉冲/流式条纹；`streaming` 字段并入稳定签名以驱动属性翻转重绘。
   - 桌面列折叠为窄条 + 计数；移动端经媒体查询切为固定抽屉 + 浮动开关按钮。
   - 激活经几何命中 + capture 监听（限定窗格内部），配列表就绪重试。
 - 代码位置: src/client.mjs

@@ -6,7 +6,7 @@ id: T-005
 
 # T-005 撤回最近历史卡增强
 
-状态: active
+状态: completed
 关联: C-007 → R-01-010 / 活动状态模型、窗格渲染器；R-01-003 / 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -44,10 +44,13 @@ id: T-005
 
 ## 终态与证据
 
-（实现后填写：实现 / 测试 / DESIGN 对照 / commit / review）
-
-- 实现: 待补
-- 测试: 待补
-- DESIGN 对照: 待补
-- commit: 待补
-- review: 待补
+- 实现: 移除 T-004 的 `lastActivityPreview`、`lastActivity`、`timelineUserMessages` 数据链、`.dap-lastact` 预览行、最近卡新增 `.dap-workspace` 骨架；恢复 PRD/DESIGN/DOMAIN/测试与 bundle 到 `b2b416f` 当前态；C-006/T-004 历史保留，C-007 追加说明撤回。
+- 测试: `pnpm build:client && pnpm check` 通过；`python3 tools/agentmap_lint.py --report` 通过（15 需求、41 AC、41 测试锚点）；GUI 回归确认最近卡恢复为标题 + 最近时间，未出现 T-004 的 `.dap-lastact` 预览行或新最近卡徽标；并发 agent 的 README/TODO 与时间线几何未纳入 commit。
+- DESIGN 对照: 当前 PRD/DESIGN/DOMAIN、代码与测试相对 `b2b416f` 一致；R-01-010 当前只保留活动/最近分区、窗口、排序与空态契约；T-004 的新增 AC 与术语已从当前活文档级联移除。
+- commit: c39e092
+- review:
+  - 审核方: Standards 子代理（kimi-coding/k3）/ Spec 子代理（kimi-coding/k3）
+  - 目的理解: 审核 T-005 是否完整撤回 T-004 的最近卡工作区徽标、`timelineUserMessages`/`lastActivity`/预览行与当前 map/测试扩展，恢复标题+最近时间基线，同时保留 C-006/T-004 审计历史并隔离并发未提交改动。
+  - 执行方式: code-review skill 双轴并行审核，固定点 `dfdd24a`，目标 `c39e092`，只审 `git diff dfdd24a...c39e092`；子代理后端为 kimi-coding/k3。
+  - 问题与修复: 无。Standards 核验代码/map/测试与 `b2b416f` 基线一致、C-007 四段式与 T-005 验证矩阵合规；Spec 核验撤回完整、审计保留、并发隔离与验证要求均满足。
+  - 复审结论: Standards 与 Spec 均通过，无残留 finding。

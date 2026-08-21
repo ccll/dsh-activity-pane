@@ -1047,10 +1047,10 @@ const CSS = `
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 7px; min-width: 0;
   padding-left: 14px;   /* 左侧轨道：圆点（圆心 x=3.5）与竖线（x=3.5）共用 */
-  color: #c7ced9; font-size: 14px; line-height: 24px;
+  color: #c7ced9; font-size: 10px; line-height: 14px;
 }
 [data-dsh-activity-pane] .dap-trace-item::before {
-  content: ""; position: absolute; left: 0; top: 8px;
+  content: ""; position: absolute; left: 0; top: 3px;
   width: 7px; height: 7px; border-radius: 50%;
   z-index: 1;           /* 圆点盖在竖线上：竖线从圆点中穿过被其遮盖 */
   background: #778394;
@@ -1072,10 +1072,10 @@ const CSS = `
 }
 /* 每项一段竖线（末项不画，z-index 低于圆点）：从项顶（容器顶）贯穿本项、经圆点下方
    继续延伸到下一颗圆点顶缘 —— 线穿过首个节点圆点并向上引出（省略的历史）、终点没入
-   最新动作圆点内部不外露。依赖 24px 行高 + 3px 间距；bottom 多 1px 让终点藏进
+   最新动作圆点内部不外露。依赖 14px 行高 + 3px 间距；bottom 多 1px 让终点藏进
    下一颗圆点。 */
 [data-dsh-activity-pane] .dap-trace-item::after {
-  content: ""; position: absolute; left: 3px; top: 0; bottom: -11px;
+  content: ""; position: absolute; left: 3px; top: 0; bottom: -8px;
   width: 1px; z-index: 0;
   background: rgba(126, 147, 177, .3);
 }
@@ -1102,7 +1102,7 @@ const CSS = `
   color: #8f9aaa;
 }
 [data-dsh-activity-pane] .dap-trace-time {
-  flex: none; font-size: 10px; line-height: 24px; color: #7f8998;
+  flex: none; font-size: 9.5px; color: #7f8998;
   font-variant-numeric: tabular-nums;
 }
 /* 子代理：同一节点项几何（轨道/圆点/竖线在项内自绘）；去掉容器级 overflow/padding/
@@ -1553,6 +1553,8 @@ function apply(ctx) {
 			const value = source.getAttribute(name);
 			if (value !== null) svg.setAttribute(name, value);
 		}
+		svg.setAttribute("width", "12");
+		svg.setAttribute("height", "12");
 		svg.setAttribute("aria-hidden", "true");
 		const graphicTags = new Set(["path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "g"]);
 		const graphicAttrs = new Set(["d", "fill", "fill-rule", "clip-rule", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "x", "y", "x1", "x2", "y1", "y2", "width", "height", "rx", "ry", "points", "transform", "opacity", "fill-opacity", "stroke-opacity"]);

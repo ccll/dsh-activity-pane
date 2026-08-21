@@ -6,7 +6,7 @@ id: T-004
 
 # T-004 最近卡片信息增强（工作区徽标 + 最后活动概览）
 
-状态: active
+状态: completed
 关联: R-01-010 → 活动状态模型；R-01-010 → 窗格渲染器；R-01-003/AC-03 → 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -51,10 +51,13 @@ id: T-004
 
 ## 终态与证据
 
-（实现后填写：实现 / 测试 / DESIGN 对照 / commit / review）
-
-- 实现: 待补
-- 测试: 待补
-- DESIGN 对照: 待补
-- commit: 待补
-- review: 待补
+- 实现: 最近卡补工作区徽标（骨架增 `.dap-workspace`，复用通用渲染；R-01-003/AC-03 缺口收口）+ 最后活动概览行（新增核心纯函数 `lastActivityPreview`，取 `projectionValues.timelineUserMessages` 中 `seq` 最大条目的 `text`、缺失回退 `reply`、`cleanPreview` 截断；投影缺失/空/非数组返回 null → 卡片仅显示时间；`buildRecent` 条目新增 `lastActivity`；`cardSignature` 并入 `lastActivity` 触发去重重绘）；文案一律 `textContent` 写入；新增 `.dap-lastact` CSS（缺失整行隐藏只留时间）。审核修复：DESIGN 契约 null/undefined 表述矛盾收敛为 null、核心结构去掉 `?` 可选标注；防御性按 `seq` 取最大而非数组末位；client 冗余 `kind` 三元化简；PRD 措辞向 DOMAIN 规范词「最后活动概览」收敛。
+- 测试: `node scripts/check.mjs` 全过（新增 R-01-003/AC-03 最近卡工作区归属、R-01-010/AC-05 lastActivityPreview 取 text/回退 reply/空投影/缺 key/无 projectionValues/超长截断/乱序按 seq 取最大、buildRecent 携带 lastActivity、cardSignature 随 lastActivity 变化）；GUI 人工实测确认最近卡显示工作区徽标 + 最后活动概览 + 时间行（headless Chrome 实测）；`agentmap_lint` 全绿（15 需求 / 43 AC / 锚定 43 / design-covered 15）。
+- DESIGN 对照: 核心数据 `lastActivity`（恒写入、缺失为 null）、产品契约（buildRecent 输出 + lastActivityPreview 契约）、子系统（活动状态模型 helper + 渲染器最近卡骨架）、分区不变量、关键机制（数据源与降级）、追溯索引均已同步；DESIGN 与实现对照无差异。
+- commit: 886d1ad
+- review:
+  - 审核方: Standards 子代理（kimi-coding/k3）/ Spec 子代理（kimi-coding/k3）
+  - 目的理解: 审核 T-004 实现相对 PRD R-01-003/AC-03、R-01-010/AC-05、AC-06 与 DESIGN 契约、DECISIONS C-006、R-02-003 签名去重、横切约束（textContent 防注入、core 纯函数）的符合度，及仓库标准（AGENTS.md、CONVENTIONS）遵循。
+  - 执行方式: code-review skill 双轴（Standards+Spec）并行子代理，评审基线 b2b416f（含并发 T-003 已提交部分），审核快照 /tmp/t004.diff + /tmp/t004_task.diff；子代理后端改用 kimi-coding/k3（opencode-go 额度受限）。
+  - 问题与修复: Standards — DESIGN 契约「缺失为 undefined」与实现返回 null 不符 → 收敛为 null 并去 `?` 标注；renderCardInto 冗余 `kind==="recent"` 三元（Speculative Generality）→ 化简为 `entry.lastActivity ?? ""`；术语漂移（PRD「最后做的事情概览」vs DOMAIN「最后活动概览」）→ PRD 向规范词收敛。Spec — DESIGN 契约段两处取值表述冲突 → 同 Standards 修复；「最后一条」依赖数组顺序的隐含约定 → 防御性改为按 `seq` 取最大条目（check.mjs 补乱序断言锁定）。
+  - 复审结论: 修复后重跑 `node scripts/check.mjs` 全过、`agentmap_lint` 全绿；残留为判断性提示（renderCardInto `workspaceTitle !== ""` 若上游传 undefined 会写 "undefined"——当前 buildRecent/buildEntries 均保证字符串、无触发路径，仅记录；`.dap-lastact` 缩写轻度 Mysterious Name）。

@@ -663,33 +663,48 @@ function apply(ctx) {
 	}
 
 	/**
-	 * 重绘 trace 容器。lastOnly 时只显示最后一项（子代理当前阶段）且省略每项耗时；
-	 * 全量重绘，受签名去重闸门保护，故无需逐项 diff（R-02-003/AC-01）。
+	 * 更新 trace 容器。运行中的同一节点只更新文字/耗时，复用 DOM 保持脉冲动画连续；
+	 * 节点身份或数量变化时才重建（R-02-003/AC-01）。
 	 */
 	function renderTrace(container, items, { lastOnly = false } = {}) {
-		container.replaceChildren();
 		const list = Array.isArray(items) ? items : [];
 		const sources = lastOnly ? (list.length === 0 ? [] : [list[list.length - 1]]) : list;
-		for (const item of sources) {
-			if (item === null || typeof item !== "object") continue;
-			const line = makeEl("div", "dap-trace-item");
+		const valid = sources.filter((item) => item !== null && typeof item === "object");
+		const existing = Array.from(container.children);
+		const stable =
+			existing.length === valid.length &&
+			existing.every((line, index) => line.dataset.traceKey === String(valid[index].id ?? index));
+		const lines = stable ? existing : [];
+		if (!stable) container.replaceChildren();
+		for (let index = 0; index < valid.length; index += 1) {
+			const item = valid[index];
+			const key = String(item.id ?? index);
+			const line = lines[index] ?? makeEl("div", "dap-trace-item");
+			line.dataset.traceKey = key;
 			line.dataset.status = typeof item.status === "string" ? item.status : "running";
-			const main = makeEl("span", "dap-trace-main");
-			main.textContent = item.label ?? "";
+			let main = line.querySelector(".dap-trace-main");
+			if (main === null) {
+				main = makeEl("span", "dap-trace-main");
+				line.append(main);
+			}
+			main.replaceChildren();
+			main.append(item.label ?? "");
 			if (typeof item.detail === "string" && item.detail.length > 0) {
 				const detail = makeEl("span", "dap-trace-detail");
 				detail.textContent = ` · ${item.detail}`;
 				main.append(detail);
 			}
-			line.append(main);
 			if (!lastOnly) {
-				const time = makeEl("span", "dap-trace-time");
+				let time = line.querySelector(".dap-trace-time");
+				if (time === null) {
+					time = makeEl("span", "dap-trace-time");
+					line.append(time);
+				}
 				time.textContent = Number.isFinite(item.durationMs)
 					? fmtElapsedMs(item.durationMs)
 					: "";
-				line.append(time);
 			}
-			container.append(line);
+			if (!stable) container.append(line);
 		}
 	}
 

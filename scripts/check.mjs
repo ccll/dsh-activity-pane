@@ -17,6 +17,7 @@ import {
 	fmtElapsedMs,
 	fmtTokens,
 	isActiveRow,
+	lastActivityPreview,
 	pendingText,
 	PROGRESS_THINK_BASE,
 	progressOf,
@@ -321,6 +322,89 @@ const recentSub = buildRecent(recentSubSnap, [], NOW);
 assert.ok(
 	recentSub.some((e) => e.id === "m") && !recentSub.some((e) => e.id === "m-c1"),
 	"最近历史仅主会话，已结束子代理不入历史区",
+);
+
+// ---- R-01-003/AC-03、R-01-010/AC-06 最近卡工作区徽标归属 ----
+const recentWsItems = [{ title: "dsh-activity-pane", path: "/srv/dap", sessionIds: ["sW"] }];
+const recentWsSnap = {
+	ids: ["sW", "sU"],
+	byId: {
+		sW: { id: "sW", displayTitle: "归属W", running: false, completed: false, cwd: "/srv/dap", updatedAt: NOW - 1_000 },
+		sU: { id: "sU", displayTitle: "无归属U", running: false, completed: false, cwd: "/srv/other", updatedAt: NOW - 2_000 },
+	},
+	current: null,
+};
+const recentWs = buildRecent(recentWsSnap, recentWsItems, NOW);
+assert.equal(
+	recentWs.find((e) => e.id === "sW")?.workspaceTitle,
+	"dsh-activity-pane",
+	"可归属会话的最近卡含工作区名称",
+);
+assert.equal(
+	recentWs.find((e) => e.id === "sU")?.workspaceTitle,
+	"",
+	"无法归属的最近卡工作区名称为空（徽标隐藏）",
+);
+
+// ---- R-01-010/AC-05 最后活动概览（timelineUserMessages 投影）----
+assert.equal(
+	lastActivityPreview({
+		timelineUserMessages: [
+			{ seq: 7, time: 1, text: "第一条", reply: "回复一" },
+			{ seq: 9, time: 2, text: "最后一条用户消息", reply: "回复二" },
+		],
+	}),
+	"最后一条用户消息",
+	"取 seq 最大条目的用户消息文本",
+);
+assert.equal(
+	lastActivityPreview({
+		timelineUserMessages: [
+			{ seq: 9, time: 2, text: "应为最大", reply: "" },
+			{ seq: 3, time: 1, text: "靠前的旧条目", reply: "" },
+		],
+	}),
+	"应为最大",
+	"数组乱序时按 seq 取最大（不假设顺序）",
+);
+assert.equal(
+	lastActivityPreview({ timelineUserMessages: [{ seq: 1, time: 1, text: "  ", reply: "回复预览内容" }] }),
+	"回复预览内容",
+	"用户消息文本缺失时回退回复预览",
+);
+assert.equal(
+	lastActivityPreview({ timelineUserMessages: [] }),
+	null,
+	"空投影数组返回 null",
+);
+assert.equal(lastActivityPreview({}), null, "缺 timelineUserMessages 返回 null");
+assert.equal(lastActivityPreview(null), null, "无 projectionValues 返回 null");
+assert.equal(
+	lastActivityPreview({ timelineUserMessages: [{ seq: 1, text: "x".repeat(200), reply: "" }] })?.length,
+	88,
+	"超长预览经 cleanPreview 截断到 88 字符",
+);
+const withLastAct = buildRecent(
+	{
+		ids: ["sL"],
+		byId: {
+			sL: { id: "sL", displayTitle: "含预览", running: false, completed: false, updatedAt: NOW - 1_000, projectionValues: { timelineUserMessages: [{ seq: 1, time: 1, text: "做了什么", reply: "" }] } },
+		},
+		current: null,
+	},
+	[],
+	NOW,
+);
+assert.equal(withLastAct[0]?.lastActivity, "做了什么", "buildRecent 条目携带最后活动概览");
+assert.equal(
+	recentWs.find((e) => e.id === "sU")?.lastActivity,
+	null,
+	"无投影会话的最近卡 lastActivity 为 null（仅时间）",
+);
+assert.notEqual(
+	cardSignature([{ ...withLastAct[0], lastActivity: "不同预览" }]),
+	cardSignature(withLastAct),
+	"lastActivity 变化签名必变（触发重绘）",
 );
 
 // ---- 重建 client bundle 并校验产物契约 ----

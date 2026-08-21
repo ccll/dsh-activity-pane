@@ -221,6 +221,7 @@ export function cardSignature(entries) {
 			entry.progress ?? null,
 			entry.trace ?? null,
 			entry.streaming ?? null,
+			entry.lastActivity ?? null,
 		]),
 	);
 }
@@ -236,6 +237,24 @@ export const HISTORY_MAX = 20;
 export function isSubagentRow(row, byId = {}) {
 	const id = row?.parentId;
 	return id !== undefined && id !== null && isRecord(byId[id]);
+}
+
+/**
+ * 从列表条目投影里提取「最后做的事情」概览：取 `timelineUserMessages` 中
+ * seq 最大的条目（不假设数组顺序），取其用户消息文本（text），缺失时回退
+ * 该条回复预览（reply），经 cleanPreview 截断；投影不可得、为空或内容
+ * 不可用时返回 null（最近卡退化为仅显示时间，见 C-006、R-01-010/AC-05）。
+ */
+export function lastActivityPreview(projectionValues) {
+	if (!isRecord(projectionValues)) return null;
+	const timeline = projectionValues.timelineUserMessages;
+	if (!Array.isArray(timeline) || timeline.length === 0) return null;
+	const last = timeline.reduce((best, item) =>
+		isRecord(item) && Number(item.seq) > (best ? Number(best.seq) : -Infinity)
+			? item
+			: best, null);
+	if (!isRecord(last)) return null;
+	return cleanPreview(last.text) ?? cleanPreview(last.reply);
 }
 
 /**
@@ -279,6 +298,7 @@ export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WI
 			workspaceTitle: workspaceTitleForSession(id, items, byId),
 			isCurrent: current !== null && String(current) === String(id),
 			updatedAt,
+			lastActivity: lastActivityPreview(row.projectionValues),
 		});
 	}
 

@@ -99,6 +99,7 @@ sequenceDiagram
   - 不依赖任何第三方宠物插件，也不向第三方数据路由发请求（R-02-001）。
   - 移动端抽屉不改变主会话布局，离开文档流（R-01-008）。
   - 双区结构：窗格内容区分为上「活动会话」下「最近历史」，两者都由同一快照派生；最近历史仅主会话（R-01-010）。
+  - 最近卡信息：工作区徽标取 `workspaceTitle`（既有逻辑）；「最后做的事情」取 `sessions.list` 条目 `projectionValues.timelineUserMessages` 投影最后一条的用户消息文本（缺失回退回复预览），复用既有列表订阅、无新增轮询；投影不可得（插件未装入）时最近卡仅显示时间，功能不依赖该 key（R-01-010，见 C-006）。
   - 轮内状态通过 `sessions.binding(sessionId).session` 订阅运行中会话取得，随运行结束断开；token/速率统计取 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`，复用既有列表订阅，无新增轮询）；运行时长与进度在渲染期按回合开始时间实时计算（R-01-009、R-02-004）。
   - 富卡统计：运行卡展示工具白名单参数摘要、输出 token/速率、阶段进度与最近流程节点轨迹；原始参数经 `summarizeToolArguments` 白名单过滤后再上卡（R-01-009）。
   - 运行卡外观对齐 answer-pet：状态行头文案（使用工具/回答中/思考中，工具名在末尾）、动作时间线（竖线与圆点严格同圆心、穿过首个节点圆点并向上引出、终点没入最新动作圆点、圆点半透明外环、正在执行节点闪烁、圆点不被容器裁切）、进度条（5px 圆角、流式阶段内部向右滚动条纹动画，经 `data-streaming` 属性驱动）（R-01-009/AC-02、AC-08、AC-09）。
@@ -106,15 +107,15 @@ sequenceDiagram
 
 ## 核心数据与不变量
 
-- 核心结构：`活动卡片条目 = { id, depth, kind: running|awaiting|subagent, title, workspaceTitle, isCurrent, pendingText? }`；`最近卡片条目 = { id, kind: 'recent', title, workspaceTitle, isCurrent, updatedAt }`。
+- 核心结构：`活动卡片条目 = { id, depth, kind: running|awaiting|subagent, title, workspaceTitle, isCurrent, pendingText? }`；`最近卡片条目 = { id, kind: 'recent', title, workspaceTitle, isCurrent, updatedAt, lastActivity }`（`lastActivity` 恒写入，投影缺失时为 null）。
 - 显示过滤（核心不变量）：
   - 主会话显示当 `running || pendingInteraction || completed`；显示为 running 或 awaiting。
   - 子代理仅显示当 `running || pendingInteraction`；结束后即消失（R-01-001、R-01-003）。
   - 等待优先：存在待确认/待审查/待回复时以对应文案呈现；否则完成态以"需要响应"呈现（R-01-002）。
-- 分区不变量：会话要么在活动区、要么在历史区，绝不同时出现；最近历史 = 当前非活动 && `updatedAt` 落在历史窗口（24h）内、**仅主会话（不含子代理）**，按最后活动时间倒序，最多 20 条（R-01-010）。
+- 分区不变量：会话要么在活动区、要么在历史区，绝不同时出现；最近历史 = 当前非活动 && `updatedAt` 落在历史窗口（24h）内、**仅主会话（不含子代理）**，按最后活动时间倒序，最多 20 条（R-01-010）。最近卡片展示工作区徽标（有归属时）与最后活动概览（投影可得时）；均不可得时只显示标题与时间（R-01-003/AC-03、R-01-010/AC-05、AC-06）。
 - 轮内状态输入：`statusLine({ runningTool, streaming, elapsedMs, outputTokens, rateTokS })` 为纯函数，输入由渲染器从原生 `ConversationSnapshot`（`runningCalls` / `partial` / `turnTimings` / `legacy.nodes`）与 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`）归一而来（R-01-009）。
 - 排序不变量：主会话按所在工作区侧栏顺序；未纳入任何工作区的排在全部工作区之后并保持出现顺序；子代理跟随母会话并缩进（R-01-001、R-01-003）。
-- 稳定签名：`cardSignature` 对条目可见字段求签名（含渲染期补充的 status/progress/trace/streaming）；签名相同的重复渲染必须跳过全部 DOM 写入（R-02-003）。
+- 稳定签名：`cardSignature` 对条目可见字段求签名（含渲染期补充的 status/progress/trace/streaming 与最近卡的 lastActivity）；签名相同的重复渲染必须跳过全部 DOM 写入（R-02-003）。
 - 运行卡渲染期字段：渲染器为 running 条目补充 `status`（状态行文案）、`progress`（阶段百分比）、`trace`（流程节点轨迹）、`streaming`（流式阶段标记，驱动 `data-streaming` 属性与进度条条纹动画）；同一 `kind` 卡片的 DOM 骨架在 `streaming` 翻转时经签名重绘更新属性。
 
 ## 运行时、并发与失败语义
@@ -153,7 +154,8 @@ sequenceDiagram
 ## 产品契约
 
 - 活动卡片集合：`活动状态模型#buildEntries(snapshot, workspaceItems)` 产出已排序的活动卡片条目数组（R-01-001）。
-- 最近历史集合：`活动状态模型#buildRecent(snapshot, workspaceItems, now)` 产出按最近活动时间倒序、容限 24h、上限 20 条的最近卡片（R-01-010）。
+- 最近历史集合：`活动状态模型#buildRecent(snapshot, workspaceItems, now)` 产出按最近活动时间倒序、容限 24h、上限 20 条的最近卡片；条目含 `workspaceTitle`（有归属时）与 `lastActivity`（投影可得时的最后活动概览，缺失为 null）（R-01-010/AC-05、AC-06）。
+- 最后活动概览：`活动状态模型#lastActivityPreview(projectionValues)` 从列表条目 `timelineUserMessages` 投影的 `seq` 最大条目提取用户消息文本（缺失回退回复预览），经截断后产出单行概要；投影不可得或为空时返回 null（最近卡退化为仅显示时间）（R-01-010/AC-05）。
 - 轮内状态文案：`活动状态模型#statusLine({ runningTool, streaming, elapsedMs, outputTokens, rateTokS })` 产出运行卡状态行；头文案对齐 answer-pet 阶段标签（工具→「使用工具」且工具名在状态行末尾、流式→「回答中」、其余→「思考中」），其后按字段存在拼接 token 计数、≈速率与时长；工具名在时长之后（R-01-009/AC-01、AC-02、AC-03、AC-05）。
 - 流程节点轨迹：`活动状态模型#buildTrace(...)` 产出最近少量流程节点（已定案工具调用 + 当前阶段），含 label/detail/status/durationMs；`summarizeToolArguments` 只从白名单字段提取摘要（R-01-009/AC-07）。渲染层以竖线串圆点的时间线呈现：竖线与圆点严格同圆心（整数像素位，避免 1px 竖线分数位吸附偏移）、穿过首个节点圆点并向上引出（表示更早历史被省略）、终点没入最新动作圆点内部不外露；圆点带半透明外环、正在执行节点蓝色外环 + 闪烁、已定案节点绿/红实心圆点，且圆点位于内容区不被容器裁切（R-01-009/AC-09）。
 - 阶段进度：`活动状态模型#progressOf({ phase, outputTokens, elapsedMs })` 产出 0–100 的估计百分比（tool 阶段冻结返回 null）；渲染层按回合叠加单调下限，保证同回合不倒退；首观测即 tool 阶段（中途接入）以思考基线兜底防 0（R-01-009/AC-06）。渲染层以 5px 圆角进度条呈现，流式阶段（`data-streaming`）填充为向右滚动条纹动画（R-01-009/AC-08）。
@@ -176,7 +178,8 @@ sequenceDiagram
 - 关键内部结构:
   - 纯函数、无 DOM、可单测。
   - 显示过滤单点实现：`isActiveRow`（buildEntries 的 show 与 buildRecent 共用），主会话/子代理分列，等待行动优先于运行态；`isSubagentRow` 判定直属子代理。
-  - `buildRecent` 按 24h 历史窗口派生历史区（仅主会话、倒序、上限 20）。
+  - `buildRecent` 按 24h 历史窗口派生历史区（仅主会话、倒序、上限 20），并补 `lastActivity`（`lastActivityPreview`）与 `workspaceTitle`。
+  - `lastActivityPreview` 从 `projectionValues.timelineUserMessages` 投影的 `seq` 最大条目提取用户消息文本（缺失回退回复预览），截断产出单行概览；投影不可得返回 null。
   - `statusLine` 由归一化的轮内输入（工具/流式/时长/token/速率）产出运行卡状态文案，头文案与工具名顺序对齐 answer-pet 的阶段标签。
   - 富卡辅助：`fmtTokens`、`summarizeToolArguments`（白名单）、`buildTrace`（流程节点轨迹）、`progressOf`（阶段进度）为运行卡提供纯函数派生。
   - 排序由工作区索引 + lineage 稳定序共同决定。
@@ -189,6 +192,7 @@ sequenceDiagram
 - 关键内部结构:
   - 桌面下把中间列临时改为行方向，窗格作为真实 flex 行子项（先于会话座）占据左侧默认 280px；经祖先链（跳过 display:contents）找到会话根设 `flex:1 1 0%` 弹性填充，会话内容随之让位；折叠为窄条时让位同步恢复；仅桌面生效，移动端恢复外壳默认列布局。
   - 内容区为上「活动会话」下「最近历史」两段，各自带空态；由同一快照派生。
+  - 最近卡骨架含工作区徽标（有归属时显示）与最后活动预览行；预览经 `lastActivityPreview` 由来、缺失时隐藏只留时间行。
   - 卡片按 id 复用，配合签名去重避免无谓 DOM 写入。
   - 对每个运行中会话经 `sessions.binding(id).session` 订阅轮内状态，归一为 `statusLine` 输入；时长在渲染期按起始时间实时计算；停止运行或卸载即 `unsubscribe`。
   - 运行卡外观对齐 answer-pet：CSS 实现动作时间线（竖线 + 圆点半透明外环 + 运行节点闪烁、`prefers-reduced-motion` 降级）与进度条（5px、流式 `data-streaming` 条纹动画）；`streaming` 字段并入稳定签名以驱动属性翻转重绘。

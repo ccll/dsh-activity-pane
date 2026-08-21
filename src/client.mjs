@@ -250,13 +250,6 @@ const CSS = `
   font-size: 11px; line-height: 15px;
   color: color-mix(in srgb, currentColor 62%, transparent);
 }
-/* 最近卡「最后做的事情」预览行（R-01-010/AC-05）：预览缺失时整行隐藏只留时间。 */
-[data-dsh-activity-pane] .dap-lastact {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 10px; line-height: 14px;
-  color: color-mix(in srgb, currentColor 56%, transparent);
-}
-[data-dsh-activity-pane] .dap-lastact[hidden] { display: none; }
 /* 运行卡富化（对齐 answer-pet 卡片；MIT 参考，见 README）。 */
 [data-dsh-activity-pane] .dap-pct {
   flex: none; font-size: 12px; line-height: 15px; font-weight: 700;
@@ -644,12 +637,7 @@ function apply(ctx) {
 		if (kind === "recent") {
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
-			return [
-				makeEl("div", "dap-workspace"),
-				row,
-				makeEl("div", "dap-lastact"),
-				makeEl("div", "dap-note"),
-			];
+			return [row, makeEl("div", "dap-note")];
 		}
 		if (kind === "awaiting") {
 			const row = makeEl("div", "dap-row");
@@ -764,15 +752,6 @@ function apply(ctx) {
 						? fmtRecentTime(entry.updatedAt)
 						: "";
 			if (note.textContent !== next) note.textContent = next;
-		}
-
-		const lastact = el.querySelector(".dap-lastact");
-		if (lastact !== null) {
-			// .dap-lastact 仅存在于最近卡骨架，lastActivity 恒为 string|null。
-			const text = entry.lastActivity ?? "";
-			if (lastact.textContent !== text) lastact.textContent = text;
-			if (text === "") lastact.setAttribute("hidden", "");
-			else lastact.removeAttribute("hidden");
 		}
 	}
 

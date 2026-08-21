@@ -227,7 +227,6 @@ function cardSignature(entries) {
 			entry.progress ?? null,
 			entry.trace ?? null,
 			entry.streaming ?? null,
-			entry.lastActivity ?? null,
 		]),
 	);
 }
@@ -243,24 +242,6 @@ const HISTORY_MAX = 20;
 function isSubagentRow(row, byId = {}) {
 	const id = row?.parentId;
 	return id !== undefined && id !== null && isRecord(byId[id]);
-}
-
-/**
- * 从列表条目投影里提取「最后做的事情」概览：取 `timelineUserMessages` 中
- * seq 最大的条目（不假设数组顺序），取其用户消息文本（text），缺失时回退
- * 该条回复预览（reply），经 cleanPreview 截断；投影不可得、为空或内容
- * 不可用时返回 null（最近卡退化为仅显示时间，见 C-006、R-01-010/AC-05）。
- */
-function lastActivityPreview(projectionValues) {
-	if (!isRecord(projectionValues)) return null;
-	const timeline = projectionValues.timelineUserMessages;
-	if (!Array.isArray(timeline) || timeline.length === 0) return null;
-	const last = timeline.reduce((best, item) =>
-		isRecord(item) && Number(item.seq) > (best ? Number(best.seq) : -Infinity)
-			? item
-			: best, null);
-	if (!isRecord(last)) return null;
-	return cleanPreview(last.text) ?? cleanPreview(last.reply);
 }
 
 /**
@@ -304,7 +285,6 @@ function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS
 			workspaceTitle: workspaceTitleForSession(id, items, byId),
 			isCurrent: current !== null && String(current) === String(id),
 			updatedAt,
-			lastActivity: lastActivityPreview(row.projectionValues),
 		});
 	}
 
@@ -728,13 +708,6 @@ const CSS = `
   font-size: 11px; line-height: 15px;
   color: color-mix(in srgb, currentColor 62%, transparent);
 }
-/* 最近卡「最后做的事情」预览行（R-01-010/AC-05）：预览缺失时整行隐藏只留时间。 */
-[data-dsh-activity-pane] .dap-lastact {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 10px; line-height: 14px;
-  color: color-mix(in srgb, currentColor 56%, transparent);
-}
-[data-dsh-activity-pane] .dap-lastact[hidden] { display: none; }
 /* 运行卡富化（对齐 answer-pet 卡片；MIT 参考，见 README）。 */
 [data-dsh-activity-pane] .dap-pct {
   flex: none; font-size: 12px; line-height: 15px; font-weight: 700;
@@ -1122,12 +1095,7 @@ function apply(ctx) {
 		if (kind === "recent") {
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
-			return [
-				makeEl("div", "dap-workspace"),
-				row,
-				makeEl("div", "dap-lastact"),
-				makeEl("div", "dap-note"),
-			];
+			return [row, makeEl("div", "dap-note")];
 		}
 		if (kind === "awaiting") {
 			const row = makeEl("div", "dap-row");
@@ -1242,15 +1210,6 @@ function apply(ctx) {
 						? fmtRecentTime(entry.updatedAt)
 						: "";
 			if (note.textContent !== next) note.textContent = next;
-		}
-
-		const lastact = el.querySelector(".dap-lastact");
-		if (lastact !== null) {
-			// .dap-lastact 仅存在于最近卡骨架，lastActivity 恒为 string|null。
-			const text = entry.lastActivity ?? "";
-			if (lastact.textContent !== text) lastact.textContent = text;
-			if (text === "") lastact.setAttribute("hidden", "");
-			else lastact.removeAttribute("hidden");
 		}
 	}
 

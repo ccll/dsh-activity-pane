@@ -719,9 +719,11 @@ const CSS = `
   color: #afb7c4; font-variant-numeric: tabular-nums;
 }
 /* 动作时间线：纵向竖线串起圆点（对齐 answer-pet 的 .ap-session-trace，并修正几何细节——
-   轨道下放到每个节点项自身：圆点与竖线严格同圆心（left:2.5px 让 1px 竖线对准 6px 圆点
-   圆心 x=3），竖线按每项一段连接（末项不画、终点没入最新动作圆点内部，不外露），且圆点
-   位于内容区内不被子代理卡 overflow 裁切）。 */
+   轨道下放到每个节点项自身：竖线与圆点严格同圆心且都在整数 CSS 像素位上（圆点 7px 奇数
+   宽、left:3，竖线 1px、left:6，二者圆心同为 x=6.5，避免 1px 竖线在分数位被像素栅格吸附
+   导致右偏）；每项一段竖线从项顶（容器顶）贯穿，使线穿过首个节点圆点并向上引出（表示更早
+   历史被省略）、末项不画竖线（终点没入最新动作圆点内部不外露）；圆点高处盖线、位于内容区
+   内不被子代理卡 overflow 裁切。 */
 [data-dsh-activity-pane] .dap-trace {
   display: flex; flex-direction: column; gap: 3px;
   margin: 1px 0 2px 3px;
@@ -732,12 +734,13 @@ const CSS = `
   position: relative; display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 7px; min-width: 0;
-  padding-left: 13px;   /* 左侧轨道：圆点（圆心 x=3）与竖线（x=3）共用 */
+  padding-left: 14px;   /* 左侧轨道：圆点（圆心 x=6.5）与竖线（x=6.5）共用 */
   color: #c7ced9; font-size: 10px; line-height: 14px;
 }
 [data-dsh-activity-pane] .dap-trace-item::before {
-  content: ""; position: absolute; left: 0; top: 4px;
-  width: 6px; height: 6px; border-radius: 50%;
+  content: ""; position: absolute; left: 3px; top: 3px;
+  width: 7px; height: 7px; border-radius: 50%;
+  z-index: 1;           /* 圆点盖在竖线上：竖线从圆点中穿过被其遮盖 */
   background: #778394;
   box-shadow: 0 0 0 2px rgba(119, 131, 148, .14);
 }
@@ -752,12 +755,13 @@ const CSS = `
 [data-dsh-activity-pane] .dap-trace-item[data-status="error"]::before {
   background: #f06a72;
 }
-/* 每项一段竖线（末项不画）：从本项圆点下方连到下一项圆点并没入其顶缘——最新动作
-   （末项）圆点之下不露头。5%/gap 依赖 14px 行高 + 3px 间距；bottom 多 1px 让终点
-   藏进下一颗圆点。 */
+/* 每项一段竖线（末项不画，z-index 低于圆点）：从项顶（容器顶）贯穿本项、经圆点下方
+   继续延伸到下一颗圆点顶缘 —— 线穿过首个节点圆点并向上引出（省略的历史）、终点没入
+   最新动作圆点内部不外露。依赖 14px 行高 + 3px 间距；bottom 多 1px 让终点藏进
+   下一颗圆点。 */
 [data-dsh-activity-pane] .dap-trace-item::after {
-  content: ""; position: absolute; left: 2.5px; top: 11px; bottom: -8px;
-  width: 1px;
+  content: ""; position: absolute; left: 6px; top: 0; bottom: -8px;
+  width: 1px; z-index: 0;
   background: rgba(126, 147, 177, .3);
 }
 [data-dsh-activity-pane] .dap-trace-item:last-child::after { content: none; }

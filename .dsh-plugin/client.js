@@ -230,6 +230,11 @@ function timelineItemFromEvent(entry) {
 	return null;
 }
 
+/** 判断 session window 是否尚未 hydrate，需用 native history 补齐。 */
+function needsHistorySnapshot(snapshot) {
+	return !snapshot || !Array.isArray(snapshot.chat?.order) || snapshot.chat.order.length === 0;
+}
+
 /** 冷会话 history 的同序降级，供没有 ChatSnapshot 的活动/历史会话使用。 */
 function conversationTimelineFromHistory(history, partial = null, runningCalls = [], limit = 4) {
 	const items = [];
@@ -975,9 +980,12 @@ const CSS = `
 [data-dsh-activity-pane] .dap-card-head {
   display: flex; align-items: center; gap: 6px; min-width: 0;
 }
-[data-dsh-activity-pane] .dap-card-head .dap-workspace { flex: 1; }
+[data-dsh-activity-pane] .dap-card-head .dap-workspace {
+  flex: 0 1 auto; min-width: 0;
+}
 [data-dsh-activity-pane] .dap-model {
-  flex: none; max-width: 58%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 0 1 auto; max-width: 58%; margin-left: auto;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: color-mix(in srgb, currentColor 72%, transparent);
   font-size: 9.5px; line-height: 14px; text-align: right;
 }
@@ -1329,47 +1337,59 @@ function apply(ctx) {
 	function loadNativeDetails(ids) {
 		const api = ctx.get("connection")?.api?.sessions;
 		if (!api) return;
+		const modelPromises = [];
+		const historyPromises = [];
 		for (const id of ids) {
 			const detail = sessionDetailsById.get(id) ?? {};
+			const liveSnapshot = livenessById.get(id)?.snapshot;
+			if (liveSnapshot) detail.snapshot = liveSnapshot;
 			sessionDetailsById.set(id, detail);
 			if (!detail.model && typeof api.models === "function" && !modelLoads.has(id)) {
 				const promise = Promise.resolve()
 					.then(() => api.models({ sessionId: id }))
 					.then((response) => {
 						const value = apiValue(response);
-						if (!value) return;
+						if (!value) {
+							detail.model = { model: "", reasoning: "" };
+							return;
+						}
 						detail.models = value;
 						detail.model = modelMetadata(value);
-						queueSync();
 					})
 					.catch((error) => {
 						detail.model = { model: "", reasoning: "" };
 						detail.modelError = error instanceof Error ? error.message : String(error);
-						queueSync();
 					});
 				modelLoads.set(id, promise);
+				modelPromises.push(promise);
 			}
-			if (!detail.snapshot && !detail.history && typeof api.history === "function" && !historyLoads.has(id)) {
+			if (!detail.history && needsHistorySnapshot(detail.snapshot) && typeof api.history === "function" && !historyLoads.has(id)) {
 				const promise = Promise.resolve()
 					.then(() => api.history({ sessionId: id, maxMessages: 50 }))
 					.then((response) => {
 						const value = apiValue(response);
-						if (!value) return;
+						if (!value) {
+							detail.history = [];
+							detail.timeline = [];
+							detail.previews = { userPreview: "", agentPreview: "" };
+							return;
+						}
 						detail.history = Array.isArray(value.events) ? value.events : [];
 						detail.timeline = conversationTimelineFromHistory(detail.history, value.partial, value.runningCalls);
 						detail.previews = messagePreviews({ history: detail.history });
-						queueSync();
 					})
 					.catch((error) => {
 						detail.history = [];
 						detail.timeline = [];
 						detail.previews = { userPreview: "", agentPreview: "" };
 						detail.historyError = error instanceof Error ? error.message : String(error);
-						queueSync();
 					});
 				historyLoads.set(id, promise);
+				historyPromises.push(promise);
 			}
 		}
+		const pending = modelPromises.concat(historyPromises);
+		if (pending.length > 0) Promise.all(pending).then(queueSync);
 	}
 
 	function installServiceSubscriptions() {
@@ -1739,17 +1759,21 @@ function apply(ctx) {
 				.map((entry) => entry.id),
 		);
 		syncLiveness(runLikeIds);
-		loadNativeDetails(active.map((entry) => entry.id));
 		for (const entry of active) {
 			const liveRecord = livenessById.get(entry.id);
 			const live = liveRecord?.liveness ?? null;
 			const detail = sessionDetailsById.get(entry.id);
 			const detailSnapshot = liveRecord?.snapshot ?? detail?.snapshot ?? null;
 			if (detailSnapshot) {
-				entry.timeline = conversationTimeline(detailSnapshot);
+				const snapshotTimeline = conversationTimeline(detailSnapshot);
+				entry.timeline = snapshotTimeline.length > 0 ? snapshotTimeline : detail?.timeline ?? [];
 				const previews = messagePreviews({ snapshot: detailSnapshot, history: detail?.history });
-				entry.userPreview = previews.userPreview;
-				entry.agentPreview = previews.agentPreview;
+				entry.userPreview = previews.userPreview || detail?.previews?.userPreview || "";
+				entry.agentPreview = previews.agentPreview || detail?.previews?.agentPreview || "";
+			} else {
+				entry.timeline = detail?.timeline ?? entry.timeline ?? [];
+				entry.userPreview = detail?.previews?.userPreview ?? entry.userPreview ?? "";
+				entry.agentPreview = detail?.previews?.agentPreview ?? entry.agentPreview ?? "";
 			}
 			if (detail?.model) {
 				entry.model = detail.model.model;
@@ -1821,7 +1845,7 @@ function apply(ctx) {
 		for (const id of progressFloor.keys())
 			if (!runLikeIds.has(id)) progressFloor.delete(id);
 		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById);
-		loadNativeDetails(recent.map((entry) => entry.id));
+		loadNativeDetails([...active, ...recent].map((entry) => entry.id));
 		const visibleIds = new Set([...active, ...recent].map((entry) => entry.id));
 		for (const id of sessionDetailsById.keys())
 			if (!visibleIds.has(id)) sessionDetailsById.delete(id);

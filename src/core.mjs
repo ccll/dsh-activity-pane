@@ -224,6 +224,11 @@ function timelineItemFromEvent(entry) {
 	return null;
 }
 
+/** 判断 session window 是否尚未 hydrate，需用 native history 补齐。 */
+export function needsHistorySnapshot(snapshot) {
+	return !snapshot || !Array.isArray(snapshot.chat?.order) || snapshot.chat.order.length === 0;
+}
+
 /** 冷会话 history 的同序降级，供没有 ChatSnapshot 的活动/历史会话使用。 */
 export function conversationTimelineFromHistory(history, partial = null, runningCalls = [], limit = 4) {
 	const items = [];

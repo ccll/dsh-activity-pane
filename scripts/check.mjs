@@ -359,14 +359,19 @@ assert.ok(bundle.includes("style.remove()"), "卸载移除注入样式");
 assert.ok(bundle.includes("bodyObserver.disconnect()"), "卸载断开观察者");
 assert.ok(bundle.includes("removeEventListener"), "卸载移除事件监听");
 
-// ---- 回归锚点：时间线几何（R-01-009/AC-09 呈现细节）----
-// 轨道下放到节点项内：末项不画连接竖线（终点没入最末圆点不外露）、竖线 left 6px 与
-// 7px 奇数宽圆点（圆心 x=6.5）在整数像素位严格同圆心（避免分数位被像素栅格吸附）、
-// 竖线贯穿首项圆点并向上引出、子代理容器不再 overflow 裁切圆点。任一处回退即失败。
+// ---- 回归锚点：时间线几何/状态动画（R-01-009/AC-08、AC-09 呈现细节）----
+// 圆点与竖线从卡片内容左边起步：末项不画连接竖线、竖线 left 3px 与 7px 圆点
+//（圆心 x=3.5）同圆心，竖线贯穿首项圆点并向上引出，子代理容器不裁切圆点；
+// reduced-motion 只关闭宽度 transition，不关闭 answer-pet 同款状态脉冲/流式条纹。
 assert.ok(bundle.includes(".dap-trace-item:last-child::after"), "时间线末项不画竖线（终点没入最末圆点）");
-assert.ok(bundle.includes("left: 6px"), "1px 竖线（整数位）与 7px 圆点严格同圆心（不右偏）");
+assert.ok(bundle.includes("margin: 1px 0 2px;"), "时间线整体与卡片内容左边界对齐");
+assert.ok(bundle.includes("left: 3px; top: 0; bottom: -8px"), "1px 竖线（整数位）与 7px 圆点严格同圆心（不右偏）");
 assert.ok(bundle.includes("width: 7px; height: 7px"), "时间线圆点奇数宽 7px（保证整数位居中）");
-assert.ok(bundle.includes("padding-left: 14px"), "时间线轨道下放到节点项（圆点位于内容区）");
+assert.ok(bundle.includes("padding-left: 14px"), "时间线文字轨道保持 14px 内缩");
 assert.ok(bundle.includes(".dap-subtrace {\n  min-width: 0;"), "子代理容器不再 padding/border/overflow 包裹（不裁切圆点）");
+assert.ok(bundle.includes(".dap-fill { transition: none; }"), "降低动效设置不关闭状态动画（对齐 answer-pet）");
+assert.ok(bundle.includes("animation: dap-stripes 0.8s linear infinite"), "流式进度条保留向右滚动条纹动画");
+assert.ok(bundle.includes("animation: dap-pulse 1.15s ease-in-out infinite"), "运行中蓝色节点保留脉冲动画");
+assert.ok(!bundle.includes(".dap-trace-item[data-status=\"running\"]::before {\n    animation: none !important;"), "降低动效设置不关闭运行点脉冲");
 
 console.log("check: all assertions passed");

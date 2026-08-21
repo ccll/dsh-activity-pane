@@ -30,4 +30,11 @@ owner: 双方
 - [需求候选] 允许用户在限定范围内拖放调节 pane 的宽度。
 - [维护想法] 运行卡时长实时计算位于 DOM 层、无 Node 锚点；后续抽 `elapsedAt(startTime, now)` 纯函数或引入浏览器 E2E（独立审核提示，见 T-001 review）。
 - [维护想法] GUI 交互验收暂以 scripts/acceptance.mjs 人工清单承接；待引入浏览器 E2E 基建后迁移为自动化测试（见 DESIGN 可派生验证）。
+- [缺陷线索] 会话掉出活动区+历史区再回来后卡片永久缺模型/reasoning 与冷会话时间线（已定位：render 清理 sessionDetailsById 时未同步删 modelLoads/historyLoads 记账，重回可见集合后因记账仍在而永不重拉；修复方向：清理段同步删除两个 loads 记录）。
+- [缺陷线索] 外壳视图切换式重挂载后窗格不自愈（已实测复现：seat 销毁后异步重建时 frameObserver 仍盯已分离的旧 center、bodyObserver 已断开，无任何触发源重跑 render；修复方向：seat 缺席时回退 body 级观察直至新槽座出现）。
+- [缺陷线索] fmtElapsedMs 对 NaN/Infinity/负数输出 "NaNs" 等非法文案（当前调用点均已先净化，属导出纯函数自身的边界防御缺口）。
+- [缺陷线索] syncLiveness 中 session.subscribe 未包 try/catch，若抛错 render 在 rAF 回调中异常、窗格冻结并持续刷错误（runtime 契约大概率保证 subscribe 存在，属加固候选）。
+- [缺陷线索] conversationTimeline 的 partial 匹配在 partial.turn/step 与某 assistant 节点同为 null 时可能误替换最后一个无定位节点（runtime 定位缺省值为 null，发生概率低）。
+- [维护想法] nativeIconsByTraceKey 的 SVG 克隆随回合累积、仅卸载时清理（轻微内存爬升，可随运行集修剪）。
+- [性能想法] buildEntries/messagePreviews/conversationTimeline 在每次 render（签名去重之前）对每个可见会话全量扫描 chat order，长会话+流式高频渲染下成本放大（无基线，先测后动）。
 

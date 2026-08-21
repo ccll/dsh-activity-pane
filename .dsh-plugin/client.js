@@ -29,6 +29,23 @@ const PENDING_LABELS = {
 
 /** 工具参数白名单：只在其中提取摘要，绝不展示完整命令或原始 JSON（沿用 answer-pet trace 摘要，MIT 参考）。 */
 const TRACE_DETAIL_KEYS = ["description", "query", "pattern", "file_path", "path", "url"];
+const TOOL_LABELS = {
+	bash: "Bash",
+	pwsh: "Pwsh",
+	read: "Read",
+	web_fetch: "Read",
+	web_search: "Search",
+	grep: "Search",
+	glob: "Search",
+	write: "Write",
+	edit: "Edit",
+	run_code: "Code",
+	cordis_package_inspect: "Inspect",
+	cordis_runtime_inspect: "Inspect",
+	cordis_run: "Run",
+	cordis_stop: "Stop",
+	cordis_undefine: "Remove",
+};
 /** 运行卡最多展示的流程节点数（已定案工具调用 + 当前阶段）。 */
 const TRACE_MAX_ITEMS = 4;
 /** think 阶段进度起点（%）：progressOf 与渲染层兜底共用的同源常量，防两处"5"漂移。 */
@@ -82,10 +99,6 @@ function mapValue(source, key) {
 	return isRecord(source) ? source[key] : undefined;
 }
 
-function toolViewTitle(view) {
-	return isRecord(view) && typeof view.title === "string" ? view.title : "";
-}
-
 function toolViewDetail(view) {
 	if (!isRecord(view)) return null;
 	if (typeof view.description === "string") return cleanPreview(view.description);
@@ -101,13 +114,17 @@ function timelineToolItem(root, fallbackView = null) {
 	const argsRaw = typeof call.argsRaw === "string" ? call.argsRaw : root.argsRaw;
 	const view = root.callView ?? fallbackView;
 	const resultView = root.resultView;
-	const label = toolViewTitle(view) || toolViewTitle(resultView) || name;
+	const label = TOOL_LABELS[name] ?? (name === "tool" ? "Tool Call" : name);
 	const detail = toolViewDetail(view) ?? toolViewDetail(resultView) ?? summarizeToolArguments(argsRaw);
 	return {
 		id: typeof root.callId === "string" ? root.callId : `tool:${name}`,
 		kind: "tool",
 		icon: isRecord(view) && typeof view.kind === "string" ? view.kind : "tool",
-		text: label,
+		toolName: name,
+		callId: typeof root.callId === "string" ? root.callId : "",
+		label,
+		text: name,
+		summary: detail ?? "",
 		detail,
 		status: root.kind === "tool-result" ? (root.isError === true ? "error" : "done") : "running",
 		durationMs:
@@ -137,13 +154,16 @@ function timelineItemFromChatNode(node) {
 		const text = assistantBlockText(data.blocks, "text");
 		const reasoning = assistantBlockText(data.blocks, "reasoning");
 		if (!text && !reasoning) return null;
+		const label = reasoning ? "Think" : "Assistant";
 		return {
 			id: String(node.key ?? `assistant:${data.turn}:${data.step}`),
 			kind: "assistant",
 			icon: "assistant",
+			label,
 			turn: data.turn,
 			step: data.step,
 			text,
+			summary: reasoning || text,
 			detail: reasoning || null,
 			status: data.status === "running" ? "running" : "done",
 			durationMs: null,
@@ -1047,6 +1067,9 @@ const CSS = `
 [data-dsh-activity-pane] .dap-trace-item[data-status="error"]::before {
   background: #f06a72;
 }
+[data-dsh-activity-pane] .dap-trace-item[data-status="stopped"]::before {
+  background: #f5a524;
+}
 /* 每项一段竖线（末项不画，z-index 低于圆点）：从项顶（容器顶）贯穿本项、经圆点下方
    继续延伸到下一颗圆点顶缘 —— 线穿过首个节点圆点并向上引出（省略的历史）、终点没入
    最新动作圆点内部不外露。依赖 14px 行高 + 3px 间距；bottom 多 1px 让终点藏进
@@ -1058,10 +1081,22 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-trace-item:last-child::after { content: none; }
 [data-dsh-activity-pane] .dap-trace-icon {
-   width: 12px; flex: none; font-size: 10px; color: #a9b8cc; text-align: center;
+   width: 14px; height: 14px; flex: none; display: inline-flex;
+   align-items: center; justify-content: center; color: #a9b8cc; text-align: center;
  }
+[data-dsh-activity-pane] .dap-trace-icon svg {
+  display: block; width: 14px; height: 14px;
+}
 [data-dsh-activity-pane] .dap-trace-main {
+  display: flex; align-items: center; gap: 5px; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+[data-dsh-activity-pane] .dap-trace-label {
+  flex: none; font-weight: 600; color: #c7ced9;
+}
+[data-dsh-activity-pane] .dap-trace-summary {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: #8f9aaa;
 }
 [data-dsh-activity-pane] .dap-trace-detail {
   color: #8f9aaa;
@@ -1483,6 +1518,75 @@ function apply(ctx) {
 		return [head, row, makeEl("div", "dap-trace"), track, makeEl("div", "dap-token-stats")];
 	}
 
+	function nativeWorkItemRow(item) {
+		const conversation = document.querySelector(CONVERSATION_SELECTOR);
+		if (conversation === null) return null;
+		if (item.id) {
+			const keyed = [...conversation.querySelectorAll("[data-chat-flow-key], [data-chat-anchor-key]")].find(
+				(row) => row.getAttribute("data-chat-flow-key") === String(item.id) || row.getAttribute("data-chat-anchor-key") === String(item.id),
+			);
+			if (keyed !== undefined) return keyed;
+		}
+		if (item.label === "Think") {
+			return conversation.querySelector('[data-variant="think"]:not([data-tool])');
+		}
+		const rows = [...conversation.querySelectorAll("[data-chat-call-id]")];
+		if (item.callId) {
+			const byId = rows.find((row) => row.getAttribute("data-chat-call-id") === item.callId);
+			if (byId !== undefined) return byId;
+		}
+		if (item.toolName) {
+			for (const row of rows) {
+				const tool = row.getAttribute("data-tool") ?? row.querySelector("[data-tool]")?.getAttribute("data-tool");
+				if (tool === item.toolName) return row;
+			}
+		}
+		if (item.icon === "context") return conversation.querySelector('[data-chat-flow-kind="context"]');
+		return null;
+	}
+
+	function cloneNativeIcon(source) {
+		if (source === null) return null;
+		const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+		const rootAttrs = ["viewBox", "width", "height", "fill", "stroke", "stroke-width", "fill-rule", "clip-rule"];
+		for (const name of rootAttrs) {
+			const value = source.getAttribute(name);
+			if (value !== null) svg.setAttribute(name, value);
+		}
+		svg.setAttribute("aria-hidden", "true");
+		const graphicTags = new Set(["path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "g"]);
+		const graphicAttrs = new Set(["d", "fill", "fill-rule", "clip-rule", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "x", "y", "x1", "x2", "y1", "y2", "width", "height", "rx", "ry", "points", "transform", "opacity", "fill-opacity", "stroke-opacity"]);
+		const copy = (sourceNode, target) => {
+			for (const child of sourceNode.children) {
+				const tag = child.tagName.toLowerCase();
+				if (!graphicTags.has(tag)) continue;
+				const next = document.createElementNS("http://www.w3.org/2000/svg", tag);
+				for (const attr of child.attributes) {
+					if (graphicAttrs.has(attr.name)) next.setAttribute(attr.name, attr.value);
+				}
+				if (tag === "g") copy(child, next);
+				target.append(next);
+			}
+		};
+		copy(source, svg);
+		return svg;
+	}
+
+	function nativeWorkItemPresentation(item) {
+		const row = nativeWorkItemRow(item);
+		if (row === null) return null;
+		const disclosure = row.querySelector("[data-disclosure-row]");
+		const children = disclosure === null ? [] : [...disclosure.children];
+		const label = children[1]?.textContent?.trim() ?? "";
+		const summary = children.slice(2).map((child) => child.textContent.trim()).find(Boolean)
+			?? row.querySelector("[data-follow-end]")?.textContent?.trim()
+			?? "";
+		const sourceIcon = disclosure?.querySelector("svg") ?? row.querySelector("svg");
+		const icon = cloneNativeIcon(sourceIcon);
+		const state = row.getAttribute("data-state") ?? row.querySelector("[data-state]")?.getAttribute("data-state") ?? "";
+		return { label, summary, state, icon };
+	}
+
 	/**
 	 * 更新 trace 容器。运行中的同一节点只更新文字/耗时，复用 DOM 保持脉冲动画连续；
 	 * 节点身份或数量变化时才重建（R-02-003/AC-01）。
@@ -1502,7 +1606,9 @@ function apply(ctx) {
 			const key = String(item.id ?? index);
 			const line = lines[index] ?? makeEl("div", "dap-trace-item");
 			line.dataset.traceKey = key;
-			line.dataset.status = typeof item.status === "string" ? item.status : "running";
+			const presentation = nativeWorkItemPresentation(item);
+			const nativeState = presentation?.state;
+			line.dataset.status = nativeState === "ok" ? "done" : nativeState || (typeof item.status === "string" ? item.status : "running");
 			line.dataset.icon = typeof item.icon === "string" ? item.icon : "other";
 			let main = line.querySelector(".dap-trace-main");
 			if (main === null) {
@@ -1511,18 +1617,27 @@ function apply(ctx) {
 			}
 			main.replaceChildren();
 			const icon = makeEl("span", "dap-trace-icon");
-			const icons = { user: "◎", assistant: "✦", context: "◇", read: "⌕", edit: "✎", delete: "×", move: "↔", search: "⌕", execute: "▶", fetch: "↗", other: "⚙", tool: "⚙" };
-			icon.textContent = icons[item.icon] ?? "⚙";
-			main.append(icon);
-			const text = item.label ?? item.text ?? "";
-			main.append(text);
-			if (typeof item.detail === "string" && item.detail.length > 0) {
-				const detail = makeEl("span", "dap-trace-detail");
-				detail.textContent = ` · ${item.detail}`;
-				main.append(detail);
+			if (presentation?.icon instanceof SVGElement) {
+				icon.append(presentation.icon);
+			} else {
+				const icons = { user: "◎", assistant: "✦", context: "◇", read: "⌕", edit: "✎", delete: "×", move: "↔", search: "⌕", execute: "▶", fetch: "↗", other: "⚙", tool: "⚙" };
+				icon.textContent = icons[item.icon] ?? "⚙";
 			}
-			const statusLabels = { running: "进行中", done: "已完成", error: "失败" };
-			line.setAttribute("aria-label", [text, item.detail, statusLabels[line.dataset.status] ?? line.dataset.status].filter(Boolean).join(" · "));
+			main.append(icon);
+			const labelText = presentation?.label || item.label || "";
+			const summaryText = presentation?.summary || item.summary || item.detail || item.text || "";
+			if (labelText) {
+				const label = makeEl("span", "dap-trace-label");
+				label.textContent = labelText;
+				main.append(label);
+			}
+			if (summaryText) {
+				const summary = makeEl("span", "dap-trace-summary");
+				summary.textContent = summaryText;
+				main.append(summary);
+			}
+			const statusLabels = { running: "进行中", done: "已完成", ok: "已完成", error: "失败", stopped: "已停止" };
+			line.setAttribute("aria-label", [labelText, summaryText, statusLabels[line.dataset.status] ?? line.dataset.status].filter(Boolean).join(" · "));
 			if (!lastOnly) {
 				let time = line.querySelector(".dap-trace-time");
 				if (time === null) {

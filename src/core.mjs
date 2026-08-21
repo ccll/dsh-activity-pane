@@ -23,6 +23,23 @@ const PENDING_LABELS = {
 
 /** 工具参数白名单：只在其中提取摘要，绝不展示完整命令或原始 JSON（沿用 answer-pet trace 摘要，MIT 参考）。 */
 const TRACE_DETAIL_KEYS = ["description", "query", "pattern", "file_path", "path", "url"];
+const TOOL_LABELS = {
+	bash: "Bash",
+	pwsh: "Pwsh",
+	read: "Read",
+	web_fetch: "Read",
+	web_search: "Search",
+	grep: "Search",
+	glob: "Search",
+	write: "Write",
+	edit: "Edit",
+	run_code: "Code",
+	cordis_package_inspect: "Inspect",
+	cordis_runtime_inspect: "Inspect",
+	cordis_run: "Run",
+	cordis_stop: "Stop",
+	cordis_undefine: "Remove",
+};
 /** 运行卡最多展示的流程节点数（已定案工具调用 + 当前阶段）。 */
 export const TRACE_MAX_ITEMS = 4;
 /** think 阶段进度起点（%）：progressOf 与渲染层兜底共用的同源常量，防两处"5"漂移。 */
@@ -76,10 +93,6 @@ function mapValue(source, key) {
 	return isRecord(source) ? source[key] : undefined;
 }
 
-function toolViewTitle(view) {
-	return isRecord(view) && typeof view.title === "string" ? view.title : "";
-}
-
 function toolViewDetail(view) {
 	if (!isRecord(view)) return null;
 	if (typeof view.description === "string") return cleanPreview(view.description);
@@ -95,13 +108,17 @@ function timelineToolItem(root, fallbackView = null) {
 	const argsRaw = typeof call.argsRaw === "string" ? call.argsRaw : root.argsRaw;
 	const view = root.callView ?? fallbackView;
 	const resultView = root.resultView;
-	const label = toolViewTitle(view) || toolViewTitle(resultView) || name;
+	const label = TOOL_LABELS[name] ?? (name === "tool" ? "Tool Call" : name);
 	const detail = toolViewDetail(view) ?? toolViewDetail(resultView) ?? summarizeToolArguments(argsRaw);
 	return {
 		id: typeof root.callId === "string" ? root.callId : `tool:${name}`,
 		kind: "tool",
 		icon: isRecord(view) && typeof view.kind === "string" ? view.kind : "tool",
-		text: label,
+		toolName: name,
+		callId: typeof root.callId === "string" ? root.callId : "",
+		label,
+		text: name,
+		summary: detail ?? "",
 		detail,
 		status: root.kind === "tool-result" ? (root.isError === true ? "error" : "done") : "running",
 		durationMs:
@@ -131,13 +148,16 @@ function timelineItemFromChatNode(node) {
 		const text = assistantBlockText(data.blocks, "text");
 		const reasoning = assistantBlockText(data.blocks, "reasoning");
 		if (!text && !reasoning) return null;
+		const label = reasoning ? "Think" : "Assistant";
 		return {
 			id: String(node.key ?? `assistant:${data.turn}:${data.step}`),
 			kind: "assistant",
 			icon: "assistant",
+			label,
 			turn: data.turn,
 			step: data.step,
 			text,
+			summary: reasoning || text,
 			detail: reasoning || null,
 			status: data.status === "running" ? "running" : "done",
 			durationMs: null,

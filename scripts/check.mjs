@@ -180,6 +180,15 @@ const chatSnapshot = {
 const timeline = conversationTimeline(chatSnapshot);
 assert.deepEqual(timeline.map((item) => item.text), ["用户任务\n补充", "已完成\n详情", "read", "正在输出"], "工作项严格按主窗口 order 取最近 4 项并包含当前项");
 assert.equal(timeline[2].detail, "/tmp/a", "工具详情沿用白名单摘要");
+assert.equal(timeline[2].label, "Read", "工具标题复用主网页的 Read 语义");
+assert.equal(timeline[2].toolName, "read", "工作项保留原始 tool name 供 host DOM 匹配");
+assert.equal(timeline[2].callId, "c1", "工作项保留 call id 供同名工具精确匹配 host DOM");
+assert.equal(timeline[2].summary, "/tmp/a", "工具行摘要与标题分层");
+const thinkItem = conversationTimeline({
+	chat: { order: ["think"], nodes: { get: () => ({ kind: "assistant-step", data: { turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "Planning path" }] } }) } },
+})[0];
+assert.equal(thinkItem.label, "Think", "推理工作项标题复用主网页 Think 语义");
+assert.equal(thinkItem.summary, "Planning path", "推理工作项摘要单独保留");
 const outsideCurrent = conversationTimeline({
 	chat: { order: ["u1", "u2", "u3", "u4", "u5"], nodes: { get: (key) => ({ key, kind: "user", data: { content: [{ type: "text", text: key }] } }) } },
 	partial: { turn: 2, step: 0, blocks: [{ kind: "text", text: "当前项" }] },

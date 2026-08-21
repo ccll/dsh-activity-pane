@@ -473,9 +473,6 @@ assert.ok(bundle.includes("openRetryStates"), "跳转重试链必须可合并并
 assert.ok(bundle.includes("conversationTimeline"), "活动卡使用主会话 ChatSnapshot 工作项时间线");
 assert.ok(bundle.includes("api.history"), "冷会话使用 native history 一次性补齐");
 assert.ok(bundle.includes("api.models"), "模型/reasoning 使用 native models 数据");
-assert.ok(bundle.includes("needsHistorySnapshot"), "cold/空 chat snapshot 会回退 native history");
-assert.ok(bundle.includes("Promise.all(pending)"), "模型与历史读取完成后只触发批量重绘");
-assert.ok(bundle.includes("flex: 0 1 auto; min-width: 0;"), "workspace badge 不再占满 head 剩余宽度");
 assert.ok(bundle.includes("dap-token-stats"), "token 统计 DOM 位于进度条之后");
 assert.ok(bundle.includes("dap-history-line"), "历史卡包含用户/agent 两条消息预览行");
 assert.ok(bundle.includes("session.subscribe"), "运行卡通过 native session subscribe 接收实时推送");

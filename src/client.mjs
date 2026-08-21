@@ -1221,8 +1221,9 @@ function apply(ctx) {
 		}
 	}
 
-	/** 渲染某一张卡片进指定列表容器（活动/历史通用）。 */
-	function renderCardIntoList(list, entry, reuseMap) {
+	/** 渲染某一张卡片进指定列表容器（活动/历史通用）。index 是条目在卡片序列中的
+	 * 序号，offset 是容器内首个卡片前的非卡片子节点数（历史区有段头）。 */
+	function renderCardIntoList(list, entry, reuseMap, index, offset = 0) {
 		let rec = reuseMap.get(entry.id);
 		if (rec === undefined) {
 			const el = document.createElement("div");
@@ -1255,7 +1256,12 @@ function apply(ctx) {
 			}`,
 		);
 		renderCardInto(rec.el, entry);
-		list.appendChild(rec.el);
+		// 只有顺序/归属真正变化时才移动 DOM：每次渲染无条件 appendChild 会把所有
+		// 卡片瞬时移除再插回——按下/抬起之间经过的移动让浏览器取消 click；焦点卡
+		// 被瞬时断开而失焦；悬停卡的 :hover 也随之丢失且不再补发。会话活跃期间
+		// 渲染随推送/时钟高频发生，窗格因此整体「不响应」。
+		const ref = list.children[offset + index] ?? null;
+		if (ref !== rec.el) list.insertBefore(rec.el, ref);
 		return true;
 	}
 
@@ -1395,14 +1401,15 @@ function apply(ctx) {
 		lastSig = sig;
 
 		const aliveActive = new Set();
-		for (const entry of active)
-			if (renderCardIntoList(activeList, entry, cardsById))
+		for (const [index, entry] of active.entries())
+			if (renderCardIntoList(activeList, entry, cardsById, index))
 				aliveActive.add(entry.id);
 		pruneCards(cardsById, aliveActive);
 		ensureEmpty(activeList, active.length === 0, "暂无活动会话");
 		const aliveRecent = new Set();
-		for (const entry of recent)
-			if (renderCardIntoList(recentSection, entry, recentCardsById))
+		// 历史区容器首个子节点是段头（.dap-recent-head），卡片从 offset 1 开始。
+		for (const [index, entry] of recent.entries())
+			if (renderCardIntoList(recentSection, entry, recentCardsById, index, 1))
 				aliveRecent.add(entry.id);
 		pruneCards(recentCardsById, aliveRecent);
 		if (recentSection !== null) recentSection.hidden = recent.length === 0;

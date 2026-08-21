@@ -522,6 +522,14 @@ assert.ok(bundle.includes("notifyLayoutChange"), "布局变化通知 sibling ove
 assert.ok(bundle.includes('window.dispatchEvent(new Event("resize"))'), "布局变化派发标准 resize 通知");
 assert.ok(bundle.includes("pane !== renderedPane"), "新窗格实例必须重置渲染签名");
 assert.ok(bundle.includes("openRetryStates"), "跳转重试链必须可合并并清理");
+assert.ok(
+	!bundle.includes("list.appendChild(rec.el)"),
+	"渲染不得无条件 appendChild 移动卡片：卡片瞬时脱离文档会让浏览器取消按下/抬起之间的 click、让焦点卡失焦、丢失悬停态（会话活跃期高频渲染时窗格整体不响应）",
+);
+assert.ok(
+	bundle.includes("list.insertBefore(rec.el, ref)"),
+	"卡片仅在顺序/归属变化时移动 DOM（insertBefore 位置守卫）",
+);
 // ---- R-01-009/AC-02、R-01-009/AC-05、R-01-012/AC-01..04、R-01-013/AC-01..06 ----
 assert.ok(bundle.includes("conversationTimeline"), "活动卡使用主会话 ChatSnapshot 工作项时间线");
 assert.ok(bundle.includes("api.history"), "冷会话使用 native history 一次性补齐");

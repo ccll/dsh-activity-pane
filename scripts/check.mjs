@@ -359,4 +359,12 @@ assert.ok(bundle.includes("style.remove()"), "卸载移除注入样式");
 assert.ok(bundle.includes("bodyObserver.disconnect()"), "卸载断开观察者");
 assert.ok(bundle.includes("removeEventListener"), "卸载移除事件监听");
 
+// ---- 回归锚点：时间线几何（R-01-009/AC-09 呈现细节）----
+// 轨道下放到节点项内：末项不画连接竖线（终点没入最末圆点不外露）、竖线 left 2.5px
+// 与 6px 圆点严格同圆心、子代理容器不再 overflow 裁切圆点。任一处被回退即失败。
+assert.ok(bundle.includes(".dap-trace-item:last-child::after"), "时间线末项不画竖线（终点没入最末圆点）");
+assert.ok(bundle.includes("left: 2.5px"), "1px 竖线对准 6px 圆点圆心（严格居中）");
+assert.ok(bundle.includes("padding-left: 13px"), "时间线轨道下放到节点项（圆点位于内容区）");
+assert.ok(bundle.includes(".dap-subtrace {\n  min-width: 0;"), "子代理容器不再 padding/border/overflow 包裹（不裁切圆点）");
+
 console.log("check: all assertions passed");

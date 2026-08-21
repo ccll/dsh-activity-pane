@@ -260,13 +260,13 @@ const CSS = `
   font-size: 11px; line-height: 15px;
   color: #afb7c4; font-variant-numeric: tabular-nums;
 }
-/* 动作时间线：纵向竖线串起圆点（对齐 answer-pet 的 .ap-session-trace）——
-   容器左边框即竖线，圆点绝对定位落在竖线上；正在执行的节点为蓝色半透明
-   外环 + 闪烁，已定案节点为纯色圆点。 */
+/* 动作时间线：纵向竖线串起圆点（对齐 answer-pet 的 .ap-session-trace，并修正几何细节——
+   轨道下放到每个节点项自身：圆点与竖线严格同圆心（left:2.5px 让 1px 竖线对准 6px 圆点
+   圆心 x=3），竖线按每项一段连接（末项不画、终点没入最新动作圆点内部，不外露），且圆点
+   位于内容区内不被子代理卡 overflow 裁切）。 */
 [data-dsh-activity-pane] .dap-trace {
   display: flex; flex-direction: column; gap: 3px;
-  margin: 1px 0 2px 3px; padding-left: 10px;
-  border-left: 1px solid rgba(126,147,177,.3);
+  margin: 1px 0 2px 3px;
   min-width: 0;
 }
 [data-dsh-activity-pane] .dap-trace:empty { display: none; }
@@ -274,10 +274,11 @@ const CSS = `
   position: relative; display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 7px; min-width: 0;
+  padding-left: 13px;   /* 左侧轨道：圆点（圆心 x=3）与竖线（x=3）共用 */
   color: #c7ced9; font-size: 10px; line-height: 14px;
 }
 [data-dsh-activity-pane] .dap-trace-item::before {
-  content: ""; position: absolute; left: -14px; top: 4px;
+  content: ""; position: absolute; left: 0; top: 4px;
   width: 6px; height: 6px; border-radius: 50%;
   background: #778394;
   box-shadow: 0 0 0 2px rgba(119, 131, 148, .14);
@@ -293,6 +294,15 @@ const CSS = `
 [data-dsh-activity-pane] .dap-trace-item[data-status="error"]::before {
   background: #f06a72;
 }
+/* 每项一段竖线（末项不画）：从本项圆点下方连到下一项圆点并没入其顶缘——最新动作
+   （末项）圆点之下不露头。5%/gap 依赖 14px 行高 + 3px 间距；bottom 多 1px 让终点
+   藏进下一颗圆点。 */
+[data-dsh-activity-pane] .dap-trace-item::after {
+  content: ""; position: absolute; left: 2.5px; top: 11px; bottom: -8px;
+  width: 1px;
+  background: rgba(126, 147, 177, .3);
+}
+[data-dsh-activity-pane] .dap-trace-item:last-child::after { content: none; }
 [data-dsh-activity-pane] .dap-trace-main {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -303,18 +313,16 @@ const CSS = `
   flex: none; font-size: 9.5px; color: #7f8998;
   font-variant-numeric: tabular-nums;
 }
+/* 子代理：同一节点项几何（轨道/圆点/竖线在项内自绘）；去掉容器级 overflow/padding/
+   border，避免把左侧圆点裁掉。文本截断由 .dap-trace-main 自处理。 */
 [data-dsh-activity-pane] .dap-subtrace {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0;
   font-size: 10px; line-height: 14px;
   color: color-mix(in srgb, currentColor 72%, transparent);
-  margin: 1px 0 0 4px; padding-left: 8px;
-  border-left: 1px solid rgba(126, 147, 177, .2);
+  margin: 1px 0 0 4px;
 }
 [data-dsh-activity-pane] .dap-subtrace .dap-trace-item {
   color: inherit;
-}
-[data-dsh-activity-pane] .dap-subtrace .dap-trace-item::before {
-  left: -11px; width: 5px; height: 5px;
 }
 [data-dsh-activity-pane] .dap-track {
   position: relative; height: 5px; border-radius: 6px; overflow: hidden;

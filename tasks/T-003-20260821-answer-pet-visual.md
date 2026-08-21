@@ -6,7 +6,7 @@ id: T-003
 
 # T-003 运行卡外观对齐 answer-pet（状态文案/动作时间线/进度条）
 
-状态: active
+状态: completed
 关联: R-01-009 → 活动状态模型；R-01-009 → 窗格渲染器
 风险等级: standard
 
@@ -62,8 +62,13 @@ id: T-003
 
 ## 终态与证据
 
-- 实现: （待填写）
-- 测试: （待填写）
-- DESIGN 对照: （待填写）
-- commit: （待填写）
-- review: （待填写）
+- 实现: 运行卡外观全面对齐 answer-pet——①`statusLine` 头文案改为阶段标签「使用工具 / 回答中 / 思考中」且工具名拼在状态行末尾（token/≈速率/时长之后），token/速率仅 >0 拼接；②`buildTrace` 兜底节点「运行中…」→「分析任务」；③时间线 CSS：`.dap-trace`/`.dap-subtrace` 改 `border-left` 竖线 + `padding-left`，`.dap-trace-item::before` 绝对定位圆点（静止灰带半透明外环、running 蓝 + 外环 + `dap-pulse` 闪烁、done 绿/error 红），子代理竖线几何同步；④进度条 5px 圆角渐变辉光 + `data-streaming` 时 `repeating-linear-gradient` + `dap-stripes` 向右滚动条纹，`prefers-reduced-motion` 停用；⑤`.dap-pct`/`.dap-status`/trace 颜色字号与 tabular-nums 对齐 answer-pet；⑥进度语义：首观测即 tool 阶段以 `PROGRESS_THINK_BASE` 兜底并固化下限防 0，`cardSignature` 纳入 `streaming`。map：PRD R-01-009 新增 AC-08/AC-09、AC-02 文案对齐；DESIGN 产品契约/边界与对外契约/核心数据与不变量/子系统与模块同步；README 卡片信息行同步（该文件另有并发写入者改动，未随本提交暂存）。实现链：2657fc2。
+- 测试: `node scripts/check.mjs` 全过（R-01-009/AC-01 工具名末尾、AC-02「回答中」、AC-03 阶段切换、AC-05 token/速率、AC-06 progressOf 阶段、AC-07 buildTrace 节点与「分析任务」兜底、token/速率为 0 时字段隐藏断言、签名并入 streaming；bundle 契约含 `fetch(` 缺失、可解析、data-streaming/dap-stripes/repeating-linear-gradient/圆点外环等新 CSS 入包）；`pnpm lint` 全绿（41 AC / test-anchored 41 / design-covered 15 / 1 active→completed）。GUI 人工验收见 `scripts/acceptance.mjs`（R-01-009/AC-02 状态文案、AC-06 中途接入防 0、AC-07 时间线、AC-08 流式条纹 + reduced-motion、AC-09 竖线/外环/闪烁）。
+- DESIGN 对照: 按 AgentMap「实现后调和」：新增行为（状态文案 answer-pet 对齐、时间线竖线/半透外环/运行点闪烁、进度条流式条纹动画、data-streaming 属性与签名、tool 首观测兜底基线）已同步进 DESIGN「边界与对外契约 / 核心数据与不变量 / 产品契约 / 子系统与模块」，PRD R-01-009/AC-02/AC-08/AC-09 与 DOMAIN 术语（轮内状态/轮内进度/流程节点）无冲突；DESIGN 与实现对照无差异。
+- commit: 2657fc2
+- review:
+  - 审核方: standards 子代理 0c3fe787-c1de-4ace-a511-661201cdb670 / spec 子代理 ab0e786e-4670-4727-aa1c-d4bcda2db2b1（同一审核轮次）
+  - 目的理解: 审核 T-003 实现相对东家原始诉求与 PRD R-01-009（AC-02 回答中文案、AC-08 流式条纹、AC-09 时间线）与 DESIGN 契约（statusLine/buildTrace/progressOf、外观对齐 answer-pet、R-02 数据源纪律）的符合度，及对真实 answer-pet 源码（web profile 内 client.js/PHASE_LABELS/progress.mjs）的逐值对齐。
+  - 执行方式: code-review skill 双轴（Standards+Spec）并行子代理，评审基线 d255b0e..工作区（T-003 相关文件），排除并发写入者的 README/TODO/pnpm-lock 改动。
+  - 问题与修复: Standards — 无文档标准硬违规；正确性抽查（圆点落线几何、grid 列、进度 0–100 钳制、data-streaming 逐渲染重求值无残留、reduced-motion 三动画路径全覆盖、dap-stripes 40px=20px 周期无缝）全部通过；仅两条宽松判断：①竖线+圆点几何在 `.dap-trace` 与 `.dap-subtrace` 重复（规模小、父/子语义不同，可接受，再扩可抽 CSS 公共变量）；②`statusLine` 嵌套三元仅 3 支且与 answer-pet PHASE_LABELS 同构，不构成 Repeated Switches。Spec — 无缺失/无越界/无与参考相悖实现；「子代理竖线」answer-pet 上游本无，属 T-003 与 acceptance 步骤明确的既有需求；进度数值口径（回合差分 token + 无 maxTokens 饱和）为 DESIGN/T-003 明示 ≈ 近似，非缺陷；`/answer-pet/state` 路由与宿主事件折叠未被复制，数据源纪律保持。
+  - 复审结论: 两轴均无需整改，双轴通过。

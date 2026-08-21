@@ -189,6 +189,14 @@ const thinkItem = conversationTimeline({
 })[0];
 assert.equal(thinkItem.label, "Think", "推理工作项标题复用主网页 Think 语义");
 assert.equal(thinkItem.summary, "Planning path", "推理工作项摘要单独保留");
+const grepItem = conversationTimeline({
+	chat: { order: ["grep"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-call", callId: "grep-1", call: { name: "grep", argsRaw: '{"pattern":"foo"}' } } } }) } },
+})[0];
+assert.equal(grepItem.label, "Grep", "grep 标题与主会话网页一致");
+const globItem = conversationTimeline({
+	chat: { order: ["glob"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-call", callId: "glob-1", call: { name: "glob", argsRaw: "{}" } } } }) } },
+})[0];
+assert.equal(globItem.label, "Search", "glob 标题保持既有 Search 语义");
 const outsideCurrent = conversationTimeline({
 	chat: { order: ["u1", "u2", "u3", "u4", "u5"], nodes: { get: (key) => ({ key, kind: "user", data: { content: [{ type: "text", text: key }] } }) } },
 	partial: { turn: 2, step: 0, blocks: [{ kind: "text", text: "当前项" }] },
@@ -524,7 +532,7 @@ assert.ok(bundle.includes("removeEventListener"), "卸载移除事件监听");
 // reduced-motion 只关闭宽度 transition，不关闭 answer-pet 同款状态脉冲/流式条纹。
 assert.ok(bundle.includes(".dap-trace-item:last-child::after"), "时间线末项不画竖线（终点没入最末圆点）");
 assert.ok(bundle.includes("margin: 1px 0 2px;"), "时间线整体与卡片内容左边界对齐");
-assert.ok(bundle.includes("left: 3px; top: 0; bottom: -8px"), "1px 竖线（整数位）与 7px 圆点严格同圆心（不右偏）");
+assert.ok(bundle.includes("left: 3px; top: 0; bottom: -11px"), "1px 竖线（整数位）与 7px 圆点严格同圆心（不右偏）");
 assert.ok(bundle.includes("width: 7px; height: 7px"), "时间线圆点奇数宽 7px（保证整数位居中）");
 assert.ok(bundle.includes("padding-left: 14px"), "时间线文字轨道保持 14px 内缩");
 assert.ok(bundle.includes(".dap-subtrace {\n  min-width: 0;"), "子代理容器不再 padding/border/overflow 包裹（不裁切圆点）");

@@ -29,7 +29,7 @@ const TOOL_LABELS = {
 	read: "Read",
 	web_fetch: "Read",
 	web_search: "Search",
-	grep: "Search",
+	grep: "Grep",
 	glob: "Search",
 	write: "Write",
 	edit: "Edit",

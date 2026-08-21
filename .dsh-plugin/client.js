@@ -906,7 +906,13 @@ const CSS = `
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  padding-top: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 10px 0 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
 }
 [data-dsh-activity-pane] .dap-rail-count {
   min-width: 20px;
@@ -1318,6 +1324,8 @@ function apply(ctx) {
 	let syncScheduled = false;
 	let lastSig = "";
 	let renderedPane = null;
+	let boundPane = null;
+	let unbindPaneControls = null;
 	let collapsed = false;
 	/** 活动区卡片 id → { el, kind } 复用表。 */
 	const cardsById = new Map();
@@ -1375,29 +1383,52 @@ function apply(ctx) {
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
 		if (seat === null || seat.parentElement === null) return;
 		const center = seat.parentElement;
+		let changed = false;
 		if (!desktopQuery.matches) {
 			// 移动端：抽屉脱离文档流（fixed），不参与主会话布局；恢复外壳默认
 			// 列布局，避免行方向扰动移动端主会话显示（R-01-008）。
-			if (center.style.flexDirection !== "")
+			if (center.style.flexDirection !== "") {
 				center.style.flexDirection = "";
-			if (center.style.alignItems !== "")
+				changed = true;
+			}
+			if (center.style.alignItems !== "") {
 				center.style.alignItems = "";
+				changed = true;
+			}
 			const flex = conversationFlexItem(center);
 			if (flex !== null) {
-				if (flex.style.flex !== "") flex.style.flex = "";
-				if (flex.style.minWidth !== "") flex.style.minWidth = "";
+				if (flex.style.flex !== "") {
+					flex.style.flex = "";
+					changed = true;
+				}
+				if (flex.style.minWidth !== "") {
+					flex.style.minWidth = "";
+					changed = true;
+				}
 			}
+			if (changed) notifyLayoutChange();
 			return;
 		}
-		if (center.style.flexDirection !== "row")
+		if (center.style.flexDirection !== "row") {
 			center.style.flexDirection = "row";
-		if (center.style.alignItems !== "stretch")
+			changed = true;
+		}
+		if (center.style.alignItems !== "stretch") {
 			center.style.alignItems = "stretch";
+			changed = true;
+		}
 		const flex = conversationFlexItem(center);
 		if (flex !== null) {
-			if (flex.style.flex !== "1 1 0%") flex.style.flex = "1 1 0%";
-			if (flex.style.minWidth !== "0") flex.style.minWidth = "0";
+			if (flex.style.flex !== "1 1 0%") {
+				flex.style.flex = "1 1 0%";
+				changed = true;
+			}
+			if (flex.style.minWidth !== "0") {
+				flex.style.minWidth = "0";
+				changed = true;
+			}
 		}
+		if (changed) notifyLayoutChange();
 	}
 
 	function queueSync() {
@@ -1490,6 +1521,41 @@ function apply(ctx) {
 		queueSync();
 	}
 
+	function togglePane(open) {
+		const pane = document.querySelector(`[${PANE_ATTR}]`);
+		if (pane === null) return;
+		pane.setAttribute("data-open", open ? "true" : "false");
+	}
+	function notifyLayoutChange() {
+		try {
+			window.dispatchEvent(new Event("resize"));
+		} catch {}
+	}
+	function bindPaneControls(pane) {
+		const close = pane.querySelector(".dap-close");
+		const collapse = pane.querySelector(".dap-collapse");
+		const rail = pane.querySelector(".dap-rail");
+		const onCloseClick = () => pane.setAttribute("data-open", "false");
+		const onCollapseClick = () => {
+			collapsed = !collapsed;
+			pane.setAttribute("data-collapsed", collapsed ? "true" : "false");
+			notifyLayoutChange();
+		};
+		const onRailClick = () => {
+			collapsed = false;
+			pane.setAttribute("data-collapsed", "false");
+			notifyLayoutChange();
+		};
+		close?.addEventListener("click", onCloseClick);
+		collapse?.addEventListener("click", onCollapseClick);
+		rail?.addEventListener("click", onRailClick);
+		return () => {
+			close?.removeEventListener("click", onCloseClick);
+			collapse?.removeEventListener("click", onCollapseClick);
+			rail?.removeEventListener("click", onRailClick);
+		};
+	}
+
 	// ---- 窗格容器（conversation 槽座的前置兄弟列；外壳重挂载后重插） ----
 	function ensurePane() {
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
@@ -1517,10 +1583,15 @@ function apply(ctx) {
 						<div class="dap-recent-head"><span>最近历史 · 24h</span></div>
 					</div>
 				</div>
-				<div class="dap-rail">
+				<button class="dap-rail" type="button" aria-label="展开活动会话窗格">
 					<span class="dap-rail-count" role="status" aria-live="polite"></span>
-				</div>
+				</button>
 			`;
+		}
+		if (pane !== boundPane) {
+			unbindPaneControls?.();
+			unbindPaneControls = bindPaneControls(pane);
+			boundPane = pane;
 		}
 		return pane;
 	}
@@ -1716,34 +1787,49 @@ function apply(ctx) {
 			const nativeState = presentation?.state;
 			line.dataset.status = nativeState === "ok" ? "done" : nativeState || (typeof item.status === "string" ? item.status : "running");
 			line.dataset.icon = typeof item.icon === "string" ? item.icon : "other";
+			// 活动流式更新只改文本，保留命中节点；按下/抬起之间替换子节点会让浏览器取消 click。
 			let main = line.querySelector(".dap-trace-main");
 			if (main === null) {
 				main = makeEl("span", "dap-trace-main");
 				line.append(main);
 			}
-			main.replaceChildren();
-			const icon = makeEl("span", "dap-trace-icon");
-			if (presentation?.icon instanceof SVGElement) {
-				if (line.dataset.status === "error") tintSvgCurrentColor(presentation.icon);
-				icon.append(presentation.icon);
-			} else {
-				const icons = { user: "◎", assistant: "✦", context: "◇", read: "⌕", edit: "✎", delete: "×", move: "↔", search: "⌕", execute: "▶", fetch: "↗", other: "⚙", tool: "⚙" };
-				icon.textContent = icons[item.icon] ?? "⚙";
-			}
-			main.append(icon);
 			const labelText = presentation?.label || item.label || "";
 			const summaryText = presentation?.summary || item.summary || item.detail || item.text || "";
-			if (labelText) {
-				const label = makeEl("span", "dap-trace-label");
-				label.textContent = labelText;
-				main.append(label);
+			const structure = [
+				"dap-trace-icon",
+				labelText ? "dap-trace-label" : null,
+				labelText && summaryText ? "dap-trace-separator" : null,
+				summaryText ? "dap-trace-summary" : null,
+			].filter(Boolean);
+			const currentStructure = [...main.children].map((child) => child.className);
+			const iconKey = JSON.stringify([item.kind ?? "", item.icon ?? "", presentation?.state ?? "", line.dataset.status]);
+			const paintIcon = (host) => {
+				host.replaceChildren();
+				if (presentation?.icon instanceof SVGElement) {
+					if (line.dataset.status === "error") tintSvgCurrentColor(presentation.icon);
+					host.append(presentation.icon);
+				} else {
+					const icons = { user: "◎", assistant: "✦", context: "◇", read: "⌕", edit: "✎", delete: "×", move: "↔", search: "⌕", execute: "▶", fetch: "↗", other: "⚙", tool: "⚙" };
+					host.textContent = icons[item.icon] ?? "⚙";
+				}
+				host.dataset.iconKey = iconKey;
+			};
+			let iconHost = main.querySelector(".dap-trace-icon");
+			if (currentStructure.join("\0") !== structure.join("\0")) {
+				main.replaceChildren();
+				iconHost = makeEl("span", "dap-trace-icon");
+				main.append(iconHost);
+				if (labelText) main.append(makeEl("span", "dap-trace-label"));
+				if (labelText && summaryText) main.append(makeEl("span", "dap-trace-separator"));
+				if (summaryText) main.append(makeEl("span", "dap-trace-summary"));
 			}
-			if (summaryText) {
-				if (labelText) main.append(makeEl("span", "dap-trace-separator"));
-				const summary = makeEl("span", "dap-trace-summary");
-				summary.textContent = summaryText;
-				main.append(summary);
-			}
+			if (iconHost !== null && iconHost.dataset.iconKey !== iconKey) paintIcon(iconHost);
+			const label = main.querySelector(".dap-trace-label");
+			if (label !== null) label.textContent = labelText;
+			const separator = main.querySelector(".dap-trace-separator");
+			if (separator !== null) separator.setAttribute("aria-hidden", "true");
+			const summary = main.querySelector(".dap-trace-summary");
+			if (summary !== null) summary.textContent = summaryText;
 			const statusLabels = { running: "进行中", done: "已完成", ok: "已完成", error: "失败", stopped: "已停止" };
 			line.setAttribute("aria-label", [labelText, summaryText, statusLabels[line.dataset.status] ?? line.dataset.status].filter(Boolean).join(" · "));
 			if (!lastOnly) {
@@ -2088,7 +2174,6 @@ function apply(ctx) {
 				aliveActive.add(entry.id);
 		pruneCards(cardsById, aliveActive);
 		ensureEmpty(activeList, active.length === 0, "暂无活动会话");
-
 		const aliveRecent = new Set();
 		for (const entry of recent)
 			if (renderCardIntoList(recentSection, entry, recentCardsById))
@@ -2195,36 +2280,12 @@ function apply(ctx) {
 	if (frameObserver === null) frameProbeTimer = setInterval(installFrameObserver, 500);
 
 	// ---- 交互：移动端抽屉开关、弹窗收起、桌面折叠 ----
-	function togglePane(open) {
-		const pane = document.querySelector(`[${PANE_ATTR}]`);
-		if (pane === null) return;
-		pane.setAttribute("data-open", open ? "true" : "false");
-	}
 	function onToggleClick() {
 		const pane = document.querySelector(`[${PANE_ATTR}]`);
 		const open = pane?.getAttribute("data-open") !== "true";
 		togglePane(open);
 	}
-	function onPaneClick(event) {
-		const inPane = event.target?.closest?.(`[${PANE_ATTR}]`) !== null;
-		if (inPane && event.target?.closest?.(".dap-close") !== null) {
-			togglePane(false);
-			return;
-		}
-		if (inPane && event.target?.closest?.(".dap-collapse") !== null) {
-			collapsed = !collapsed;
-			const pane = document.querySelector(`[${PANE_ATTR}]`);
-			pane?.setAttribute("data-collapsed", collapsed ? "true" : "false");
-			return;
-		}
-		if (inPane && event.target?.closest?.(".dap-rail") !== null) {
-			collapsed = false;
-			const pane = document.querySelector(`[${PANE_ATTR}]`);
-			pane?.setAttribute("data-collapsed", "false");
-		}
-	}
 	toggle.addEventListener("click", onToggleClick);
-	document.addEventListener("click", onPaneClick);
 	const onResize = () => queueSync();
 	desktopQuery.addEventListener("change", onResize);
 
@@ -2254,13 +2315,15 @@ function apply(ctx) {
 		recentCardsById.clear();
 		for (const sessionId of openRetryStates.keys()) cancelOpenRetry(sessionId);
 		openRetryStates.clear();
+		unbindPaneControls?.();
+		unbindPaneControls = null;
+		boundPane = null;
 		renderedPane = null;
 		bodyObserver.disconnect();
 		frameObserver?.disconnect();
 		observedCenter = null;
 		if (frameProbeTimer !== null) clearInterval(frameProbeTimer);
 		toggle.removeEventListener("click", onToggleClick);
-		document.removeEventListener("click", onPaneClick);
 		desktopQuery.removeEventListener("change", onResize);
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
 		if (seat !== null && seat.parentElement !== null) {

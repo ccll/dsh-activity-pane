@@ -512,6 +512,14 @@ assert.doesNotThrow(
 	"bundle 必须是合法 JS（可被 loader 导入注册）",
 );
 assert.ok(!bundle.includes("sessionsListHas"), "点击不得以第二份 list 快照提前拦截");
+assert.ok(!bundle.includes('document.addEventListener("click"'), "不得在 document 上拦截点击");
+assert.ok(bundle.includes('close?.addEventListener("click", onCloseClick)'), "窗格关闭按钮绑定自身 click");
+assert.ok(bundle.includes('collapse?.addEventListener("click", onCollapseClick)'), "窗格折叠按钮绑定自身 click");
+assert.ok(bundle.includes('rail?.addEventListener("click", onRailClick)'), "折叠窄条绑定自身 click");
+assert.ok(bundle.includes('class="dap-rail" type="button"'), "折叠窄条使用原生 button 语义");
+assert.ok(bundle.includes("unbindPaneControls"), "窗格控制监听可清理");
+assert.ok(bundle.includes("notifyLayoutChange"), "布局变化通知 sibling overlay 重测");
+assert.ok(bundle.includes('window.dispatchEvent(new Event("resize"))'), "布局变化派发标准 resize 通知");
 assert.ok(bundle.includes("pane !== renderedPane"), "新窗格实例必须重置渲染签名");
 assert.ok(bundle.includes("openRetryStates"), "跳转重试链必须可合并并清理");
 // ---- R-01-009/AC-02、R-01-009/AC-05、R-01-012/AC-01..04、R-01-013/AC-01..06 ----

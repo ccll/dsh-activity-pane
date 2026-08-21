@@ -210,6 +210,6 @@ sequenceDiagram
     - 工作项标题与摘要之间渲染小圆点；错误项通过 `data-status="error"` 将保留的动作 SVG、标题和摘要染红。
     - `prefers-reduced-motion` 仅关闭填充宽度 transition，不关闭状态脉冲/流式条纹；`streaming` 字段并入稳定签名以驱动属性翻转重绘。
   - 桌面列折叠为窄条 + 计数；移动端经媒体查询切为固定抽屉 + 浮动开关按钮。
-  - 激活经几何命中 + capture 监听（限定窗格内部），配列表就绪重试。
+  - 每张 card 在创建时注册自身的 `click` / `keydown` handler，直接读取当前 card 的 `data-session-id`；外部菜单与 pane 空白不进入卡片处理，配列表就绪重试。
 - 代码位置: src/client.mjs
 - 实现: 单端（浏览器 client bundle）

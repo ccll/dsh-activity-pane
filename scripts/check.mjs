@@ -32,7 +32,7 @@ import {
 	TRACE_MAX_ITEMS,
 	workspaceTitleForSession,
 } from "../src/core.mjs";
-import { openSession } from "../src/navigation.mjs";
+import { bindCardActivation, openSession } from "../src/navigation.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -62,6 +62,42 @@ assert.equal(
 	false,
 	"sessions.open 失败时交给调用方进入 refresh/retry",
 );
+
+// ---- R-01-005/AC-01、R-02-003/AC-01 card 自身 click/键盘监听与卸载 ----
+const cardListeners = new Map();
+const card = {
+	dataset: { sessionId: "card-a" },
+	addEventListener(type, listener) {
+		cardListeners.set(type, listener);
+	},
+	removeEventListener(type, listener) {
+		if (cardListeners.get(type) === listener) cardListeners.delete(type);
+	},
+};
+const cardOpened = [];
+const cardSessions = { open: (id) => cardOpened.push(id) };
+const unbindCard = bindCardActivation(card, (id) => openSession(cardSessions, id));
+const activateEvent = (type, key = undefined) => {
+	let prevented = false;
+	let stopped = false;
+	cardListeners.get(type)?.({
+		type,
+		currentTarget: card,
+		key,
+		preventDefault: () => { prevented = true; },
+		stopPropagation: () => { stopped = true; },
+	});
+	return { prevented, stopped };
+};
+assert.deepEqual(activateEvent("click"), { prevented: true, stopped: true }, "card click 可激活并阻止宿主继续处理");
+assert.deepEqual(activateEvent("keydown", "Enter"), { prevented: true, stopped: true }, "card Enter 可激活");
+assert.deepEqual(activateEvent("keydown", " "), { prevented: true, stopped: true }, "card Space 可激活");
+assert.deepEqual(activateEvent("keydown", "Escape"), { prevented: false, stopped: false }, "其它按键不激活 card");
+card.dataset.sessionId = "card-b";
+activateEvent("click");
+assert.deepEqual(cardOpened, ["card-a", "card-a", "card-a", "card-b"], "复用同一 card 时读取最新 session id");
+unbindCard();
+assert.equal(cardListeners.size, 0, "card 卸载移除 click/keydown 监听");
 
 // ---- R-01-002/AC-01 待确认 ｜ R-01-002/AC-02 待审查/待回复 ----
 assert.equal(pendingText("approval"), "待确认");
@@ -476,14 +512,6 @@ assert.doesNotThrow(
 	"bundle 必须是合法 JS（可被 loader 导入注册）",
 );
 assert.ok(!bundle.includes("sessionsListHas"), "点击不得以第二份 list 快照提前拦截");
-assert.ok(
-	bundle.includes('document.addEventListener("keydown", onKeyDown, true)'),
-	"键盘跳转监听必须在 capture 阶段接收",
-);
-assert.ok(
-	bundle.includes('document.removeEventListener("keydown", onKeyDown, true)'),
-	"卸载必须移除 capture 阶段键盘监听",
-);
 assert.ok(bundle.includes("pane !== renderedPane"), "新窗格实例必须重置渲染签名");
 assert.ok(bundle.includes("openRetryStates"), "跳转重试链必须可合并并清理");
 // ---- R-01-009/AC-02、R-01-009/AC-05、R-01-012/AC-01..04、R-01-013/AC-01..06 ----

@@ -734,6 +734,31 @@ function buildTrace({
 }
 
 /**
+ * 为单张 card 绑定点击/键盘激活，并返回卸载函数。
+ * 事件处理读取 card 当前的 data-session-id，兼容同一 DOM 在渲染中复用。
+ */
+function bindCardActivation(card, open) {
+	if (typeof card?.addEventListener !== "function" || typeof open !== "function")
+		return () => {};
+	const activate = (event) => {
+		if (event.type === "keydown" && event.key !== "Enter" && event.key !== " ") return;
+		if (event.type !== "click" && event.type !== "keydown") return;
+		const currentCard = event.currentTarget ?? card;
+		const sessionId = currentCard?.dataset?.sessionId;
+		if (typeof sessionId !== "string" || sessionId === "") return;
+		event.preventDefault?.();
+		event.stopPropagation?.();
+		open(sessionId);
+	};
+	card.addEventListener("click", activate);
+	card.addEventListener("keydown", activate);
+	return () => {
+		card.removeEventListener?.("click", activate);
+		card.removeEventListener?.("keydown", activate);
+	};
+}
+
+/**
  * 调用 DSH 原生会话导航；由调用方决定失败后的 refresh/retry 策略。
  * 不读取 sessions.list，避免用另一份可能已过期的快照拦截跳转。
  */
@@ -950,6 +975,10 @@ const CSS = `
   border-color: color-mix(in srgb, #e8a33d 55%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, #e8a33d 35%, transparent), 0 6px 16px rgba(0,0,0,.3);
   background: rgba(35, 31, 25, 0.97);
+}
+/* 所有卡片统一提供可见的悬停反馈；不覆盖当前/等待态自身的颜色语义。 */
+[data-dsh-activity-pane] .dap-card:hover {
+  filter: brightness(1.12);
 }
 [data-dsh-activity-pane] .dap-card[data-opening] {
   opacity: 0.85;
@@ -1886,7 +1915,11 @@ function apply(ctx) {
 		if (rec === undefined) {
 			const el = document.createElement("div");
 			el.className = CARD_CLASS;
-			rec = { el, kind: null };
+			const unbind = bindCardActivation(el, (sessionId) => {
+				if (typeof sessions?.open !== "function") return;
+				attemptOpen(sessionId, 0);
+			});
+			rec = { el, kind: null, unbind };
 			reuseMap.set(entry.id, rec);
 		}
 		if (rec.kind !== entry.kind) {
@@ -1917,6 +1950,7 @@ function apply(ctx) {
 	function pruneCards(reuseMap, alive) {
 		for (const [id, rec] of reuseMap) {
 			if (alive.has(id)) continue;
+			rec.unbind?.();
 			rec.el.remove();
 			reuseMap.delete(id);
 		}
@@ -2134,44 +2168,6 @@ function apply(ctx) {
 			el?.removeAttribute("data-opening");
 		}
 	}
-	/** 纯几何命中 + capture 阶段点击，规避覆盖层/stopPropagation。 */
-	function sessionIdAtPoint(x, y) {
-		if (typeof x !== "number" || typeof y !== "number") return undefined;
-		const cards = Array.from(
-			document.querySelectorAll(`[${PANE_ATTR}] [data-session-id]`),
-		);
-		for (const card of cards) {
-			const r = card.getBoundingClientRect();
-			if (r.left <= x && x <= r.right && r.top <= y && y <= r.bottom)
-				return card.dataset.sessionId;
-		}
-		return undefined;
-	}
-	function openCard(event) {
-		const pointSessionId = sessionIdAtPoint(event.clientX, event.clientY);
-		// 先做几何命中：窗格上方可能有 pointer-events 接管的宿主 overlay，
-		// 此时 event.target 不在窗格内，但点击位置仍明确落在某张窗格卡片上。
-		if (!event.target?.closest?.(`[${PANE_ATTR}]`) && pointSessionId === undefined)
-			return;
-		const sessionId =
-			pointSessionId ??
-			event.target
-				?.closest?.(`[${PANE_ATTR}] [data-session-id]`)
-				?.dataset?.sessionId;
-		if (sessionId === undefined) return;
-		if (typeof sessions?.open !== "function") return;
-		event.preventDefault();
-		event.stopPropagation();
-		attemptOpen(sessionId, 0);
-	}
-	function onKeyDown(event) {
-		if (event.key !== "Enter" && event.key !== " ") return;
-		const card = event.target?.closest?.(`[${PANE_ATTR}] [data-session-id]`);
-		if (card?.dataset.sessionId === undefined) return;
-		event.preventDefault();
-		attemptOpen(card.dataset.sessionId, 0);
-	}
-
 	// ---- 观察者：找到 frame 后聚焦其子树；外壳重挂载时窗格被清即重插 ----
 	const bodyObserver = new MutationObserver(queueSync);
 	bodyObserver.observe(document.body, { childList: true, subtree: true });
@@ -2236,8 +2232,6 @@ function apply(ctx) {
 	if (sessions === null || workspaces === null) {
 		serviceTimer = setInterval(installServiceSubscriptions, 250);
 	}
-	document.addEventListener("click", openCard, true); // capture
-	document.addEventListener("keydown", onKeyDown, true); // capture
 	queueSync();
 
 	const cleanup = () => {
@@ -2254,6 +2248,10 @@ function apply(ctx) {
 		livenessById.clear();
 		progressFloor.clear();
 		nativeIconsByTraceKey.clear();
+		for (const rec of cardsById.values()) rec.unbind?.();
+		for (const rec of recentCardsById.values()) rec.unbind?.();
+		cardsById.clear();
+		recentCardsById.clear();
 		for (const sessionId of openRetryStates.keys()) cancelOpenRetry(sessionId);
 		openRetryStates.clear();
 		renderedPane = null;
@@ -2275,8 +2273,6 @@ function apply(ctx) {
 				flex.style.minWidth = "";
 			}
 		}
-		document.removeEventListener("click", openCard, true);
-		document.removeEventListener("keydown", onKeyDown, true);
 		toggle.remove();
 		document.querySelector(`[${PANE_ATTR}]`)?.remove();
 		style.remove();

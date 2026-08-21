@@ -44,6 +44,258 @@ export function cleanPreview(value, max = 88) {
 	return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
+/** 取原始文本的第一个非空物理行；不把换行折叠成同一行。 */
+export function firstPhysicalLine(value, max = 120) {
+	if (typeof value !== "string") return "";
+	for (const line of value.split(/\r?\n/)) {
+		const text = line.trim();
+		if (!text) continue;
+		return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+	}
+	return "";
+}
+
+function contentText(content) {
+	if (!Array.isArray(content)) return "";
+	return content
+		.filter((block) => isRecord(block) && block.type === "text" && typeof block.text === "string")
+		.map((block) => block.text)
+		.join("\n");
+}
+
+function assistantBlockText(blocks, kind = "text") {
+	if (!Array.isArray(blocks)) return "";
+	return blocks
+		.filter((block) => isRecord(block) && block.kind === kind && typeof block.text === "string")
+		.map((block) => block.text)
+		.join("\n");
+}
+
+function mapValue(source, key) {
+	if (source instanceof Map) return source.get(key);
+	return isRecord(source) ? source[key] : undefined;
+}
+
+function toolViewTitle(view) {
+	return isRecord(view) && typeof view.title === "string" ? view.title : "";
+}
+
+function toolViewDetail(view) {
+	if (!isRecord(view)) return null;
+	if (typeof view.description === "string") return cleanPreview(view.description);
+	if (typeof view.output === "string") return cleanPreview(view.output);
+	if (typeof view.text === "string") return cleanPreview(view.text);
+	return null;
+}
+
+function timelineToolItem(root, fallbackView = null) {
+	if (!isRecord(root)) return null;
+	const call = isRecord(root.call) ? root.call : root;
+	const name = typeof call.name === "string" ? call.name : "tool";
+	const argsRaw = typeof call.argsRaw === "string" ? call.argsRaw : root.argsRaw;
+	const view = root.callView ?? fallbackView;
+	const resultView = root.resultView;
+	const label = toolViewTitle(view) || toolViewTitle(resultView) || name;
+	const detail = toolViewDetail(view) ?? toolViewDetail(resultView) ?? summarizeToolArguments(argsRaw);
+	return {
+		id: typeof root.callId === "string" ? root.callId : `tool:${name}`,
+		kind: "tool",
+		icon: isRecord(view) && typeof view.kind === "string" ? view.kind : "tool",
+		text: label,
+		detail,
+		status: root.kind === "tool-result" ? (root.isError === true ? "error" : "done") : "running",
+		durationMs:
+			Number.isFinite(root.time) && Number.isFinite(root.callTime)
+				? Math.max(0, root.time - root.callTime)
+				: null,
+	};
+}
+
+function timelineItemFromChatNode(node) {
+	if (!isRecord(node)) return null;
+	const data = isRecord(node.data) ? node.data : {};
+	if (node.visibility === "hidden") return null;
+	if (node.kind === "user" || node.kind === "steering") {
+		const text = contentText(data.content);
+		return {
+			id: String(node.key ?? node.anchorSeq ?? `user:${text}`),
+			kind: "user",
+			icon: "user",
+			text,
+			detail: null,
+			status: "done",
+			durationMs: null,
+		};
+	}
+	if (node.kind === "assistant-step" || node.kind === "assistant") {
+		const text = assistantBlockText(data.blocks, "text");
+		const reasoning = assistantBlockText(data.blocks, "reasoning");
+		if (!text && !reasoning) return null;
+		return {
+			id: String(node.key ?? `assistant:${data.turn}:${data.step}`),
+			kind: "assistant",
+			icon: "assistant",
+			turn: data.turn,
+			step: data.step,
+			text,
+			detail: reasoning || null,
+			status: data.status === "running" ? "running" : "done",
+			durationMs: null,
+		};
+	}
+	if (node.kind === "tool-call") return timelineToolItem(data.root ?? data);
+	if (node.kind === "context") {
+		const text = contentText(data.content);
+		return text
+			? {
+					id: String(node.key ?? `context:${text}`),
+					kind: "context",
+					icon: "context",
+					text,
+					detail: null,
+					status: "done",
+					durationMs: null,
+				}
+			: null;
+	}
+	return null;
+}
+
+/** 从主会话 ChatSnapshot 的真实 order 提取最近工作项，保留当前 live 项。 */
+export function conversationTimeline(snapshot, limit = 4) {
+	const chat = snapshot?.chat;
+	const order = Array.isArray(chat?.order) ? chat.order : [];
+	const nodes = chat?.nodes;
+	const items = [];
+	for (const key of order) {
+		let node;
+		try {
+			node = nodes?.get?.(key) ?? nodes?.[key];
+		} catch {
+			node = undefined;
+		}
+		const item = timelineItemFromChatNode(node);
+		if (item) items.push(item);
+	}
+	const liveItems = [];
+	const partialText = assistantBlockText(snapshot?.partial?.blocks, "text");
+	const partialReasoning = assistantBlockText(snapshot?.partial?.blocks, "reasoning");
+	if (partialText || partialReasoning) {
+		const currentIndex = items.findLastIndex((item) => item.kind === "assistant" && item.turn === snapshot.partial.turn && item.step === snapshot.partial.step);
+		const current = currentIndex >= 0 ? items.splice(currentIndex, 1)[0] : null;
+		liveItems.push({
+			...(current ?? { id: `partial:${snapshot.partial.turn}:${snapshot.partial.step}`, kind: "assistant", icon: "assistant", durationMs: null }),
+			text: partialText,
+			detail: partialReasoning || null,
+			status: "running",
+		});
+	}
+	for (const call of Array.isArray(snapshot?.runningCalls) ? snapshot.runningCalls : []) {
+		const item = timelineToolItem(call);
+		if (!item) continue;
+		const existingIndex = items.findIndex((candidate) => candidate.id === item.id);
+		if (existingIndex >= 0) liveItems.push({ ...items.splice(existingIndex, 1)[0], ...item });
+		else liveItems.push(item);
+	}
+	const max = Math.max(0, limit);
+	if (max === 0) return [];
+	return liveItems.length > 0
+		? items.slice(-Math.max(0, max - liveItems.length)).concat(liveItems).slice(-max)
+		: items.slice(-max);
+}
+
+function timelineItemFromEvent(entry) {
+	const event = isRecord(entry?.event) ? entry.event : entry;
+	const data = isRecord(event?.data) ? event.data : {};
+	if (!event || typeof event.type !== "string") return null;
+	if (event.type === "user/message" && data.source?.kind === "user") {
+		return { id: `user:${event.seq}`, kind: "user", icon: "user", text: contentText(data.content), detail: null, status: "done", durationMs: null };
+	}
+	if (event.type === "assistant/message") {
+		const text = contentText(data.message?.content);
+		return text ? { id: `assistant:${event.seq}`, kind: "assistant", icon: "assistant", text, detail: null, status: "done", durationMs: null } : null;
+	}
+	if (event.type === "tool/call") {
+		return timelineToolItem({ kind: "tool-call", callId: data.callId, name: data.name, argsRaw: data.arguments, callView: entry?.view?.for === "call" ? entry.view.view : null });
+	}
+	if (event.type === "tool/result") {
+		return timelineToolItem({ kind: "tool-result", callId: data.callId, call: data.name ? { name: data.name, argsRaw: data.arguments ?? "" } : null, time: event.time, callTime: data.callTime, isError: data.isError, resultView: entry?.view?.for === "result" ? entry.view.view : null });
+	}
+	return null;
+}
+
+/** 冷会话 history 的同序降级，供没有 ChatSnapshot 的活动/历史会话使用。 */
+export function conversationTimelineFromHistory(history, partial = null, runningCalls = [], limit = 4) {
+	const items = [];
+	for (const entry of Array.isArray(history) ? history : []) {
+		const item = timelineItemFromEvent(entry);
+		if (item) items.push(item);
+	}
+	const partialText = assistantBlockText(partial?.blocks, "text");
+	const partialReasoning = assistantBlockText(partial?.blocks, "reasoning");
+	if (partialText || partialReasoning) items.push({ id: `partial:${partial.turn}:${partial.step}`, kind: "assistant", icon: "assistant", text: partialText, detail: partialReasoning || null, status: "running", durationMs: null });
+	for (const call of Array.isArray(runningCalls) ? runningCalls : []) {
+		const item = timelineToolItem(call);
+		if (item) items.push(item);
+	}
+	const max = Math.max(0, limit);
+	return max === 0 ? [] : items.slice(-max);
+}
+
+/** 从 ChatSnapshot/history/projection 取最近用户与 agent reply 的物理首行。 */
+export function messagePreviews({ snapshot = null, history = [], projectionValues = null } = {}) {
+	let user = "";
+	let agent = "";
+	const timeline = conversationTimeline(snapshot, Number.MAX_SAFE_INTEGER);
+	for (const item of timeline) {
+		if (item.kind === "user" && item.text) user = firstPhysicalLine(item.text);
+		if (item.kind === "assistant" && item.text) agent = firstPhysicalLine(item.text);
+	}
+	if (!user || !agent) {
+		for (const entry of Array.isArray(history) ? history : []) {
+			const event = entry?.event ?? entry;
+			if (event?.type === "user/message" && event.data?.source?.kind === "user") user = firstPhysicalLine(contentText(event.data.content)) || user;
+			if (event?.type === "assistant/message") agent = firstPhysicalLine(contentText(event.data?.message?.content)) || agent;
+		}
+	}
+	const rows = projectionValues?.timelineUserMessages;
+	const last = Array.isArray(rows) ? [...rows].sort((a, b) => Number(b?.seq) - Number(a?.seq))[0] : null;
+	return {
+		userPreview: user || firstPhysicalLine(last?.text),
+		agentPreview: agent || firstPhysicalLine(last?.reply),
+	};
+}
+
+/** 归一化 native sessions.models 返回的当前模型与 reasoning level。 */
+export function modelMetadata(models) {
+	const current = isRecord(models?.current) ? models.current : null;
+	if (!current) return { model: "", reasoning: "" };
+	let selected = null;
+	for (const group of Array.isArray(models?.groups) ? models.groups : []) {
+		const found = Array.isArray(group?.models) ? group.models.find((model) => model?.id === current.model) : null;
+		if (found) {
+			selected = found;
+			break;
+		}
+	}
+	const reasoning = selected?.reasoning;
+	const effortId = current.reasoningEffort ?? reasoning?.defaultEffort;
+	const effort = Array.isArray(reasoning?.efforts) ? reasoning.efforts.find((item) => item?.id === effortId) : null;
+	return {
+		model: typeof selected?.name === "string" && selected.name ? selected.name : typeof current.model === "string" ? current.model : "",
+		reasoning: typeof effort?.name === "string" && effort.name ? effort.name : typeof effortId === "string" ? effortId : "",
+	};
+}
+
+/** 只提供卡片底部所需的原始统计字段，不拼接当前动作文案。 */
+export function runtimeStats({ elapsedMs = null, outputTokens = null, rateTokS = null } = {}) {
+	return {
+		elapsedMs: Number.isFinite(elapsedMs) && elapsedMs >= 0 ? elapsedMs : null,
+		outputTokens: Number.isFinite(outputTokens) && outputTokens >= 0 ? outputTokens : null,
+		rateTokS: Number.isFinite(rateTokS) && rateTokS > 0 ? rateTokS : null,
+	};
+}
+
 /** 需要用户行动的种类的展示文案。 */
 export function pendingText(kind) {
 	return PENDING_LABELS[kind] ?? "需要响应";
@@ -125,7 +377,7 @@ export function mainTitle(byId, id) {
  *   - 主会话 pendingInteraction / completed → 'awaiting'（等待用户行动）
  *   - 子代理 running / pending → 'subagent'，否则不显示
  */
-export function buildEntries(snapshot, workspaceItems) {
+export function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
@@ -176,6 +428,14 @@ export function buildEntries(snapshot, workspaceItems) {
 		m.depth = depth;
 		if (m.show) {
 			const parentId = m.row.parentId;
+			const details = mapValue(detailsById, id) ?? {};
+			const metadata = details.model ?? modelMetadata(details.models ?? m.row.models);
+			const timeline = details.timeline ?? conversationTimeline(details.snapshot);
+			const previews = details.previews ?? messagePreviews({
+				snapshot: details.snapshot,
+				history: details.history,
+				projectionValues: m.row.projectionValues,
+			});
 			entries.push({
 				id,
 				depth,
@@ -186,6 +446,11 @@ export function buildEntries(snapshot, workspaceItems) {
 				workspaceTitle: m.isSub
 					? ""
 					: workspaceTitleForSession(id, workspaceItems ?? [], byId),
+				model: metadata.model ?? "",
+				reasoning: metadata.reasoning ?? "",
+				timeline: timeline ?? [],
+				userPreview: previews.userPreview ?? "",
+				agentPreview: previews.agentPreview ?? "",
 				isCurrent: current !== null && String(current) === String(id),
 				pendingText: m.pending
 					? pendingText(m.row.pendingInteraction)
@@ -214,18 +479,23 @@ export function cardSignature(entries) {
 			entry.kind,
 			entry.title,
 			entry.workspaceTitle,
+			entry.model ?? "",
+			entry.reasoning ?? "",
+			entry.timeline ?? null,
+			entry.userPreview ?? "",
+			entry.agentPreview ?? "",
 			entry.isCurrent,
 			entry.pendingText ?? null,
-			entry.status ?? null,
 			entry.updatedAt ?? null,
 			entry.progress ?? null,
 			entry.trace ?? null,
 			entry.streaming ?? null,
+			entry.tokenStats ?? [entry.outputTokens ?? null, entry.rateTokS ?? null, entry.elapsedMs ?? null],
 		]),
 	);
 }
 
-// ---- 最近历史区（R-01-010）与轮内状态文案（R-01-009） ----
+// ---- 最近历史区（R-01-010）与运行统计（R-01-009） ----
 
 /** 历史窗口：会话最后一次活动距现在不超过该毫秒数则视为"最近使用过"。 */
 export const HISTORY_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -255,7 +525,7 @@ export function isActiveRow(row, byId = {}) {
  * （子代理是临时工作单元，不入最近历史；故需同时排除表白会话与已结束子代理），
  * 按最后活动时间从新到旧，最多 HISTORY_MAX 条。blank 会话不出现（从未用过）。
  */
-export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS) {
+export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS, detailsById = {}) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
@@ -271,12 +541,23 @@ export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WI
 		const updatedAt = Number(row.updatedAt);
 		if (!Number.isFinite(updatedAt)) continue;
 		if (updatedAt > now || now - updatedAt > windowMs) continue;
+		const details = mapValue(detailsById, id) ?? {};
+		const metadata = details.model ?? modelMetadata(details.models ?? row.models);
+		const previews = details.previews ?? messagePreviews({
+			snapshot: details.snapshot,
+			history: details.history,
+			projectionValues: row.projectionValues,
+		});
 		entries.push({
 			id,
 			kind: "recent",
 			depth: 0,
 			title: mainTitle(byId, id),
 			workspaceTitle: workspaceTitleForSession(id, items, byId),
+			model: metadata.model ?? "",
+			reasoning: metadata.reasoning ?? "",
+			userPreview: previews.userPreview ?? "",
+			agentPreview: previews.agentPreview ?? "",
 			isCurrent: current !== null && String(current) === String(id),
 			updatedAt,
 		});
@@ -419,33 +700,4 @@ export function buildTrace({
 	}
 	items.push(current);
 	return items.slice(-TRACE_MAX_ITEMS);
-}
-
-/**
- * 轮内状态文案：由渲染器把运行中会话的原生订阅快照归一为
- * `{ runningTool, streaming, elapsedMs, outputTokens, rateTokS }` 后调用。
- * 头文案对齐 answer-pet 的 PHASE_LABELS：tool→使用工具、stream→回答中、其余→思考中；
- * 工具名按 answer-pet 惯例拼在状态行末尾（R-01-009/AC-02）；token/速率/时长按字段存在拼接。
- * 无任何宿主依赖。
- */
-export function statusLine({
-	runningTool = null,
-	streaming = false,
-	elapsedMs = null,
-	outputTokens = null,
-	rateTokS = null,
-} = {}) {
-	const parts = [
-		runningTool ? "使用工具" : streaming ? "回答中" : "思考中",
-	];
-	if (Number.isFinite(outputTokens) && outputTokens > 0) {
-		const tokens = fmtTokens(outputTokens);
-		if (tokens !== null) parts.push(`${tokens} tok`);
-	}
-	if (Number.isFinite(rateTokS) && rateTokS > 0)
-		parts.push(`≈${Math.round(rateTokS)} tok/s`);
-	if (Number.isFinite(elapsedMs) && elapsedMs >= 0)
-		parts.push(fmtElapsedMs(elapsedMs));
-	if (runningTool) parts.push(runningTool);
-	return parts.join(" · ");
 }

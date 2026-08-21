@@ -24,15 +24,16 @@ DeepSeek Harness Web 的**活动会话总览窗格**插件：把正在运行的�
 
 - **桌面**：窗格作为左侧栏旁的新列插入外壳 AppFrame（位于侧边栏与主会话之间），会话多了在窗格内滚动即可，不再出现"卡片向上溢出屏幕"的问题。
 - **移动端（≤767px）**：窗格离开文档流变为从左侧滑出的抽屉，通过浮动按钮开关显示。
-- **数据来源**：100% 使用 DSH 原生 `sessions` / `workspaces` 客户端服务（推送式快照），**不依赖** `dsh-answer-pet`、无轮询、无自有宿主路由。
+- **数据来源**：使用 DSH 原生 `sessions` / `workspaces` 推送快照，以及 native `sessions.history` / `sessions.models` 的一次性读取；**不依赖** `dsh-answer-pet`、无状态轮询、无自有宿主路由。
 
 ## 卡片信息
 
-- 每个活动会话一张卡片：工作区徽标、会话标题、运行/等待状态；等待用户行动的会话带徽标（待确认 / 待审查 / 待回复 / 需要响应）并以琥珀色高亮。
-- **运行卡对齐 `dsh-answer-pet` 的卡片**：状态行（工具调用「使用工具 … 工具名」/ 流式「回答中」/ 思考「思考中」 · 输出 token 计数 · 输出速率 · 已运行时长）+ 工具白名单参数摘要（path/url/query 等，不含完整命令或原始 JSON）+ 阶段进度条（5px 圆角、同回合不倒退、工具阶段冻结、回合切换重置、流式阶段内部向右滚动条纹动画）+ 最近流程节点轨迹（竖线串圆点的时间线，已定案工具调用与当前阶段，含状态与耗时；正在执行的节点带半透明外环并闪烁）。
+- 每个活动会话一张卡片：工作区、会话标题、模型名称/reasoning level、最近工作项与运行/等待状态；等待用户行动的会话带徽标（待确认 / 待审查 / 待回复 / 需要响应）并以琥珀色高亮。
+- 最近历史卡固定为五层：工作区 + 模型、会话标题、最近用户首个非空物理行、最近 agent reply 首个非空物理行、最后活动时间，并沿用卡片 hover 高亮。
+- **运行卡沿用 `dsh-answer-pet` 的卡片质感**：右上角模型名称/reasoning level + 主会话窗口最近 4 个工作项（图标语义、文字、详情、状态与顺序），进度条下方输出 token/近似速率/已运行时长；工具白名单参数摘要（path/url/query 等，不含完整命令或原始 JSON）与 answer-pet 风格轨迹/进度条继续保留，但不再渲染独立「思考中」「回答中」状态行。
 - 子代理以紧凑卡片嵌套在母会话下，显示当前阶段摘要，结束后自动消失。
 - 点击卡片（或 Enter/Space）跳转到对应会话。
-- 富卡统计一律取自 DSH 原生订阅快照（`runningCalls` / `partial` / `turnTimings` / `legacy.nodes` + 列表快照的 `projectionValues`），不依赖 `dsh-answer-pet`、无轮询。
+- 卡片动态一律取自 DSH 原生会话快照（`chat.order` / `chat.nodes` / `runningCalls` / `partial` / `turnTimings` / `legacy.nodes` + 列表快照的 `projectionValues`）；冷会话只做 native history/model 一次性读取，不依赖 `dsh-answer-pet`、无状态轮询。
 
 ## 安装与开发
 

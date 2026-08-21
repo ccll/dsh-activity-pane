@@ -4,12 +4,12 @@
 // （`#root [data-slot="conversation"] || .parentElement` 即 flex 行），让外壳的
 // 让步链挤压中间栏；窄屏（<=767px）转为固定抽屉 + 浮动开关按钮。
 //
-// 数据来源：DSH 原生 `sessions` / `workspaces` 客户端服务（推送式快照）+ 对
-// 运行中会话的原生订阅（binding().session），不依赖任何第三方插件数据路由，
-// 也无需轮询。窗格内容分上下两段：上「活动会话」、下「最近历史」（24h）。
+// 数据来源：DSH 原生 `sessions` / `workspaces` 客户端服务（推送式快照）+ native
+// `sessions.history` / `sessions.models` 冷会话读取 + 运行中会话的原生订阅
+//（binding().session），不依赖任何第三方插件数据路由，也不做状态轮询。
 
 const name = "dsh-activity-pane";
-const inject = [];
+const inject = ["connection"];
 
 const CONVERSATION_SELECTOR = "#root [data-slot=\"conversation\"]";
 const PANE_ATTR = "data-dsh-activity-pane";
@@ -18,6 +18,7 @@ const LIST_CLASS = "dap-list";
 const RECENT_CLASS = "dap-recent";
 const CARD_CLASS = "dap-card";
 const STYLE_ID = "dsh-activity-pane-style";
+const INSTANCE_KEY = "__dshActivityPaneCleanup";
 const DEFAULT_WIDTH = 280;
 const COLLAPSED_WIDTH = 34;
 const INDENT_PX = 16;
@@ -31,6 +32,8 @@ const CSS = `
   flex: 0 0 var(--dap-width);
   min-width: 0;
   min-height: 0;
+  position: relative;
+  z-index: 5;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -245,6 +248,16 @@ const CSS = `
   border-radius: 999px; padding: 0 7px;
 }
 [data-dsh-activity-pane] .dap-workspace[hidden] { display: none; }
+[data-dsh-activity-pane] .dap-card-head {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+}
+[data-dsh-activity-pane] .dap-card-head .dap-workspace { flex: 1; }
+[data-dsh-activity-pane] .dap-model {
+  flex: none; max-width: 58%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: color-mix(in srgb, currentColor 72%, transparent);
+  font-size: 9.5px; line-height: 14px; text-align: right;
+}
+[data-dsh-activity-pane] .dap-model:empty { display: none; }
 [data-dsh-activity-pane] .dap-note {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 11px; line-height: 15px;
@@ -255,11 +268,16 @@ const CSS = `
   flex: none; font-size: 12px; line-height: 15px; font-weight: 700;
   color: #9fe8c4; font-variant-numeric: tabular-nums;
 }
-[data-dsh-activity-pane] .dap-status {
+[data-dsh-activity-pane] .dap-token-stats {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 11px; line-height: 15px;
-  color: #afb7c4; font-variant-numeric: tabular-nums;
+  font-size: 10px; line-height: 14px; color: #8f9aaa; font-variant-numeric: tabular-nums;
 }
+[data-dsh-activity-pane] .dap-token-stats:empty { display: none; }
+[data-dsh-activity-pane] .dap-history-line {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10.5px; line-height: 15px; color: color-mix(in srgb, currentColor 68%, transparent);
+}
+[data-dsh-activity-pane] .dap-history-line[data-role="agent"] { color: color-mix(in srgb, currentColor 54%, transparent); }
 /* 动作时间线：纵向竖线串起圆点（对齐 answer-pet 的 .ap-session-trace，并修正几何细节——
    圆点与竖线整体从卡片内容左边起步，和标题圆点/状态行/进度条共用左边界；轨道下放到每个
    节点项自身：7px 奇数宽圆点 left:0（圆心 x=3.5），1px 竖线 left:3（圆心 x=3.5），
@@ -307,6 +325,9 @@ const CSS = `
   background: rgba(126, 147, 177, .3);
 }
 [data-dsh-activity-pane] .dap-trace-item:last-child::after { content: none; }
+[data-dsh-activity-pane] .dap-trace-icon {
+   width: 12px; flex: none; font-size: 10px; color: #a9b8cc; text-align: center;
+ }
 [data-dsh-activity-pane] .dap-trace-main {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -472,6 +493,12 @@ function fmtRecentTime(ts) {
 }
 
 function apply(ctx) {
+	const previousCleanup = document[INSTANCE_KEY] ?? globalThis[INSTANCE_KEY];
+	if (typeof previousCleanup === "function") previousCleanup();
+	for (const node of document.querySelectorAll(
+		`[${PANE_ATTR}], .dap-toggle, #${STYLE_ID}`,
+	))
+		node.remove();
 	let disposed = false;
 	let sessions = null;
 	let workspaces = null;
@@ -481,15 +508,23 @@ function apply(ctx) {
 	let clockTimer = null;
 	let syncScheduled = false;
 	let lastSig = "";
+	let renderedPane = null;
 	let collapsed = false;
 	/** 活动区卡片 id → { el, kind } 复用表。 */
 	const cardsById = new Map();
 	/** 历史区卡片 id → { el } 复用表。 */
 	const recentCardsById = new Map();
-	/** 运行中会话轮内状态订阅：id → { unsubscribe, liveness }。 */
+	/** 运行中会话原生快照订阅：id → { unsubscribe, liveness, snapshot }。 */
 	const livenessById = new Map();
+	/** 订阅停止后保留最近快照，供 awaiting/recent 卡继续显示上下文。 */
+	const sessionDetailsById = new Map();
 	/** 运行卡进度单调下限：id → { turn, floor }；随运行集清理、卸载清空。 */
 	const progressFloor = new Map();
+	/** 会话跳转的单一重试链；避免重复点击叠加 refresh/timer。 */
+	const openRetryStates = new Map();
+	/** native cold-session reads, one promise per session and no polling. */
+	const modelLoads = new Map();
+	const historyLoads = new Map();
 
 	const style = document.createElement("style");
 	style.id = STYLE_ID;
@@ -563,6 +598,56 @@ function apply(ctx) {
 		});
 	}
 
+	function apiValue(response) {
+		return response?.result?.ok === true ? response.result.value : null;
+	}
+
+	function loadNativeDetails(ids) {
+		const api = ctx.get("connection")?.api?.sessions;
+		if (!api) return;
+		for (const id of ids) {
+			const detail = sessionDetailsById.get(id) ?? {};
+			sessionDetailsById.set(id, detail);
+			if (!detail.model && typeof api.models === "function" && !modelLoads.has(id)) {
+				const promise = Promise.resolve()
+					.then(() => api.models({ sessionId: id }))
+					.then((response) => {
+						const value = apiValue(response);
+						if (!value) return;
+						detail.models = value;
+						detail.model = modelMetadata(value);
+						queueSync();
+					})
+					.catch((error) => {
+						detail.model = { model: "", reasoning: "" };
+						detail.modelError = error instanceof Error ? error.message : String(error);
+						queueSync();
+					});
+				modelLoads.set(id, promise);
+			}
+			if (!detail.snapshot && !detail.history && typeof api.history === "function" && !historyLoads.has(id)) {
+				const promise = Promise.resolve()
+					.then(() => api.history({ sessionId: id, maxMessages: 50 }))
+					.then((response) => {
+						const value = apiValue(response);
+						if (!value) return;
+						detail.history = Array.isArray(value.events) ? value.events : [];
+						detail.timeline = conversationTimelineFromHistory(detail.history, value.partial, value.runningCalls);
+						detail.previews = messagePreviews({ history: detail.history });
+						queueSync();
+					})
+					.catch((error) => {
+						detail.history = [];
+						detail.timeline = [];
+						detail.previews = { userPreview: "", agentPreview: "" };
+						detail.historyError = error instanceof Error ? error.message : String(error);
+						queueSync();
+					});
+				historyLoads.set(id, promise);
+			}
+		}
+	}
+
 	function installServiceSubscriptions() {
 		const nextSessions = ctx.get("sessions");
 		const nextWorkspaces = ctx.get("workspaces");
@@ -625,15 +710,17 @@ function apply(ctx) {
 
 	/** 静态骨架卡片；动态文本一律走 textContent，规避 HTML 注入。 */
 	function cardChildren(kind) {
+		const head = makeEl("div", "dap-card-head");
+		head.append(makeEl("div", "dap-workspace"), makeEl("div", "dap-model"));
 		if (kind === "subagent") {
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
-			return [row, makeEl("div", "dap-subtrace")];
+			return [head, row, makeEl("div", "dap-subtrace")];
 		}
 		if (kind === "recent") {
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
-			return [row, makeEl("div", "dap-note")];
+			return [head, row, makeEl("div", "dap-history-line"), makeEl("div", "dap-history-line"), makeEl("div", "dap-note")];
 		}
 		if (kind === "awaiting") {
 			const row = makeEl("div", "dap-row");
@@ -642,24 +729,14 @@ function apply(ctx) {
 				makeEl("span", "dap-title"),
 				makeEl("span", "dap-badge"),
 			);
-			return [makeEl("div", "dap-workspace"), row, makeEl("div", "dap-note")];
+			return [head, row, makeEl("div", "dap-note")];
 		}
-		// 运行卡骨架对齐 answer-pet：徽标 + 头行（dot/标题/百分比）+ 状态行 + trace + 进度条。
+		// 运行卡：上下文 + 标题 + 最近工作项 + 进度条 + token 底行。
 		const row = makeEl("div", "dap-row");
-		row.append(
-			makeEl("span", "dap-dot"),
-			makeEl("span", "dap-title"),
-			makeEl("span", "dap-pct"),
-		);
+		row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-pct"));
 		const track = makeEl("div", "dap-track");
 		track.append(makeEl("div", "dap-fill"));
-		return [
-			makeEl("div", "dap-workspace"),
-			row,
-			makeEl("div", "dap-status"),
-			makeEl("div", "dap-trace"),
-			track,
-		];
+		return [head, row, makeEl("div", "dap-trace"), track, makeEl("div", "dap-token-stats")];
 	}
 
 	/**
@@ -682,18 +759,26 @@ function apply(ctx) {
 			const line = lines[index] ?? makeEl("div", "dap-trace-item");
 			line.dataset.traceKey = key;
 			line.dataset.status = typeof item.status === "string" ? item.status : "running";
+			line.dataset.icon = typeof item.icon === "string" ? item.icon : "other";
 			let main = line.querySelector(".dap-trace-main");
 			if (main === null) {
 				main = makeEl("span", "dap-trace-main");
 				line.append(main);
 			}
 			main.replaceChildren();
-			main.append(item.label ?? "");
+			const icon = makeEl("span", "dap-trace-icon");
+			const icons = { user: "◎", assistant: "✦", context: "◇", read: "⌕", edit: "✎", delete: "×", move: "↔", search: "⌕", execute: "▶", fetch: "↗", other: "⚙", tool: "⚙" };
+			icon.textContent = icons[item.icon] ?? "⚙";
+			main.append(icon);
+			const text = item.label ?? item.text ?? "";
+			main.append(text);
 			if (typeof item.detail === "string" && item.detail.length > 0) {
 				const detail = makeEl("span", "dap-trace-detail");
 				detail.textContent = ` · ${item.detail}`;
 				main.append(detail);
 			}
+			const statusLabels = { running: "进行中", done: "已完成", error: "失败" };
+			line.setAttribute("aria-label", [text, item.detail, statusLabels[line.dataset.status] ?? line.dataset.status].filter(Boolean).join(" · "));
 			if (!lastOnly) {
 				let time = line.querySelector(".dap-trace-time");
 				if (time === null) {
@@ -719,6 +804,9 @@ function apply(ctx) {
 				workspaceLabel.setAttribute("hidden", "");
 			}
 		}
+		const modelLabel = el.querySelector(".dap-model");
+		if (modelLabel !== null)
+			modelLabel.textContent = [entry.model, entry.reasoning].filter(Boolean).join(" · ");
 		const title = el.querySelector(".dap-title");
 		if (title !== null && title.textContent !== entry.title)
 			title.textContent = entry.title;
@@ -731,16 +819,20 @@ function apply(ctx) {
 			const pct = el.querySelector(".dap-pct");
 			if (pct !== null)
 				pct.textContent = `${Math.round(entry.progress ?? PROGRESS_THINK_BASE)}%`;
-			const status = el.querySelector(".dap-status");
-			const next = entry.status ?? "思考中";
-			if (status !== null && status.textContent !== next)
-				status.textContent = next;
 			const traceContainer = el.querySelector(".dap-trace");
-			if (traceContainer !== null) renderTrace(traceContainer, entry.trace);
+			if (traceContainer !== null) renderTrace(traceContainer, entry.timeline?.length ? entry.timeline : entry.trace);
 			const fill = el.querySelector(".dap-fill");
 			if (fill !== null) {
 				const width = `${Math.min(100, Math.max(0, entry.progress ?? 0))}%`;
 				if (fill.style.width !== width) fill.style.width = width;
+			}
+			const stats = el.querySelector(".dap-token-stats");
+			if (stats !== null) {
+				const parts = [];
+				if (Number.isFinite(entry.outputTokens) && entry.outputTokens >= 0) parts.push(`${fmtTokens(entry.outputTokens) ?? entry.outputTokens} tok`);
+				if (Number.isFinite(entry.rateTokS) && entry.rateTokS > 0) parts.push(`≈${Math.round(entry.rateTokS)} tok/s`);
+				if (Number.isFinite(entry.elapsedMs) && entry.elapsedMs >= 0) parts.push(fmtElapsedMs(entry.elapsedMs));
+				stats.textContent = parts.join(" · ");
 			}
 			return;
 		}
@@ -748,8 +840,20 @@ function apply(ctx) {
 		if (entry.kind === "subagent") {
 			const traceContainer = el.querySelector(".dap-subtrace");
 			if (traceContainer !== null)
-				renderTrace(traceContainer, entry.trace, { lastOnly: true });
+				renderTrace(traceContainer, entry.timeline?.length ? entry.timeline : entry.trace, { lastOnly: true });
 			return;
+		}
+
+		if (entry.kind === "recent") {
+			const lines = el.querySelectorAll(".dap-history-line");
+			if (lines[0]) {
+				lines[0].dataset.role = "user";
+				lines[0].textContent = entry.userPreview ?? "";
+			}
+			if (lines[1]) {
+				lines[1].dataset.role = "agent";
+				lines[1].textContent = entry.agentPreview ?? "";
+			}
 		}
 
 		const note = el.querySelector(".dap-note");
@@ -780,14 +884,25 @@ function apply(ctx) {
 			let unsubscribe = null;
 			unsubscribe = session.subscribe(() => {
 				if (disposed) return;
-				const live = livenessFromSnapshot(getSessionSnapshot(session));
-				livenessById.set(id, { unsubscribe, liveness: live });
+				const snapshot = getSessionSnapshot(session);
+				const live = livenessFromSnapshot(snapshot);
+				livenessById.set(id, { unsubscribe, liveness: live, snapshot });
+				const detail = sessionDetailsById.get(id) ?? {};
+				detail.snapshot = snapshot;
+				detail.timeline = conversationTimeline(snapshot);
+				sessionDetailsById.set(id, detail);
 				queueSync();
 			});
+			const snapshot = getSessionSnapshot(session);
 			livenessById.set(id, {
 				unsubscribe,
-				liveness: livenessFromSnapshot(getSessionSnapshot(session)),
+				liveness: livenessFromSnapshot(snapshot),
+				snapshot,
 			});
+			const detail = sessionDetailsById.get(id) ?? {};
+			detail.snapshot = snapshot;
+			detail.timeline = conversationTimeline(snapshot);
+			sessionDetailsById.set(id, detail);
 		}
 		for (const [id, rec] of livenessById) {
 			if (runningIds.has(id)) continue;
@@ -870,8 +985,13 @@ function apply(ctx) {
 	}
 
 	function render() {
+		installFrameObserver();
 		const pane = ensurePane();
 		if (pane === null) return;
+		if (pane !== renderedPane) {
+			renderedPane = pane;
+			lastSig = "";
+		}
 		applyLayout();
 		const activeList = pane.querySelector(`.${LIST_CLASS}`);
 		const recentSection = pane.querySelector(`.${RECENT_CLASS}`);
@@ -881,7 +1001,7 @@ function apply(ctx) {
 		const workspaceItems = getSnapshot(workspaces, "list")?.items ?? [];
 		const now = Date.now();
 
-		const active = buildEntries(snapshot, workspaceItems);
+		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById);
 		// 轮内订阅仅对"运行中"会话建立（主会话 + 运行中的子代理），保持在运行中的订阅
 		// 数量 == 运行中会话数量（R-02-004/AC-01）；暂停等待的子代理只显示标题。
 		const runLikeIds = new Set(
@@ -895,8 +1015,22 @@ function apply(ctx) {
 				.map((entry) => entry.id),
 		);
 		syncLiveness(runLikeIds);
+		loadNativeDetails(active.map((entry) => entry.id));
 		for (const entry of active) {
-			const live = livenessById.get(entry.id)?.liveness ?? null;
+			const liveRecord = livenessById.get(entry.id);
+			const live = liveRecord?.liveness ?? null;
+			const detail = sessionDetailsById.get(entry.id);
+			const detailSnapshot = liveRecord?.snapshot ?? detail?.snapshot ?? null;
+			if (detailSnapshot) {
+				entry.timeline = conversationTimeline(detailSnapshot);
+				const previews = messagePreviews({ snapshot: detailSnapshot, history: detail?.history });
+				entry.userPreview = previews.userPreview;
+				entry.agentPreview = previews.agentPreview;
+			}
+			if (detail?.model) {
+				entry.model = detail.model.model;
+				entry.reasoning = detail.model.reasoning;
+			}
 			if (entry.kind === "running") {
 				const elapsedMs =
 					live?.startTime != null
@@ -911,13 +1045,7 @@ function apply(ctx) {
 					stats && Number.isFinite(stats.decodeMs) && stats.decodeMs > 0
 						? stats.decodeTokens / (stats.decodeMs / 1000)
 						: null;
-				entry.status = statusLine({
-					runningTool: live?.runningTool ?? null,
-					streaming: live?.streaming ?? false,
-					elapsedMs,
-					outputTokens,
-					rateTokS,
-				});
+				Object.assign(entry, runtimeStats({ elapsedMs, outputTokens, rateTokS }));
 				// 流式阶段标记驱动 data-streaming（进度条条纹动画）；工具调用期间视作
 				// 非流式，与 answer-pet 的 phase==='stream' 判定一致。
 				entry.streaming = !live?.runningTool && live?.streaming === true;
@@ -968,7 +1096,11 @@ function apply(ctx) {
 		// 清理已不在运行/子代理集的进度下限，避免残留。
 		for (const id of progressFloor.keys())
 			if (!runLikeIds.has(id)) progressFloor.delete(id);
-		const recent = buildRecent(snapshot, workspaceItems, now);
+		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById);
+		loadNativeDetails(recent.map((entry) => entry.id));
+		const visibleIds = new Set([...active, ...recent].map((entry) => entry.id));
+		for (const id of sessionDetailsById.keys())
+			if (!visibleIds.has(id)) sessionDetailsById.delete(id);
 
 		const sig = cardSignature([...active, ...recent]);
 		if (sig === lastSig) return;
@@ -1005,16 +1137,8 @@ function apply(ctx) {
 		pane.toggleAttribute("data-collapsed", collapsed ? "true" : "false");
 	}
 
-	// ---- 打开会话（复用 companion 验证过的：list 未就绪时 refresh + 重试） ----
+	// ---- 打开会话（让 sessions.open 自己校验列表，失败时 refresh + 重试） ----
 	const MAX_OPEN_ATTEMPTS = 60;
-	function sessionsListHas(sessionId) {
-		const snap = getSnapshot(sessions, "list");
-		return (
-			snap !== null &&
-			Array.isArray(snap.ids) &&
-			snap.ids.includes(String(sessionId))
-		);
-	}
 	function cardElFor(sessionId) {
 		return document.querySelector(
 			`[${PANE_ATTR}] [data-session-id="${String(sessionId)
@@ -1022,33 +1146,50 @@ function apply(ctx) {
 				.replace(/\\/g, "\\\\")}"]`,
 		);
 	}
+	function cancelOpenRetry(sessionId) {
+		const state = openRetryStates.get(sessionId);
+		if (state === undefined) return;
+		state.cancelled = true;
+		if (state.timer !== null) clearTimeout(state.timer);
+		openRetryStates.delete(sessionId);
+	}
+	function scheduleOpenRetry(sessionId, attempt) {
+		if (disposed || openRetryStates.has(sessionId)) return;
+		const state = { cancelled: false, timer: null };
+		openRetryStates.set(sessionId, state);
+		let refreshed;
+		try {
+			refreshed = sessions?.refresh?.();
+		} catch {}
+		Promise.resolve(refreshed)
+			.catch(() => {})
+			.finally(() => {
+				if (
+					disposed ||
+					state.cancelled ||
+					openRetryStates.get(sessionId) !== state
+				)
+					return;
+				state.timer = setTimeout(() => {
+					if (disposed || state.cancelled) return;
+					openRetryStates.delete(sessionId);
+					attemptOpen(sessionId, attempt);
+				}, 500);
+			});
+	}
 	function attemptOpen(sessionId, attempt) {
 		const el = cardElFor(sessionId);
 		if (el !== null) el.setAttribute("data-opening", "");
 
-		if (!sessionsListHas(sessionId)) {
-			if (attempt < MAX_OPEN_ATTEMPTS) {
-				try {
-					sessions.refresh?.();
-				} catch {}
-				setTimeout(() => attemptOpen(sessionId, attempt + 1), 500);
-				return;
-			}
+		if (openSession(sessions, sessionId)) {
+			cancelOpenRetry(sessionId);
 			el?.removeAttribute("data-opening");
 			return;
 		}
-		try {
-			sessions.open(sessionId);
+		if (attempt < MAX_OPEN_ATTEMPTS) scheduleOpenRetry(sessionId, attempt + 1);
+		else {
+			cancelOpenRetry(sessionId);
 			el?.removeAttribute("data-opening");
-		} catch (error) {
-			if (attempt < MAX_OPEN_ATTEMPTS) {
-				try {
-					sessions.refresh?.();
-				} catch {}
-				setTimeout(() => attemptOpen(sessionId, attempt + 1), 500);
-			} else {
-				el?.removeAttribute("data-opening");
-			}
 		}
 	}
 	/** 纯几何命中 + capture 阶段点击，规避覆盖层/stopPropagation。 */
@@ -1065,10 +1206,13 @@ function apply(ctx) {
 		return undefined;
 	}
 	function openCard(event) {
-		// 守卫：只处理落在窗格内部的点击，任何主会话区/外壳点击都不拦截。
-		if (!event.target?.closest?.(`[${PANE_ATTR}]`)) return;
+		const pointSessionId = sessionIdAtPoint(event.clientX, event.clientY);
+		// 先做几何命中：窗格上方可能有 pointer-events 接管的宿主 overlay，
+		// 此时 event.target 不在窗格内，但点击位置仍明确落在某张窗格卡片上。
+		if (!event.target?.closest?.(`[${PANE_ATTR}]`) && pointSessionId === undefined)
+			return;
 		const sessionId =
-			sessionIdAtPoint(event.clientX, event.clientY) ??
+			pointSessionId ??
 			event.target
 				?.closest?.(`[${PANE_ATTR}] [data-session-id]`)
 				?.dataset?.sessionId;
@@ -1090,17 +1234,20 @@ function apply(ctx) {
 	const bodyObserver = new MutationObserver(queueSync);
 	bodyObserver.observe(document.body, { childList: true, subtree: true });
 	let frameObserver = null;
+	let observedCenter = null;
 	let frameProbeTimer = null;
 	function installFrameObserver() {
-		if (frameObserver !== null) return;
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
-		if (seat === null || seat.parentElement === null) return;
-		bodyObserver.disconnect();
+		const center = seat?.parentElement ?? null;
+		if (center === null || center === observedCenter) return;
+		frameObserver?.disconnect();
 		frameObserver = new MutationObserver(queueSync);
-		frameObserver.observe(seat.parentElement, {
+		frameObserver.observe(center, {
 			childList: true,
 			subtree: true,
 		});
+		observedCenter = center;
+		bodyObserver.disconnect();
 		if (frameProbeTimer !== null) {
 			clearInterval(frameProbeTimer);
 			frameProbeTimer = null;
@@ -1148,10 +1295,10 @@ function apply(ctx) {
 		serviceTimer = setInterval(installServiceSubscriptions, 250);
 	}
 	document.addEventListener("click", openCard, true); // capture
-	document.addEventListener("keydown", onKeyDown);
+	document.addEventListener("keydown", onKeyDown, true); // capture
 	queueSync();
 
-	return () => {
+	const cleanup = () => {
 		disposed = true;
 		sessionUnsubscribe?.();
 		workspaceUnsubscribe?.();
@@ -1164,8 +1311,12 @@ function apply(ctx) {
 		}
 		livenessById.clear();
 		progressFloor.clear();
+		for (const sessionId of openRetryStates.keys()) cancelOpenRetry(sessionId);
+		openRetryStates.clear();
+		renderedPane = null;
 		bodyObserver.disconnect();
 		frameObserver?.disconnect();
+		observedCenter = null;
 		if (frameProbeTimer !== null) clearInterval(frameProbeTimer);
 		toggle.removeEventListener("click", onToggleClick);
 		document.removeEventListener("click", onPaneClick);
@@ -1182,10 +1333,16 @@ function apply(ctx) {
 			}
 		}
 		document.removeEventListener("click", openCard, true);
-		document.removeEventListener("keydown", onKeyDown);
+		document.removeEventListener("keydown", onKeyDown, true);
 		toggle.remove();
+		document.querySelector(`[${PANE_ATTR}]`)?.remove();
 		style.remove();
+		if (document[INSTANCE_KEY] === cleanup) delete document[INSTANCE_KEY];
+		if (globalThis[INSTANCE_KEY] === cleanup) delete globalThis[INSTANCE_KEY];
 	};
+	document[INSTANCE_KEY] = cleanup;
+	globalThis[INSTANCE_KEY] = cleanup;
+	return cleanup;
 }
 
 module.exports = { name, inject, apply };

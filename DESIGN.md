@@ -90,7 +90,7 @@ sequenceDiagram
 
 ## 边界与对外契约
 
-- 对外只读：窗格只消费 DSH 客户端服务 `sessions` 与 `workspaces` 的快照；不写回任何服务，不发起任何 HTTP 状态轮询（R-02-001、R-02-003）。
+- 对外只读：窗格只消费 DSH 原生 `sessions` / `workspaces` 客户端服务及其 native `connection.api` 的一次性历史/模型读取；不写回任何服务，不发起第三方 HTTP 状态轮询（R-02-001、R-02-003）。
 - 宿主依赖：窗口宿主为外壳三栏的中间列（`#root [data-slot="conversation"]` 的父级）。桌面下窗格作为该列内**真实的 flex 行元素**（插于会话座之前）占据左侧固定宽（默认 280px），会话根被设为 `flex:1 1 0%` 弹性填充余宽——主会话内容（标题/tabs/滚动区/输入框）随窗格展开随之让位、随折叠（窄条）同步恢复，而非被浮层覆盖（R-01-007、R-01-011）。
 - 移动端：抽屉以 `position:fixed` 脱离文档流，不改变主会话布局；中间列恢复外壳默认列布局（R-01-008）。
 - 页面契约：点击/键盘激活活动卡片 → 调用 `sessions.open` 切换当前会话；列表未就绪时以 `sessions.refresh` + 有限重试兜底（R-01-005）。
@@ -100,22 +100,24 @@ sequenceDiagram
   - 移动端抽屉不改变主会话布局，离开文档流（R-01-008）。
   - 双区结构：窗格内容区分为上「活动会话」下「最近历史」，两者都由同一快照派生；最近历史仅主会话（R-01-010）。
   - 轮内状态通过 `sessions.binding(sessionId).session` 订阅运行中会话取得，随运行结束断开；token/速率统计取 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`，复用既有列表订阅，无新增轮询）；运行时长与进度在渲染期按回合开始时间实时计算（R-01-009、R-02-004）。
+  - 工作项数据优先从原生 `ConversationSnapshot.chat` 的 `order` / `nodes` 读取，按主会话窗口显示顺序取尾部 4 项；冷会话使用 native `sessions.history` 的一次性读取补齐，不克隆第三方 UI 路由。运行中当前项由原生 `session.subscribe` 推送刷新（R-01-012）。
+  - 模型上下文从 native `sessions.models` 的当前选择与 catalog metadata 归一，模型名称与 reasoning level 缺失时保持空值；不使用 `agentPreset` 冒充模型（R-01-012）。
   - 富卡统计：运行卡展示工具白名单参数摘要、输出 token/速率、阶段进度与最近流程节点轨迹；原始参数经 `summarizeToolArguments` 白名单过滤后再上卡（R-01-009）。
-  - 运行卡外观对齐 answer-pet：状态行头文案（使用工具/回答中/思考中，工具名在末尾）、动作时间线（从卡片内容左边界起步、竖线与圆点严格同圆心、穿过首个节点圆点并向上引出、终点没入最新动作圆点、圆点半透明外环、正在执行节点闪烁、圆点不被容器裁切）、进度条（5px 圆角、流式阶段内部向右滚动条纹动画，经 `data-streaming` 属性驱动；降低动效设置不关闭这两类状态反馈）（R-01-009/AC-02、AC-08、AC-09）。
+  - 运行卡外观沿用 answer-pet 的卡片质感：工作项时间线从卡片内容左边界起步，竖线与圆点严格同圆心、当前节点带半透明外环并闪烁；进度条为 5px 圆角，流式阶段内部向右滚动条纹动画，经 `data-streaming` 驱动；卡片不渲染独立当前动作状态行（R-01-009/AC-02、AC-08、AC-09；R-01-012/AC-03、AC-04）。
   - 桌面列提供折叠控制，折叠为不占正文宽度的窄条（R-01-011）。
 
 ## 核心数据与不变量
 
-- 核心结构：`活动卡片条目 = { id, depth, kind: running|awaiting|subagent, title, workspaceTitle, isCurrent, pendingText? }`；`最近卡片条目 = { id, kind: 'recent', title, workspaceTitle, isCurrent, updatedAt }`。
+- 核心结构：`活动卡片条目 = { id, depth, kind: running|awaiting|subagent, title, workspaceTitle, model, reasoning, timeline, isCurrent, pendingText? }`；`最近卡片条目 = { id, kind: 'recent', title, workspaceTitle, model, reasoning, userPreview, agentPreview, isCurrent, updatedAt }`。
 - 显示过滤（核心不变量）：
   - 主会话显示当 `running || pendingInteraction || completed`；显示为 running 或 awaiting。
   - 子代理仅显示当 `running || pendingInteraction`；结束后即消失（R-01-001、R-01-003）。
   - 等待优先：存在待确认/待审查/待回复时以对应文案呈现；否则完成态以"需要响应"呈现（R-01-002）。
 - 分区不变量：会话要么在活动区、要么在历史区，绝不同时出现；最近历史 = 当前非活动 && `updatedAt` 落在历史窗口（24h）内、**仅主会话（不含子代理）**，按最后活动时间倒序，最多 20 条（R-01-010）。
-- 轮内状态输入：`statusLine({ runningTool, streaming, elapsedMs, outputTokens, rateTokS })` 为纯函数，输入由渲染器从原生 `ConversationSnapshot`（`runningCalls` / `partial` / `turnTimings` / `legacy.nodes`）与 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`）归一而来（R-01-009）。
+- 轮内状态输入：`runtimeStats({ elapsedMs, outputTokens, rateTokS })` 与 `conversationTimeline(snapshot)` 为纯函数，输入由渲染器从原生 `ConversationSnapshot`（`chat` / `runningCalls` / `partial` / `turnTimings` / `legacy.nodes`）与 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`）归一而来（R-01-009、R-01-012）。
 - 排序不变量：主会话按所在工作区侧栏顺序；未纳入任何工作区的排在全部工作区之后并保持出现顺序；子代理跟随母会话并缩进（R-01-001、R-01-003）。
-- 稳定签名：`cardSignature` 对条目可见字段求签名（含渲染期补充的 status/progress/trace/streaming）；签名相同的重复渲染必须跳过全部 DOM 写入（R-02-003）。
-- 运行卡渲染期字段：渲染器为 running 条目补充 `status`（状态行文案）、`progress`（阶段百分比）、`trace`（流程节点轨迹）、`streaming`（流式阶段标记，驱动 `data-streaming` 属性与进度条条纹动画）；同一 `kind` 卡片的 DOM 骨架在 `streaming` 翻转时经签名重绘更新属性。
+- 稳定签名：`cardSignature` 对条目可见字段求签名（含 model/reasoning/timeline/userPreview/agentPreview、progress/trace/streaming/tokenStats）；签名相同的重复渲染必须跳过全部 DOM 写入（R-02-003）。
+- 运行卡渲染期字段：渲染器为 running 条目补充 `progress`（阶段百分比）、`trace`（answer-pet 风格流程轨迹）、`timeline`（主会话窗口最近工作项）、`streaming`（流式阶段标记，驱动 `data-streaming` 属性与进度条条纹动画）与 `tokenStats`；不再派生独立 `status` 文案行；同一 `kind` 卡片的 DOM 骨架在 `streaming` 翻转时经签名重绘更新属性。
 
 ## 运行时、并发与失败语义
 
@@ -145,6 +147,8 @@ sequenceDiagram
 | R-01-009 | 活动状态模型 | 轮内状态文案派生 | src/core.mjs、src/client.mjs |
 | R-01-010 | 活动状态模型 | 双区派生与 24h 历史窗口 | src/core.mjs、src/client.mjs |
 | R-01-011 | 窗格渲染器 | 桌面列折叠为窄条 | src/client.mjs |
+| R-01-012 | 活动状态模型 | 原生会话工作项、模型上下文与实时快照 | src/core.mjs、src/client.mjs |
+| R-01-013 | 窗格渲染器 | 最近卡五行信息层级与 hover | src/core.mjs、src/client.mjs |
 | R-02-001 | 活动状态模型 | 独立数据源订阅 | src/core.mjs、src/client.mjs |
 | R-02-002 | 窗格渲染器 | 重挂载恢复与静默等待 | src/client.mjs |
 | R-02-003 | 活动状态模型 | 渲染签名与卸载清理 | src/core.mjs、src/client.mjs |
@@ -154,7 +158,7 @@ sequenceDiagram
 
 - 活动卡片集合：`活动状态模型#buildEntries(snapshot, workspaceItems)` 产出已排序的活动卡片条目数组（R-01-001）。
 - 最近历史集合：`活动状态模型#buildRecent(snapshot, workspaceItems, now)` 产出按最近活动时间倒序、容限 24h、上限 20 条的最近卡片（R-01-010）。
-- 轮内状态文案：`活动状态模型#statusLine({ runningTool, streaming, elapsedMs, outputTokens, rateTokS })` 产出运行卡状态行；头文案对齐 answer-pet 阶段标签（工具→「使用工具」且工具名在状态行末尾、流式→「回答中」、其余→「思考中」），其后按字段存在拼接 token 计数、≈速率与时长；工具名在时长之后（R-01-009/AC-01、AC-02、AC-03、AC-05）。
+- 轮内状态数据：`活动状态模型#runtimeStats({ runningTool, streaming, elapsedMs, outputTokens, rateTokS })` 产出运行卡所需的时长、token 与速率字段；当前动作不再单独输出为卡片状态行，工具名、回复文本与详情进入 `工作项时间线`（R-01-009/AC-01、AC-02、AC-03、AC-05）。
 - 流程节点轨迹：`活动状态模型#buildTrace(...)` 产出最近少量流程节点（已定案工具调用 + 当前阶段），含 label/detail/status/durationMs；`summarizeToolArguments` 只从白名单字段提取摘要（R-01-009/AC-07）。渲染层以竖线串圆点的时间线呈现：轨道从卡片内容左边界起步，竖线与圆点严格同圆心（整数像素位，避免 1px 竖线分数位吸附偏移）、穿过首个节点圆点并向上引出（表示更早历史被省略）、终点没入最新动作圆点内部不外露；圆点带半透明外环、正在执行节点蓝色外环 + 闪烁、已定案节点绿/红实心圆点，且圆点位于内容区不被容器裁切（R-01-009/AC-09）。
 - 阶段进度：`活动状态模型#progressOf({ phase, outputTokens, elapsedMs })` 产出 0–100 的估计百分比（tool 阶段冻结返回 null）；渲染层按回合叠加单调下限，保证同回合不倒退；首观测即 tool 阶段（中途接入）以思考基线兜底防 0（R-01-009/AC-06）。渲染层以 5px 圆角进度条呈现，流式阶段（`data-streaming`）填充为向右滚动条纹动画（R-01-009/AC-08）。
 - 等待文案：`pendingText(kind)` 将待确认/待审查/待回复归一为中文标识；完成态默认"需要响应"（R-01-002）。
@@ -172,25 +176,26 @@ sequenceDiagram
 ## 子系统与模块
 
 ### 活动状态模型
-- 职责: 把宿主会话与工作区快照归一化为活动区/历史区条目与轮内状态文案（实现 R-01-001、R-01-002、R-01-003、R-01-009、R-01-010、R-02-001、R-02-003）
+- 职责: 把宿主会话与工作区快照归一化为活动区/历史区条目、工作项时间线、模型上下文与消息预览（实现 R-01-001、R-01-002、R-01-003、R-01-009、R-01-010、R-01-012、R-01-013、R-02-001、R-02-003）
 - 关键内部结构:
   - 纯函数、无 DOM、可单测。
   - 显示过滤单点实现：`isActiveRow`（buildEntries 的 show 与 buildRecent 共用），主会话/子代理分列，等待行动优先于运行态；`isSubagentRow` 判定直属子代理。
-  - `buildRecent` 按 24h 历史窗口派生历史区（仅主会话、倒序、上限 20）。
-  - `statusLine` 由归一化的轮内输入（工具/流式/时长/token/速率）产出运行卡状态文案，头文案与工具名顺序对齐 answer-pet 的阶段标签。
-  - 富卡辅助：`fmtTokens`、`summarizeToolArguments`（白名单）、`buildTrace`（流程节点轨迹）、`progressOf`（阶段进度）为运行卡提供纯函数派生。
+  - `buildRecent` 按 24h 历史窗口派生历史区（仅主会话、倒序、上限 20），并归一化 workspace/model/reasoning、最近用户首行与 agent 首行。
+  - `conversationTimeline` 从原生 ChatSnapshot 的实际 order 提取最近 4 个工作项，保留图标语义、文字、详情与状态；`firstPhysicalLine` 只取消息的第一个非空物理行。
+  - `modelMetadata` 从 native models response 提取当前模型名称与 reasoning level；缺失值保持空白。
+  - 富卡辅助：`fmtTokens`、`summarizeToolArguments`（白名单）、`buildTrace`（流程节点轨迹）、`progressOf`（阶段进度）、`runtimeStats`（时长/token/速率）为运行卡提供纯函数派生。
   - 排序由工作区索引 + lineage 稳定序共同决定。
   - `cardSignature` 提供渲染去重签名。
 - 代码位置: src/core.mjs
 - 实现: 单端（JS，浏览器与 Node 共用同一份纯逻辑）
 
 ### 窗格渲染器
-- 职责: 挂载窗格、双区绘制、独立滚动、卡片激活跳转、桌面折叠、移动端抽屉、轮内状态订阅生命周期与真实布局参与（实现 R-01-004、R-01-005、R-01-006、R-01-007、R-01-008、R-01-009、R-01-010、R-01-011、R-02-002、R-02-004）
+- 职责: 挂载窗格、双区绘制、独立滚动、卡片激活跳转、桌面折叠、移动端抽屉、轮内状态订阅生命周期与真实布局参与（实现 R-01-004、R-01-005、R-01-006、R-01-007、R-01-008、R-01-009、R-01-010、R-01-011、R-01-012、R-01-013、R-02-002、R-02-004）
 - 关键内部结构:
   - 桌面下把中间列临时改为行方向，窗格作为真实 flex 行子项（先于会话座）占据左侧默认 280px；经祖先链（跳过 display:contents）找到会话根设 `flex:1 1 0%` 弹性填充，会话内容随之让位；折叠为窄条时让位同步恢复；仅桌面生效，移动端恢复外壳默认列布局。
   - 内容区为上「活动会话」下「最近历史」两段，各自带空态；由同一快照派生。
   - 卡片按 id 复用，流程节点按稳定 id 复用 DOM；配合签名去重避免无谓 DOM 写入，并保持运行节点脉冲动画连续。
-  - 对每个运行中会话经 `sessions.binding(id).session` 订阅轮内状态，归一为 `statusLine` 输入；时长在渲染期按起始时间实时计算；停止运行或卸载即 `unsubscribe`。
+  - 对每个运行中会话经 `sessions.binding(id).session` 订阅轮内状态与 ChatSnapshot，归一为 `runtimeStats` 与工作项时间线；时长在渲染期按起始时间实时计算；停止运行或卸载即 `unsubscribe`。冷会话只通过 native history/model 的一次性读取补齐，不进行状态轮询。
   - 运行卡外观对齐 answer-pet：CSS 实现动作时间线（从卡片内容左边界起步、竖线 + 圆点半透明外环 + 运行节点闪烁）与进度条（5px、流式 `data-streaming` 条纹动画）；`prefers-reduced-motion` 仅关闭填充宽度 transition，不关闭状态脉冲/流式条纹；`streaming` 字段并入稳定签名以驱动属性翻转重绘。
   - 桌面列折叠为窄条 + 计数；移动端经媒体查询切为固定抽屉 + 浮动开关按钮。
   - 激活经几何命中 + capture 监听（限定窗格内部），配列表就绪重试。

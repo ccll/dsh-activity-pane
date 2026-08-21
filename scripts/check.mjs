@@ -14,20 +14,53 @@ import {
 	buildTrace,
 	cardSignature,
 	cleanPreview,
+	conversationTimeline,
+	conversationTimelineFromHistory,
+	firstPhysicalLine,
 	fmtElapsedMs,
 	fmtTokens,
 	isActiveRow,
+	messagePreviews,
+	modelMetadata,
 	pendingText,
 	PROGRESS_THINK_BASE,
 	progressOf,
-	statusLine,
+	runtimeStats,
 	subagentTitle,
 	summarizeToolArguments,
 	TRACE_MAX_ITEMS,
 	workspaceTitleForSession,
 } from "../src/core.mjs";
+import { openSession } from "../src/navigation.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+
+// ---- R-01-005/AC-01 点击跳转回归：卡片快照变化不能拦截原生导航 ----
+let openedSession = null;
+assert.equal(
+	openSession(
+		{
+			list: { getSnapshot: () => ({ ids: [] }) },
+			open: (id) => {
+				openedSession = id;
+			},
+		},
+		"stale-card",
+	),
+	true,
+	"即使另一份 list 快照不含目标，点击仍直接调用 sessions.open",
+);
+assert.equal(openedSession, "stale-card");
+assert.equal(
+	openSession(
+		{ open: () => {
+			throw new Error("not ready");
+		} },
+		"not-ready",
+	),
+	false,
+	"sessions.open 失败时交给调用方进入 refresh/retry",
+);
 
 // ---- R-01-002/AC-01 待确认 ｜ R-01-002/AC-02 待审查/待回复 ----
 assert.equal(pendingText("approval"), "待确认");
@@ -113,27 +146,71 @@ assert.equal(
 	"子2",
 );
 
-// ---- R-01-009/AC-01 工具调用显示工具名（对齐 answer-pet：头=使用工具、名称在末尾）----
-assert.equal(statusLine({ runningTool: "bash" }), "使用工具 · bash", "进行中的工具调用显示工具名");
-assert.equal(
-	statusLine({ runningTool: "web_search" }),
-	"使用工具 · web_search",
-	"任意工具名如实显示",
+// R-01-009/AC-01
+// R-01-009/AC-02
+// R-01-009/AC-03
+// R-01-009/AC-05
+// ---- 当前动作进入工作项/统计字段，不再拼接状态前缀 ----
+assert.deepEqual(
+	runtimeStats({ elapsedMs: 125000, outputTokens: 1200, rateTokS: 12.3 }),
+	{ elapsedMs: 125000, outputTokens: 1200, rateTokS: 12.3 },
+	"运行统计保留原始字段，不生成独立当前动作文案",
 );
-
-// ---- R-01-009/AC-02 流式回复以"回答中"提示（answer-pet 对齐）----
-assert.equal(statusLine({ streaming: true }), "回答中", "流式回复中显示回答中提示");
-
-// ---- R-01-009/AC-03 状态描述随轮内阶段更新 ----
-const stTool = statusLine({ runningTool: "bash", elapsedMs: 125000 });
-const stStream = statusLine({ streaming: true, elapsedMs: 125000 });
-const stPlain = statusLine({});
-assert.notEqual(stTool, stStream, "工具→流式 状态文案变化");
-assert.notEqual(stStream, stPlain, "流式→闲置 状态文案变化");
-assert.equal(stTool, "使用工具 · 2m5s · bash", "工具状态含运行时长且工具名在末尾（answer-pet 顺序）");
-assert.equal(stPlain, "思考中", "无工具/流式时显示思考中（answer-pet think 标签）");
 assert.equal(fmtElapsedMs(47_000), "47s", "时长短格式");
 assert.equal(fmtElapsedMs(193_000), "3m13s", "时长分秒格式");
+
+// R-01-012/AC-01
+// R-01-012/AC-02
+// R-01-012/AC-03
+// R-01-012/AC-04
+// ---- 活动卡模型上下文、主窗口 order 最近 4 项与 live 项 ----
+assert.equal(firstPhysicalLine("  \n  第一行  \n第二行"), "第一行", "物理首行跳过空行且保留行语义");
+assert.equal(firstPhysicalLine("\n\t"), "", "全空白消息预览为空");
+const chatNodes = new Map([
+	["u", { key: "u", kind: "user", anchorSeq: 1, data: { content: [{ type: "text", text: "用户任务\n补充" }] } }],
+	["a", { key: "a", kind: "assistant-step", anchorSeq: 2, data: { status: "settled", turn: 1, step: 0, blocks: [{ kind: "text", text: "已完成\n详情" }] } }],
+	["t", { key: "t", kind: "tool-call", anchorSeq: 3, data: { root: { kind: "tool-result", callId: "c1", call: { name: "read", argsRaw: '{"path":"/tmp/a"}' }, callTime: 10, time: 35, isError: false } } }],
+	["live", { key: "live", kind: "assistant-step", anchorSeq: 4, data: { status: "running", turn: 2, step: 0, blocks: [{ kind: "text", text: "正在输出" }] } }],
+	["old", { key: "old", kind: "assistant-step", anchorSeq: 0, data: { status: "settled", blocks: [{ kind: "text", text: "旧项" }] } }],
+]);
+const chatSnapshot = {
+	chat: { order: ["old", "u", "a", "t", "live"], nodes: { get: (key) => chatNodes.get(key) } },
+};
+const timeline = conversationTimeline(chatSnapshot);
+assert.deepEqual(timeline.map((item) => item.text), ["用户任务\n补充", "已完成\n详情", "read", "正在输出"], "工作项严格按主窗口 order 取最近 4 项并包含当前项");
+assert.equal(timeline[2].detail, "/tmp/a", "工具详情沿用白名单摘要");
+const outsideCurrent = conversationTimeline({
+	chat: { order: ["u1", "u2", "u3", "u4", "u5"], nodes: { get: (key) => ({ key, kind: "user", data: { content: [{ type: "text", text: key }] } }) } },
+	partial: { turn: 2, step: 0, blocks: [{ kind: "text", text: "当前项" }] },
+});
+assert.deepEqual(outsideCurrent.map((item) => item.text), ["u3", "u4", "u5", "当前项"], "当前项不在 order 时仅替换最旧项并保持 order 尾部");
+const oldAssistantCurrent = conversationTimeline({
+	chat: {
+		order: ["oldAssistant", "u2", "u3", "u4", "u5"],
+		nodes: { get: (key) => key === "oldAssistant" ? { key, kind: "assistant-step", data: { blocks: [{ kind: "text", text: "旧当前" }] } } : { key, kind: "user", data: { content: [{ type: "text", text: key }] } } },
+	},
+	partial: { turn: 3, step: 0, blocks: [{ kind: "text", text: "当前更新" }] },
+});
+assert.deepEqual(oldAssistantCurrent.map((item) => item.text), ["u3", "u4", "u5", "当前更新"], "order 尾部外的旧 assistant 被 live 当前项槽位替换");
+const models = modelMetadata({
+	current: { provider: "p", model: "m", reasoningEffort: "high" },
+	groups: [{ id: "p", models: [{ id: "m", name: "Model M", reasoning: { efforts: [{ id: "high", name: "High" }] } }] }],
+});
+assert.deepEqual(models, { model: "Model M", reasoning: "High" }, "模型名与 reasoning level 复用 native catalog 文案");
+const previews = messagePreviews({ snapshot: chatSnapshot });
+assert.equal(previews.userPreview, "用户任务", "活动快照取最近用户物理首行");
+assert.equal(previews.agentPreview, "正在输出", "活动快照取最近 agent 物理首行");
+assert.deepEqual(
+	conversationTimelineFromHistory([
+		{ event: { type: "user/message", seq: 1, data: { source: { kind: "user" }, content: [{ type: "text", text: "历史用户" }] } } },
+		{ event: { type: "assistant/message", seq: 2, data: { message: { content: [{ type: "text", text: "历史回复" }] } } } },
+	]),
+	[
+		{ id: "user:1", kind: "user", icon: "user", text: "历史用户", detail: null, status: "done", durationMs: null },
+		{ id: "assistant:2", kind: "assistant", icon: "assistant", text: "历史回复", detail: null, status: "done", durationMs: null },
+	],
+	"冷会话 history 按原始事件顺序降级",
+);
 
 // ---- R-01-009/AC-04 工具参数白名单摘要（不含完整命令/原始 JSON）----
 assert.equal(
@@ -167,20 +244,10 @@ assert.equal(fmtTokens(847), "847", "千以下原样计数");
 assert.equal(fmtTokens(1200), "1.2k", "千以上缩写");
 assert.equal(fmtTokens(-1), null, "负数不展示");
 assert.equal(fmtTokens(NaN), null, "非有限数不展示");
-assert.equal(
-	statusLine({ streaming: true, outputTokens: 1200, rateTokS: 12.3, elapsedMs: 47_000 }),
-	"回答中 · 1.2k tok · ≈12 tok/s · 47s",
-	"状态行拼接 token 计数与（近似标记）速率",
-);
-assert.equal(
-	statusLine({ streaming: true, outputTokens: 0, rateTokS: 0, elapsedMs: 47_000 }),
-	"回答中 · 47s",
-	"token/速率为零时不显示对应字段（对齐 answer-pet）",
-);
-assert.equal(
-	statusLine({ runningTool: "bash", elapsedMs: 125_000 }),
-	"使用工具 · 2m5s · bash",
-	"不传 token/速率时保持原有状态行（向后兼容）",
+assert.deepEqual(
+	runtimeStats({ outputTokens: 0, rateTokS: 0, elapsedMs: 47_000 }),
+	{ elapsedMs: 47_000, outputTokens: 0, rateTokS: null },
+	"零速率归一为空，token 统计仍可放在进度条下方",
 );
 
 // ---- R-01-009/AC-06 阶段进度（tool 冻结由渲染层按回合单调下限保持）----
@@ -245,6 +312,11 @@ assert.notEqual(
 	cardSignature(entries),
 	"trace 变化签名必变",
 );
+assert.notEqual(
+	cardSignature([...entries, { ...entries[0], outputTokens: 42 }]),
+	cardSignature(entries),
+	"token 统计变化签名必变",
+);
 
 // ---- R-01-010/AC-01 非活动且 24h 内→最近历史区 ----
 const NOW = 2_000_000_000_000; // 固定时钟便于确定性断言
@@ -266,6 +338,52 @@ assert.deepEqual(
 	recent.map((e) => e.id),
 	["sB"],
 	"仅 24h 内已处理会话进入历史区；运行/待打开/超期/空白被过滤",
+);
+assert.deepEqual(
+	[recent[0].model, recent[0].reasoning, recent[0].userPreview, recent[0].agentPreview],
+	["", "", "", ""],
+	"模型/history API 缺失时历史卡数据字段为空",
+);
+assert.deepEqual(modelMetadata({}), { model: "", reasoning: "" }, "models 失败或空 payload 时模型区域为空");
+assert.deepEqual(messagePreviews({ history: [] }), { userPreview: "", agentPreview: "" }, "history 失败或空 payload 时消息预览为空");
+// R-01-013/AC-01
+// R-01-013/AC-02
+// R-01-013/AC-03
+// R-01-013/AC-04
+// R-01-013/AC-05
+// R-01-013/AC-06
+const recentWithPreviews = buildRecent(recentSnap, [], NOW, undefined, {
+	sB: {
+		model: { model: "Model M", reasoning: "High" },
+		previews: { userPreview: "用户首行", agentPreview: "回复首行" },
+	},
+});
+assert.deepEqual(
+	recentWithPreviews[0],
+	{
+		id: "sB",
+		kind: "recent",
+		depth: 0,
+		title: "旧B",
+		workspaceTitle: "",
+		model: "Model M",
+		reasoning: "High",
+		userPreview: "用户首行",
+		agentPreview: "回复首行",
+		isCurrent: false,
+		updatedAt: NOW - 3_600_000,
+	},
+	"历史卡五行数据缺失时仍保留空字段并复用模型/预览",
+);
+assert.deepEqual(
+	messagePreviews({
+		history: [
+			{ event: { type: "user/message", data: { source: { kind: "user" }, content: [{ type: "text", text: "\n用户首行\n第二行" }] } } },
+			{ event: { type: "assistant/message", data: { message: { content: [{ type: "text", text: "\n回复首行\n详情" }] } } } },
+		],
+	}),
+	{ userPreview: "用户首行", agentPreview: "回复首行" },
+	"历史卡用户与 agent 预览取首个非空物理行",
 );
 
 // ---- R-01-010/AC-02 活动→非活动 移入历史区 ----
@@ -337,9 +455,38 @@ assert.doesNotThrow(
 	() => new Function(bundle),
 	"bundle 必须是合法 JS（可被 loader 导入注册）",
 );
+assert.ok(!bundle.includes("sessionsListHas"), "点击不得以第二份 list 快照提前拦截");
+assert.ok(
+	bundle.includes('document.addEventListener("keydown", onKeyDown, true)'),
+	"键盘跳转监听必须在 capture 阶段接收",
+);
+assert.ok(
+	bundle.includes('document.removeEventListener("keydown", onKeyDown, true)'),
+	"卸载必须移除 capture 阶段键盘监听",
+);
+assert.ok(bundle.includes("pane !== renderedPane"), "新窗格实例必须重置渲染签名");
+assert.ok(bundle.includes("openRetryStates"), "跳转重试链必须可合并并清理");
+// ---- R-01-009/AC-02、R-01-009/AC-05、R-01-012/AC-01..04、R-01-013/AC-01..06 ----
+assert.ok(bundle.includes("conversationTimeline"), "活动卡使用主会话 ChatSnapshot 工作项时间线");
+assert.ok(bundle.includes("api.history"), "冷会话使用 native history 一次性补齐");
+assert.ok(bundle.includes("api.models"), "模型/reasoning 使用 native models 数据");
+assert.ok(bundle.includes("dap-token-stats"), "token 统计 DOM 位于进度条之后");
+assert.ok(bundle.includes("dap-history-line"), "历史卡包含用户/agent 两条消息预览行");
+assert.ok(bundle.includes("session.subscribe"), "运行卡通过 native session subscribe 接收实时推送");
+assert.ok(!bundle.includes("events.mux"), "不常驻全局 mux，当前会话使用原生 session subscribe");
+assert.ok(
+	bundle.indexOf('makeEl("div", "dap-track")') < bundle.indexOf('makeEl("div", "dap-token-stats")'),
+	"token 统计骨架位于进度条骨架之后",
+);
+assert.ok(!bundle.includes("思考中"), "活动卡 bundle 不再渲染独立思考中动作行");
+assert.ok(!bundle.includes("dap-status"), "活动卡 bundle 不再保留独立状态行骨架");
+assert.ok(!bundle.includes("statusLine"), "活动卡 bundle 不再依赖 statusLine 状态文案");
 
-// ---- R-02-001/AC-01 未安装任何第三方宠物插件时仍可用；R-02-001/AC-02 无第三方状态路由；
-//      R-02-004/AC-02 轮内状态不引入新的 HTTP 轮询 ----
+// R-02-001/AC-01
+// R-02-001/AC-02
+// R-02-004/AC-01
+// R-02-004/AC-02
+// ---- 无第三方状态路由，轮内状态不引入新的 HTTP 轮询 ----
 // 校验的是运行时引用：不得注入第三方插件服务、不得请求其状态路由、不得发起状态轮询
 // （文档注释中的上位名提及属来源声明，不构成依赖）。
 assert.ok(bundle.includes('id: "dsh-activity-pane"'), "bundle 含插件 id");

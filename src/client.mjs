@@ -252,61 +252,99 @@ const CSS = `
 }
 /* 运行卡富化（对齐 answer-pet 卡片；MIT 参考，见 README）。 */
 [data-dsh-activity-pane] .dap-pct {
-  flex: none; font-size: 10px; line-height: 15px; font-weight: 700;
-  color: color-mix(in srgb, currentColor 64%, transparent);
+  flex: none; font-size: 12px; line-height: 15px; font-weight: 700;
+  color: #9fe8c4; font-variant-numeric: tabular-nums;
 }
 [data-dsh-activity-pane] .dap-status {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 11px; line-height: 15px;
-  color: color-mix(in srgb, currentColor 62%, transparent);
+  color: #afb7c4; font-variant-numeric: tabular-nums;
 }
+/* 动作时间线：纵向竖线串起圆点（对齐 answer-pet 的 .ap-session-trace）——
+   容器左边框即竖线，圆点绝对定位落在竖线上；正在执行的节点为蓝色半透明
+   外环 + 闪烁，已定案节点为纯色圆点。 */
 [data-dsh-activity-pane] .dap-trace {
-  display: flex; flex-direction: column; gap: 1px;
+  display: flex; flex-direction: column; gap: 3px;
+  margin: 1px 0 2px 3px; padding-left: 10px;
+  border-left: 1px solid rgba(126,147,177,.3);
   min-width: 0;
 }
+[data-dsh-activity-pane] .dap-trace:empty { display: none; }
 [data-dsh-activity-pane] .dap-trace-item {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 10px; line-height: 15px;
-  color: color-mix(in srgb, currentColor 74%, transparent);
-  display: flex; align-items: baseline; gap: 6px;
+  position: relative; display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 7px; min-width: 0;
+  color: #c7ced9; font-size: 10px; line-height: 14px;
 }
 [data-dsh-activity-pane] .dap-trace-item::before {
-  content: ""; flex: none; width: 5px; height: 5px; border-radius: 50%;
-  align-self: center;
-  background: #8a94a3;
+  content: ""; position: absolute; left: -14px; top: 4px;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #778394;
+  box-shadow: 0 0 0 2px rgba(119, 131, 148, .14);
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="running"]::before {
-  background: #58c98f; box-shadow: 0 0 6px rgba(88,201,143,.8);
+  background: #65a0ff;
+  box-shadow: 0 0 0 2px rgba(101,160,255,.16), 0 0 6px rgba(101,160,255,.65);
+  animation: dap-pulse 1.15s ease-in-out infinite;
+}
+[data-dsh-activity-pane] .dap-trace-item[data-status="done"]::before {
+  background: #58c98f;
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="error"]::before {
   background: #f06a72;
 }
 [data-dsh-activity-pane] .dap-trace-main {
-  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 [data-dsh-activity-pane] .dap-trace-detail {
-  color: color-mix(in srgb, currentColor 60%, transparent);
+  color: #8f9aaa;
 }
 [data-dsh-activity-pane] .dap-trace-time {
-  flex: none; font-size: 9.5px; color: color-mix(in srgb, currentColor 52%, transparent);
+  flex: none; font-size: 9.5px; color: #7f8998;
+  font-variant-numeric: tabular-nums;
 }
 [data-dsh-activity-pane] .dap-subtrace {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 10px; line-height: 14px;
   color: color-mix(in srgb, currentColor 72%, transparent);
+  margin: 1px 0 0 4px; padding-left: 8px;
+  border-left: 1px solid rgba(126, 147, 177, .2);
 }
 [data-dsh-activity-pane] .dap-subtrace .dap-trace-item {
   color: inherit;
 }
+[data-dsh-activity-pane] .dap-subtrace .dap-trace-item::before {
+  left: -11px; width: 5px; height: 5px;
+}
 [data-dsh-activity-pane] .dap-track {
-  height: 4px; border-radius: 999px; overflow: hidden;
-  background: color-mix(in srgb, currentColor 14%, transparent);
+  position: relative; height: 5px; border-radius: 6px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.11);
 }
 [data-dsh-activity-pane] .dap-fill {
-  height: 100%; width: 0%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #58c98f, #4fb0e0);
-  transition: width 320ms ease;
+  position: absolute; inset: 0 auto 0 0; width: 0%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #58c98f, #2fb27a);
+  box-shadow: 0 0 7px rgba(88, 201, 143, 0.5);
+  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* 流式阶段（data-streaming）：填充条切换为向右滚动的条纹动画（对齐 answer-pet
+   的 .ap-session-card[data-streaming] .ap-session-fill + ap-stripes）。 */
+[data-dsh-activity-pane] .dap-card[data-streaming] .dap-fill {
+  background: repeating-linear-gradient(90deg, #58c98f 0 10px, #3fbf86 10px 20px);
+  background-size: 200% 100%;
+  animation: dap-stripes 0.8s linear infinite;
+}
+@keyframes dap-stripes {
+  from { background-position: 0 0; }
+  to { background-position: 40px 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-dsh-activity-pane] .dap-fill,
+  [data-dsh-activity-pane] .dap-card[data-streaming] .dap-fill,
+  [data-dsh-activity-pane] .dap-trace-item[data-status="running"]::before {
+    animation: none !important;
+  }
+  [data-dsh-activity-pane] .dap-fill { transition: none; }
 }
 [data-dsh-activity-pane] .dap-empty {
   padding: 14px 12px; font-size: 12px; text-align: center;
@@ -671,7 +709,7 @@ function apply(ctx) {
 			if (pct !== null)
 				pct.textContent = `${Math.round(entry.progress ?? PROGRESS_THINK_BASE)}%`;
 			const status = el.querySelector(".dap-status");
-			const next = entry.status ?? "运行中…";
+			const next = entry.status ?? "思考中";
 			if (status !== null && status.textContent !== next)
 				status.textContent = next;
 			const traceContainer = el.querySelector(".dap-trace");
@@ -787,6 +825,8 @@ function apply(ctx) {
 		rec.el.style.marginLeft = `${(entry.depth ?? 0) * INDENT_PX}px`;
 		rec.el.toggleAttribute("data-current", entry.isCurrent);
 		rec.el.toggleAttribute("data-awaiting", entry.kind === "awaiting");
+		// 流式阶段标记：驱动进度条向右滚动的条纹动画（answer-pet 对齐，R-01-009）。
+		rec.el.toggleAttribute("data-streaming", entry.streaming === true);
 		rec.el.setAttribute(
 			"aria-label",
 			`${entry.workspaceTitle ? entry.workspaceTitle + " - " : ""}${entry.title}${
@@ -855,6 +895,9 @@ function apply(ctx) {
 					outputTokens,
 					rateTokS,
 				});
+				// 流式阶段标记驱动 data-streaming（进度条条纹动画）；工具调用期间视作
+				// 非流式，与 answer-pet 的 phase==='stream' 判定一致。
+				entry.streaming = !live?.runningTool && live?.streaming === true;
 				// 阶段进度：progressOf 估计 + 按回合单调下限（tool 阶段冻结、回合切换重置）。
 				// tokenUsage 是跨回合累计口径，因此进度填充用「本回合增量」——
 				// 回合切换时记录 token 基线，新回合从基线差分，进度才会真正回落重置
@@ -879,7 +922,11 @@ function apply(ctx) {
 					progress = Math.max(floor, progress);
 					progressFloor.set(entry.id, { turn, floor: progress, tokensBase });
 				} else {
-					progress = sameTurn ? prev.floor : 0;
+					// tool 阶段冻结（progressOf 返回 null）：有历史下限则沿用；首观测即
+					// 工具阶段（中途接入、无从回放思考爬升）以思考基线兜底防 0，与
+					// answer-pet 的冻结语义一致（其 tool 冻结值 ≥ 本回合思考基线）。
+					progress = sameTurn ? prev.floor : PROGRESS_THINK_BASE;
+					progressFloor.set(entry.id, { turn, floor: progress, tokensBase });
 				}
 				entry.progress = progress;
 			}

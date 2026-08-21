@@ -220,6 +220,7 @@ export function cardSignature(entries) {
 			entry.updatedAt ?? null,
 			entry.progress ?? null,
 			entry.trace ?? null,
+			entry.streaming ?? null,
 		]),
 	);
 }
@@ -410,7 +411,7 @@ export function buildTrace({
 		current = {
 			id: "run:think",
 			kind: "phase",
-			label: "运行中…",
+			label: "分析任务",
 			detail: null,
 			status: "running",
 			durationMs: elapsedMs,
@@ -423,7 +424,9 @@ export function buildTrace({
 /**
  * 轮内状态文案：由渲染器把运行中会话的原生订阅快照归一为
  * `{ runningTool, streaming, elapsedMs, outputTokens, rateTokS }` 后调用。
- * 状态行 = 头（工具/流式/运行中） · token 计数 · 速率 · 时长（按字段存在拼接）。无任何宿主依赖。
+ * 头文案对齐 answer-pet 的 PHASE_LABELS：tool→使用工具、stream→回答中、其余→思考中；
+ * 工具名按 answer-pet 惯例拼在状态行末尾（R-01-009/AC-02）；token/速率/时长按字段存在拼接。
+ * 无任何宿主依赖。
  */
 export function statusLine({
 	runningTool = null,
@@ -433,17 +436,16 @@ export function statusLine({
 	rateTokS = null,
 } = {}) {
 	const parts = [
-		runningTool
-			? `工具：${runningTool}`
-			: streaming
-				? "正在回复…"
-				: "运行中…",
+		runningTool ? "使用工具" : streaming ? "回答中" : "思考中",
 	];
-	const tokens = fmtTokens(outputTokens);
-	if (tokens !== null) parts.push(`${tokens} tok`);
-	if (Number.isFinite(rateTokS) && rateTokS >= 0)
+	if (Number.isFinite(outputTokens) && outputTokens > 0) {
+		const tokens = fmtTokens(outputTokens);
+		if (tokens !== null) parts.push(`${tokens} tok`);
+	}
+	if (Number.isFinite(rateTokS) && rateTokS > 0)
 		parts.push(`≈${Math.round(rateTokS)} tok/s`);
 	if (Number.isFinite(elapsedMs) && elapsedMs >= 0)
 		parts.push(fmtElapsedMs(elapsedMs));
+	if (runningTool) parts.push(runningTool);
 	return parts.join(" · ");
 }

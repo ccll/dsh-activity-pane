@@ -101,6 +101,7 @@ sequenceDiagram
   - 双区结构：窗格内容区分为上「活动会话」下「最近历史」，两者都由同一快照派生；最近历史仅主会话（R-01-010）。
   - 轮内状态通过 `sessions.binding(sessionId).session` 订阅运行中会话取得，随运行结束断开；token/速率统计取 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`，复用既有列表订阅，无新增轮询）；运行时长与进度在渲染期按回合开始时间实时计算（R-01-009、R-02-004）。
   - 富卡统计：运行卡展示工具白名单参数摘要、输出 token/速率、阶段进度与最近流程节点轨迹；原始参数经 `summarizeToolArguments` 白名单过滤后再上卡（R-01-009）。
+  - 运行卡外观对齐 answer-pet：状态行头文案（使用工具/回答中/思考中，工具名在末尾）、动作时间线（纵向竖线串圆点、圆点半透明外环、正在执行节点闪烁）、进度条（5px 圆角、流式阶段内部向右滚动条纹动画，经 `data-streaming` 属性驱动）（R-01-009/AC-02、AC-08、AC-09）。
   - 桌面列提供折叠控制，折叠为不占正文宽度的窄条（R-01-011）。
 
 ## 核心数据与不变量
@@ -113,7 +114,8 @@ sequenceDiagram
 - 分区不变量：会话要么在活动区、要么在历史区，绝不同时出现；最近历史 = 当前非活动 && `updatedAt` 落在历史窗口（24h）内、**仅主会话（不含子代理）**，按最后活动时间倒序，最多 20 条（R-01-010）。
 - 轮内状态输入：`statusLine({ runningTool, streaming, elapsedMs, outputTokens, rateTokS })` 为纯函数，输入由渲染器从原生 `ConversationSnapshot`（`runningCalls` / `partial` / `turnTimings` / `legacy.nodes`）与 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`）归一而来（R-01-009）。
 - 排序不变量：主会话按所在工作区侧栏顺序；未纳入任何工作区的排在全部工作区之后并保持出现顺序；子代理跟随母会话并缩进（R-01-001、R-01-003）。
-- 稳定签名：`cardSignature` 对条目可见字段求签名；签名相同的重复渲染必须跳过全部 DOM 写入（R-02-003）。
+- 稳定签名：`cardSignature` 对条目可见字段求签名（含渲染期补充的 status/progress/trace/streaming）；签名相同的重复渲染必须跳过全部 DOM 写入（R-02-003）。
+- 运行卡渲染期字段：渲染器为 running 条目补充 `status`（状态行文案）、`progress`（阶段百分比）、`trace`（流程节点轨迹）、`streaming`（流式阶段标记，驱动 `data-streaming` 属性与进度条条纹动画）；同一 `kind` 卡片的 DOM 骨架在 `streaming` 翻转时经签名重绘更新属性。
 
 ## 运行时、并发与失败语义
 
@@ -152,9 +154,9 @@ sequenceDiagram
 
 - 活动卡片集合：`活动状态模型#buildEntries(snapshot, workspaceItems)` 产出已排序的活动卡片条目数组（R-01-001）。
 - 最近历史集合：`活动状态模型#buildRecent(snapshot, workspaceItems, now)` 产出按最近活动时间倒序、容限 24h、上限 20 条的最近卡片（R-01-010）。
-- 轮内状态文案：`活动状态模型#statusLine({ runningTool, streaming, elapsedMs, outputTokens, rateTokS })` 产出运行卡状态行（工具/流式/运行中 · token 计数 · 速率 · 时长）；渲染器从原生订阅快照与列表快照投影归一为输入（R-01-009）。
-- 流程节点轨迹：`活动状态模型#buildTrace({ nodes, runningTool, runningArgs, streaming, reasoning, turnStartTime, now })` 产出最近少量流程节点（已定案工具调用 + 当前阶段），含 label/detail/status/durationMs；`summarizeToolArguments` 只从白名单字段提取摘要（R-01-009）。
-- 阶段进度：`活动状态模型#progressOf({ phase, outputTokens, elapsedMs })` 产出 0–100 的估计百分比（tool 阶段冻结返回 null）；渲染层按回合叠加单调下限，保证同回合不倒退（R-01-009）。
+- 轮内状态文案：`活动状态模型#statusLine({ runningTool, streaming, elapsedMs, outputTokens, rateTokS })` 产出运行卡状态行；头文案对齐 answer-pet 阶段标签（工具→「使用工具」且工具名在状态行末尾、流式→「回答中」、其余→「思考中」），其后按字段存在拼接 token 计数、≈速率与时长；工具名在时长之后（R-01-009/AC-01、AC-02、AC-03、AC-05）。
+- 流程节点轨迹：`活动状态模型#buildTrace(...)` 产出最近少量流程节点（已定案工具调用 + 当前阶段），含 label/detail/status/durationMs；`summarizeToolArguments` 只从白名单字段提取摘要（R-01-009/AC-07）。渲染层以竖线串圆点的时间线呈现：圆点半透明外环，正在执行节点蓝色外环 + 闪烁，已定案节点绿/红实心圆点（R-01-009/AC-09）。
+- 阶段进度：`活动状态模型#progressOf({ phase, outputTokens, elapsedMs })` 产出 0–100 的估计百分比（tool 阶段冻结返回 null）；渲染层按回合叠加单调下限，保证同回合不倒退；首观测即 tool 阶段（中途接入）以思考基线兜底防 0（R-01-009/AC-06）。渲染层以 5px 圆角进度条呈现，流式阶段（`data-streaming`）填充为向右滚动条纹动画（R-01-009/AC-08）。
 - 等待文案：`pendingText(kind)` 将待确认/待审查/待回复归一为中文标识；完成态默认"需要响应"（R-01-002）。
 - 层级结构：子代理经 `parentId` 关联并以 `depth` 表达缩进；子代理标题优先取目录 label，其次显示标题（R-01-003）。
 - 窗口形态：桌面为左栏旁贴边列、可折叠为窄条；移动端（≤767px）为固定抽屉 + 浮动开关（R-01-007、R-01-008、R-01-011）。
@@ -175,7 +177,7 @@ sequenceDiagram
   - 纯函数、无 DOM、可单测。
   - 显示过滤单点实现：`isActiveRow`（buildEntries 的 show 与 buildRecent 共用），主会话/子代理分列，等待行动优先于运行态；`isSubagentRow` 判定直属子代理。
   - `buildRecent` 按 24h 历史窗口派生历史区（仅主会话、倒序、上限 20）。
-  - `statusLine` 由归一化的轮内输入（工具/流式/时长/token/速率）产出运行卡状态文案。
+  - `statusLine` 由归一化的轮内输入（工具/流式/时长/token/速率）产出运行卡状态文案，头文案与工具名顺序对齐 answer-pet 的阶段标签。
   - 富卡辅助：`fmtTokens`、`summarizeToolArguments`（白名单）、`buildTrace`（流程节点轨迹）、`progressOf`（阶段进度）为运行卡提供纯函数派生。
   - 排序由工作区索引 + lineage 稳定序共同决定。
   - `cardSignature` 提供渲染去重签名。
@@ -189,6 +191,7 @@ sequenceDiagram
   - 内容区为上「活动会话」下「最近历史」两段，各自带空态；由同一快照派生。
   - 卡片按 id 复用，配合签名去重避免无谓 DOM 写入。
   - 对每个运行中会话经 `sessions.binding(id).session` 订阅轮内状态，归一为 `statusLine` 输入；时长在渲染期按起始时间实时计算；停止运行或卸载即 `unsubscribe`。
+  - 运行卡外观对齐 answer-pet：CSS 实现动作时间线（竖线 + 圆点半透明外环 + 运行节点闪烁、`prefers-reduced-motion` 降级）与进度条（5px、流式 `data-streaming` 条纹动画）；`streaming` 字段并入稳定签名以驱动属性翻转重绘。
   - 桌面列折叠为窄条 + 计数；移动端经媒体查询切为固定抽屉 + 浮动开关按钮。
   - 激活经几何命中 + capture 监听（限定窗格内部），配列表就绪重试。
 - 代码位置: src/client.mjs

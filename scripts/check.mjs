@@ -113,16 +113,16 @@ assert.equal(
 	"子2",
 );
 
-// ---- R-01-009/AC-01 工具调用显示工具名 ----
-assert.equal(statusLine({ runningTool: "bash" }), "工具：bash", "进行中的工具调用显示工具名");
+// ---- R-01-009/AC-01 工具调用显示工具名（对齐 answer-pet：头=使用工具、名称在末尾）----
+assert.equal(statusLine({ runningTool: "bash" }), "使用工具 · bash", "进行中的工具调用显示工具名");
 assert.equal(
 	statusLine({ runningTool: "web_search" }),
-	"工具：web_search",
+	"使用工具 · web_search",
 	"任意工具名如实显示",
 );
 
-// ---- R-01-009/AC-02 正在流式回复 ----
-assert.equal(statusLine({ streaming: true }), "正在回复…", "流式回复中显示提示");
+// ---- R-01-009/AC-02 流式回复以"回答中"提示（answer-pet 对齐）----
+assert.equal(statusLine({ streaming: true }), "回答中", "流式回复中显示回答中提示");
 
 // ---- R-01-009/AC-03 状态描述随轮内阶段更新 ----
 const stTool = statusLine({ runningTool: "bash", elapsedMs: 125000 });
@@ -130,7 +130,8 @@ const stStream = statusLine({ streaming: true, elapsedMs: 125000 });
 const stPlain = statusLine({});
 assert.notEqual(stTool, stStream, "工具→流式 状态文案变化");
 assert.notEqual(stStream, stPlain, "流式→闲置 状态文案变化");
-assert.equal(stTool, "工具：bash · 2m5s", "工具状态含运行时长");
+assert.equal(stTool, "使用工具 · 2m5s · bash", "工具状态含运行时长且工具名在末尾（answer-pet 顺序）");
+assert.equal(stPlain, "思考中", "无工具/流式时显示思考中（answer-pet think 标签）");
 assert.equal(fmtElapsedMs(47_000), "47s", "时长短格式");
 assert.equal(fmtElapsedMs(193_000), "3m13s", "时长分秒格式");
 
@@ -168,12 +169,17 @@ assert.equal(fmtTokens(-1), null, "负数不展示");
 assert.equal(fmtTokens(NaN), null, "非有限数不展示");
 assert.equal(
 	statusLine({ streaming: true, outputTokens: 1200, rateTokS: 12.3, elapsedMs: 47_000 }),
-	"正在回复… · 1.2k tok · ≈12 tok/s · 47s",
+	"回答中 · 1.2k tok · ≈12 tok/s · 47s",
 	"状态行拼接 token 计数与（近似标记）速率",
 );
 assert.equal(
+	statusLine({ streaming: true, outputTokens: 0, rateTokS: 0, elapsedMs: 47_000 }),
+	"回答中 · 47s",
+	"token/速率为零时不显示对应字段（对齐 answer-pet）",
+);
+assert.equal(
 	statusLine({ runningTool: "bash", elapsedMs: 125_000 }),
-	"工具：bash · 2m5s",
+	"使用工具 · 2m5s · bash",
 	"不传 token/速率时保持原有状态行（向后兼容）",
 );
 
@@ -226,7 +232,7 @@ assert.ok(
 const phaseTrace = buildTrace({ streaming: true, turnStartTime: 100, now: 1000 });
 assert.equal(phaseTrace[0].label, "组织回答", "流式阶段节点文案");
 const thinkTrace = buildTrace({ turnStartTime: 100, now: 1000 });
-assert.equal(thinkTrace[0].label, "运行中…", "无流式/工具时显示运行中文案");
+assert.equal(thinkTrace[0].label, "分析任务", "无流式/工具时显示分析任务（对齐 answer-pet think 阶段节点）");
 
 // ---- R-02-003/AC-01 富卡字段并入签名后，进度/轨迹变化必触重重绘 ----
 assert.notEqual(

@@ -567,9 +567,11 @@ function apply(ctx) {
 	const nativeIconsByTraceKey = new Map();
 	/** 会话跳转的单一重试链；避免重复点击叠加 refresh/timer。 */
 	const openRetryStates = new Map();
-	/** native cold-session reads, one promise per session and no polling. */
+	/** native cold-session model/history reads, one promise per session and no polling. */
 	const modelLoads = new Map();
 	const historyLoads = new Map();
+	/** native session.open() requests in flight; avoid duplicate cold history reads. */
+	const sessionOpenLoads = new Map();
 
 	const style = document.createElement("style");
 	style.id = STYLE_ID;
@@ -699,7 +701,8 @@ function apply(ctx) {
 				modelLoads.set(id, promise);
 				modelPromises.push(promise);
 			}
-			if (!detail.history && needsHistorySnapshot(detail.snapshot) && typeof api.history === "function" && !historyLoads.has(id)) {
+			const nativeSnapshotReady = detail.snapshot?.openState === "open";
+			if (!detail.history && !nativeSnapshotReady && needsHistorySnapshot(detail.snapshot) && typeof api.history === "function" && !historyLoads.has(id) && !sessionOpenLoads.has(id)) {
 				const promise = Promise.resolve()
 					.then(() => api.history({ sessionId: id, maxMessages: 50 }))
 					.then((response) => {
@@ -1172,6 +1175,25 @@ function apply(ctx) {
 				sessionDetailsById.set(id, detail);
 				queueSync();
 			});
+			let opening;
+			try {
+				opening = session.open?.();
+			} catch {
+				opening = null;
+			}
+			if (opening && typeof opening.then === "function") {
+				const tracked = Promise.resolve(opening).then(
+					() => {
+						sessionOpenLoads.delete(id);
+						queueSync();
+					},
+					() => {
+						sessionOpenLoads.delete(id);
+						queueSync();
+					},
+				);
+				sessionOpenLoads.set(id, tracked);
+			}
 			const snapshot = getSessionSnapshot(session);
 			livenessById.set(id, {
 				unsubscribe,
@@ -1540,6 +1562,7 @@ function apply(ctx) {
 			} catch {}
 		}
 		livenessById.clear();
+		sessionOpenLoads.clear();
 		progressFloor.clear();
 		nativeIconsByTraceKey.clear();
 		for (const rec of cardsById.values()) rec.unbind?.();

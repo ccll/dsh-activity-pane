@@ -25,6 +25,8 @@ const INDENT_PX = 16;
 const MOBILE_BREAKPOINT = "767px";
 /** 运行卡时钟：只要存在运行中会话，就以该周期刷新时长显示。 */
 const CLOCK_MS = 1000;
+/** 冷数据读取并发池上限：慢网下避免几十张卡片的 models/history 一次性挤占通道。 */
+const LOAD_CONCURRENCY = 3;
 /** 原生动作图标缓存上限（按插入序修剪；只保留当前会话条目）。 */
 const ICON_CACHE_MAX = 128;
 
@@ -422,6 +424,23 @@ const CSS = `
   padding: 14px 12px; font-size: 12px; text-align: center;
   color: color-mix(in srgb, currentColor 45%, transparent);
 }
+[data-dsh-activity-pane] .dap-empty[data-mode="loading"] {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+/* 加载指示：列表/卡片字段在途时的活动图标（R-01-014）。 */
+[data-dsh-activity-pane] .dap-spinner {
+  width: 10px; height: 10px; flex: none; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: color-mix(in srgb, currentColor 85%, transparent);
+  animation: dap-spin 0.8s linear infinite;
+  box-sizing: border-box;
+  display: inline-block;
+}
+@keyframes dap-spin { to { transform: rotate(360deg); } }
+[data-dsh-activity-pane] .dap-model .dap-spinner,
+[data-dsh-activity-pane] .dap-history-line .dap-spinner {
+  width: 8px; height: 8px; border-width: 1.5px;
+}
 /* 移动端浮动开关按钮：仅在窄屏显示（桌面隐藏）。 */
 .dap-toggle {
   position: fixed; top: 12px; right: 12px; z-index: 2147482991;
@@ -583,6 +602,26 @@ function apply(ctx) {
 	const modelLoads = new Map();
 	const historyLoads = new Map();
 	/** native session.open() requests in flight; avoid duplicate cold history reads. */
+	/** 冷数据读取并发池：队列顺序即优先级（调用方已排序），逐个完成逐个重绘。 */
+	const loadQueue = [];
+	let loadInflight = 0;
+	function pumpDetailLoads() {
+		while (loadInflight < LOAD_CONCURRENCY && loadQueue.length > 0) {
+			const job = loadQueue.shift();
+			loadInflight += 1;
+			job().finally(() => {
+				loadInflight -= 1;
+				pumpDetailLoads();
+			});
+		}
+	}
+	function enqueueDetailLoad(job) {
+		const promise = new Promise((resolve) => {
+			loadQueue.push(() => job().then(resolve, resolve));
+		});
+		pumpDetailLoads();
+		return promise;
+	}
 	const sessionOpenLoads = new Map();
 
 	const style = document.createElement("style");
@@ -712,7 +751,7 @@ function apply(ctx) {
 				// 子代理的 models 读取必被宿主以 agent-busy 拒绝：直接留空，不发注定失败的 RPC。
 				detail.model ??= { model: "", reasoning: "" };
 			} else if (plan.model && typeof api.models === "function") {
-				const promise = Promise.resolve()
+				const promise = enqueueDetailLoad(() => Promise.resolve()
 					.then(() => api.models({ sessionId: id }))
 					.then((response) => {
 						const value = apiValue(response);
@@ -726,12 +765,12 @@ function apply(ctx) {
 					.catch((error) => {
 						detail.model = { model: "", reasoning: "" };
 						detail.modelError = error instanceof Error ? error.message : String(error);
-					});
+					}));
 				modelLoads.set(id, promise);
 				modelPromises.push(promise);
 			}
 			if (plan.history && typeof api.history === "function") {
-				const promise = Promise.resolve()
+				const promise = enqueueDetailLoad(() => Promise.resolve()
 					.then(() => api.history({ sessionId: id, maxMessages: 50 }))
 					.then((response) => {
 						const value = apiValue(response);
@@ -750,13 +789,18 @@ function apply(ctx) {
 						detail.timeline = [];
 						detail.previews = { userPreview: "", agentPreview: "" };
 						detail.historyError = error instanceof Error ? error.message : String(error);
-					});
+					}));
 				historyLoads.set(id, promise);
 				historyPromises.push(promise);
 			}
 		}
 		const pending = modelPromises.concat(historyPromises);
-		if (pending.length > 0) Promise.all(pending).then(queueSync);
+		if (pending.length > 0) {
+			// 逐个完成即重绘（先就绪先显示，不等待全部，R-01-014/AC-03）；
+			// 并立即重绘一次让加载指示在数据返回前出现。
+			for (const promise of pending) promise.then(queueSync, queueSync);
+			queueSync();
+		}
 	}
 
 	function installServiceSubscriptions() {
@@ -1132,6 +1176,20 @@ function apply(ctx) {
 		}
 	}
 
+	/** 时间线区加载指示：数据在途且尚无工作项时显示活动图标行（R-01-014/AC-02）。 */
+	function renderTraceLoading(container) {
+		if (container.dataset.loading === "true") return;
+		container.dataset.loading = "true";
+		const row = makeEl("div", "dap-trace-item");
+		row.dataset.status = "running";
+		const main = makeEl("span", "dap-trace-main");
+		const summary = makeEl("span", "dap-trace-summary");
+		summary.textContent = "加载中…";
+		main.append(makeEl("span", "dap-spinner"), summary);
+		row.append(main);
+		container.replaceChildren(row);
+	}
+
 	function renderCardInto(el, entry) {
 		const workspaceLabel = el.querySelector(".dap-workspace");
 		if (workspaceLabel !== null) {
@@ -1144,8 +1202,18 @@ function apply(ctx) {
 			}
 		}
 		const modelLabel = el.querySelector(".dap-model");
-		if (modelLabel !== null)
-			modelLabel.textContent = [entry.model, entry.reasoning].filter(Boolean).join(" · ");
+		if (modelLabel !== null) {
+			if (entry.loadingModel === true) {
+				if (modelLabel.dataset.loading !== "true") {
+					modelLabel.dataset.loading = "true";
+					modelLabel.replaceChildren(makeEl("span", "dap-spinner"));
+				}
+			} else {
+				if (modelLabel.dataset.loading === "true") delete modelLabel.dataset.loading;
+				const modelText = [entry.model, entry.reasoning].filter(Boolean).join(" · ");
+				if (modelLabel.textContent !== modelText) modelLabel.textContent = modelText;
+			}
+		}
 		const title = el.querySelector(".dap-title");
 		if (title !== null && title.textContent !== entry.title)
 			title.textContent = entry.title;
@@ -1160,11 +1228,17 @@ function apply(ctx) {
 				pct.textContent = `${Math.round(entry.progress ?? PROGRESS_THINK_BASE)}%`;
 			const traceContainer = el.querySelector(".dap-trace");
 			const nativeSessionId = nativePresentationSessionId(entry);
-			if (traceContainer !== null)
-				renderTrace(traceContainer, entry.timeline, {
-					nativeSessionId: nativeSessionId ?? "",
-					allowNativePresentation: nativeSessionId !== null,
-				});
+			if (traceContainer !== null) {
+				if (entry.loadingTimeline === true && entry.timeline.length === 0) {
+					renderTraceLoading(traceContainer);
+				} else {
+					if (traceContainer.dataset.loading === "true") delete traceContainer.dataset.loading;
+					renderTrace(traceContainer, entry.timeline, {
+						nativeSessionId: nativeSessionId ?? "",
+						allowNativePresentation: nativeSessionId !== null,
+					});
+				}
+			}
 			const fill = el.querySelector(".dap-fill");
 			if (fill !== null) {
 				const width = `${Math.min(100, Math.max(0, entry.progress ?? 0))}%`;
@@ -1184,24 +1258,38 @@ function apply(ctx) {
 		if (entry.kind === "subagent") {
 			const traceContainer = el.querySelector(".dap-subtrace");
 			const nativeSessionId = nativePresentationSessionId(entry);
-			if (traceContainer !== null)
-				renderTrace(traceContainer, entry.timeline, {
-					lastOnly: true,
-					nativeSessionId: nativeSessionId ?? "",
-					allowNativePresentation: nativeSessionId !== null,
-				});
+			if (traceContainer !== null) {
+				if (entry.loadingTimeline === true && entry.timeline.length === 0) {
+					renderTraceLoading(traceContainer);
+				} else {
+					if (traceContainer.dataset.loading === "true") delete traceContainer.dataset.loading;
+					renderTrace(traceContainer, entry.timeline, {
+						lastOnly: true,
+						nativeSessionId: nativeSessionId ?? "",
+						allowNativePresentation: nativeSessionId !== null,
+					});
+				}
+			}
 			return;
 		}
 
 		if (entry.kind === "recent") {
 			const lines = el.querySelectorAll(".dap-history-line");
-			if (lines[0]) {
-				lines[0].dataset.role = "user";
-				lines[0].textContent = entry.userPreview ?? "";
-			}
-			if (lines[1]) {
-				lines[1].dataset.role = "agent";
-				lines[1].textContent = entry.agentPreview ?? "";
+			const previews = [entry.userPreview ?? "", entry.agentPreview ?? ""];
+			const roles = ["user", "agent"];
+			for (let i = 0; i < 2; i += 1) {
+				const line = lines[i];
+				if (!line) continue;
+				if (entry.loadingPreviews === true) {
+					if (line.dataset.loading !== "true") {
+						line.dataset.loading = "true";
+						line.replaceChildren(makeEl("span", "dap-spinner"));
+					}
+				} else {
+					if (line.dataset.loading === "true") delete line.dataset.loading;
+					line.dataset.role = roles[i];
+					if (line.textContent !== previews[i]) line.textContent = previews[i];
+				}
 			}
 		}
 
@@ -1297,15 +1385,23 @@ function apply(ctx) {
 		}
 	}
 
-	/** 保证 list 内存在/移除空态节点（R-01-001/AC-02）。 */
-	function ensureEmpty(list, show, text) {
+	/** 保证 list 内存在/移除空态或加载指示节点（R-01-001/AC-02、R-01-014/AC-01）。
+	 *  loading=true 时显示活动图标 + 文案（列表在途，禁止空态冒充）。 */
+	function ensureEmpty(list, show, text, { loading = false } = {}) {
 		let node = list.querySelector(".dap-empty");
 		if (show) {
 			if (node === null) {
 				node = makeEl("div", "dap-empty");
 				list.appendChild(node);
 			}
-			if (node.textContent !== text) node.textContent = text;
+			const mode = loading ? "loading" : "empty";
+			if (node.dataset.mode !== mode) {
+				node.dataset.mode = mode;
+				if (loading) node.replaceChildren(makeEl("span", "dap-spinner"), document.createTextNode(text));
+				else node.textContent = text;
+			} else if (!loading && node.textContent !== text) {
+				node.textContent = text;
+			}
 		} else if (node !== null) {
 			node.remove();
 		}
@@ -1382,6 +1478,7 @@ function apply(ctx) {
 		if (activeList === null || recentSection === null) return;
 
 		const snapshot = getSnapshot(sessions, "list");
+		const listState = listLoadState(snapshot);
 		const workspaceItems = getSnapshot(workspaces, "list")?.items ?? [];
 		const now = Date.now();
 
@@ -1419,6 +1516,11 @@ function apply(ctx) {
 				entry.model = detail.model.model;
 				entry.reasoning = detail.model.reasoning;
 			}
+			// 字段级加载指示（R-01-014/AC-02）：补充数据在途时卡片对应位置显示活动图标。
+			entry.loadingModel = !detail?.model && modelLoads.has(entry.id);
+			entry.loadingTimeline =
+				entry.timeline.length === 0 &&
+				(historyLoads.has(entry.id) || sessionOpenLoads.has(entry.id) || (runLikeIds.has(entry.id) && !liveRecord));
 			if (entry.kind === "running") {
 				const elapsedMs =
 					live?.startTime != null
@@ -1486,8 +1588,12 @@ function apply(ctx) {
 			}
 			entry.userPreview = detail.memoPreviews.userPreview || detail.previews?.userPreview || "";
 			entry.agentPreview = detail.memoPreviews.agentPreview || detail.previews?.agentPreview || "";
+			entry.loadingPreviews = !entry.userPreview && !entry.agentPreview && historyLoads.has(entry.id);
 		}
-		loadNativeDetails([...active, ...recent].map((entry) => entry.id));
+		// 补充数据读取优先级：当前会话最优先，活动区先于历史区（区内按显示顺序）。
+		const detailIds = [...active, ...recent].map((entry) => entry.id);
+		detailIds.sort((a, b) => Number(String(b) === String(snapshot?.current)) - Number(String(a) === String(snapshot?.current)));
+		loadNativeDetails(detailIds);
 		const visibleIds = new Set([...active, ...recent].map((entry) => entry.id));
 		// 详情与 loads 记账同生命周期：离开可见集合即放行，重回可见时允许重拉/重试。
 		pruneInvisibleEntries([sessionDetailsById, modelLoads, historyLoads, sessionOpenLoads], visibleIds);
@@ -1503,14 +1609,17 @@ function apply(ctx) {
 			if (renderCardIntoList(activeList, entry, cardsById, index))
 				aliveActive.add(entry.id);
 		pruneCards(cardsById, aliveActive);
-		ensureEmpty(activeList, active.length === 0, "暂无活动会话");
+		ensureEmpty(activeList, active.length === 0, listState === "loading" ? "加载中…" : "暂无活动会话", { loading: listState === "loading" });
 		const aliveRecent = new Set();
 		// 历史区容器首个子节点是段头（.dap-recent-head），卡片从 offset 1 开始。
 		for (const [index, entry] of recent.entries())
 			if (renderCardIntoList(recentSection, entry, recentCardsById, index, 1))
 				aliveRecent.add(entry.id);
 		pruneCards(recentCardsById, aliveRecent);
-		if (recentSection !== null) recentSection.hidden = recent.length === 0;
+		if (recentSection !== null) {
+			recentSection.hidden = listState !== "loading" && recent.length === 0;
+			ensureEmpty(recentSection, listState === "loading" && recent.length === 0, "加载中…", { loading: true });
+		}
 
 		// 计数与折叠
 		const count = pane.querySelector(".dap-count");
@@ -1714,6 +1823,8 @@ function apply(ctx) {
 		}
 		livenessById.clear();
 		sessionOpenLoads.clear();
+		loadQueue.length = 0;
+		loadInflight = 0;
 		progressFloor.clear();
 		nativeIconsByTraceKey.clear();
 		for (const rec of cardsById.values()) rec.unbind?.();

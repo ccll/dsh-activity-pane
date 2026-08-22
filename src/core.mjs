@@ -570,12 +570,22 @@ export function cardSignature(entries) {
 			entry.updatedAt ?? null,
 			entry.progress ?? null,
 			entry.streaming ?? null,
+			entry.loadingModel ?? null,
+			entry.loadingTimeline ?? null,
+			entry.loadingPreviews ?? null,
 			entry.tokenStats ?? [entry.outputTokens ?? null, entry.rateTokS ?? null, entry.elapsedMs ?? null],
 		]),
 	);
 }
 
-// ---- 最近历史区（R-01-010）与运行统计（R-01-009） ----
+// ---- 列表加载态（R-01-014）、最近历史区（R-01-010）与运行统计（R-01-009） ----
+
+/** 会话列表加载态：快照缺失或 `phase === "pending"` → "loading"（列表在途，禁止空态冒充）；
+ *  否则 → "ready"（宿主契约：empty-with-ready 才是真的无会话）。 */
+export function listLoadState(snapshot) {
+	if (!snapshot || snapshot.phase === "pending") return "loading";
+	return "ready";
+}
 
 /** 历史窗口：会话最后一次活动距现在不超过该毫秒数则视为"最近使用过"。 */
 export const HISTORY_WINDOW_MS = 24 * 60 * 60 * 1000;

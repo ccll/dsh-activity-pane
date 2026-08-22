@@ -22,6 +22,7 @@ import {
 	fmtTokens,
 	isActiveRow,
 	isSubagentRow,
+	listLoadState,
 	messagePreviews,
 	modelMetadata,
 	nativePresentationSessionId,
@@ -670,6 +671,16 @@ assert.ok(
 	"最近历史仅主会话，已结束子代理不入历史区",
 );
 
+// ---- R-01-014/AC-01 列表在途显示加载指示而非空态 ----
+assert.equal(listLoadState(null), "loading", "快照缺失视为列表在途");
+assert.equal(listLoadState({ phase: "pending" }), "loading", "phase 为 pending 视为列表在途");
+assert.equal(listLoadState({ phase: "ready" }), "ready", "phase 为 ready 才允许空态");
+
+// ---- R-01-014/AC-05 补充数据失败降级为空字段并可重试 ----
+// （行为链详见 R-01-012/AC-01 的 detailLoadPlan 锚点：失败置空 → 可见期内不热重试 →
+//  离开可见清理 → 重回可见允许重试。）
+assert.equal(detailLoadPlan({ detail: { model: { model: "", reasoning: "" } } }).model, false, "失败置空即降级为空字段");
+
 // ---- 重建 client bundle 并校验产物契约 ----
 await mkdir(join(root, ".dsh-plugin"), { recursive: true });
 execFileSync(process.execPath, [join(root, "scripts/build-client.mjs")], {
@@ -724,6 +735,21 @@ assert.ok(!bundle.includes("frameProbeTimer"), "宿主 frame 发现不得保留�
 assert.ok(bundle.includes("conversationObserver"), "流式 DOM 观察绑定到 conversation seat");
 assert.ok(bundle.includes("centerObserver"), "宿主结构变化通过 center 直接子节点通知处理");
 assert.ok(bundle.includes("setInterval(() => queueSync(), CLOCK_MS)"), "仅保留运行时长显示所需的单一 1 秒时钟");
+// R-01-014/AC-01
+// R-01-014/AC-02
+// R-01-014/AC-03
+// R-01-014/AC-04
+// ---- R-01-014 加载过程可见与渐进呈现 ----
+assert.ok(bundle.includes("listLoadState"), "列表加载态经 listLoadState 归一");
+assert.ok(bundle.includes('loading" ? "加载中…" : "暂无活动会话'), "列表在途时活动区显示加载指示而非空态");
+assert.ok(bundle.includes("node.dataset.mode"), "加载指示与空态分模式渲染");
+assert.ok(bundle.includes("dap-spinner"), "加载指示使用活动图标");
+assert.ok(bundle.includes("loadingModel"), "模型字段级加载指示并入签名");
+assert.ok(bundle.includes("loadingTimeline"), "时间线字段级加载指示并入签名");
+assert.ok(bundle.includes("loadingPreviews"), "预览字段级加载指示并入签名");
+assert.ok(bundle.includes("renderTraceLoading"), "时间线区数据在途时显示加载行");
+assert.ok(bundle.includes("promise.then(queueSync, queueSync)"), "补充数据逐个完成即重绘（先就绪先显示）");
+assert.ok(bundle.includes("LOAD_CONCURRENCY"), "冷数据读取经并发池限制慢网挤占");
 assert.ok(bundle.includes("session.open"), "运行卡通过 native session open hydrate 非当前会话");
 assert.ok(bundle.includes("sessionOpenLoads"), "session.open 请求与 cold history fallback 不重复");
 assert.ok(!bundle.includes("events.mux"), "不常驻全局 mux，当前会话使用原生 session subscribe");

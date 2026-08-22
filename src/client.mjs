@@ -699,10 +699,18 @@ function apply(ctx) {
 			const liveSnapshot = livenessById.get(id)?.snapshot;
 			if (liveSnapshot) detail.snapshot = liveSnapshot;
 			sessionDetailsById.set(id, detail);
-			if (isSubagentRow(byId[id], byId)) {
+			const plan = detailLoadPlan({
+				detail,
+				isSubagent: isSubagentRow(byId[id], byId),
+				snapshotReady: detail.snapshot?.openState === "open",
+				historyNeeded: needsHistorySnapshot(detail.snapshot),
+				modelInflight: modelLoads.has(id),
+				historyInflight: historyLoads.has(id) || sessionOpenLoads.has(id),
+			});
+			if (plan.subagent) {
 				// 子代理的 models 读取必被宿主以 agent-busy 拒绝：直接留空，不发注定失败的 RPC。
 				detail.model ??= { model: "", reasoning: "" };
-			} else if (!detail.model && typeof api.models === "function" && !modelLoads.has(id)) {
+			} else if (plan.model && typeof api.models === "function") {
 				const promise = Promise.resolve()
 					.then(() => api.models({ sessionId: id }))
 					.then((response) => {
@@ -721,8 +729,7 @@ function apply(ctx) {
 				modelLoads.set(id, promise);
 				modelPromises.push(promise);
 			}
-			const nativeSnapshotReady = detail.snapshot?.openState === "open";
-			if (!detail.history && !nativeSnapshotReady && needsHistorySnapshot(detail.snapshot) && typeof api.history === "function" && !historyLoads.has(id) && !sessionOpenLoads.has(id)) {
+			if (plan.history && typeof api.history === "function") {
 				const promise = Promise.resolve()
 					.then(() => api.history({ sessionId: id, maxMessages: 50 }))
 					.then((response) => {

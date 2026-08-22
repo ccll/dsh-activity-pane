@@ -336,6 +336,24 @@ function escapeCssString(value) {
 		.replace(/\0/g, "�");
 }
 
+/** 冷会话补充数据读取决策（单次渲染内是否发起 models/history 读取）。
+ *  失败路径会写入空 model/history 使决策转为「不读」（可见期内不热重试）；
+ *  详情与记账随可见性清理（pruneInvisibleEntries）一起移除后，决策自然恢复为「读取」。 */
+function detailLoadPlan({
+	detail = {},
+	isSubagent = false,
+	snapshotReady = false,
+	historyNeeded = false,
+	modelInflight = false,
+	historyInflight = false,
+} = {}) {
+	return {
+		subagent: isSubagent === true,
+		model: !isSubagent && !detail.model && !modelInflight,
+		history: !detail.history && !snapshotReady && historyNeeded && !historyInflight,
+	};
+}
+
 /** 打开重试链是否应取消：目标已成为当前会话（已到达），或用户已激活其它卡片（被新意图取代）。 */
 function shouldCancelOpenRetry({ targetId, currentId = null, activatedId = null } = {}) {
 	if (targetId === undefined || targetId === null) return true;
@@ -1515,10 +1533,18 @@ function apply(ctx) {
 			const liveSnapshot = livenessById.get(id)?.snapshot;
 			if (liveSnapshot) detail.snapshot = liveSnapshot;
 			sessionDetailsById.set(id, detail);
-			if (isSubagentRow(byId[id], byId)) {
+			const plan = detailLoadPlan({
+				detail,
+				isSubagent: isSubagentRow(byId[id], byId),
+				snapshotReady: detail.snapshot?.openState === "open",
+				historyNeeded: needsHistorySnapshot(detail.snapshot),
+				modelInflight: modelLoads.has(id),
+				historyInflight: historyLoads.has(id) || sessionOpenLoads.has(id),
+			});
+			if (plan.subagent) {
 				// 子代理的 models 读取必被宿主以 agent-busy 拒绝：直接留空，不发注定失败的 RPC。
 				detail.model ??= { model: "", reasoning: "" };
-			} else if (!detail.model && typeof api.models === "function" && !modelLoads.has(id)) {
+			} else if (plan.model && typeof api.models === "function") {
 				const promise = Promise.resolve()
 					.then(() => api.models({ sessionId: id }))
 					.then((response) => {
@@ -1537,8 +1563,7 @@ function apply(ctx) {
 				modelLoads.set(id, promise);
 				modelPromises.push(promise);
 			}
-			const nativeSnapshotReady = detail.snapshot?.openState === "open";
-			if (!detail.history && !nativeSnapshotReady && needsHistorySnapshot(detail.snapshot) && typeof api.history === "function" && !historyLoads.has(id) && !sessionOpenLoads.has(id)) {
+			if (plan.history && typeof api.history === "function") {
 				const promise = Promise.resolve()
 					.then(() => api.history({ sessionId: id, maxMessages: 50 }))
 					.then((response) => {

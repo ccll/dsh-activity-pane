@@ -330,6 +330,24 @@ export function escapeCssString(value) {
 		.replace(/\0/g, "�");
 }
 
+/** 冷会话补充数据读取决策（单次渲染内是否发起 models/history 读取）。
+ *  失败路径会写入空 model/history 使决策转为「不读」（可见期内不热重试）；
+ *  详情与记账随可见性清理（pruneInvisibleEntries）一起移除后，决策自然恢复为「读取」。 */
+export function detailLoadPlan({
+	detail = {},
+	isSubagent = false,
+	snapshotReady = false,
+	historyNeeded = false,
+	modelInflight = false,
+	historyInflight = false,
+} = {}) {
+	return {
+		subagent: isSubagent === true,
+		model: !isSubagent && !detail.model && !modelInflight,
+		history: !detail.history && !snapshotReady && historyNeeded && !historyInflight,
+	};
+}
+
 /** 打开重试链是否应取消：目标已成为当前会话（已到达），或用户已激活其它卡片（被新意图取代）。 */
 export function shouldCancelOpenRetry({ targetId, currentId = null, activatedId = null } = {}) {
 	if (targetId === undefined || targetId === null) return true;

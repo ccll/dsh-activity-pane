@@ -14,6 +14,7 @@ import {
 	buildTrace,
 	cardSignature,
 	cleanPreview,
+	detailLoadPlan,
 	conversationTimeline,
 	conversationTimelineFromHistory,
 	escapeCssString,
@@ -134,10 +135,42 @@ assert.equal(escapeCssString('a"b\\c'), 'a\\"b\\\\c', "先转义反斜杠再转�
 assert.equal(escapeCssString(""), "", "空 id 转义为空，加引号选择器仍合法");
 assert.equal(escapeCssString(42), "42", "非字符串 id 归一为字符串");
 assert.equal(escapeCssString("a\nb"), "a\\a b", "换行按 CSS 字符串码位转义");
+assert.equal(escapeCssString("a\rb"), "a\\d b", "回车按 CSS 字符串码位转义");
+assert.equal(escapeCssString("a\fb"), "a\\c b", "换页按 CSS 字符串码位转义");
 assert.equal(escapeCssString("a\0b"), "a�b", "NUL 归一为替换字符");
 // R-01-012/AC-01
 assert.equal(isSubagentRow({ parentId: "ghost" }, {}), false, "父级不在列表时按主会话处理（仍允许 models 读取）");
 assert.equal(isSubagentRow({ parentId: "p" }, { p: { id: "p" } }), true, "直属子代理判定命中时跳过 models 读取");
+// models/history 加载决策行为链：首读 → 在途不重发 → 失败置空后可见期内不热重试 → 离开可见清理后重回可重试
+const loadDetail = {};
+assert.deepEqual(
+	detailLoadPlan({ detail: loadDetail }),
+	{ subagent: false, model: true, history: false },
+	"冷会话首次决策发起 models 读取",
+);
+assert.equal(
+	detailLoadPlan({ detail: loadDetail, modelInflight: true }).model,
+	false,
+	"读取在途时不重复发起",
+);
+loadDetail.model = { model: "", reasoning: "" };
+assert.equal(detailLoadPlan({ detail: loadDetail }).model, false, "失败置空后可见期内不热重试");
+assert.equal(detailLoadPlan({ detail: {} }).model, true, "离开可见清理后重回可见允许重试");
+assert.deepEqual(
+	detailLoadPlan({ detail: {}, isSubagent: true }),
+	{ subagent: true, model: false, history: false },
+	"子代理不发起 models 读取",
+);
+assert.equal(
+	detailLoadPlan({ detail: {}, historyNeeded: true }).history,
+	true,
+	"无快照冷会话决策发起 history 读取",
+);
+assert.equal(
+	detailLoadPlan({ detail: {}, historyNeeded: true, snapshotReady: true }).history,
+	false,
+	"原生快照已就绪时不发 history 读取",
+);
 
 // ---- R-01-008/AC-03 点击遮罩（抽屉外部）收起抽屉 ----
 const backdropListeners = new Map();

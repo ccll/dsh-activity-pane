@@ -318,9 +318,16 @@ export function pendingText(kind) {
 	return PENDING_LABELS[kind] ?? "需要响应";
 }
 
-/** CSS 字符串字面量转义（用于属性选择器的加引号形式）：先转义反斜杠再转义引号，顺序不可颠倒。 */
+/** CSS 字符串字面量转义（用于属性选择器的加引号形式）：先反斜杠后引号，再处理 CSS 字符串
+ *  不允许的换行/回车/换页（码位转义）与 NUL（替换字符），顺序不可颠倒。 */
 export function escapeCssString(value) {
-	return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+	return String(value)
+		.replace(/\\/g, "\\\\")
+		.replace(/"/g, '\\"')
+		.replace(/\n/g, "\\a ")
+		.replace(/\r/g, "\\d ")
+		.replace(/\f/g, "\\c ")
+		.replace(/\0/g, "�");
 }
 
 /** 打开重试链是否应取消：目标已成为当前会话（已到达），或用户已激活其它卡片（被新意图取代）。 */
@@ -329,6 +336,16 @@ export function shouldCancelOpenRetry({ targetId, currentId = null, activatedId 
 	if (currentId !== null && currentId !== undefined && String(currentId) === String(targetId)) return true;
 	if (activatedId !== null && activatedId !== undefined && String(activatedId) !== String(targetId)) return true;
 	return false;
+}
+
+/** 可见性清理：把不在 visibleIds 中的 id 从每张记账 Map 中删除（详情与 loads 记账同生命周期）。 */
+export function pruneInvisibleEntries(maps, visibleIds) {
+	const visible = visibleIds instanceof Set ? visibleIds : new Set(visibleIds ?? []);
+	for (const map of Array.isArray(maps) ? maps : []) {
+		if (!(map instanceof Map)) continue;
+		for (const id of map.keys())
+			if (!visible.has(id)) map.delete(id);
+	}
 }
 
 /** 会话 cwd 是否被某个 workspace 记录（含 title/path 两种命中）。 */

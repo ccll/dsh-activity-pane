@@ -21,6 +21,7 @@ import {
 	fmtElapsedMs,
 	fmtTokens,
 	isActiveRow,
+	isSubagentRow,
 	messagePreviews,
 	modelMetadata,
 	nativePresentationSessionId,
@@ -28,6 +29,7 @@ import {
 	pendingText,
 	PROGRESS_THINK_BASE,
 	progressOf,
+	pruneInvisibleEntries,
 	runtimeStats,
 	shouldCancelOpenRetry,
 	subagentTitle,
@@ -131,6 +133,11 @@ assert.equal(
 assert.equal(escapeCssString('a"b\\c'), 'a\\"b\\\\c', "先转义反斜杠再转义引号，选择器不破裂");
 assert.equal(escapeCssString(""), "", "空 id 转义为空，加引号选择器仍合法");
 assert.equal(escapeCssString(42), "42", "非字符串 id 归一为字符串");
+assert.equal(escapeCssString("a\nb"), "a\\a b", "换行按 CSS 字符串码位转义");
+assert.equal(escapeCssString("a\0b"), "a�b", "NUL 归一为替换字符");
+// R-01-012/AC-01
+assert.equal(isSubagentRow({ parentId: "ghost" }, {}), false, "父级不在列表时按主会话处理（仍允许 models 读取）");
+assert.equal(isSubagentRow({ parentId: "p" }, { p: { id: "p" } }), true, "直属子代理判定命中时跳过 models 读取");
 
 // ---- R-01-008/AC-03 点击遮罩（抽屉外部）收起抽屉 ----
 const backdropListeners = new Map();
@@ -659,6 +666,11 @@ assert.ok(bundle.includes("frameParentObserver?.disconnect()"), "卸载断开宿
 assert.ok(bundle.includes("centerObserver?.disconnect()"), "卸载断开 center 结构观察者");
 assert.ok(bundle.includes("conversationObserver?.disconnect()"), "卸载断开 conversation 观察者");
 assert.ok(bundle.includes("removeEventListener"), "卸载移除事件监听");
+const loadMaps = [new Map([["a", 1], ["b", 2]]), new Map([["b", 3], ["c", 4]])];
+pruneInvisibleEntries(loadMaps, new Set(["b"]));
+assert.deepEqual([...loadMaps[0].keys()], ["b"], "可见性清理保留可见记账");
+assert.deepEqual([...loadMaps[1].keys()], ["b"], "loads 记账与详情同生命周期清理");
+assert.ok(bundle.includes("pruneInvisibleEntries"), "可见性清理统一经 pruneInvisibleEntries");
 
 // R-01-012/AC-05
 // R-01-012/AC-06

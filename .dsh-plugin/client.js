@@ -324,9 +324,16 @@ function pendingText(kind) {
 	return PENDING_LABELS[kind] ?? "需要响应";
 }
 
-/** CSS 字符串字面量转义（用于属性选择器的加引号形式）：先转义反斜杠再转义引号，顺序不可颠倒。 */
+/** CSS 字符串字面量转义（用于属性选择器的加引号形式）：先反斜杠后引号，再处理 CSS 字符串
+ *  不允许的换行/回车/换页（码位转义）与 NUL（替换字符），顺序不可颠倒。 */
 function escapeCssString(value) {
-	return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+	return String(value)
+		.replace(/\\/g, "\\\\")
+		.replace(/"/g, '\\"')
+		.replace(/\n/g, "\\a ")
+		.replace(/\r/g, "\\d ")
+		.replace(/\f/g, "\\c ")
+		.replace(/\0/g, "�");
 }
 
 /** 打开重试链是否应取消：目标已成为当前会话（已到达），或用户已激活其它卡片（被新意图取代）。 */
@@ -335,6 +342,16 @@ function shouldCancelOpenRetry({ targetId, currentId = null, activatedId = null 
 	if (currentId !== null && currentId !== undefined && String(currentId) === String(targetId)) return true;
 	if (activatedId !== null && activatedId !== undefined && String(activatedId) !== String(targetId)) return true;
 	return false;
+}
+
+/** 可见性清理：把不在 visibleIds 中的 id 从每张记账 Map 中删除（详情与 loads 记账同生命周期）。 */
+function pruneInvisibleEntries(maps, visibleIds) {
+	const visible = visibleIds instanceof Set ? visibleIds : new Set(visibleIds ?? []);
+	for (const map of Array.isArray(maps) ? maps : []) {
+		if (!(map instanceof Map)) continue;
+		for (const id of map.keys())
+			if (!visible.has(id)) map.delete(id);
+	}
 }
 
 /** 会话 cwd 是否被某个 workspace 记录（含 title/path 两种命中）。 */
@@ -2093,8 +2110,7 @@ function apply(ctx) {
 				if (typeof sessions?.open !== "function") return;
 				lastActivatedId = sessionId;
 				// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标。
-				for (const id of [...openRetryStates.keys()])
-					if (shouldCancelOpenRetry({ targetId: id, activatedId: sessionId })) cancelOpenRetry(id);
+				cancelStaleOpenRetries({ activatedId: sessionId });
 				attemptOpen(sessionId, 0);
 			});
 			rec = { el, kind: null, unbind };
@@ -2258,16 +2274,10 @@ function apply(ctx) {
 		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById);
 		loadNativeDetails([...active, ...recent].map((entry) => entry.id));
 		const visibleIds = new Set([...active, ...recent].map((entry) => entry.id));
-		for (const id of sessionDetailsById.keys())
-			if (!visibleIds.has(id)) sessionDetailsById.delete(id);
-		// loads 记账与详情同生命周期：离开可见集合即放行，重回可见时允许重拉/重试。
-		for (const loads of [modelLoads, historyLoads, sessionOpenLoads])
-			for (const id of loads.keys())
-				if (!visibleIds.has(id)) loads.delete(id);
+		// 详情与 loads 记账同生命周期：离开可见集合即放行，重回可见时允许重拉/重试。
+		pruneInvisibleEntries([sessionDetailsById, modelLoads, historyLoads, sessionOpenLoads], visibleIds);
 		// 重试链目标已成为当前会话（他途到达）即取消，避免过期链条拽回会话。
-		for (const id of [...openRetryStates.keys()])
-			if (shouldCancelOpenRetry({ targetId: id, currentId: snapshot?.current ?? null, activatedId: lastActivatedId }))
-				cancelOpenRetry(id);
+		cancelStaleOpenRetries({ currentId: snapshot?.current ?? null, activatedId: lastActivatedId });
 
 		const sig = cardSignature([...active, ...recent]);
 		if (sig === lastSig) return;
@@ -2320,6 +2330,11 @@ function apply(ctx) {
 		}
 		cardElFor(sessionId)?.removeAttribute("data-opening");
 	}
+	/** 按最新意图批量取消过期重试链：目标已到达（currentId 命中）或已被新激活取代。 */
+	function cancelStaleOpenRetries({ currentId = null, activatedId = null } = {}) {
+		for (const id of [...openRetryStates.keys()])
+			if (shouldCancelOpenRetry({ targetId: id, currentId, activatedId })) cancelOpenRetry(id);
+	}
 	function scheduleOpenRetry(sessionId, attempt) {
 		if (disposed || openRetryStates.has(sessionId)) return;
 		const state = { cancelled: false, timer: null };
@@ -2361,7 +2376,8 @@ function apply(ctx) {
 
 		if (openSession(sessions, sessionId)) {
 			// 到达新目标后取消全部剩余链条：任何旧链成功都会把会话从新目标拽走。
-			for (const id of [...openRetryStates.keys()]) cancelOpenRetry(id);
+			cancelStaleOpenRetries({ activatedId: sessionId });
+			cancelOpenRetry(sessionId);
 			el?.removeAttribute("data-opening");
 			return;
 		}

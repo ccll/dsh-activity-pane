@@ -1294,8 +1294,7 @@ function apply(ctx) {
 				if (typeof sessions?.open !== "function") return;
 				lastActivatedId = sessionId;
 				// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标。
-				for (const id of [...openRetryStates.keys()])
-					if (shouldCancelOpenRetry({ targetId: id, activatedId: sessionId })) cancelOpenRetry(id);
+				cancelStaleOpenRetries({ activatedId: sessionId });
 				attemptOpen(sessionId, 0);
 			});
 			rec = { el, kind: null, unbind };
@@ -1459,16 +1458,10 @@ function apply(ctx) {
 		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById);
 		loadNativeDetails([...active, ...recent].map((entry) => entry.id));
 		const visibleIds = new Set([...active, ...recent].map((entry) => entry.id));
-		for (const id of sessionDetailsById.keys())
-			if (!visibleIds.has(id)) sessionDetailsById.delete(id);
-		// loads 记账与详情同生命周期：离开可见集合即放行，重回可见时允许重拉/重试。
-		for (const loads of [modelLoads, historyLoads, sessionOpenLoads])
-			for (const id of loads.keys())
-				if (!visibleIds.has(id)) loads.delete(id);
+		// 详情与 loads 记账同生命周期：离开可见集合即放行，重回可见时允许重拉/重试。
+		pruneInvisibleEntries([sessionDetailsById, modelLoads, historyLoads, sessionOpenLoads], visibleIds);
 		// 重试链目标已成为当前会话（他途到达）即取消，避免过期链条拽回会话。
-		for (const id of [...openRetryStates.keys()])
-			if (shouldCancelOpenRetry({ targetId: id, currentId: snapshot?.current ?? null, activatedId: lastActivatedId }))
-				cancelOpenRetry(id);
+		cancelStaleOpenRetries({ currentId: snapshot?.current ?? null, activatedId: lastActivatedId });
 
 		const sig = cardSignature([...active, ...recent]);
 		if (sig === lastSig) return;
@@ -1521,6 +1514,11 @@ function apply(ctx) {
 		}
 		cardElFor(sessionId)?.removeAttribute("data-opening");
 	}
+	/** 按最新意图批量取消过期重试链：目标已到达（currentId 命中）或已被新激活取代。 */
+	function cancelStaleOpenRetries({ currentId = null, activatedId = null } = {}) {
+		for (const id of [...openRetryStates.keys()])
+			if (shouldCancelOpenRetry({ targetId: id, currentId, activatedId })) cancelOpenRetry(id);
+	}
 	function scheduleOpenRetry(sessionId, attempt) {
 		if (disposed || openRetryStates.has(sessionId)) return;
 		const state = { cancelled: false, timer: null };
@@ -1562,7 +1560,8 @@ function apply(ctx) {
 
 		if (openSession(sessions, sessionId)) {
 			// 到达新目标后取消全部剩余链条：任何旧链成功都会把会话从新目标拽走。
-			for (const id of [...openRetryStates.keys()]) cancelOpenRetry(id);
+			cancelStaleOpenRetries({ activatedId: sessionId });
+			cancelOpenRetry(sessionId);
 			el?.removeAttribute("data-opening");
 			return;
 		}

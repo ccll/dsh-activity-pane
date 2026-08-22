@@ -6,7 +6,7 @@ id: T-027
 
 # T-027 滚动条仅滚动时显示
 
-状态: active
+状态: completed
 关联: R-01-004/AC-03 / 窗格渲染器
 风险等级: standard
 
@@ -43,4 +43,14 @@ TODO 条目「滚动条默认不显示，仅在用户滚动时显示，与左边
 
 ## 终态与证据
 
-（待填写）
+- 实现: `src/client.mjs` 新增 `.dap-scroll` 滚动条双路径 CSS（WebKit 伪元素默认透明 + data-scrolling 显示；Firefox scrollbar-color 走 @supports 门）与 `bindPaneControls` 滚动监听/600ms 隐藏定时器（unbind 同步清理）；`.dsh-plugin/client.js` 已重新生成。
+- 测试: `node scripts/check.mjs` 通过（新增 R-01-004/AC-03 双路径与监听断言、R-02-003/AC-02 unbind 清理序列断言）；`pnpm build:client && pnpm check` 通过；`python3 tools/agentmap_lint.py --report` 通过。`scripts/acceptance.mjs` 新增 R-01-004/AC-03 人工验收步骤，真实滚动表现仍需人工 GUI 验收。
+- DESIGN 对照: 呈现与交互细节属实现自由，DESIGN 无需演进；R-01-004 需求追溯索引既有行保持准确。
+- commit: e8b076f
+- commit: c549e83
+- review:
+  - 审核方: Standards 子代理 `46b8c897-252d-4b79-851d-02664e80290e`；Spec 子代理 `270eef05-9df1-465f-90f9-404f764f3fc1`。
+  - 目的理解: 实现 R-01-004/AC-03——窗格滚动条默认不显示、滚动时显示、停滚约 600ms 后隐藏；双路径 CSS 与滚动监听 JS，卸载/重挂载清理监听与定时器；不改主会话滚动行为与滚动隔离。
+  - 执行方式: `code-review` skill；固定基线 `cffd240`，范围为 `git diff cffd240...HEAD` 的 T-027 工作单元；Standards/Spec 双轴并行审核，修复后由同一审核方分别复审。
+  - 问题与修复: Spec 初审 finding——卸载清理断言被 onScroll 重置分支同名文本穿检；修复为断言锚定 unbind 内 removeEventListener+clearTimeout 连续两行序列，并顺带删除双轴指出的 onScroll 不可达防御分支（c549e83）。Standards 另两条 judgement call（scroll 命名遮蔽、color-mix 重复）按审核方「可不改」结论保留。
+  - 复审结论: Standards 复审通过；Spec 复审确认 finding 清零、修复未引入新问题，双轴闭环。

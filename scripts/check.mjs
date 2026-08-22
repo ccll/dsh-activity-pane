@@ -837,7 +837,9 @@ assert.ok(bundle.includes('dataset.role = "agent"'), "agent 回复行骨架静�
 assert.ok(bundle.includes("dap-history-icon"), "历史卡预览行带常驻角色图标段");
 assert.ok(bundle.includes("dap-history-text"), "历史卡预览文本写入图标后的独立文本段");
 // R-01-013/AC-08
-assert.ok(bundle.includes("createRobotIcon"), "agent 回复行使用机器人图标");
+assert.ok(bundle.includes("agentIcon.append(createRobotIcon())"), "agent 回复行使用机器人图标");
+// R-01-012/AC-03（T-021 副作用守卫：历史卡换图标不影响时间线兜底）
+assert.ok(bundle.includes('"Think" ? createThinkIcon() : createSparkleIcon()'), "时间线 assistant 兜底仍为 sparkle 图标");
 assert.ok(bundle.includes("session.subscribe"), "运行卡通过 native session subscribe 接收实时推送");
 assert.ok(
 	clientSource.includes('const inject = ["connection", "sessions", "workspaces"];'),

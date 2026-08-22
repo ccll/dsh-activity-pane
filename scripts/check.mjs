@@ -966,4 +966,9 @@ assert.ok(bundle.includes("animation: dap-pulse 1.15s ease-in-out infinite"), "�
 assert.ok(bundle.includes("dataset.traceKey"), "同一流程节点复用 DOM，脉冲动画不因时钟刷新重置");
 assert.ok(!bundle.includes(".dap-trace-item[data-status=\"running\"]::before {\n    animation: none !important;"), "降低动效设置不关闭运行点脉冲");
 
+// R-01-013/AC-09
+// 最近历史卡标题降为常规字重（不加粗），活动卡标题保持加粗。
+assert.ok(bundle.includes('[data-kind="recent"] .dap-title {\n  font-weight: 400;'), "最近历史卡标题使用常规字重（不加粗）");
+assert.ok(bundle.includes("white-space: nowrap; font-size: 12px; line-height: 16px; font-weight: 700;"), "活动卡标题保持加粗 700");
+
 console.log("check: all assertions passed");

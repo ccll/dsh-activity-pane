@@ -249,6 +249,10 @@ const CSS = `
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; font-size: 12px; line-height: 16px; font-weight: 700;
 }
+/* 最近历史卡标题降为常规字重：历史区不抢占视觉强调（R-01-013/AC-09）。 */
+[data-dsh-activity-pane] .dap-card[data-kind="recent"] .dap-title {
+  font-weight: 400;
+}
 [data-dsh-activity-pane] .dap-badge {
   flex: none; font-size: 10px; line-height: 14px; font-weight: 600;
   color: #221a10; background: linear-gradient(180deg, #ffd488, #e8a33d);

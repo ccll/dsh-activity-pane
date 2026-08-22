@@ -59,7 +59,7 @@ mutation: lifecycle
 | 异常 | 适用：空 order/缺节点/坏节点输入下语义一致 | `scripts/check.mjs#R-01-012/AC-02`、`src/core.mjs::conversationTimeline` |
 | 边界配置 | 适用：order 不足 4 项、live 项并入、limit=0 | `scripts/check.mjs#R-01-012/AC-02`、`src/core.mjs::conversationTimeline` |
 | 副作用 | 适用：签名分量变化只在 trace 删除一处，卡片 DOM 输出不变 | `scripts/check.mjs#R-02-003/AC-01`、`src/core.mjs::cardSignature` |
-| 性能 | 适用：本任务即性能收敛；基线脚本 `scripts/bench.mjs` 随实现提交增补后更新本行证据 | `scripts/check.mjs#R-02-003/AC-01`、`src/core.mjs::cardSignature` |
+| 性能 | 适用：本任务即性能收敛；基线对比 before ~36–38.5ms/遍 → after ~0.09–0.66ms/遍 | `scripts/bench.mjs::renderPass`、`scripts/check.mjs#R-02-003/AC-01`、`src/core.mjs::cardSignature` |
 
 ## 终态与证据
 

@@ -528,7 +528,6 @@ function livenessFromSnapshot(snap) {
 		reasoning,
 		startTime,
 		turn,
-		nodes: Array.isArray(snap?.nodes) ? snap.nodes : [],
 	};
 }
 
@@ -895,30 +894,52 @@ function apply(ctx) {
 		return [head, row, makeEl("div", "dap-trace"), track, makeEl("div", "dap-token-stats")];
 	}
 
-	function nativeWorkItemRow(item) {
+	/** 会话区 DOM 行索引：每次渲染构建一次（renderStamp 变化时），供当次全部
+	 *  工作项共用，替代逐项 querySelectorAll 全量物化扫描。 */
+	let renderStamp = 0;
+	let domIndexStamp = -1;
+	let domIndex = null;
+	function nativeRowIndex() {
+		if (domIndex !== null && domIndexStamp === renderStamp) return domIndex;
 		const conversation = document.querySelector(CONVERSATION_SELECTOR);
-		if (conversation === null) return null;
+		const index = { conversation, byKey: new Map(), byCallId: new Map(), byTool: new Map(), think: null, context: null };
+		if (conversation !== null) {
+			for (const row of conversation.querySelectorAll("[data-chat-flow-key], [data-chat-anchor-key]")) {
+				const flowKey = row.getAttribute("data-chat-flow-key");
+				const anchorKey = row.getAttribute("data-chat-anchor-key");
+				if (flowKey !== null && !index.byKey.has(flowKey)) index.byKey.set(flowKey, row);
+				if (anchorKey !== null && !index.byKey.has(anchorKey)) index.byKey.set(anchorKey, row);
+			}
+			for (const row of conversation.querySelectorAll("[data-chat-call-id]")) {
+				const callId = row.getAttribute("data-chat-call-id");
+				if (callId !== null && !index.byCallId.has(callId)) index.byCallId.set(callId, row);
+				const tool = row.getAttribute("data-tool") ?? row.querySelector("[data-tool]")?.getAttribute("data-tool");
+				if (tool && !index.byTool.has(tool)) index.byTool.set(tool, row);
+			}
+			index.think = conversation.querySelector('[data-variant="think"]:not([data-tool])');
+			index.context = conversation.querySelector('[data-chat-flow-kind="context"]');
+		}
+		domIndexStamp = renderStamp;
+		domIndex = index;
+		return index;
+	}
+	function nativeWorkItemRow(item) {
+		const index = nativeRowIndex();
+		if (index.conversation === null) return null;
 		if (item.id) {
-			const keyed = [...conversation.querySelectorAll("[data-chat-flow-key], [data-chat-anchor-key]")].find(
-				(row) => row.getAttribute("data-chat-flow-key") === String(item.id) || row.getAttribute("data-chat-anchor-key") === String(item.id),
-			);
+			const keyed = index.byKey.get(String(item.id));
 			if (keyed !== undefined) return keyed;
 		}
-		if (item.label === "Think") {
-			return conversation.querySelector('[data-variant="think"]:not([data-tool])');
-		}
-		const rows = [...conversation.querySelectorAll("[data-chat-call-id]")];
+		if (item.label === "Think") return index.think;
 		if (item.callId) {
-			const byId = rows.find((row) => row.getAttribute("data-chat-call-id") === item.callId);
-			if (byId !== undefined) return byId;
+			const byCallId = index.byCallId.get(item.callId);
+			if (byCallId !== undefined) return byCallId;
 		}
 		if (item.toolName) {
-			for (const row of rows) {
-				const tool = row.getAttribute("data-tool") ?? row.querySelector("[data-tool]")?.getAttribute("data-tool");
-				if (tool === item.toolName) return row;
-			}
+			const byTool = index.byTool.get(item.toolName);
+			if (byTool !== undefined) return byTool;
 		}
-		if (item.icon === "context") return conversation.querySelector('[data-chat-flow-kind="context"]');
+		if (item.icon === "context") return index.context;
 		return null;
 	}
 
@@ -1138,7 +1159,7 @@ function apply(ctx) {
 			const traceContainer = el.querySelector(".dap-trace");
 			const nativeSessionId = nativePresentationSessionId(entry);
 			if (traceContainer !== null)
-				renderTrace(traceContainer, entry.timeline?.length ? entry.timeline : entry.trace, {
+				renderTrace(traceContainer, entry.timeline, {
 					nativeSessionId: nativeSessionId ?? "",
 					allowNativePresentation: nativeSessionId !== null,
 				});
@@ -1162,7 +1183,7 @@ function apply(ctx) {
 			const traceContainer = el.querySelector(".dap-subtrace");
 			const nativeSessionId = nativePresentationSessionId(entry);
 			if (traceContainer !== null)
-				renderTrace(traceContainer, entry.timeline?.length ? entry.timeline : entry.trace, {
+				renderTrace(traceContainer, entry.timeline, {
 					lastOnly: true,
 					nativeSessionId: nativeSessionId ?? "",
 					allowNativePresentation: nativeSessionId !== null,
@@ -1216,7 +1237,6 @@ function apply(ctx) {
 					livenessById.set(id, { unsubscribe, liveness: live, snapshot });
 					const detail = sessionDetailsById.get(id) ?? {};
 					detail.snapshot = snapshot;
-					detail.timeline = conversationTimeline(snapshot);
 					sessionDetailsById.set(id, detail);
 					queueSync();
 				});
@@ -1249,7 +1269,6 @@ function apply(ctx) {
 			});
 			const detail = sessionDetailsById.get(id) ?? {};
 			detail.snapshot = snapshot;
-			detail.timeline = conversationTimeline(snapshot);
 			sessionDetailsById.set(id, detail);
 		}
 		for (const [id, rec] of livenessById) {
@@ -1347,6 +1366,7 @@ function apply(ctx) {
 	}
 
 	function render() {
+		renderStamp += 1;
 		installFrameObserver();
 		const pane = ensurePane();
 		if (pane === null) return;
@@ -1382,16 +1402,20 @@ function apply(ctx) {
 			const live = liveRecord?.liveness ?? null;
 			const detail = sessionDetailsById.get(entry.id);
 			const detailSnapshot = liveRecord?.snapshot ?? detail?.snapshot ?? null;
-			if (detailSnapshot) {
-				const snapshotTimeline = conversationTimeline(detailSnapshot);
-				entry.timeline = snapshotTimeline.length > 0 ? snapshotTimeline : detail?.timeline ?? [];
-				const previews = messagePreviews({ snapshot: detailSnapshot, history: detail?.history });
-				entry.userPreview = previews.userPreview || detail?.previews?.userPreview || "";
-				entry.agentPreview = previews.agentPreview || detail?.previews?.agentPreview || "";
+			if (detail && detailSnapshot) {
+				// 按快照引用 memo：引用不变（时钟 tick、无关推送）时命中缓存，
+				// 长会话不再每次渲染全序扫描。
+				if (detail.liveTimelineOf !== detailSnapshot) {
+					detail.liveTimelineOf = detailSnapshot;
+					detail.liveTimeline = conversationTimeline(detailSnapshot);
+				}
+				entry.timeline = detail.liveTimeline.length > 0 ? detail.liveTimeline : detail.timeline ?? [];
 			} else {
 				entry.timeline = detail?.timeline ?? entry.timeline ?? [];
-				entry.userPreview = detail?.previews?.userPreview ?? entry.userPreview ?? "";
-				entry.agentPreview = detail?.previews?.agentPreview ?? entry.agentPreview ?? "";
+			}
+			if (detail?.model) {
+				entry.model = detail.model.model;
+				entry.reasoning = detail.model.reasoning;
 			}
 			if (detail?.model) {
 				entry.model = detail.model.model;
@@ -1447,22 +1471,24 @@ function apply(ctx) {
 				}
 				entry.progress = progress;
 			}
-			if (entry.kind === "running" || entry.kind === "subagent") {
-				entry.trace = buildTrace({
-					nodes: live?.nodes ?? [],
-					runningTool: live?.runningTool ?? null,
-					runningArgs: live?.runningArgs ?? null,
-					streaming: live?.streaming ?? false,
-					reasoning: live?.reasoning ?? false,
-					turnStartTime: live?.startTime ?? null,
-					now: Date.now(),
-				});
-			}
 		}
 		// 清理已不在运行/子代理集的进度下限，避免残留。
 		for (const id of progressFloor.keys())
 			if (!runLikeIds.has(id)) progressFloor.delete(id);
 		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById);
+		// 预览只对 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
+		for (const entry of recent) {
+			const detail = sessionDetailsById.get(entry.id);
+			if (!detail) continue;
+			const detailSnapshot = livenessById.get(entry.id)?.snapshot ?? detail.snapshot ?? null;
+			const previewsKey = detailSnapshot ?? detail.history ?? null;
+			if (detail.previewsOf !== previewsKey || !detail.livePreviews) {
+				detail.previewsOf = previewsKey;
+				detail.livePreviews = messagePreviews({ snapshot: detailSnapshot, history: detail.history });
+			}
+			entry.userPreview = detail.livePreviews.userPreview || detail.previews?.userPreview || "";
+			entry.agentPreview = detail.livePreviews.agentPreview || detail.previews?.agentPreview || "";
+		}
 		loadNativeDetails([...active, ...recent].map((entry) => entry.id));
 		const visibleIds = new Set([...active, ...recent].map((entry) => entry.id));
 		// 详情与 loads 记账同生命周期：离开可见集合即放行，重回可见时允许重拉/重试。

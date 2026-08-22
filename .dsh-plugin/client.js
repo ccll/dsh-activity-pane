@@ -46,8 +46,6 @@ const TOOL_LABELS = {
 	cordis_stop: "Stop",
 	cordis_undefine: "Remove",
 };
-/** 运行卡最多展示的流程节点数（已定案工具调用 + 当前阶段）。 */
-const TRACE_MAX_ITEMS = 4;
 /** think 阶段进度起点（%）：progressOf 与渲染层兜底共用的同源常量，防两处"5"漂移。 */
 const PROGRESS_THINK_BASE = 5;
 
@@ -192,16 +190,20 @@ function conversationTimeline(snapshot, limit = 4) {
 	const chat = snapshot?.chat;
 	const order = Array.isArray(chat?.order) ? chat.order : [];
 	const nodes = chat?.nodes;
+	const max = Math.max(0, limit);
+	if (max === 0) return [];
+	// 尾部反向收集：工作项只取尾部 max 个，长会话不再全序扫描；
+	// live 合并只作用于尾部子集（partial/runningCalls 的对应已定案项必在最近窗口内）。
 	const items = [];
-	for (const key of order) {
+	for (let i = order.length - 1; i >= 0 && items.length < max; i -= 1) {
 		let node;
 		try {
-			node = nodes?.get?.(key) ?? nodes?.[key];
+			node = nodes?.get?.(order[i]) ?? nodes?.[order[i]];
 		} catch {
 			node = undefined;
 		}
 		const item = timelineItemFromChatNode(node);
-		if (item) items.push(item);
+		if (item) items.unshift(item);
 	}
 	const liveItems = [];
 	const partialText = assistantBlockText(snapshot?.partial?.blocks, "text");
@@ -223,11 +225,9 @@ function conversationTimeline(snapshot, limit = 4) {
 		if (existingIndex >= 0) liveItems.push({ ...items.splice(existingIndex, 1)[0], ...item });
 		else liveItems.push(item);
 	}
-	const max = Math.max(0, limit);
-	if (max === 0) return [];
 	return liveItems.length > 0
 		? items.slice(-Math.max(0, max - liveItems.length)).concat(liveItems).slice(-max)
-		: items.slice(-max);
+		: items;
 }
 
 function timelineItemFromEvent(entry) {
@@ -267,14 +267,26 @@ function conversationTimelineFromHistory(history, limit = 4) {
 	const max = Math.max(0, limit);
 	return max === 0 ? [] : items.slice(-max);
 }
-/** 从 ChatSnapshot/history 取最近用户与 agent reply 的物理首行。 */
+/** 从 ChatSnapshot/history 取最近用户与 agent reply 的物理首行。
+ *  尾部反向扫描：找到最近的用户项与 assistant 项即停，长会话不再全序物化时间线。 */
 function messagePreviews({ snapshot = null, history = [] } = {}) {
 	let user = "";
-	let agent = "";
-	const timeline = conversationTimeline(snapshot, Number.MAX_SAFE_INTEGER);
-	for (const item of timeline) {
-		if (item.kind === "user" && item.text) user = firstPhysicalLine(item.text);
-		if (item.kind === "assistant" && item.text) agent = firstPhysicalLine(item.text);
+	// live partial 位于会话尾部：存在即是最新的 agent 文本。
+	let agent = firstPhysicalLine(assistantBlockText(snapshot?.partial?.blocks, "text"));
+	const chat = snapshot?.chat;
+	const order = Array.isArray(chat?.order) ? chat.order : [];
+	const nodes = chat?.nodes;
+	for (let i = order.length - 1; i >= 0 && (!user || !agent); i -= 1) {
+		let node;
+		try {
+			node = nodes?.get?.(order[i]) ?? nodes?.[order[i]];
+		} catch {
+			node = undefined;
+		}
+		const item = timelineItemFromChatNode(node);
+		if (!item) continue;
+		if (item.kind === "user" && !user && item.text) user = firstPhysicalLine(item.text);
+		if (item.kind === "assistant" && !agent && item.text) agent = firstPhysicalLine(item.text);
 	}
 	if (!user || !agent) {
 		for (const entry of Array.isArray(history) ? history : []) {
@@ -501,11 +513,10 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 			const parentId = m.row.parentId;
 			const details = mapValue(detailsById, id) ?? {};
 			const metadata = details.model ?? modelMetadata(details.models ?? m.row.models);
-			const timeline = details.timeline ?? conversationTimeline(details.snapshot);
-			const previews = details.previews ?? messagePreviews({
-				snapshot: details.snapshot,
-				history: details.history,
-			});
+			// timeline/previews 不在此推导：渲染层按快照引用 memo 计算（冷会话由 history 一次性写入 detail），
+			// 避免每次渲染对每个可见会话重复全序扫描。
+			const timeline = details.timeline ?? [];
+			const previews = details.previews ?? { userPreview: "", agentPreview: "" };
 			entries.push({
 				id,
 				depth,
@@ -558,7 +569,6 @@ function cardSignature(entries) {
 			entry.pendingText ?? null,
 			entry.updatedAt ?? null,
 			entry.progress ?? null,
-			entry.trace ?? null,
 			entry.streaming ?? null,
 			entry.tokenStats ?? [entry.outputTokens ?? null, entry.rateTokS ?? null, entry.elapsedMs ?? null],
 		]),
@@ -613,10 +623,8 @@ function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS
 		if (updatedAt > now || now - updatedAt > windowMs) continue;
 		const details = mapValue(detailsById, id) ?? {};
 		const metadata = details.model ?? modelMetadata(details.models ?? row.models);
-		const previews = details.previews ?? messagePreviews({
-			snapshot: details.snapshot,
-			history: details.history,
-		});
+		// previews 不在此推导：渲染层按需 memo 计算（冷会话由 history 一次性写入 detail.previews）。
+		const previews = details.previews ?? { userPreview: "", agentPreview: "" };
 		entries.push({
 			id,
 			kind: "recent",
@@ -688,87 +696,6 @@ function progressOf({ phase = "think", outputTokens = 0, elapsedMs = 0 } = {}) {
 		return Math.round((10 + 80 * fill) * 10) / 10;
 	}
 	return Math.round(Math.min(10, PROGRESS_THINK_BASE + sec * 0.5) * 10) / 10;
-}
-
-/** 已定案工具调用节点：`legacy.nodes` 中的工具结果（含 call 信息）。 */
-function isTraceToolNode(node) {
-	return isRecord(node) && isRecord(node.call) && typeof node.call.name === "string";
-}
-
-/** 节点是否带 (time, callTime) 双时间戳，可用其近似耗时。 */
-function hasTraceTimes(node) {
-	return Number.isFinite(node.time) && Number.isFinite(node.callTime);
-}
-
-/**
- * 构建运行卡「最近流程节点」轨迹：已定案工具调用（来自 legacy.nodes，含
- * label/detail/status/durationMs）+ 当前阶段节点（运行中），最多 TRACE_MAX_ITEMS。
- * durationMs 为近似值：工具节点用 time-callTime，当前阶段用回合已运行时长。
- * 节点文案只经白名单摘要，不泄露敏感参数（R-01-009/AC-07）。
- */
-function buildTrace({
-	nodes = [],
-	runningTool = null,
-	runningArgs = null,
-	streaming = false,
-	reasoning = false,
-	turnStartTime = null,
-	now = Date.now(),
-} = {}) {
-	const items = [];
-	for (const node of nodes) {
-		if (!isTraceToolNode(node)) continue;
-		items.push({
-			id: typeof node.callId === "string" ? node.callId : `tool:${items.length}`,
-			kind: "tool",
-			label: `调用 ${node.call.name}`,
-			detail: summarizeToolArguments(node.call.argsRaw),
-			status: node.isError === true ? "error" : "done",
-			durationMs: hasTraceTimes(node) ? Math.max(0, node.time - node.callTime) : null,
-		});
-	}
-	const elapsedMs =
-		Number.isFinite(turnStartTime) ? Math.max(0, now - turnStartTime) : null;
-	let current;
-	if (runningTool) {
-		current = {
-			id: `run:${runningTool}`,
-			kind: "tool",
-			label: `调用 ${runningTool}`,
-			detail: summarizeToolArguments(runningArgs),
-			status: "running",
-			durationMs: elapsedMs,
-		};
-	} else if (streaming) {
-		current = {
-			id: "run:stream",
-			kind: "phase",
-			label: "组织回答",
-			detail: null,
-			status: "running",
-			durationMs: elapsedMs,
-		};
-	} else if (reasoning) {
-		current = {
-			id: "run:reason",
-			kind: "phase",
-			label: "推理与规划",
-			detail: null,
-			status: "running",
-			durationMs: elapsedMs,
-		};
-	} else {
-		current = {
-			id: "run:think",
-			kind: "phase",
-			label: "分析任务",
-			detail: null,
-			status: "running",
-			durationMs: elapsedMs,
-		};
-	}
-	items.push(current);
-	return items.slice(-TRACE_MAX_ITEMS);
 }
 
 /**
@@ -1362,7 +1289,6 @@ function livenessFromSnapshot(snap) {
 		reasoning,
 		startTime,
 		turn,
-		nodes: Array.isArray(snap?.nodes) ? snap.nodes : [],
 	};
 }
 
@@ -1729,30 +1655,52 @@ function apply(ctx) {
 		return [head, row, makeEl("div", "dap-trace"), track, makeEl("div", "dap-token-stats")];
 	}
 
-	function nativeWorkItemRow(item) {
+	/** 会话区 DOM 行索引：每次渲染构建一次（renderStamp 变化时），供当次全部
+	 *  工作项共用，替代逐项 querySelectorAll 全量物化扫描。 */
+	let renderStamp = 0;
+	let domIndexStamp = -1;
+	let domIndex = null;
+	function nativeRowIndex() {
+		if (domIndex !== null && domIndexStamp === renderStamp) return domIndex;
 		const conversation = document.querySelector(CONVERSATION_SELECTOR);
-		if (conversation === null) return null;
+		const index = { conversation, byKey: new Map(), byCallId: new Map(), byTool: new Map(), think: null, context: null };
+		if (conversation !== null) {
+			for (const row of conversation.querySelectorAll("[data-chat-flow-key], [data-chat-anchor-key]")) {
+				const flowKey = row.getAttribute("data-chat-flow-key");
+				const anchorKey = row.getAttribute("data-chat-anchor-key");
+				if (flowKey !== null && !index.byKey.has(flowKey)) index.byKey.set(flowKey, row);
+				if (anchorKey !== null && !index.byKey.has(anchorKey)) index.byKey.set(anchorKey, row);
+			}
+			for (const row of conversation.querySelectorAll("[data-chat-call-id]")) {
+				const callId = row.getAttribute("data-chat-call-id");
+				if (callId !== null && !index.byCallId.has(callId)) index.byCallId.set(callId, row);
+				const tool = row.getAttribute("data-tool") ?? row.querySelector("[data-tool]")?.getAttribute("data-tool");
+				if (tool && !index.byTool.has(tool)) index.byTool.set(tool, row);
+			}
+			index.think = conversation.querySelector('[data-variant="think"]:not([data-tool])');
+			index.context = conversation.querySelector('[data-chat-flow-kind="context"]');
+		}
+		domIndexStamp = renderStamp;
+		domIndex = index;
+		return index;
+	}
+	function nativeWorkItemRow(item) {
+		const index = nativeRowIndex();
+		if (index.conversation === null) return null;
 		if (item.id) {
-			const keyed = [...conversation.querySelectorAll("[data-chat-flow-key], [data-chat-anchor-key]")].find(
-				(row) => row.getAttribute("data-chat-flow-key") === String(item.id) || row.getAttribute("data-chat-anchor-key") === String(item.id),
-			);
+			const keyed = index.byKey.get(String(item.id));
 			if (keyed !== undefined) return keyed;
 		}
-		if (item.label === "Think") {
-			return conversation.querySelector('[data-variant="think"]:not([data-tool])');
-		}
-		const rows = [...conversation.querySelectorAll("[data-chat-call-id]")];
+		if (item.label === "Think") return index.think;
 		if (item.callId) {
-			const byId = rows.find((row) => row.getAttribute("data-chat-call-id") === item.callId);
-			if (byId !== undefined) return byId;
+			const byCallId = index.byCallId.get(item.callId);
+			if (byCallId !== undefined) return byCallId;
 		}
 		if (item.toolName) {
-			for (const row of rows) {
-				const tool = row.getAttribute("data-tool") ?? row.querySelector("[data-tool]")?.getAttribute("data-tool");
-				if (tool === item.toolName) return row;
-			}
+			const byTool = index.byTool.get(item.toolName);
+			if (byTool !== undefined) return byTool;
 		}
-		if (item.icon === "context") return conversation.querySelector('[data-chat-flow-kind="context"]');
+		if (item.icon === "context") return index.context;
 		return null;
 	}
 
@@ -1972,7 +1920,7 @@ function apply(ctx) {
 			const traceContainer = el.querySelector(".dap-trace");
 			const nativeSessionId = nativePresentationSessionId(entry);
 			if (traceContainer !== null)
-				renderTrace(traceContainer, entry.timeline?.length ? entry.timeline : entry.trace, {
+				renderTrace(traceContainer, entry.timeline, {
 					nativeSessionId: nativeSessionId ?? "",
 					allowNativePresentation: nativeSessionId !== null,
 				});
@@ -1996,7 +1944,7 @@ function apply(ctx) {
 			const traceContainer = el.querySelector(".dap-subtrace");
 			const nativeSessionId = nativePresentationSessionId(entry);
 			if (traceContainer !== null)
-				renderTrace(traceContainer, entry.timeline?.length ? entry.timeline : entry.trace, {
+				renderTrace(traceContainer, entry.timeline, {
 					lastOnly: true,
 					nativeSessionId: nativeSessionId ?? "",
 					allowNativePresentation: nativeSessionId !== null,
@@ -2050,7 +1998,6 @@ function apply(ctx) {
 					livenessById.set(id, { unsubscribe, liveness: live, snapshot });
 					const detail = sessionDetailsById.get(id) ?? {};
 					detail.snapshot = snapshot;
-					detail.timeline = conversationTimeline(snapshot);
 					sessionDetailsById.set(id, detail);
 					queueSync();
 				});
@@ -2083,7 +2030,6 @@ function apply(ctx) {
 			});
 			const detail = sessionDetailsById.get(id) ?? {};
 			detail.snapshot = snapshot;
-			detail.timeline = conversationTimeline(snapshot);
 			sessionDetailsById.set(id, detail);
 		}
 		for (const [id, rec] of livenessById) {
@@ -2181,6 +2127,7 @@ function apply(ctx) {
 	}
 
 	function render() {
+		renderStamp += 1;
 		installFrameObserver();
 		const pane = ensurePane();
 		if (pane === null) return;
@@ -2216,16 +2163,20 @@ function apply(ctx) {
 			const live = liveRecord?.liveness ?? null;
 			const detail = sessionDetailsById.get(entry.id);
 			const detailSnapshot = liveRecord?.snapshot ?? detail?.snapshot ?? null;
-			if (detailSnapshot) {
-				const snapshotTimeline = conversationTimeline(detailSnapshot);
-				entry.timeline = snapshotTimeline.length > 0 ? snapshotTimeline : detail?.timeline ?? [];
-				const previews = messagePreviews({ snapshot: detailSnapshot, history: detail?.history });
-				entry.userPreview = previews.userPreview || detail?.previews?.userPreview || "";
-				entry.agentPreview = previews.agentPreview || detail?.previews?.agentPreview || "";
+			if (detail && detailSnapshot) {
+				// 按快照引用 memo：引用不变（时钟 tick、无关推送）时命中缓存，
+				// 长会话不再每次渲染全序扫描。
+				if (detail.liveTimelineOf !== detailSnapshot) {
+					detail.liveTimelineOf = detailSnapshot;
+					detail.liveTimeline = conversationTimeline(detailSnapshot);
+				}
+				entry.timeline = detail.liveTimeline.length > 0 ? detail.liveTimeline : detail.timeline ?? [];
 			} else {
 				entry.timeline = detail?.timeline ?? entry.timeline ?? [];
-				entry.userPreview = detail?.previews?.userPreview ?? entry.userPreview ?? "";
-				entry.agentPreview = detail?.previews?.agentPreview ?? entry.agentPreview ?? "";
+			}
+			if (detail?.model) {
+				entry.model = detail.model.model;
+				entry.reasoning = detail.model.reasoning;
 			}
 			if (detail?.model) {
 				entry.model = detail.model.model;
@@ -2281,22 +2232,24 @@ function apply(ctx) {
 				}
 				entry.progress = progress;
 			}
-			if (entry.kind === "running" || entry.kind === "subagent") {
-				entry.trace = buildTrace({
-					nodes: live?.nodes ?? [],
-					runningTool: live?.runningTool ?? null,
-					runningArgs: live?.runningArgs ?? null,
-					streaming: live?.streaming ?? false,
-					reasoning: live?.reasoning ?? false,
-					turnStartTime: live?.startTime ?? null,
-					now: Date.now(),
-				});
-			}
 		}
 		// 清理已不在运行/子代理集的进度下限，避免残留。
 		for (const id of progressFloor.keys())
 			if (!runLikeIds.has(id)) progressFloor.delete(id);
 		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById);
+		// 预览只对 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
+		for (const entry of recent) {
+			const detail = sessionDetailsById.get(entry.id);
+			if (!detail) continue;
+			const detailSnapshot = livenessById.get(entry.id)?.snapshot ?? detail.snapshot ?? null;
+			const previewsKey = detailSnapshot ?? detail.history ?? null;
+			if (detail.previewsOf !== previewsKey || !detail.livePreviews) {
+				detail.previewsOf = previewsKey;
+				detail.livePreviews = messagePreviews({ snapshot: detailSnapshot, history: detail.history });
+			}
+			entry.userPreview = detail.livePreviews.userPreview || detail.previews?.userPreview || "";
+			entry.agentPreview = detail.livePreviews.agentPreview || detail.previews?.agentPreview || "";
+		}
 		loadNativeDetails([...active, ...recent].map((entry) => entry.id));
 		const visibleIds = new Set([...active, ...recent].map((entry) => entry.id));
 		// 详情与 loads 记账同生命周期：离开可见集合即放行，重回可见时允许重拉/重试。

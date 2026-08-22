@@ -11,7 +11,6 @@ import { fileURLToPath } from "node:url";
 import {
 	buildEntries,
 	buildRecent,
-	buildTrace,
 	cardSignature,
 	cleanPreview,
 	detailLoadPlan,
@@ -35,7 +34,6 @@ import {
 	shouldCancelOpenRetry,
 	subagentTitle,
 	summarizeToolArguments,
-	TRACE_MAX_ITEMS,
 	workspaceTitleForSession,
 } from "../src/core.mjs";
 import { bindBackdropDismiss, bindCardActivation, openSession } from "../src/navigation.mjs";
@@ -429,44 +427,31 @@ assert.equal(progressOf({ phase: "tool", outputTokens: 100, elapsedMs: 1000 }), 
 assert.ok(progressOf({ phase: "stream", outputTokens: 1_000_000 }) <= 90, "进度有上界");
 // 注：R-01-009/AC-06 的"同回合不倒退/回合重置"为渲染层单调下限，属 GUI 验收项（scripts/acceptance.mjs）。
 
-// ---- R-01-009/AC-07 流程节点轨迹（阶段/工具、状态、耗时、不泄密）----
-const traceNodes = [
-	{ callId: "c1", call: { name: "bash", argsRaw: '{"command":"ls","path":"/tmp"}' }, callTime: 1000, time: 3000, isError: false },
-	{ callId: "c2", call: { name: "read", argsRaw: '{"file_path":"/a/b.txt"}' }, callTime: 4000, time: 6000, isError: true },
-];
-const trace = buildTrace({
-	nodes: traceNodes,
-	runningTool: "web_search",
-	runningArgs: '{"query":"dsh","url":"https://x"}',
-	turnStartTime: 100,
-	now: 1000,
+// ---- R-01-009/AC-07 工作项时间线的状态/耗时与白名单摘要（不泄密）----
+const statusTimeline = conversationTimeline({
+	chat: {
+		order: ["t1", "t2"],
+		nodes: {
+			get: (key) =>
+				({
+					t1: { key: "t1", kind: "tool-call", data: { root: { kind: "tool-result", callId: "c1", call: { name: "bash", argsRaw: '{"command":"ls","path":"/tmp"}' }, callTime: 1000, time: 3000, isError: false } } },
+					t2: { key: "t2", kind: "tool-call", data: { root: { kind: "tool-result", callId: "c2", call: { name: "read", argsRaw: '{"file_path":"/a/b.txt"}' }, callTime: 4000, time: 6000, isError: true } } },
+				})[key],
+		},
+	},
 });
-assert.equal(trace[0].label, "调用 bash", "已定案工具节点标签");
-assert.equal(trace[0].detail, "/tmp", "已定案节点参数摘要（path 白名单）");
-assert.equal(trace[0].status, "done", "成功节点状态");
-assert.equal(trace[0].durationMs, 2000, "已定案节点耗时=time-callTime");
-assert.equal(trace[1].status, "error", "出错节点状态");
-assert.equal(trace[1].detail, "/a/b.txt", "file_path 白名单摘要");
-const current = trace[trace.length - 1];
-assert.equal(current.label, "调用 web_search", "当前阶段=进行中的工具");
-assert.equal(current.status, "running", "当前阶段为运行中");
-assert.equal(current.detail, "dsh", "当前工具参数摘要（白名单按序取 describe/query/path/url）");
-assert.ok(!JSON.stringify(trace).includes('"ls"'), "摘要不含完整命令/原始 JSON");
-const manyNodes = Array.from({ length: 10 }, (_, i) => ({
-	callId: `t${i}`,
-	call: { name: `tool${i}`, argsRaw: "{}" },
-	callTime: i,
-	time: i + 1,
-}));
-assert.ok(
-	buildTrace({ nodes: manyNodes, turnStartTime: 1, now: 9 }).length <= TRACE_MAX_ITEMS,
-	"trace 上限裁剪",
-);
-// 纯流式阶段节点
-const phaseTrace = buildTrace({ streaming: true, turnStartTime: 100, now: 1000 });
-assert.equal(phaseTrace[0].label, "组织回答", "流式阶段节点文案");
-const thinkTrace = buildTrace({ turnStartTime: 100, now: 1000 });
-assert.equal(thinkTrace[0].label, "分析任务", "无流式/工具时显示分析任务（对齐 answer-pet think 阶段节点）");
+assert.equal(statusTimeline[0].status, "done", "成功工作项状态为 done");
+assert.equal(statusTimeline[0].durationMs, 2000, "工作项耗时=time-callTime");
+assert.equal(statusTimeline[0].detail, "/tmp", "工具工作项详情只取白名单摘要");
+assert.equal(statusTimeline[1].status, "error", "出错工作项状态为 error");
+assert.equal(statusTimeline[1].detail, "/a/b.txt", "file_path 白名单摘要");
+assert.ok(!JSON.stringify(statusTimeline).includes('"ls"'), "工作项摘要不含完整命令/原始 JSON");
+const runningTimeline = conversationTimeline({
+	chat: { order: [], nodes: { get: () => undefined } },
+	runningCalls: [{ callId: "rc1", name: "web_search", argsRaw: '{"query":"dsh","url":"https://x"}', turn: 1, step: 0, time: 100 }],
+});
+assert.equal(runningTimeline[0].status, "running", "进行中工具调用状态为 running");
+assert.equal(runningTimeline[0].detail, "dsh", "进行中工具参数摘要（白名单按序取 description/query/path/url）");
 
 // ---- R-02-003/AC-01 富卡字段并入签名后，进度/轨迹变化必触重重绘 ----
 assert.notEqual(
@@ -475,9 +460,9 @@ assert.notEqual(
 	"progress 变化签必变",
 );
 assert.notEqual(
-	cardSignature([...entries, { ...entries[0], trace: [{ id: "x", label: "调用 bash" }] }]),
+	cardSignature([...entries, { ...entries[0], timeline: [{ id: "x", label: "Read" }] }]),
 	cardSignature(entries),
-	"trace 变化签名必变",
+	"工作项时间线变化签名必变",
 );
 assert.notEqual(
 	cardSignature([...entries, { ...entries[0], outputTokens: 42 }]),

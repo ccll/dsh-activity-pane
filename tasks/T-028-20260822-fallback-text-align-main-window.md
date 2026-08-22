@@ -6,7 +6,7 @@ id: T-028
 
 # T-028 废弃参数白名单摘要，fallback 文字全量对齐主会话窗口
 
-状态: active
+状态: completed
 关联: R-01-009/AC-04、AC-07；R-01-012/AC-03 / 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -46,4 +46,14 @@ id: T-028
 
 ## 终态与证据
 
-（完成后填写）
+- 实现: `src/core.mjs` 的 `summarizeToolArguments` 重写为镜像原生 `deriveSummary`（分 variant 参数键、bash 含 command、首个字符串参数兜底、argsRaw 首行、relativizeToCwd），`TOOL_LABELS` 补 todo_write「更新任务清单」/ask_user_question「提问」/cordis_define「注册 Cordis 插件」（未知工具回退 "Tool call"），复刻 TodoRow/AskQuestionRow 状态摘要（ask 多块结果按原生 join("") 拼接）与错误态输出首行，interrupted/ASK_ABORTED 归 stopped，Think 摘要镜像 firstLine/latestLine；`src/client.mjs` 两处调用点传入会话 cwd（memo 键纳入 cwd），Think/context 原生行改多行收集 + 文本精确匹配；`.dsh-plugin/client.js` 已重新生成。
+- 测试: `node scripts/check.mjs` 通过（R-01-009/AC-04 断言改写为命令可展示/参数键/路径相对化/兜底链，R-01-009/AC-07 状态耗时断言同步，新增 R-01-012/AC-03 两态一致锚点：todo/ask/cordis_define/未知工具/错误首行/stopped/Think firstLine・latestLine）；`pnpm build:client && pnpm check` 通过；`python3 tools/agentmap_lint.py --report` 通过。`scripts/acceptance.mjs` 人工步骤改写为命令首行/状态摘要/两态不漂移验收。
+- DESIGN 对照: PRD R-01-009/AC-04、AC-07 改写（删白名单）、DESIGN 三处（富卡统计/工作项时间线呈现/富卡辅助）与 DECISIONS C-011 均在 8934c08 同事务级联；需求追溯索引既有行保持准确。
+- commit: 8934c08
+- commit: 425f246
+- review:
+  - 审核方: Standards 子代理 `637f6038-050a-4b03-9638-3ce2cdc77d05`；Spec 子代理 `b86eda29-44d0-472b-80a7-8465108bf285`。
+  - 目的理解: 实现 T-028——废弃沿自 answer-pet 的参数白名单（C-011），fallback 文字镜像主会话窗口原生行语义（参数键/命令/todo・ask 状态摘要/错误首行/路径相对化/Think 首行・最新行），消除选中/非选中态文字漂移；锚定 R-01-009/AC-04、AC-07 与 R-01-012/AC-03。
+  - 执行方式: `code-review` skill；固定基线 `3dd4531`，范围 `git diff 3dd4531...HEAD`；Standards/Spec 双轴并行，复审基线 425f246。
+  - 问题与修复: Standards 两项硬性（summary 行缩进与 fmtTokens 后双空行残渣；check.mjs 两条旧签名残留断言）与 Spec 一项有误（ask 多块结果误用 contentText \n 拼接）均在 425f246 修复并加回归断言；Spec 的 todo +N 后缀与 search title/resultView.output 两项经复审核实为误报并撤回（两态本就不含 suffix、原生 generic 路径同样生效）；Think/context 匹配机制以 task 收敛方案同步为 as-built 文本匹配闭环。
+  - 复审结论: Standards 复审通过；Spec 复审通过，无遗留 finding。

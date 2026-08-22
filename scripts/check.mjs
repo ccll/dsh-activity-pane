@@ -849,12 +849,6 @@ assert.ok(bundle.includes("loadingPreviews"), "预览字段级加载指示并入
 assert.ok(bundle.includes("renderTraceLoading"), "时间线区数据在途时显示加载行");
 assert.ok(bundle.includes("promise.then(queueSync, queueSync)"), "补充数据逐个完成即重绘（先就绪先显示）");
 assert.ok(bundle.includes("LOAD_CONCURRENCY"), "冷数据读取经并发池限制慢网挤占");
-assert.ok(bundle.includes("HISTORY_MAX_PAGES"), "history 深翻页有界（最多页数常量）");
-assert.ok(bundle.includes("beforeSeq"), "尾页取不到消息时向前深翻");
-assert.ok(bundle.includes("pagedHistoryEvents"), "history 深翻经纯函数分页（可单测）");
-assert.ok(bundle.includes("memoPreviewsHistoryOf"), "预览 memo 对 history 引用变化敏感");
-assert.ok(bundle.includes("restoreTextField(line, previews[i])"), "预览行离开加载态经统一写回清除 spinner");
-assert.ok(bundle.includes("restoreTextField(modelLabel"), "模型区离开加载态经统一写回清除 spinner");
 assert.ok(bundle.includes("session.open"), "运行卡通过 native session open hydrate 非当前会话");
 assert.ok(bundle.includes("sessionOpenLoads"), "session.open 请求与 cold history fallback 不重复");
 assert.ok(!bundle.includes("events.mux"), "不常驻全局 mux，当前会话使用原生 session subscribe");

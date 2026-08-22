@@ -255,6 +255,36 @@ export function needsHistorySnapshot(snapshot) {
 	return !snapshot || !Array.isArray(snapshot.chat?.order) || snapshot.chat.order.length === 0;
 }
 
+/** 冷会话 history 有界深翻：自尾页起按 beforeSeq 向前翻页，直至最近用户/agent 消息
+ *  预览齐全、翻尽（hasMore=false/无更多事件）或达到 maxPages。fetchPage(beforeSeq)
+ *  注入实际读取（返回 `{events, hasMore}` 或 null），便于纯函数单测；中途异常保留
+ *  已得事件并以 error 返回。返回 `{ events, error }`（events 按时间正序，新页在后）。 */
+export async function pagedHistoryEvents({ fetchPage, maxPages = 3 }) {
+	const allEvents = [];
+	let beforeSeq;
+	let hasMore = true;
+	let error = null;
+	for (let pages = 0; pages < maxPages && hasMore; pages += 1) {
+		const previews = messagePreviews({ history: allEvents });
+		if (previews.userPreview && previews.agentPreview) break;
+		let events;
+		try {
+			const value = await fetchPage(beforeSeq);
+			if (!value) break;
+			events = Array.isArray(value.events) ? value.events : [];
+			allEvents.unshift(...events);
+			hasMore = value.hasMore === true && events.length > 0;
+		} catch (caught) {
+			error = caught;
+			break;
+		}
+		const firstSeq = events[0]?.event?.seq;
+		if (!Number.isFinite(firstSeq)) break;
+		beforeSeq = firstSeq;
+	}
+	return { events: allEvents, error };
+}
+
 /** 冷会话 history 的同序降级，供没有 ChatSnapshot 的活动/历史会话使用。
  *  native `sessions.history` 响应只含 `{events, hasMore, projections?}`（in-flight
  *  partial 以 chunk 事件携带，不做逐 chunk 折叠），故只从事件流取尾部工作项。 */

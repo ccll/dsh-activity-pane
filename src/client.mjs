@@ -778,31 +778,16 @@ function apply(ctx) {
 			if (plan.history && typeof api.history === "function") {
 				const promise = enqueueDetailLoad(() => Promise.resolve()
 					.then(async () => {
-						// 单池任务内串行深翻：尾页取不到最近用户/agent 消息时按 beforeSeq 向前翻，
-						// 最多 HISTORY_MAX_PAGES 页（约 150 条消息），找到或翻尽即止；异常保留已得事件。
-						const allEvents = [];
-						let beforeSeq;
-						let hasMore = true;
-						try {
-							for (let pages = 0; pages < HISTORY_MAX_PAGES && hasMore; pages += 1) {
-								const previews = messagePreviews({ history: allEvents });
-								if (previews.userPreview && previews.agentPreview) break;
-								const response = await api.history({ sessionId: id, beforeSeq, maxMessages: 50 });
-								const value = apiValue(response);
-								if (!value) break;
-								const events = Array.isArray(value.events) ? value.events : [];
-								allEvents.unshift(...events);
-								hasMore = value.hasMore === true && events.length > 0;
-								const firstSeq = events[0]?.event?.seq;
-								if (!Number.isFinite(firstSeq)) break;
-								beforeSeq = firstSeq;
-							}
-						} catch (error) {
-							detail.historyError = error instanceof Error ? error.message : String(error);
-						}
-						detail.history = allEvents;
-						detail.timeline = conversationTimelineFromHistory(allEvents);
-						detail.previews = messagePreviews({ history: allEvents });
+						// 单池任务内串行深翻（HISTORY_MAX_PAGES 页，约 150 条消息）；
+						// 找到或翻尽即止，中途失败保留已得事件。
+						const { events, error } = await pagedHistoryEvents({
+							fetchPage: async (beforeSeq) => apiValue(await api.history({ sessionId: id, beforeSeq, maxMessages: 50 })),
+							maxPages: HISTORY_MAX_PAGES,
+						});
+						if (error) detail.historyError = error instanceof Error ? error.message : String(error);
+						detail.history = events;
+						detail.timeline = conversationTimelineFromHistory(events);
+						detail.previews = messagePreviews({ history: events });
 					}))
 				historyLoads.set(id, promise);
 				promise.finally(() => {
@@ -1193,6 +1178,17 @@ function apply(ctx) {
 		}
 	}
 
+	/** 字段写回：离开加载态时无条件写回（spinner 无文本，相等守卫会漏清空值）；
+	 *  否则只在文本变化时写入（保持 DOM 去重语义）。 */
+	function restoreTextField(el, text) {
+		if (el.dataset.loading === "true") {
+			delete el.dataset.loading;
+			el.textContent = text;
+		} else if (el.textContent !== text) {
+			el.textContent = text;
+		}
+	}
+
 	/** 时间线区加载指示：数据在途且尚无工作项时显示活动图标行（R-01-014/AC-02）。 */
 	function renderTraceLoading(container) {
 		if (container.dataset.loading === "true") return;
@@ -1240,14 +1236,7 @@ function apply(ctx) {
 					modelLabel.replaceChildren(makeEl("span", "dap-spinner"));
 				}
 			} else {
-				const modelText = [entry.model, entry.reasoning].filter(Boolean).join(" · ");
-				if (modelLabel.dataset.loading === "true") {
-					// 离开加载态必须无条件写回：spinner 无文本，相等守卫会漏清空值。
-					delete modelLabel.dataset.loading;
-					modelLabel.textContent = modelText;
-				} else if (modelLabel.textContent !== modelText) {
-					modelLabel.textContent = modelText;
-				}
+				restoreTextField(modelLabel, [entry.model, entry.reasoning].filter(Boolean).join(" · "));
 			}
 		}
 		const title = el.querySelector(".dap-title");
@@ -1301,13 +1290,7 @@ function apply(ctx) {
 						line.replaceChildren(makeEl("span", "dap-spinner"));
 					}
 				} else {
-					if (line.dataset.loading === "true") {
-						// 离开加载态必须无条件写回：spinner 无文本，相等守卫会漏清空值。
-						delete line.dataset.loading;
-						line.textContent = previews[i];
-					} else if (line.textContent !== previews[i]) {
-						line.textContent = previews[i];
-					}
+					restoreTextField(line, previews[i]);
 					line.dataset.role = roles[i];
 				}
 			}

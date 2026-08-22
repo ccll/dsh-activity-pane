@@ -13,6 +13,7 @@ import {
 	buildRecent,
 	cardSignature,
 	cleanPreview,
+	pagedHistoryEvents,
 	detailLoadPlan,
 	conversationTimeline,
 	conversationTimelineFromHistory,
@@ -554,6 +555,78 @@ assert.deepEqual(
 	"深翻累计事件：新页消息不被旧页遮蔽",
 );
 
+// ---- R-01-014/AC-05、R-01-013/AC-03、AC-04 深翻页序列、有界与部分失败保留 ----
+const pageOf = (events, hasMore) => ({ events, hasMore });
+const userEvent = (seq, text) => ({ event: { type: "user/message", seq, data: { source: { kind: "user" }, content: [{ type: "text", text }] } } });
+const agentEvent = (seq, text) => ({ event: { type: "assistant/message", seq, data: { message: { content: [{ type: "text", text }] } } } });
+const toolEvent = (seq) => ({ event: { type: "tool/call", seq, data: { callId: `c${seq}`, name: "bash", arguments: "{}" } } });
+{
+	const calls = [];
+	const fetchPage = async (beforeSeq) => {
+		calls.push(beforeSeq);
+		return pageOf([userEvent(1, "用户"), agentEvent(2, "回复")], true);
+	};
+	const result = await pagedHistoryEvents({ fetchPage, maxPages: 3 });
+	assert.equal(calls.length, 1, "尾页含消息时一页即止，不深翻");
+	assert.equal(result.error, null, "成功路径无 error");
+}
+{
+	const calls = [];
+	const fetchPage = async (beforeSeq) => {
+		calls.push(beforeSeq);
+		if (calls.length === 1) return pageOf([toolEvent(10)], true);
+		return pageOf([userEvent(1, "更早用户"), agentEvent(2, "更早回复")], false);
+	};
+	const result = await pagedHistoryEvents({ fetchPage, maxPages: 3 });
+	assert.equal(calls.length, 2, "尾页无消息时向前深翻");
+	assert.deepEqual(calls[1], 10, "beforeSeq 取上页页首事件 seq");
+	assert.deepEqual(
+		messagePreviews({ history: result.events }),
+		{ userPreview: "更早用户", agentPreview: "更早回复" },
+		"深翻后预览取自更早页",
+	);
+}
+{
+	let calls = 0;
+	const fetchPage = async () => {
+		calls += 1;
+		return pageOf([toolEvent(100 - calls)], true);
+	};
+	const result = await pagedHistoryEvents({ fetchPage, maxPages: 3 });
+	assert.equal(calls, 3, "深翻最多 maxPages 页即止");
+	assert.equal(result.events.length, 3, "已翻事件全部保留");
+}
+{
+	let calls = 0;
+	const fetchPage = async () => {
+		calls += 1;
+		return pageOf([toolEvent(calls)], false);
+	};
+	const result = await pagedHistoryEvents({ fetchPage, maxPages: 3 });
+	assert.equal(calls, 1, "hasMore=false 即止");
+}
+{
+	let calls = 0;
+	const fetchPage = async () => {
+		calls += 1;
+		if (calls === 2) throw new Error("network");
+		return pageOf([toolEvent(calls)], true);
+	};
+	const result = await pagedHistoryEvents({ fetchPage, maxPages: 3 });
+	assert.equal(result.events.length, 1, "深翻中途失败保留已得事件");
+	assert.ok(result.error instanceof Error, "失败以 error 返回供降级展示");
+}
+{
+	let calls = 0;
+	const fetchPage = async () => {
+		calls += 1;
+		return calls === 1 ? pageOf([toolEvent(1)], true) : null;
+	};
+	const result = await pagedHistoryEvents({ fetchPage, maxPages: 3 });
+	assert.equal(calls, 2, "业务错误（null）即停止");
+	assert.equal(result.events.length, 1, "业务错误前已得事件保留");
+}
+
 // ---- R-02-003/AC-01 富卡字段并入签名后，进度/轨迹变化必触重重绘 ----
 assert.notEqual(
 	cardSignature([...entries, { ...entries[0], progress: 42 }]),
@@ -778,16 +851,10 @@ assert.ok(bundle.includes("promise.then(queueSync, queueSync)"), "补充数据�
 assert.ok(bundle.includes("LOAD_CONCURRENCY"), "冷数据读取经并发池限制慢网挤占");
 assert.ok(bundle.includes("HISTORY_MAX_PAGES"), "history 深翻页有界（最多页数常量）");
 assert.ok(bundle.includes("beforeSeq"), "尾页取不到消息时向前深翻");
-assert.ok(bundle.includes("allEvents.unshift(...events)"), "深翻事件向前累计、新页优先");
+assert.ok(bundle.includes("pagedHistoryEvents"), "history 深翻经纯函数分页（可单测）");
 assert.ok(bundle.includes("memoPreviewsHistoryOf"), "预览 memo 对 history 引用变化敏感");
-assert.ok(
-	/delete line\.dataset\.loading;\s*\n\s*line\.textContent = previews\[i\];/.test(clientSource),
-	"预览行离开加载态时 spinner 被无条件清除",
-);
-assert.ok(
-	/delete modelLabel\.dataset\.loading;\s*\n\s*modelLabel\.textContent = modelText;/.test(clientSource),
-	"模型区离开加载态时 spinner 被无条件清除",
-);
+assert.ok(bundle.includes("restoreTextField(line, previews[i])"), "预览行离开加载态经统一写回清除 spinner");
+assert.ok(bundle.includes("restoreTextField(modelLabel"), "模型区离开加载态经统一写回清除 spinner");
 assert.ok(bundle.includes("session.open"), "运行卡通过 native session open hydrate 非当前会话");
 assert.ok(bundle.includes("sessionOpenLoads"), "session.open 请求与 cold history fallback 不重复");
 assert.ok(!bundle.includes("events.mux"), "不常驻全局 mux，当前会话使用原生 session subscribe");

@@ -38,7 +38,7 @@ TODO 条目「淡化历史会话的整体外观」经东家确认升级为 R-01-
 |---|---|---|
 | 成功 | 适用：最近卡整体不透明度 0.8，低于活动卡 | `scripts/check.mjs#R-01-013/AC-10`、`src/client.mjs::CSS` |
 | 异常 | 不适用：纯 CSS 呈现调整，无数据/失败路径 | — |
-| 边界配置 | 适用：最近卡点击进入 opening 等待态时脉冲反馈不被淡化规则覆盖 | `scripts/acceptance.mjs#R-01-005/AC-02`、`src/client.mjs::CSS` |
+| 边界配置 | 适用：最近卡点击进入 opening 等待态时脉冲反馈不被淡化规则覆盖（recent 规则先于 opening 规则） | `scripts/check.mjs#R-01-013/AC-10`、`src/client.mjs::CSS` |
 | 副作用 | 适用：不改动 DOM 结构、数据流与活动卡/子代理卡呈现 | `scripts/check.mjs#R-01-013/AC-09`、`src/client.mjs::CSS` |
 
 ## 终态与证据

@@ -975,4 +975,9 @@ assert.ok(bundle.includes("white-space: nowrap; font-size: 12px; line-height: 16
 // 最近历史卡整体不透明度低于活动卡，弱化历史区视觉强调。
 assert.ok(bundle.includes("background: rgba(22, 24, 29, 0.9);\n  border-color: transparent;\n  opacity: 0.8;"), "最近历史卡整体不透明度降为 0.8");
 
+assert.ok(
+	bundle.indexOf('[data-kind="recent"] {') < bundle.indexOf(".dap-card[data-opening]"),
+	"recent 淡化规则位于 opening 脉冲规则之前，等待态由脉冲接管（R-01-013/AC-10 边界）",
+);
+
 console.log("check: all assertions passed");

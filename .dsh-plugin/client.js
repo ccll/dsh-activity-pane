@@ -783,7 +783,7 @@ function openSession(sessions, sessionId) {
 //（binding().session），不依赖任何第三方插件数据路由，也不做状态轮询。
 
 const name = "dsh-activity-pane";
-const inject = ["connection"];
+const inject = ["connection", "sessions", "workspaces"];
 
 const CONVERSATION_SELECTOR = "#root [data-slot=\"conversation\"]";
 const PANE_ATTR = "data-dsh-activity-pane";
@@ -1319,7 +1319,6 @@ function apply(ctx) {
 	let workspaces = null;
 	let sessionUnsubscribe = null;
 	let workspaceUnsubscribe = null;
-	let serviceTimer = null;
 	let clockTimer = null;
 	let syncScheduled = false;
 	let lastSig = "";
@@ -1517,10 +1516,6 @@ function apply(ctx) {
 		sessionUnsubscribe = sessions?.list?.subscribe?.(queueSync) ?? null;
 		workspaceUnsubscribe = workspaces?.list?.subscribe?.(queueSync) ?? null;
 
-		if (sessions !== null && workspaces !== null && serviceTimer !== null) {
-			clearInterval(serviceTimer);
-			serviceTimer = null;
-		}
 		queueSync();
 	}
 
@@ -2282,31 +2277,75 @@ function apply(ctx) {
 			el?.removeAttribute("data-opening");
 		}
 	}
-	// ---- 观察者：找到 frame 后聚焦其子树；外壳重挂载时窗格被清即重插 ----
-	const bodyObserver = new MutationObserver(queueSync);
-	bodyObserver.observe(document.body, { childList: true, subtree: true });
-	let frameObserver = null;
+	// ---- 观察者：只监听宿主结构与 conversation seat 的流式 DOM ----
+	let bodyObserver = null;
+	let frameParentObserver = null;
+	let centerObserver = null;
+	let conversationObserver = null;
 	let observedCenter = null;
-	let frameProbeTimer = null;
+	let observedSeat = null;
+
 	function installFrameObserver() {
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
 		const center = seat?.parentElement ?? null;
-		if (center === null || center === observedCenter) return;
-		frameObserver?.disconnect();
-		frameObserver = new MutationObserver(queueSync);
-		frameObserver.observe(center, {
-			childList: true,
-			subtree: true,
-		});
-		observedCenter = center;
-		bodyObserver.disconnect();
-		if (frameProbeTimer !== null) {
-			clearInterval(frameProbeTimer);
-			frameProbeTimer = null;
+		if (center === null) {
+			frameParentObserver?.disconnect();
+			centerObserver?.disconnect();
+			conversationObserver?.disconnect();
+			frameParentObserver = null;
+			centerObserver = null;
+			conversationObserver = null;
+			observedCenter = null;
+			observedSeat = null;
+			bodyObserver?.observe(document.body, { childList: true, subtree: true });
+			return false;
 		}
+		if (center === observedCenter && seat === observedSeat) return true;
+
+		frameParentObserver?.disconnect();
+		centerObserver?.disconnect();
+		conversationObserver?.disconnect();
+
+		const parent = center.parentElement;
+		if (parent === null) {
+			bodyObserver?.observe(document.body, { childList: true, subtree: true });
+			return false;
+		}
+		frameParentObserver = new MutationObserver(() => {
+			if (
+				!center.isConnected ||
+				center.parentElement !== parent ||
+				document.querySelector(CONVERSATION_SELECTOR)?.parentElement !== center
+			) {
+				installFrameObserver();
+				queueSync();
+			}
+		});
+		frameParentObserver.observe(parent, { childList: true });
+
+		// 只观察 center 的直接子节点，捕获 seat/pane 重挂载，不观察 pane 子树。
+		centerObserver = new MutationObserver(() => {
+			const nextSeat = document.querySelector(CONVERSATION_SELECTOR);
+			if (nextSeat?.parentElement !== center) installFrameObserver();
+			queueSync();
+		});
+		centerObserver.observe(center, { childList: true });
+
+		// 流式更新只来自会话 seat；pane 自身的文字/属性写入不会再触发重绘。
+		conversationObserver = new MutationObserver(queueSync);
+		conversationObserver.observe(seat, { childList: true, subtree: true });
+		observedCenter = center;
+		observedSeat = seat;
+		bodyObserver?.disconnect();
+		return true;
 	}
+
+	// 槽座迟到时用 DOM 通知唤醒一次；找到宿主后立即断开 body 全树观察。
+	bodyObserver = new MutationObserver(() => {
+		if (installFrameObserver()) queueSync();
+	});
+	bodyObserver.observe(document.body, { childList: true, subtree: true });
 	installFrameObserver();
-	if (frameObserver === null) frameProbeTimer = setInterval(installFrameObserver, 500);
 
 	// ---- 交互：移动端抽屉开关、弹窗收起、桌面折叠 ----
 	function onToggleClick() {
@@ -2319,16 +2358,12 @@ function apply(ctx) {
 	desktopQuery.addEventListener("change", onResize);
 
 	installServiceSubscriptions();
-	if (sessions === null || workspaces === null) {
-		serviceTimer = setInterval(installServiceSubscriptions, 250);
-	}
 	queueSync();
 
 	const cleanup = () => {
 		disposed = true;
 		sessionUnsubscribe?.();
 		workspaceUnsubscribe?.();
-		if (serviceTimer !== null) clearInterval(serviceTimer);
 		if (clockTimer !== null) clearInterval(clockTimer);
 		for (const [, rec] of livenessById) {
 			try {
@@ -2349,10 +2384,11 @@ function apply(ctx) {
 		unbindPaneControls = null;
 		boundPane = null;
 		renderedPane = null;
-		bodyObserver.disconnect();
-		frameObserver?.disconnect();
+		bodyObserver?.disconnect();
+		frameParentObserver?.disconnect();
+		centerObserver?.disconnect();
+		conversationObserver?.disconnect();
 		observedCenter = null;
-		if (frameProbeTimer !== null) clearInterval(frameProbeTimer);
 		toggle.removeEventListener("click", onToggleClick);
 		desktopQuery.removeEventListener("change", onResize);
 		const seat = document.querySelector(CONVERSATION_SELECTOR);

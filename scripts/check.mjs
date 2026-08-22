@@ -504,7 +504,7 @@ execFileSync(process.execPath, [join(root, "scripts/build-client.mjs")], {
 	stdio: "pipe",
 });
 const bundle = await readFile(join(root, ".dsh-plugin/client.js"), "utf8");
-
+const clientSource = await readFile(join(root, "src/client.mjs"), "utf8");
 // bundle 必须是可解析的合法 JS（new Function 只编译不执行）——防止 CSS 模板内
 // 误插反引号这类"字符串检查能过、但 loader 导入即失败"的损坏。
 assert.doesNotThrow(
@@ -537,6 +537,15 @@ assert.ok(bundle.includes("api.models"), "模型/reasoning 使用 native models 
 assert.ok(bundle.includes("dap-token-stats"), "token 统计 DOM 位于进度条之后");
 assert.ok(bundle.includes("dap-history-line"), "历史卡包含用户/agent 两条消息预览行");
 assert.ok(bundle.includes("session.subscribe"), "运行卡通过 native session subscribe 接收实时推送");
+assert.ok(
+	clientSource.includes('const inject = ["connection", "sessions", "workspaces"];'),
+	"sessions/workspaces 通过 client inject 注入，不依赖服务发现定时器",
+);
+assert.ok(!bundle.includes("serviceTimer"), "服务发现不得保留后台定时器");
+assert.ok(!bundle.includes("frameProbeTimer"), "宿主 frame 发现不得保留后台定时器");
+assert.ok(bundle.includes("conversationObserver"), "流式 DOM 观察绑定到 conversation seat");
+assert.ok(bundle.includes("centerObserver"), "宿主结构变化通过 center 直接子节点通知处理");
+assert.ok(bundle.includes("setInterval(() => queueSync(), CLOCK_MS)"), "仅保留运行时长显示所需的单一 1 秒时钟");
 assert.ok(bundle.includes("session.open"), "运行卡通过 native session open hydrate 非当前会话");
 assert.ok(bundle.includes("sessionOpenLoads"), "session.open 请求与 cold history fallback 不重复");
 assert.ok(!bundle.includes("events.mux"), "不常驻全局 mux，当前会话使用原生 session subscribe");
@@ -569,7 +578,10 @@ assert.ok(
 
 // ---- R-02-003/AC-02 卸载时清理注入元素、样式与监听 ----
 assert.ok(bundle.includes("style.remove()"), "卸载移除注入样式");
-assert.ok(bundle.includes("bodyObserver.disconnect()"), "卸载断开观察者");
+assert.ok(bundle.includes("bodyObserver?.disconnect()"), "卸载断开 body 观察者");
+assert.ok(bundle.includes("frameParentObserver?.disconnect()"), "卸载断开宿主父级观察者");
+assert.ok(bundle.includes("centerObserver?.disconnect()"), "卸载断开 center 结构观察者");
+assert.ok(bundle.includes("conversationObserver?.disconnect()"), "卸载断开 conversation 观察者");
 assert.ok(bundle.includes("removeEventListener"), "卸载移除事件监听");
 
 // R-01-012/AC-05

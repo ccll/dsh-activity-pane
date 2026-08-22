@@ -831,6 +831,11 @@ assert.ok(bundle.includes("api.history"), "冷会话使用 native history 一次
 assert.ok(bundle.includes("api.models"), "模型/reasoning 使用 native models 数据");
 assert.ok(bundle.includes("dap-token-stats"), "token 统计 DOM 位于进度条之后");
 assert.ok(bundle.includes("dap-history-line"), "历史卡包含用户/agent 两条消息预览行");
+// R-01-013/AC-07、R-01-013/AC-08
+assert.ok(bundle.includes('dataset.role = "user"'), "用户消息行骨架静态标识 user 角色");
+assert.ok(bundle.includes('dataset.role = "agent"'), "agent 回复行骨架静态标识 agent 角色");
+assert.ok(bundle.includes("dap-history-icon"), "历史卡预览行带常驻角色图标段");
+assert.ok(bundle.includes("dap-history-text"), "历史卡预览文本写入图标后的独立文本段");
 assert.ok(bundle.includes("session.subscribe"), "运行卡通过 native session subscribe 接收实时推送");
 assert.ok(
 	clientSource.includes('const inject = ["connection", "sessions", "workspaces"];'),

@@ -1105,10 +1105,19 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-token-stats:empty { display: none; }
 [data-dsh-activity-pane] .dap-history-line {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: flex; align-items: center; gap: 4px; height: 15px;
+  min-width: 0; overflow: hidden; white-space: nowrap;
   font-size: 10.5px; line-height: 15px; color: color-mix(in srgb, currentColor 68%, transparent);
 }
 [data-dsh-activity-pane] .dap-history-line[data-role="agent"] { color: color-mix(in srgb, currentColor 54%, transparent); }
+[data-dsh-activity-pane] .dap-history-icon {
+  flex: none; width: 10px; height: 10px; display: inline-flex;
+  align-items: center; justify-content: center;
+}
+[data-dsh-activity-pane] .dap-history-icon svg { display: block; width: 10px; height: 10px; }
+[data-dsh-activity-pane] .dap-history-text {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 /* 动作时间线：纵向竖线串起圆点（对齐 answer-pet 的 .ap-session-trace，并修正几何细节——
    圆点与竖线整体从卡片内容左边起步，和标题圆点/状态行/进度条共用左边界；轨道下放到每个
    节点项自身：7px 奇数宽圆点 left:0（圆心 x=3.5），1px 竖线 left:3（圆心 x=3.5），
@@ -1732,11 +1741,21 @@ function apply(ctx) {
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
 			return [head, row, makeEl("div", "dap-subtrace")];
 		}
-		if (kind === "recent") {
-			const row = makeEl("div", "dap-row");
-			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
-			return [head, row, makeEl("div", "dap-history-line"), makeEl("div", "dap-history-line"), makeEl("div", "dap-note")];
-		}
+	if (kind === "recent") {
+		const row = makeEl("div", "dap-row");
+		row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
+		const userLine = makeEl("div", "dap-history-line");
+		userLine.dataset.role = "user";
+		const userIcon = makeEl("span", "dap-history-icon");
+		userIcon.append(createUserIcon());
+		userLine.append(userIcon, makeEl("span", "dap-history-text"));
+		const agentLine = makeEl("div", "dap-history-line");
+		agentLine.dataset.role = "agent";
+		const agentIcon = makeEl("span", "dap-history-icon");
+		agentIcon.append(createSparkleIcon());
+		agentLine.append(agentIcon, makeEl("span", "dap-history-text"));
+		return [head, row, userLine, agentLine, makeEl("div", "dap-note")];
+	}
 		if (kind === "awaiting") {
 			const row = makeEl("div", "dap-row");
 			row.append(
@@ -2198,18 +2217,17 @@ function apply(ctx) {
 		if (entry.kind === "recent") {
 			const lines = el.querySelectorAll(".dap-history-line");
 			const previews = [entry.userPreview ?? "", entry.agentPreview ?? ""];
-			const roles = ["user", "agent"];
 			for (let i = 0; i < 2; i += 1) {
 				const line = lines[i];
 				if (!line) continue;
+				const text = line.lastElementChild;
 				if (entry.loadingPreviews === true) {
-					if (line.dataset.loading !== "true") {
-						line.dataset.loading = "true";
-						line.replaceChildren(makeEl("span", "dap-spinner"));
+					if (text.dataset.loading !== "true") {
+						text.dataset.loading = "true";
+						text.replaceChildren(makeEl("span", "dap-spinner"));
 					}
 				} else {
-					restoreTextField(line, previews[i]);
-					line.dataset.role = roles[i];
+					restoreTextField(text, previews[i]);
 				}
 			}
 		}

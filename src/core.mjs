@@ -211,7 +211,12 @@ function askStatusSummary(root, status) {
 	if (status === "running") return "等待回答";
 	if (status === "done") {
 		try {
-			const parsed = JSON.parse(contentText(Array.isArray(root.content) ? root.content : []));
+			// 原生 answeredSummary 以 join("") 拼接文本块，不能用 contentText 的 \n 拼接（多行 JSON 会解析失败）。
+			const answerText = (Array.isArray(root.content) ? root.content : [])
+				.filter((block) => isRecord(block) && block.type === "text" && typeof block.text === "string")
+				.map((block) => block.text)
+				.join("");
+			const parsed = JSON.parse(answerText);
 			const answers = isRecord(parsed) ? parsed.answers : null;
 			if (Array.isArray(answers) && answers.every(isRecord)) {
 				const answered = answers.filter(
@@ -251,6 +256,7 @@ function timelineToolItem(root, fallbackView = null, cwd = "") {
 		(TOOL_VARIANTS[name] ?? "others") === "others" && rawName !== "" && !NATIVE_TOOL_TITLES.has(rawName)
 			? `${rawName} · ${argsBase}`
 			: argsBase;
+	// 错误首行优先取结果内容块（原生 resultText 语义）；history 事件不带 content，回退 resultView.output。
 	const output = toolResultText(root) || (isRecord(resultView) && typeof resultView.output === "string" ? resultView.output : "");
 	// 摘要优先级镜像原生行：错误首行 → terminal callView description → search 结果卡标题 → todo 进度 → 参数派生。
 	const detail =
@@ -308,7 +314,7 @@ function timelineItemFromChatNode(node, cwd = "") {
 			turn: data.turn,
 			step: data.step,
 			text,
-		summary: reasoning ? (data.status === "running" ? latestLineOf(reasoning) : firstLineOf(reasoning)) : text,
+			summary: reasoning ? (data.status === "running" ? latestLineOf(reasoning) : firstLineOf(reasoning)) : text,
 			detail: reasoning || null,
 			status: data.status === "running" ? "running" : "done",
 			durationMs: null,
@@ -854,7 +860,6 @@ export function fmtTokens(n) {
 	if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return null;
 	return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n));
 }
-
 
 /**
  * 轮内进度估计（0–100）：阶段权重 + 输出 token 累计填充（无 maxTokens 时用饱和

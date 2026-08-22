@@ -435,8 +435,6 @@ assert.equal(
 assert.equal(summarizeToolArguments("bash", "not-json{{"), "not-json{{", "不可解析参数取 argsRaw 首行（镜像原生）");
 assert.equal(summarizeToolArguments("bash", 123), null, "非字符串参数返回 null");
 assert.equal(summarizeToolArguments("bash", ""), null, "空参数返回 null（callId 由 timelineToolItem 补）");
-assert.equal(summarizeToolArguments("not-json{{"), null, "不可解析参数返回 null");
-assert.equal(summarizeToolArguments(123), null, "非对象参数返回 null");
 assert.equal(cleanPreview("  a   b "), "a b", "摘要文本折叠空白");
 assert.equal(cleanPreview("", 10), null, "空文本返回 null");
 assert.equal(cleanPreview("x".repeat(100), 88)?.length, 88, "超长摘要在 88 字符内截断");
@@ -505,6 +503,10 @@ const askAnswered = conversationTimeline({
 	chat: { order: ["q"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "q2", call: { name: "ask_user_question", argsRaw: "{}" }, isError: false, content: [{ type: "text", text: '{"answers":[{"selected":["a"]},{"selected":[],"custom":""}]}' }] } } }) } },
 })[0];
 assert.equal(askAnswered.detail, "1/2 已回答", "ask 定案摘要复刻原生已答计数");
+const askAnsweredMultiBlock = conversationTimeline({
+	chat: { order: ["q"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "q2m", call: { name: "ask_user_question", argsRaw: "{}" }, isError: false, content: [{ type: "text", text: '{"answers":[{"selected":["a"]},' }, { type: "text", text: '{"selected":[]}]}' }] } } }) } },
+})[0];
+assert.equal(askAnsweredMultiBlock.detail, "1/2 已回答", "ask 多块结果文本以空串拼接解析（镜像原生 join 语义）");
 const askCancelled = conversationTimeline({
 	chat: { order: ["q"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "q3", call: { name: "ask_user_question", argsRaw: "{}" }, isError: true, error: { name: "AskError", code: "ASK_CANCELLED" } } } }) } },
 })[0];

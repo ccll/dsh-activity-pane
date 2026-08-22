@@ -25,7 +25,7 @@ id: T-028
 ## 收敛方案
 
 - core：`summarizeToolArguments(name, argsRaw, cwd)` 镜像原生 `deriveSummary` + `relativizeToCwd` + others 前缀；`timelineToolItem` 增加 cwd 入参（由调用侧会话快照提供），摘要优先级 = 错误态输出首行 → callView.description（terminal 语义）→ args 派生；todo/ask 摘要按原生 TodoRow/AskQuestionRow 逻辑复刻（中文案硬编码，与现有 statusLabels 一致）。
-- client：Think/context 原生行按工作项身份匹配（byKey 未命中且同类多行时按顺序分配，单行维持现状），不再共用首行。
+- client：Think/context 原生行改多行收集，byKey 未命中且同类多行时按摘要/内容文本精确匹配（单行维持直取），无匹配走 fallback（文本已镜像原生，两态仍一致），不再共用首个同类行。
 - 测试先行：check.mjs 新锚点（命令摘要、others 前缀、todo/ask 摘要、错误首行、路径相对化）锚定 R-01-009/AC-04、AC-07 与 R-01-012/AC-03。
 
 ## 测试计划

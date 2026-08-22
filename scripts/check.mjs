@@ -530,6 +530,29 @@ assert.equal(
 	"已定案回复",
 	"partial 为空块时回退已定案回复，不被空 live 项遮蔽",
 );
+// R-01-013/AC-03、R-01-013/AC-04
+assert.deepEqual(
+	messagePreviews({
+		history: [
+			{ event: { type: "user/message", data: { source: { kind: "user" }, content: [{ type: "text", text: "更早的用户消息" }] } } },
+			{ event: { type: "assistant/message", data: { message: { content: [{ type: "text", text: "更早的回复" }] } } } },
+			{ event: { type: "tool/call", data: { callId: "c1", name: "bash", arguments: "{}" } } },
+		],
+	}),
+	{ userPreview: "更早的用户消息", agentPreview: "更早的回复" },
+	"深翻累计事件：尾页无消息时预览取自更早页",
+);
+assert.deepEqual(
+	messagePreviews({
+		history: [
+			{ event: { type: "user/message", data: { source: { kind: "user" }, content: [{ type: "text", text: "更早的用户消息" }] } } },
+			{ event: { type: "user/message", data: { source: { kind: "user" }, content: [{ type: "text", text: "最新的用户消息" }] } } },
+			{ event: { type: "assistant/message", data: { message: { content: [{ type: "text", text: "最新的回复" }] } } } },
+		],
+	}),
+	{ userPreview: "最新的用户消息", agentPreview: "最新的回复" },
+	"深翻累计事件：新页消息不被旧页遮蔽",
+);
 
 // ---- R-02-003/AC-01 富卡字段并入签名后，进度/轨迹变化必触重重绘 ----
 assert.notEqual(
@@ -753,6 +776,18 @@ assert.ok(bundle.includes("loadingPreviews"), "预览字段级加载指示并入
 assert.ok(bundle.includes("renderTraceLoading"), "时间线区数据在途时显示加载行");
 assert.ok(bundle.includes("promise.then(queueSync, queueSync)"), "补充数据逐个完成即重绘（先就绪先显示）");
 assert.ok(bundle.includes("LOAD_CONCURRENCY"), "冷数据读取经并发池限制慢网挤占");
+assert.ok(bundle.includes("HISTORY_MAX_PAGES"), "history 深翻页有界（最多页数常量）");
+assert.ok(bundle.includes("beforeSeq"), "尾页取不到消息时向前深翻");
+assert.ok(bundle.includes("allEvents.unshift(...events)"), "深翻事件向前累计、新页优先");
+assert.ok(bundle.includes("memoPreviewsHistoryOf"), "预览 memo 对 history 引用变化敏感");
+assert.ok(
+	/delete line\.dataset\.loading;\s*\n\s*line\.textContent = previews\[i\];/.test(clientSource),
+	"预览行离开加载态时 spinner 被无条件清除",
+);
+assert.ok(
+	/delete modelLabel\.dataset\.loading;\s*\n\s*modelLabel\.textContent = modelText;/.test(clientSource),
+	"模型区离开加载态时 spinner 被无条件清除",
+);
 assert.ok(bundle.includes("session.open"), "运行卡通过 native session open hydrate 非当前会话");
 assert.ok(bundle.includes("sessionOpenLoads"), "session.open 请求与 cold history fallback 不重复");
 assert.ok(!bundle.includes("events.mux"), "不常驻全局 mux，当前会话使用原生 session subscribe");

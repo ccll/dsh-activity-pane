@@ -805,6 +805,8 @@ const INDENT_PX = 16;
 const MOBILE_BREAKPOINT = "767px";
 /** 运行卡时钟：只要存在运行中会话，就以该周期刷新时长显示。 */
 const CLOCK_MS = 1000;
+/** 冷会话 history 深翻页上限：尾页取不到最近用户/agent 消息时向前翻的最多页数。 */
+const HISTORY_MAX_PAGES = 3;
 /** 冷数据读取并发池上限：慢网下避免几十张卡片的 models/history 一次性挤占通道。 */
 const LOAD_CONCURRENCY = 3;
 /** 原生动作图标缓存上限（按插入序修剪；只保留当前会话条目）。 */
@@ -1555,25 +1557,33 @@ function apply(ctx) {
 			}
 			if (plan.history && typeof api.history === "function") {
 				const promise = enqueueDetailLoad(() => Promise.resolve()
-					.then(() => api.history({ sessionId: id, maxMessages: 50 }))
-					.then((response) => {
-						const value = apiValue(response);
-						if (!value) {
-							detail.history = [];
-							detail.timeline = [];
-							detail.previews = { userPreview: "", agentPreview: "" };
-							return;
+					.then(async () => {
+						// 单池任务内串行深翻：尾页取不到最近用户/agent 消息时按 beforeSeq 向前翻，
+						// 最多 HISTORY_MAX_PAGES 页（约 150 条消息），找到或翻尽即止；异常保留已得事件。
+						const allEvents = [];
+						let beforeSeq;
+						let hasMore = true;
+						try {
+							for (let pages = 0; pages < HISTORY_MAX_PAGES && hasMore; pages += 1) {
+								const previews = messagePreviews({ history: allEvents });
+								if (previews.userPreview && previews.agentPreview) break;
+								const response = await api.history({ sessionId: id, beforeSeq, maxMessages: 50 });
+								const value = apiValue(response);
+								if (!value) break;
+								const events = Array.isArray(value.events) ? value.events : [];
+								allEvents.unshift(...events);
+								hasMore = value.hasMore === true && events.length > 0;
+								const firstSeq = events[0]?.event?.seq;
+								if (!Number.isFinite(firstSeq)) break;
+								beforeSeq = firstSeq;
+							}
+						} catch (error) {
+							detail.historyError = error instanceof Error ? error.message : String(error);
 						}
-						detail.history = Array.isArray(value.events) ? value.events : [];
-						detail.timeline = conversationTimelineFromHistory(detail.history);
-						detail.previews = messagePreviews({ history: detail.history });
-					})
-					.catch((error) => {
-						detail.history = [];
-						detail.timeline = [];
-						detail.previews = { userPreview: "", agentPreview: "" };
-						detail.historyError = error instanceof Error ? error.message : String(error);
-					}));
+						detail.history = allEvents;
+						detail.timeline = conversationTimelineFromHistory(allEvents);
+						detail.previews = messagePreviews({ history: allEvents });
+					}))
 				historyLoads.set(id, promise);
 				promise.finally(() => {
 					if (historyLoads.get(id) === promise) historyLoads.delete(id);
@@ -2010,9 +2020,14 @@ function apply(ctx) {
 					modelLabel.replaceChildren(makeEl("span", "dap-spinner"));
 				}
 			} else {
-				if (modelLabel.dataset.loading === "true") delete modelLabel.dataset.loading;
 				const modelText = [entry.model, entry.reasoning].filter(Boolean).join(" · ");
-				if (modelLabel.textContent !== modelText) modelLabel.textContent = modelText;
+				if (modelLabel.dataset.loading === "true") {
+					// 离开加载态必须无条件写回：spinner 无文本，相等守卫会漏清空值。
+					delete modelLabel.dataset.loading;
+					modelLabel.textContent = modelText;
+				} else if (modelLabel.textContent !== modelText) {
+					modelLabel.textContent = modelText;
+				}
 			}
 		}
 		const title = el.querySelector(".dap-title");
@@ -2066,9 +2081,14 @@ function apply(ctx) {
 						line.replaceChildren(makeEl("span", "dap-spinner"));
 					}
 				} else {
-					if (line.dataset.loading === "true") delete line.dataset.loading;
+					if (line.dataset.loading === "true") {
+						// 离开加载态必须无条件写回：spinner 无文本，相等守卫会漏清空值。
+						delete line.dataset.loading;
+						line.textContent = previews[i];
+					} else if (line.textContent !== previews[i]) {
+						line.textContent = previews[i];
+					}
 					line.dataset.role = roles[i];
-					if (line.textContent !== previews[i]) line.textContent = previews[i];
 				}
 			}
 		}
@@ -2362,8 +2382,9 @@ function apply(ctx) {
 			if (!detail) continue;
 			const detailSnapshot = livenessById.get(entry.id)?.snapshot ?? detail.snapshot ?? null;
 			const previewsKey = detailSnapshot ?? detail.history ?? null;
-			if (detail.memoPreviewsOf !== previewsKey || !detail.memoPreviews) {
+			if (detail.memoPreviewsOf !== previewsKey || detail.memoPreviewsHistoryOf !== (detail.history ?? null) || !detail.memoPreviews) {
 				detail.memoPreviewsOf = previewsKey;
+				detail.memoPreviewsHistoryOf = detail.history ?? null;
 				detail.memoPreviews = messagePreviews({ snapshot: detailSnapshot, history: detail.history });
 			}
 			entry.userPreview = detail.memoPreviews.userPreview || detail.previews?.userPreview || "";

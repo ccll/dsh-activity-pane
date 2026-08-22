@@ -7,7 +7,7 @@ mutation: lifecycle
 # T-016 数据拉取与交互缺陷修复批
 
 风险等级: standard
-状态: active
+状态: completed
 
 ## 背景与目标
 
@@ -64,4 +64,13 @@ mutation: lifecycle
 
 ## 终态与证据
 
-（待关闭时填写：实现 / 测试 / DESIGN 对照 / commit / review）
+- 实现: `src/core.mjs` 新增 `escapeCssString`（先反斜杠后引号、换行/回车/换页码位转义、NUL 替换）、`shouldCancelOpenRetry`、`pruneInvisibleEntries`、`detailLoadPlan` 四个纯函数；`messagePreviews` 移除 `projectionValues`/`timelineUserMessages` 分支（C-007/C-008 残留清理）；`conversationTimelineFromHistory` 简化为 `(history, limit)`（不再读取 history 响应中不存在的 `partial`/`runningCalls` 字段）。`src/client.mjs`：重试链经 `cancelStaleOpenRetries` 在新激活/打开成功/render 中 current 比对三处取消；可见性清理经 `pruneInvisibleEntries` 同步删除 `sessionDetailsById`/`modelLoads`/`historyLoads`/`sessionOpenLoads`（jeC）；`loadNativeDetails` 改用 `detailLoadPlan`（子代理跳过 models、失败置空不热重试、清理后重回可重试）；`session.subscribe` 与列表 `subscribe` 包 try/catch；`cardElFor` 统一经 `escapeCssString`；`toggleAttribute` 传布尔；计数写入前比对文本。
+- 测试: `pnpm build:client && pnpm check` 通过（新增 R-01-005/AC-02 取消判定与转义锚定、R-01-012/AC-01 子代理边界与 `detailLoadPlan` 行为链锚定、R-02-003/AC-02 `pruneInvisibleEntries` 行为锚定，及 6 条 bundle 契约断言）；`python3 tools/agentmap_lint.py --report` 通过（17 需求 / 56 AC，测试锚定 56/56）；`git diff --check` 通过。
+- DESIGN 对照: DESIGN 失败语义已补充「重试链在目标已成为当前会话、用户激活其它卡片或任一打开成功时立即取消」条款；契约清理后实现与 DESIGN「冷会话 history 一次性读取」「不写回宿主」「无自有轮询」一致；R-01-005/AC-02「不影响其它卡片」由取消机制兑现。
+- commit: 4a5abf8
+- review:
+  - 审核方: 独立 `code-review` Standards 子代理；独立 `code-review` Spec 子代理。
+  - 目的理解: T-016 为 map 不变的缺陷修复批（8 项：重试链拽回会话、jeC 记账不清理、失败无重试、subscribe 裸调、转义顺序、toggleAttribute 字符串 force、history/timelineUserMessages/子代理 models 契约死代码、计数文本重写）；关联约束 PRD R-01-005/AC-02、R-01-012/AC-01、R-02-003 与 DECISIONS C-002/C-005/C-007/C-008；验证方式为 check.mjs 纯函数锚定 + bundle 契约断言。
+  - 执行方式: `code-review` skill；评审基线 `c1cde8b`，范围 `git diff c1cde8b...HEAD`（ec4fee2 实现、fba73d4/4a5abf8 修复），Standards/Spec 两轴独立审核，修复后由同一审核方两轮复审。
+  - 问题与修复: Standards 轴 0 硬违例、3 项判断题 smell——重复的重试链取消遍历经 `cancelStaleOpenRetries` 收敛（fba73d4），Feature Envy 与 Primitive Obsession 两项弱 smell 经复审裁定按 KISS/聚焦修改不修；Spec 轴 3 项 finding——escapeCssString 控制字符边界（补 \\n/\\r/\\f 码位转义与 NUL 替换及断言）、loads 记账缺行为链验证（抽 `detailLoadPlan` 纯函数并补行为链断言）、isSubagentRow 父级缺失边界（补断言）均经 fba73d4/4a5abf8 修复。
+  - 复审结论: Standards 复审三项全部关闭；Spec 两轮复审后 (a)(b)(c) 全部关闭，确认抽取未改变判定语义、无新增偏差。

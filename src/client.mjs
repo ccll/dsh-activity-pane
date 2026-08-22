@@ -940,7 +940,7 @@ function apply(ctx) {
 			const agentLine = makeEl("div", "dap-history-line");
 			agentLine.dataset.role = "agent";
 			const agentIcon = makeEl("span", "dap-history-icon");
-			agentIcon.append(createSparkleIcon());
+			agentIcon.append(createRobotIcon());
 			agentLine.append(agentIcon, makeEl("span", "dap-history-text"));
 			return [head, row, userLine, agentLine, makeEl("div", "dap-note")];
 		}
@@ -1124,6 +1124,20 @@ function apply(ctx) {
 				{ attrs: { d: "M6.1 3.1Q6.6 7.8 11.3 8.3Q6.6 8.8 6.1 13.5Q5.6 8.8 0.9 8.3Q5.6 7.8 6.1 3.1Z", fill: "currentColor" } },
 				{ attrs: { d: "M11.9 1Q12.2 3.7 14.9 4Q12.2 4.3 11.9 7Q11.6 4.3 8.9 4Q11.6 3.7 11.9 1Z", fill: "currentColor" } },
 				{ attrs: { d: "M12.5 9.4Q12.7 11.4 14.7 11.6Q12.7 11.8 12.5 13.8Q12.3 11.8 10.3 11.6Q12.3 11.4 12.5 9.4Z", fill: "currentColor" } },
+			],
+		});
+	}
+
+	/** 历史卡 agent 回复行角色图标（R-01-013/AC-08）：主网页图标集无现成机器人，按 canonical 风格手绘。 */
+	function createRobotIcon() {
+		return createInlineIcon({
+			viewBox: "0 0 16 16",
+			parts: [
+				{ tag: "rect", attrs: { x: "2.5", y: "5", width: "11", height: "8", rx: "2", fill: "none", stroke: "currentColor", "stroke-width": "1.3" } },
+				{ tag: "line", attrs: { x1: "8", y1: "5", x2: "8", y2: "2.7", stroke: "currentColor", "stroke-width": "1.3", "stroke-linecap": "round" } },
+				{ tag: "circle", attrs: { cx: "8", cy: "1.8", r: "1.1", fill: "currentColor" } },
+				{ tag: "circle", attrs: { cx: "5.9", cy: "9", r: "1.2", fill: "currentColor" } },
+				{ tag: "circle", attrs: { cx: "10.1", cy: "9", r: "1.2", fill: "currentColor" } },
 			],
 		});
 	}

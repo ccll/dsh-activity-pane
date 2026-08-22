@@ -836,6 +836,8 @@ assert.ok(bundle.includes('dataset.role = "user"'), "用户消息行骨架静态
 assert.ok(bundle.includes('dataset.role = "agent"'), "agent 回复行骨架静态标识 agent 角色");
 assert.ok(bundle.includes("dap-history-icon"), "历史卡预览行带常驻角色图标段");
 assert.ok(bundle.includes("dap-history-text"), "历史卡预览文本写入图标后的独立文本段");
+// R-01-013/AC-08
+assert.ok(bundle.includes("createRobotIcon"), "agent 回复行使用机器人图标");
 assert.ok(bundle.includes("session.subscribe"), "运行卡通过 native session subscribe 接收实时推送");
 assert.ok(
 	clientSource.includes('const inject = ["connection", "sessions", "workspaces"];'),

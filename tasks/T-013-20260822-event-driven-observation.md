@@ -7,7 +7,7 @@ mutation: lifecycle
 # T-013 事件驱动观察优化
 
 风险等级: standard
-状态: active
+状态: completed
 
 ## 背景与目标
 
@@ -55,8 +55,13 @@ mutation: lifecycle
 
 ## 终态与证据
 
-实现: 待完成
-测试: 待完成
-DESIGN 对照: 待完成
-commit: 待完成
-review: 待完成
+- 实现: `src/client.mjs` 将 `sessions`/`workspaces` 加入 client `inject`，删除服务发现 `serviceTimer` 与 frame probe `frameProbeTimer`；用一次性 body DOM 通知、center 直接子节点观察、conversation seat 子树观察处理迟到挂载、重挂载与流式 DOM 更新；保留运行中可见时长所需的单一 1 秒 `clockTimer` 与用户点击触发的有限重试；`.dsh-plugin/client.js` 已同步生成。
+- 测试: `pnpm build:client && pnpm check` 通过；`pnpm lint` 通过；`git diff --check` 通过；bundle 导出注入声明为 `connection`/`sessions`/`workspaces`，现有 `http://127.0.0.1:3080/` 返回 HTTP 200 且提供新 bundle；`node scripts/acceptance.mjs` 可执行并生成 GUI 清单；真实 GUI 温度/帧率与重挂载人工步骤未在本环境执行（无可用 CDP）。
+- DESIGN 对照: DESIGN 的响应式渲染、原生 session 订阅、宿主重挂载恢复、卸载清理与定时器纪律已同步为事件驱动目标；PRD R-02-001/AC-02、R-02-004/AC-01～AC-02 仍由原生订阅和静态契约承接。
+- commit: b1804ff
+- review:
+  - 审核方: 独立 `code-review` Standards 子代理；独立 `code-review` Spec 子代理。
+  - 目的理解: 消除插件服务发现与 frame 探测的后台 250ms/500ms 定时器，改用原生 client service 注入和 DOM/会话通知，缩小观察范围，同时保留 1Hz 可见时钟、点击重试、重挂载恢复、订阅生命周期和卸载清理。
+  - 执行方式: `code-review` skill；固定基线 `a8c60b9`；评审范围 `git diff a8c60b9...HEAD` 与提交 `b1804ff`，按 Standards/Spec 两轴独立审核。
+  - 问题与修复: Standards 无硬违规或显著 Fowler smell；Spec 无缺失、scope creep 或确认的错误行为 finding。
+  - 复审结论: Standards 通过；Spec 通过。

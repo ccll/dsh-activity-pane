@@ -1016,6 +1016,7 @@ const CSS = `
   border-radius: 12px;
   background: rgba(22, 24, 29, 0.9);
   border-color: transparent;
+  opacity: 0.8;
 }
 [data-dsh-activity-pane] .dap-card[data-current] {
   border-color: color-mix(in srgb, #65a0ff 75%, transparent);

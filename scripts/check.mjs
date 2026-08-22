@@ -971,4 +971,8 @@ assert.ok(!bundle.includes(".dap-trace-item[data-status=\"running\"]::before {\n
 assert.ok(bundle.includes('[data-kind="recent"] .dap-title {\n  font-weight: 400;'), "最近历史卡标题使用常规字重（不加粗）");
 assert.ok(bundle.includes("white-space: nowrap; font-size: 12px; line-height: 16px; font-weight: 700;"), "活动卡标题保持加粗 700");
 
+// R-01-013/AC-10
+// 最近历史卡整体不透明度低于活动卡，弱化历史区视觉强调。
+assert.ok(bundle.includes("background: rgba(22, 24, 29, 0.9);\n  border-color: transparent;\n  opacity: 0.8;"), "最近历史卡整体不透明度降为 0.8");
+
 console.log("check: all assertions passed");

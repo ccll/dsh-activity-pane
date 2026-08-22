@@ -452,6 +452,61 @@ const runningTimeline = conversationTimeline({
 });
 assert.equal(runningTimeline[0].status, "running", "进行中工具调用状态为 running");
 assert.equal(runningTimeline[0].detail, "dsh", "进行中工具参数摘要（白名单按序取 description/query/path/url）");
+// R-01-012/AC-02
+assert.deepEqual(conversationTimeline(chatSnapshot, 0), [], "limit=0 返回空时间线");
+assert.deepEqual(
+	conversationTimeline({ chat: { order: [], nodes: { get: () => undefined } } }),
+	[],
+	"空 order 返回空时间线",
+);
+// R-01-013/AC-03、R-01-013/AC-04
+assert.deepEqual(
+	messagePreviews({
+		snapshot: {
+			chat: {
+				order: ["s", "a"],
+				nodes: {
+					get: (key) =>
+						key === "s"
+							? { key, kind: "steering", data: { content: [{ type: "text", text: "补充指令" }] } }
+							: { key, kind: "assistant-step", data: { blocks: [{ kind: "text", text: "已定案回复" }] } },
+				},
+			},
+		},
+	}),
+	{ userPreview: "补充指令", agentPreview: "已定案回复" },
+	"steering 消息按用户语义取物理首行",
+);
+assert.deepEqual(
+	messagePreviews({
+		snapshot: {
+			chat: {
+				order: ["u", "a"],
+				nodes: {
+					get: (key) =>
+						key === "u"
+							? { key, kind: "user", data: { content: [{ type: "text", text: "" }] } }
+							: { key, kind: "assistant-step", data: { blocks: [] } },
+				},
+			},
+		},
+	}),
+	{ userPreview: "", agentPreview: "" },
+	"空文本项不产生预览",
+);
+assert.equal(
+	messagePreviews({
+		snapshot: {
+			chat: {
+				order: ["a"],
+				nodes: { get: () => ({ kind: "assistant-step", data: { blocks: [{ kind: "text", text: "已定案回复" }] } }) },
+			},
+			partial: { turn: 1, step: 0, blocks: [] },
+		},
+	}).agentPreview,
+	"已定案回复",
+	"partial 为空块时回退已定案回复，不被空 live 项遮蔽",
+);
 
 // ---- R-02-003/AC-01 富卡字段并入签名后，进度/轨迹变化必触重重绘 ----
 assert.notEqual(

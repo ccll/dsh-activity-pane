@@ -1405,17 +1405,13 @@ function apply(ctx) {
 			if (detail && detailSnapshot) {
 				// 按快照引用 memo：引用不变（时钟 tick、无关推送）时命中缓存，
 				// 长会话不再每次渲染全序扫描。
-				if (detail.liveTimelineOf !== detailSnapshot) {
-					detail.liveTimelineOf = detailSnapshot;
-					detail.liveTimeline = conversationTimeline(detailSnapshot);
+				if (detail.memoTimelineOf !== detailSnapshot) {
+					detail.memoTimelineOf = detailSnapshot;
+					detail.memoTimeline = conversationTimeline(detailSnapshot);
 				}
-				entry.timeline = detail.liveTimeline.length > 0 ? detail.liveTimeline : detail.timeline ?? [];
+				entry.timeline = detail.memoTimeline.length > 0 ? detail.memoTimeline : detail.timeline ?? [];
 			} else {
 				entry.timeline = detail?.timeline ?? entry.timeline ?? [];
-			}
-			if (detail?.model) {
-				entry.model = detail.model.model;
-				entry.reasoning = detail.model.reasoning;
 			}
 			if (detail?.model) {
 				entry.model = detail.model.model;
@@ -1482,12 +1478,12 @@ function apply(ctx) {
 			if (!detail) continue;
 			const detailSnapshot = livenessById.get(entry.id)?.snapshot ?? detail.snapshot ?? null;
 			const previewsKey = detailSnapshot ?? detail.history ?? null;
-			if (detail.previewsOf !== previewsKey || !detail.livePreviews) {
-				detail.previewsOf = previewsKey;
-				detail.livePreviews = messagePreviews({ snapshot: detailSnapshot, history: detail.history });
+			if (detail.memoPreviewsOf !== previewsKey || !detail.memoPreviews) {
+				detail.memoPreviewsOf = previewsKey;
+				detail.memoPreviews = messagePreviews({ snapshot: detailSnapshot, history: detail.history });
 			}
-			entry.userPreview = detail.livePreviews.userPreview || detail.previews?.userPreview || "";
-			entry.agentPreview = detail.livePreviews.agentPreview || detail.previews?.agentPreview || "";
+			entry.userPreview = detail.memoPreviews.userPreview || detail.previews?.userPreview || "";
+			entry.agentPreview = detail.memoPreviews.agentPreview || detail.previews?.agentPreview || "";
 		}
 		loadNativeDetails([...active, ...recent].map((entry) => entry.id));
 		const visibleIds = new Set([...active, ...recent].map((entry) => entry.id));

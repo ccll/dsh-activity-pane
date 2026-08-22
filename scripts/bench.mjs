@@ -68,11 +68,11 @@ function renderPass() {
 		const detail = detailsById.get(entry.id);
 		const snap = detail?.snapshot ?? null;
 		if (detail && snap) {
-			if (detail.liveTimelineOf !== snap) {
-				detail.liveTimelineOf = snap;
-				detail.liveTimeline = conversationTimeline(snap);
+			if (detail.memoTimelineOf !== snap) {
+				detail.memoTimelineOf = snap;
+				detail.memoTimeline = conversationTimeline(snap);
 			}
-			entry.timeline = detail.liveTimeline;
+			entry.timeline = detail.memoTimeline;
 		}
 	}
 	const recent = buildRecent(listSnapshot, [], Date.now(), undefined, detailsById);
@@ -80,25 +80,61 @@ function renderPass() {
 		const detail = detailsById.get(entry.id);
 		if (!detail) continue;
 		const key = detail.snapshot ?? detail.history ?? null;
-		if (detail.previewsOf !== key || !detail.livePreviews) {
-			detail.previewsOf = key;
-			detail.livePreviews = messagePreviews({ snapshot: detail.snapshot, history: detail.history });
+		if (detail.memoPreviewsOf !== key || !detail.memoPreviews) {
+			detail.memoPreviewsOf = key;
+			detail.memoPreviews = messagePreviews({ snapshot: detail.snapshot, history: detail.history });
 		}
-		entry.userPreview = detail.livePreviews.userPreview;
-		entry.agentPreview = detail.livePreviews.agentPreview;
+		entry.userPreview = detail.memoPreviews.userPreview;
+		entry.agentPreview = detail.memoPreviews.agentPreview;
 	}
 	return cardSignature([...active, ...recent]);
 }
 
-function measure(label, mutate) {
+// ---- 改动前成本模型（before 证据下限）----
+// 复刻删除前的调用模式与全序扫描：旧 buildEntries/buildRecent 对每个可见条目做
+// conversationTimeline + messagePreviews 全序推导（≈条目×2 遍全扫），旧渲染循环再对
+// 活动条目重复一遍（≈活动条目×2 遍全扫）；item 构建从简，只保证 O(order 全长) 同构。
+function legacyScanAll(snapshot) {
+	const chat = snapshot?.chat;
+	const order = Array.isArray(chat?.order) ? chat.order : [];
+	const nodes = chat?.nodes;
+	const items = [];
+	for (const key of order) {
+		const node = nodes?.get?.(key) ?? nodes?.[key];
+		if (node) items.push({ id: String(node.key ?? key), kind: node.kind ?? "other" });
+	}
+	return items;
+}
+function legacyRenderPass() {
+	const active = buildEntries(listSnapshot, [], detailsById);
+	for (const entry of active) {
+		const detail = detailsById.get(entry.id);
+		if (!detail?.snapshot) continue;
+		entry.timeline = legacyScanAll(detail.snapshot).slice(-4); // 旧 buildEntries 推导
+		legacyScanAll(detail.snapshot); // 旧 buildEntries previews（MAX 全量）
+		legacyScanAll(detail.snapshot); // 旧渲染循环 timeline 重算
+		legacyScanAll(detail.snapshot); // 旧渲染循环 previews 重算
+	}
+	const recent = buildRecent(listSnapshot, [], Date.now(), undefined, detailsById);
+	for (const entry of recent) {
+		const detail = detailsById.get(entry.id);
+		if (!detail?.snapshot) continue;
+		legacyScanAll(detail.snapshot); // 旧 buildRecent previews（MAX 全量）
+		entry.userPreview = "";
+		entry.agentPreview = "";
+	}
+	return cardSignature([...active, ...recent]);
+}
+
+function measure(label, mutate, pass = renderPass) {
 	for (let i = 0; i < 10; i += 1) {
 		mutate?.(i);
-		renderPass();
+		pass();
 	}
 	const start = performance.now();
 	for (let i = 0; i < iterations; i += 1) {
 		mutate?.(i);
-		renderPass();
+		pass();
 	}
 	const elapsed = performance.now() - start;
 	console.log(`${label}: ${(elapsed / iterations).toFixed(3)} ms/pass (${RUNNING} running + ${RECENT} recent, chat=${CHAT_SIZE} nodes each)`);
@@ -111,3 +147,5 @@ const pushSnapshots = [makeSessionSnapshot(CHAT_SIZE), makeSessionSnapshot(CHAT_
 measure("push   x" + iterations, (i) => {
 	detailsById.get("run:0").snapshot = pushSnapshots[i % 2];
 });
+// legacy：改动前成本模型（before 下限证据）
+measure("legacy x" + iterations, null, legacyRenderPass);

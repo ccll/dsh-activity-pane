@@ -1000,4 +1000,9 @@ assert.equal(
 // 数量徽标紧跟标题文字（去掉 margin-left: auto），配色同样柔和化。
 assert.ok(bundle.includes('[data-dsh-activity-pane] .dap-count {\n  flex: none;\n  font-size: 10px;'), "数量徽标紧跟标题文字（不再 margin-left: auto）");
 
+// R-01-010/AC-01、R-01-010/AC-05
+// 两区分隔线上下各保留 10px 留白；历史区无内容时整段隐藏、分隔线不占位。
+assert.ok(bundle.includes("border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent);\n  padding: 10px 8px 0;\n  margin-top: 10px;"), "分隔线上下各 10px 留白");
+assert.ok(bundle.includes(".dap-recent[hidden] { display: none; }"), "历史区无内容时整段隐藏（分隔线不占位）");
+
 console.log("check: all assertions passed");

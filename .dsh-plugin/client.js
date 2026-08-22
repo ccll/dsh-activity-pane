@@ -928,8 +928,8 @@ const CSS = `
   flex-direction: column;
   gap: 6px;
   border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent);
-  padding: 6px 8px 0;
-  margin-top: 4px;
+  padding: 10px 8px 0;
+  margin-top: 10px;
 }
 [data-dsh-activity-pane] .dap-recent[hidden] { display: none; }
 [data-dsh-activity-pane] .dap-recent-head {

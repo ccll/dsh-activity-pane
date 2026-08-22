@@ -7,7 +7,7 @@ mutation: lifecycle
 # T-017 渲染管线性能收敛批
 
 风险等级: standard
-状态: active
+状态: completed
 
 ## 背景与目标
 
@@ -63,4 +63,13 @@ mutation: lifecycle
 
 ## 终态与证据
 
-（待关闭时填写：实现 / 测试 / DESIGN 对照 / commit / review）
+- 实现: `src/core.mjs`：`conversationTimeline` 改尾部反向收集取够即停（live 合并作用于尾部子集）；`messagePreviews` 改尾部反向扫描（partial 优先、找到最近 user/assistant 即停）；删除 `buildTrace`/`TRACE_MAX_ITEMS`/`isTraceToolNode`/`hasTraceTimes`（C-010）；`cardSignature` 移除 trace 分量；`buildEntries`/`buildRecent` 不再内联推导 timeline/previews。`src/client.mjs`：timeline 按快照引用 memo（`memoTimelineOf`/`memoTimeline`）；previews 仅 recent 卡按需 memo（`memoPreviewsOf`/`memoPreviews`）；删除 `entry.trace` 计算与 renderTrace 的 trace 回退；`livenessFromSnapshot` 移除 nodes；`nativeWorkItemRow` 改为每次渲染一次构建 DOM 行索引（`nativeRowIndex`：byKey/byCallId/byTool/think/context）。`scripts/bench.mjs` 新增（steady/push/legacy 三工况基线）。
+- 测试: `pnpm build:client && pnpm check` 通过——既有全部锚点保持绿色（行为不变第一证据）；R-01-009/AC-07 锚点改写为时间线语义（状态/耗时/白名单/不泄密）；新增 limit=0/空 order、steering/空文本/空 partial 边界断言（R-01-012/AC-02、R-01-013/AC-03、AC-04）；`python3 tools/agentmap_lint.py --report` 通过（17 需求 / 56 AC，测试锚定 56/56）；`git diff --check` 通过。性能证据：改动前旧代码实机测量 36.0–38.5 ms/遍（基线于本任务实施前两次运行记录）；改动后 `node scripts/bench.mjs` 输出 steady 0.087 ms/遍、push 0.089 ms/遍、legacy（改动前成本模型下限）3.29 ms/遍——对模型下限约 37 倍、对实机基线约 60–400 倍。
+- DESIGN 对照: DESIGN 响应式渲染已补充「按快照/历史引用 memo + 尾部反向扫描 + DOM 行索引每渲染一次构建」机制；产品契约的「工作项时间线呈现」与实现一致；trace 相关内容已随 C-010 从 PRD/DESIGN/DOMAIN 移除（本任务提交代码侧）。
+- commit: 30cb3dd
+- review:
+  - 审核方: 独立 `code-review` Standards 子代理；独立 `code-review` Spec 子代理。
+  - 目的理解: T-017 为行为不变的渲染管线性能收敛（相同输入签名不变），消除每渲染对可见会话的 O(chat 全长) 重复扫描、删除 C-010 已决的 buildTrace 死计算、DOM 查询索引化；关联约束 R-02-003、R-01-009/AC-07、AC-09、C-010；验证方式为既有锚点全绿 + bench 基线对比。
+  - 执行方式: `code-review` skill；评审基线 `8d122c1`，范围 `git diff 8d122c1...HEAD`（4ed62ab 实现、30cb3dd 修复），Standards/Spec 两轴独立审核，修复后由同一审核方复审。
+  - 问题与修复: Standards 轴 1 项硬违例（render 循环 model 赋值块重复，30cb3dd 去重）+ 2 项判断题（memo 命名不表意→重命名 memoTimelineOf/memoTimeline、memoPreviewsOf/memoPreviews；bench 复杂度→legacy 模型使其成为必要证据）；Spec 轴 2 项 finding（无可复现 before→bench 新增 legacy 成本模型；边界测试缺口→补 limit=0/空 order/steering/空文本/空 partial 断言），均经 30cb3dd 修复。
+  - 复审结论: Standards 复审四项全部关闭；Spec 复审 (a)(b) 全部关闭，确认无新增偏差。

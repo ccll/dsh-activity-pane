@@ -302,6 +302,10 @@ assert.deepEqual(
 );
 assert.equal(fmtElapsedMs(47_000), "47s", "时长短格式");
 assert.equal(fmtElapsedMs(193_000), "3m13s", "时长分秒格式");
+// R-01-009/AC-03
+assert.equal(fmtElapsedMs(NaN), "", "NaN 时长归一为空");
+assert.equal(fmtElapsedMs(Infinity), "", "Infinity 时长归一为空");
+assert.equal(fmtElapsedMs(-1), "", "负时长归一为空");
 assert.equal(nativePresentationSessionId({ id: "s1", isCurrent: true }), "s1", "当前 card 才允许读取当前会话 DOM");
 assert.equal(nativePresentationSessionId({ id: "s2", isCurrent: false }), null, "非当前 card 禁止读取当前会话 DOM");
 
@@ -452,6 +456,24 @@ const runningTimeline = conversationTimeline({
 });
 assert.equal(runningTimeline[0].status, "running", "进行中工具调用状态为 running");
 assert.equal(runningTimeline[0].detail, "dsh", "进行中工具参数摘要（白名单按序取 description/query/path/url）");
+// R-01-012/AC-02
+const unlocatedPartial = conversationTimeline({
+	chat: {
+		order: ["a", "u"],
+		nodes: {
+			get: (key) =>
+				key === "a"
+					? { key: "a", kind: "assistant-step", data: { blocks: [{ kind: "text", text: "旧回复" }] } }
+					: { key: "u", kind: "user", data: { content: [{ type: "text", text: "问题" }] } },
+		},
+	},
+	partial: { blocks: [{ kind: "text", text: "流式中" }] },
+});
+assert.deepEqual(
+	unlocatedPartial.map((item) => item.text),
+	["旧回复", "问题", "流式中"],
+	"partial 定位缺省（无 turn/step）时不误摘除无定位 assistant 节点",
+);
 // R-01-012/AC-02
 assert.deepEqual(conversationTimeline(chatSnapshot, 0), [], "limit=0 返回空时间线");
 assert.deepEqual(
@@ -735,7 +757,7 @@ assert.ok(
 // ---- R-02-003/AC-02 卸载时清理注入元素、样式与监听 ----
 assert.ok(bundle.includes("style.remove()"), "卸载移除注入样式");
 assert.ok(bundle.includes("bodyObserver?.disconnect()"), "卸载断开 body 观察者");
-assert.ok(bundle.includes("frameParentObserver?.disconnect()"), "卸载断开宿主父级观察者");
+assert.ok(bundle.includes("disconnectAncestorObservers"), "卸载断开祖先链观察者");
 assert.ok(bundle.includes("centerObserver?.disconnect()"), "卸载断开 center 结构观察者");
 assert.ok(bundle.includes("conversationObserver?.disconnect()"), "卸载断开 conversation 观察者");
 assert.ok(bundle.includes("removeEventListener"), "卸载移除事件监听");
@@ -757,6 +779,8 @@ assert.ok(bundle.includes('M11.4818 5.57813'), "Bash fallback 使用 DSH IconApi
 assert.ok(bundle.includes('item.toolName === "bash"'), "Bash 图标不随原生行状态/展开态漂移");
 assert.ok(bundle.includes('[class*="iconIdle"] svg'), "原生动作图标从 iconIdle 读取而非 disclosure 箭头");
 assert.ok(bundle.includes("nativeIconsByTraceKey"), "错误状态复用此前缓存的动作图标");
+assert.ok(bundle.includes("ancestorObservers"), "祖先链逐级观察保证视图级重挂载自愈");
+assert.ok(bundle.includes("ICON_CACHE_MAX"), "图标缓存按当前会话修剪并限量，不随调用终身增长");
 assert.ok(bundle.includes("nativeWorkItemPresentation(item, nativeCacheKey)"), "图标缓存按会话与工作项 key 隔离");
 assert.ok(!bundle.includes('const cacheKey = String(item.id ?? "")'), "图标缓存不得使用空 id 共享 key");
 assert.ok(!bundle.includes('disclosure?.querySelector("svg")'), "不得直接复制 disclosure 内第一个 SVG");

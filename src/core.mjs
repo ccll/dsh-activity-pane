@@ -203,7 +203,13 @@ export function conversationTimeline(snapshot, limit = 4) {
 	const partialText = assistantBlockText(snapshot?.partial?.blocks, "text");
 	const partialReasoning = assistantBlockText(snapshot?.partial?.blocks, "reasoning");
 	if (partialText || partialReasoning) {
-		const currentIndex = items.findLastIndex((item) => item.kind === "assistant" && item.turn === snapshot.partial.turn && item.step === snapshot.partial.step);
+		// turn/step 定位缺省（非有限数）时不参与摘除匹配，避免误吞最后一个无定位 assistant 节点。
+		const partialTurn = snapshot.partial.turn;
+		const partialStep = snapshot.partial.step;
+		const currentIndex =
+			Number.isFinite(partialTurn) && Number.isFinite(partialStep)
+				? items.findLastIndex((item) => item.kind === "assistant" && item.turn === partialTurn && item.step === partialStep)
+				: -1;
 		const current = currentIndex >= 0 ? items.splice(currentIndex, 1)[0] : null;
 		liveItems.push({
 			...(current ?? { id: `partial:${snapshot.partial.turn}:${snapshot.partial.step}`, kind: "assistant", icon: "assistant", durationMs: null }),
@@ -640,6 +646,7 @@ export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WI
 
 /** 毫秒时长的人性化短格式，例如 "47s"、"3m12s"。 */
 export function fmtElapsedMs(ms) {
+	if (!Number.isFinite(ms) || ms < 0) return "";
 	const s = Math.round(ms / 1000);
 	if (s < 60) return `${s}s`;
 	return `${Math.floor(s / 60)}m${s % 60}s`;

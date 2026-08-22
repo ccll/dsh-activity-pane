@@ -25,6 +25,8 @@ const INDENT_PX = 16;
 const MOBILE_BREAKPOINT = "767px";
 /** 运行卡时钟：只要存在运行中会话，就以该周期刷新时长显示。 */
 const CLOCK_MS = 1000;
+/** 原生动作图标缓存上限（按插入序修剪；只保留当前会话条目）。 */
+const ICON_CACHE_MAX = 128;
 
 const CSS = `
 [data-dsh-activity-pane] {
@@ -1527,6 +1529,17 @@ function apply(ctx) {
 			toggle.toggleAttribute("data-awaiting", hasAwaiting);
 		}
 		pane.toggleAttribute("data-collapsed", collapsed);
+
+		// 图标缓存修剪：只保留当前会话（缓存键为 [sessionId, itemKey]，非当前会话
+		// 永不命中），并按插入序限量，避免随工具调用终身增长（INV）。
+		const currentKeyPrefix = JSON.stringify([snapshot?.current != null ? String(snapshot.current) : ""]).slice(0, -1);
+		for (const key of nativeIconsByTraceKey.keys())
+			if (!key.startsWith(currentKeyPrefix)) nativeIconsByTraceKey.delete(key);
+		while (nativeIconsByTraceKey.size > ICON_CACHE_MAX) {
+			const oldest = nativeIconsByTraceKey.keys().next().value;
+			if (oldest === undefined) break;
+			nativeIconsByTraceKey.delete(oldest);
+		}
 	}
 
 	// ---- 打开会话（让 sessions.open 自己校验列表，失败时 refresh + 重试） ----
@@ -1599,7 +1612,12 @@ function apply(ctx) {
 	}
 	// ---- 观察者：只监听宿主结构与 conversation seat 的流式 DOM ----
 	let bodyObserver = null;
-	let frameParentObserver = null;
+	/** 祖先链观察者：center → body 逐级一个，任一级断裂即重装。 */
+	let ancestorObservers = [];
+	function disconnectAncestorObservers() {
+		for (const observer of ancestorObservers) observer.disconnect();
+		ancestorObservers = [];
+	}
 	let centerObserver = null;
 	let conversationObserver = null;
 	let observedCenter = null;
@@ -1609,10 +1627,9 @@ function apply(ctx) {
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
 		const center = seat?.parentElement ?? null;
 		if (center === null) {
-			frameParentObserver?.disconnect();
+			disconnectAncestorObservers();
 			centerObserver?.disconnect();
 			conversationObserver?.disconnect();
-			frameParentObserver = null;
 			centerObserver = null;
 			conversationObserver = null;
 			observedCenter = null;
@@ -1622,26 +1639,29 @@ function apply(ctx) {
 		}
 		if (center === observedCenter && seat === observedSeat) return true;
 
-		frameParentObserver?.disconnect();
+		disconnectAncestorObservers();
 		centerObserver?.disconnect();
 		conversationObserver?.disconnect();
 
-		const parent = center.parentElement;
-		if (parent === null) {
+		if (center.parentElement === null) {
 			bodyObserver?.observe(document.body, { childList: true, subtree: true });
 			return false;
 		}
-		frameParentObserver = new MutationObserver(() => {
-			if (
-				!center.isConnected ||
-				center.parentElement !== parent ||
-				document.querySelector(CONVERSATION_SELECTOR)?.parentElement !== center
-			) {
-				installFrameObserver();
-				queueSync();
-			}
-		});
-		frameParentObserver.observe(parent, { childList: true });
+		// 观察 center → body 的整条祖先链：外壳替换任一级祖先（含高于 parent 的
+		// 视图级重挂载）都会命中对应观察者，断裂即重装 + 重绘（GF2 自愈）。
+		for (let ancestor = center.parentElement; ancestor !== null; ancestor = ancestor.parentElement) {
+			const observer = new MutationObserver(() => {
+				if (
+					!center.isConnected ||
+					document.querySelector(CONVERSATION_SELECTOR)?.parentElement !== center
+				) {
+					installFrameObserver();
+					queueSync();
+				}
+			});
+			observer.observe(ancestor, { childList: true });
+			ancestorObservers.push(observer);
+		}
 
 		// 只观察 center 的直接子节点，捕获 seat/pane 重挂载，不观察 pane 子树。
 		centerObserver = new MutationObserver(() => {
@@ -1707,7 +1727,7 @@ function apply(ctx) {
 		boundPane = null;
 		renderedPane = null;
 		bodyObserver?.disconnect();
-		frameParentObserver?.disconnect();
+		disconnectAncestorObservers();
 		centerObserver?.disconnect();
 		conversationObserver?.disconnect();
 		observedCenter = null;

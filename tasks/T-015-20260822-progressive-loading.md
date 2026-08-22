@@ -7,7 +7,7 @@ mutation: lifecycle
 # T-015 加载过程可见与渐进呈现（R-01-014）
 
 风险等级: standard
-状态: active
+状态: completed
 
 ## 背景与目标
 
@@ -56,4 +56,13 @@ mutation: lifecycle
 
 ## 终态与证据
 
-（待关闭时填写：实现 / 测试 / DESIGN 对照 / commit / review）
+- 实现: map 原子演进——PRD 新增 R-01-014（AC-01~05）、DESIGN 新增加载状态模型与追溯索引、DOMAIN 新增「加载指示」术语。`src/core.mjs`：`listLoadState`（loading/error/ready 三态，error 层级经审核补齐）；`cardSignature` 并入 loadingModel/loadingTimeline/loadingPreviews。`src/client.mjs`：活动区/历史区在列表在途时显示活动图标而非空态、error 时显示「列表加载失败」；区域有条目时在途显示区头部行内 spinner；模型区/时间线区/预览行字段级加载指示（`renderTimelineArea`/`renderTraceLoading`，签名驱动就地填充不重建卡片）；补充数据逐个 promise 完成即重绘 + 注册即重绘；冷读取并发池（`LOAD_CONCURRENCY=3`，当前会话最优先）；model/history 记账 settle 即删（身份守卫）；卸载清空队列。
+- 测试: `pnpm build:client && pnpm check` 通过（R-01-014/AC-01..05 锚定：listLoadState 三态、detailLoadPlan 失败重试链、10 条 bundle 契约断言）；`scripts/acceptance.mjs` 新增慢网渐进呈现（节流）与失败重试人工步骤、T-007/AC-02 旧步骤改渐进语义（本环境无浏览器 E2E 基建，人工步骤未执行）；`python3 tools/agentmap_lint.py --report` 通过（18 需求 / 61 AC，测试锚定 61/61）；`git diff --check` 通过。
+- DESIGN 对照: PRD→DESIGN 双向追溯完整（R-01-014 索引行主责窗格渲染器、子系统反向承接）；DESIGN 加载状态模型与实现逐条一致（列表级/字段级/渐进/并发池/失败语义/签名并入）；AC-01~05 均有测试锚点。
+- commit: 012af8c
+- review:
+  - 审核方: 独立 `code-review` Standards 子代理；独立 `code-review` Spec 子代理。
+  - 目的理解: T-015 为新需求 R-01-014「加载过程可见与渐进呈现」全链实现：列表在途显示加载指示而非空态、字段级指示、逐个就绪逐个显示、加载期间交互可用、失败降级可重试；关联约束 R-02-003/R-02-004 与宿主 phase 契约；验证方式为三层测试策略。
+  - 执行方式: `code-review` skill；评审基线 `6f6762c`，范围 `git diff 6f6762c...HEAD`（24f1d60 实现、012af8c 修复），Standards/Spec 两轴独立审核，修复后由同一审核方复审。
+  - 问题与修复: Standards 轴 2 项硬违例（bundle 断言粒度——复审按仓库三层测试约定与 T-014 先例裁定不成立；DESIGN 职责超长单行——拆嵌套列表）+ 2 项判断题（渲染分支重复——收敛 `renderTimelineArea`；ensureEmpty 命名——更名 `ensureListStatus`）；Spec 轴 3 项 finding（loads 记账 settle 未删致永久误报——settle 即删+身份守卫；区域有条目时缺头部指示——区头部行内 spinner；缺 error 层级——三态补齐+失败文案），均经 012af8c 修复。
+  - 复审结论: Standards 复审全部关闭；Spec 复审三项 finding 全部关闭，确认无热循环、无新偏差。

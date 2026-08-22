@@ -36,3 +36,23 @@ export function openSession(sessions, sessionId) {
 		return false;
 	}
 }
+
+/**
+ * 为移动端抽屉的透明遮罩绑定点击收起，并返回卸载函数。
+ * 抽屉与浮动开关位于遮罩之上，能到达遮罩的点击必然来自抽屉外部，
+ * 无需 contains 判定（R-01-008/AC-03）。
+ */
+export function bindBackdropDismiss(backdrop, dismiss) {
+	if (typeof backdrop?.addEventListener !== "function" || typeof dismiss !== "function")
+		return () => {};
+	const onBackdropClick = (event) => {
+		if (event.type !== "click") return;
+		event.preventDefault?.();
+		event.stopPropagation?.();
+		dismiss();
+	};
+	backdrop.addEventListener("click", onBackdropClick);
+	return () => {
+		backdrop.removeEventListener?.("click", onBackdropClick);
+	};
+}

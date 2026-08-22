@@ -776,6 +776,26 @@ function openSession(sessions, sessionId) {
 	}
 }
 
+/**
+ * 为移动端抽屉的透明遮罩绑定点击收起，并返回卸载函数。
+ * 抽屉与浮动开关位于遮罩之上，能到达遮罩的点击必然来自抽屉外部，
+ * 无需 contains 判定（R-01-008/AC-03）。
+ */
+function bindBackdropDismiss(backdrop, dismiss) {
+	if (typeof backdrop?.addEventListener !== "function" || typeof dismiss !== "function")
+		return () => {};
+	const onBackdropClick = (event) => {
+		if (event.type !== "click") return;
+		event.preventDefault?.();
+		event.stopPropagation?.();
+		dismiss();
+	};
+	backdrop.addEventListener("click", onBackdropClick);
+	return () => {
+		backdrop.removeEventListener?.("click", onBackdropClick);
+	};
+}
+
 // dsh-activity-pane 浏览器运行时。
 //
 // 挂载策略：把窗格作为 AppFrame 中 `conversation` 槽座的前置兄弟列插入
@@ -1222,6 +1242,15 @@ const CSS = `
   color: #2a1012;
   animation: dap-await-pulse 1.2s ease-in-out infinite;
 }
+/* 移动端抽屉透明遮罩：抽屉打开时铺满视口、点击收起抽屉（R-01-008/AC-03）。
+   完全透明不占布局；z-index 介于主会话与抽屉（2147482990）之间，浮动开关
+   （2147482991）位于其上不被遮罩拦截；桌面断点外由媒体查询保持隐藏。 */
+.dap-backdrop {
+  position: fixed; inset: 0;
+  z-index: 2147482989;
+  background: transparent;
+  display: none;
+}
 /* 窄屏：窗格变为固定抽屉 + 浮动开关按钮；抽屉默认隐藏在屏外。
    抽屉需不透明背景（否则透出下层会话内容）+ touch-action:none（把手/头部的
    触摸不滚动下层页面），桌面列则保持低透明分界。 */
@@ -1241,6 +1270,7 @@ const CSS = `
     touch-action: none;
   }
   [data-dsh-activity-pane][data-open="true"] { transform: translateX(0); }
+  .dap-backdrop[data-drawer-open] { display: block; }
   .dap-toggle { display: flex; }
 }
 `;
@@ -1315,7 +1345,7 @@ function apply(ctx) {
 	const previousCleanup = document[INSTANCE_KEY] ?? globalThis[INSTANCE_KEY];
 	if (typeof previousCleanup === "function") previousCleanup();
 	for (const node of document.querySelectorAll(
-		`[${PANE_ATTR}], .dap-toggle, #${STYLE_ID}`,
+		`[${PANE_ATTR}], .dap-toggle, .dap-backdrop, #${STYLE_ID}`,
 	))
 		node.remove();
 	let disposed = false;
@@ -1363,6 +1393,11 @@ function apply(ctx) {
 	toggle.innerHTML =
 		"<span>活动会话</span><span class=\"dap-toggle-count\"></span>";
 	document.body.appendChild(toggle);
+
+	// 移动端抽屉透明遮罩：仅窄屏且抽屉打开时显示，点击收起抽屉（R-01-008/AC-03）。
+	const backdrop = document.createElement("div");
+	backdrop.className = "dap-backdrop";
+	document.body.appendChild(backdrop);
 
 	// 桌面判定与"真实参与布局"：中间列切为行方向，窗格固定宽、会话根弹性填充
 	// 剩余宽度（flex:1 + min-width:0），让会话内容（标题/tabs/滚动区/输入框）
@@ -1526,7 +1561,9 @@ function apply(ctx) {
 	function togglePane(open) {
 		const pane = document.querySelector(`[${PANE_ATTR}]`);
 		if (pane === null) return;
+		// 开合状态单点写入：同步抽屉滑入与透明遮罩显隐（R-01-008/AC-03）。
 		pane.setAttribute("data-open", open ? "true" : "false");
+		backdrop.toggleAttribute("data-drawer-open", open);
 	}
 	function notifyLayoutChange() {
 		try {
@@ -1537,7 +1574,7 @@ function apply(ctx) {
 		const close = pane.querySelector(".dap-close");
 		const collapse = pane.querySelector(".dap-collapse");
 		const rail = pane.querySelector(".dap-rail");
-		const onCloseClick = () => pane.setAttribute("data-open", "false");
+		const onCloseClick = () => togglePane(false);
 		const onCollapseClick = () => {
 			collapsed = !collapsed;
 			pane.setAttribute("data-collapsed", collapsed ? "true" : "false");
@@ -2369,6 +2406,8 @@ function apply(ctx) {
 		togglePane(open);
 	}
 	toggle.addEventListener("click", onToggleClick);
+	// 透明遮罩位于抽屉与开关之下，能到达遮罩的点击均为抽屉外部，点击即收起。
+	const unbindBackdrop = bindBackdropDismiss(backdrop, () => togglePane(false));
 	const onResize = () => queueSync();
 	desktopQuery.addEventListener("change", onResize);
 
@@ -2405,6 +2444,8 @@ function apply(ctx) {
 		conversationObserver?.disconnect();
 		observedCenter = null;
 		toggle.removeEventListener("click", onToggleClick);
+		unbindBackdrop();
+		backdrop.remove();
 		desktopQuery.removeEventListener("change", onResize);
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
 		if (seat !== null && seat.parentElement !== null) {

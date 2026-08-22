@@ -33,7 +33,7 @@ import {
 	TRACE_MAX_ITEMS,
 	workspaceTitleForSession,
 } from "../src/core.mjs";
-import { bindCardActivation, openSession } from "../src/navigation.mjs";
+import { bindBackdropDismiss, bindCardActivation, openSession } from "../src/navigation.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -99,6 +99,42 @@ activateEvent("click");
 assert.deepEqual(cardOpened, ["card-a", "card-a", "card-a", "card-b"], "复用同一 card 时读取最新 session id");
 unbindCard();
 assert.equal(cardListeners.size, 0, "card 卸载移除 click/keydown 监听");
+
+// ---- R-01-008/AC-03 点击遮罩（抽屉外部）收起抽屉 ----
+const backdropListeners = new Map();
+const backdrop = {
+	addEventListener(type, listener) {
+		backdropListeners.set(type, listener);
+	},
+	removeEventListener(type, listener) {
+		if (backdropListeners.get(type) === listener) backdropListeners.delete(type);
+	},
+};
+let backdropDismissed = 0;
+const unbindBackdrop = bindBackdropDismiss(backdrop, () => {
+	backdropDismissed += 1;
+});
+const backdropActivate = (type) => {
+	let prevented = false;
+	let stopped = false;
+	backdropListeners.get(type)?.({
+		type,
+		preventDefault: () => { prevented = true; },
+		stopPropagation: () => { stopped = true; },
+	});
+	return { prevented, stopped };
+};
+assert.deepEqual(backdropActivate("click"), { prevented: true, stopped: true }, "遮罩 click 收起抽屉并阻止宿主继续处理");
+assert.equal(backdropDismissed, 1);
+assert.deepEqual(backdropActivate("keydown"), { prevented: false, stopped: false }, "遮罩非 click 事件不收起");
+assert.equal(backdropDismissed, 1);
+const noopUnbind = bindBackdropDismiss(null, () => {});
+assert.equal(typeof noopUnbind, "function", "非法输入返回 no-op 卸载函数");
+noopUnbind();
+unbindBackdrop();
+assert.equal(backdropListeners.size, 0, "遮罩卸载移除 click 监听");
+backdropActivate("click");
+assert.equal(backdropDismissed, 1, "卸载后点击不再收起");
 
 // ---- R-01-002/AC-01 待确认 ｜ R-01-002/AC-02 待审查/待回复 ----
 assert.equal(pendingText("approval"), "待确认");

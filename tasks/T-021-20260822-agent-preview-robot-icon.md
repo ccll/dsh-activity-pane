@@ -7,7 +7,7 @@ mutation: lifecycle
 # T-021 历史卡 agent 预览行图标换为机器人
 
 风险等级: standard
-状态: active
+状态: completed
 
 ## 背景与目标
 
@@ -44,4 +44,14 @@ mutation: lifecycle
 
 ## 终态与证据
 
-（待填写）
+- 实现: `src/client.mjs`：新增手绘 `createRobotIcon()`（`createInlineIcon` 16×16，圆角矩形头 stroke + 天线 + 双眼 fill，均 currentColor）；`cardChildren("recent")` agent 行由 `createSparkleIcon()` 改用 `createRobotIcon()`；timeline assistant 兜底与用户行人物图标不变。
+- 测试: `pnpm build:client && pnpm check` 通过（AC-08 断言经审核强化为调用点级 `agentIcon.append(createRobotIcon())`；新增 R-01-012/AC-03 锚定的 sparkle 兜底副作用守卫断言）；`scripts/acceptance.mjs` 最近卡步骤改为「机器人图标」；`python3 tools/agentmap_lint.py --report` 通过（18 需求 / 63 AC / 锚定 63）；`git diff --check` 通过。
+- DESIGN 对照: PRD AC-08 措辞「sparkle 图标」演进为「机器人图标作为 agent 角色标识」；DESIGN 产品契约与窗格渲染器双段结构条目同步（用户行图标保留与时间线用户语义一致的限定，agent 行不再引用 assistant 语义），与实现一致。
+- commit: 3ab9920
+- commit: 6d72d21
+- review:
+  - 审核方: 独立 `code-review` Standards 子代理；独立 `code-review` Spec 子代理。
+  - 目的理解: T-021 为 R-01-013/AC-08 的需求变更：最近卡 agent 回复行角色图标由 sparkle 换为机器人（东家直接指示）；timeline assistant 兜底仍为 sparkle、用户行人物图标与 T-020 双段/常驻/加载语义均不变。
+  - 执行方式: `code-review` skill；评审基线 `c0dd210`，范围 `git diff c0dd210...HEAD`（3ab9920 实现、6d72d21 断言强化），Standards/Spec 两轴独立并行审核，修复后由同一审核方复审一轮关闭。
+  - 问题与修复: Spec 轴 2 项 (a) 类 finding（AC-08 断言只查函数名存在 → 强化为调用点级断言；「副作用」行 sparkle 兜底无测试锚点 → 新增 R-01-012/AC-03 守卫断言），均修复并经复审关闭；Standards 轴无硬违例，2 项判断题（实现名断言、图标坐标字面量）落仓库既有惯例不修复（其中实现名断言已被调用点级强化正面消除）。
+  - 复审结论: Spec 复审两项 finding 关闭、无新偏差；Standards 补充复核无违例、维持无阻塞；两轴最终通过。

@@ -51,7 +51,7 @@ mutation: lifecycle
 |---|---|---|
 | 成功 | 适用：列表就绪后正常双区渲染不回归 | `scripts/check.mjs#R-01-001/AC-01`、`src/client.mjs::render` |
 | 异常 | 适用：列表 error/补充数据失败降级为空字段且可重试 | `scripts/check.mjs#R-01-010/AC-01`、`src/client.mjs::loadNativeDetails` |
-| 边界配置 | 适用：pending 期禁止空态、并发池上限与优先级 | `scripts/check.mjs#R-01-001/AC-02`、`src/client.mjs::ensureEmpty` |
+| 边界配置 | 适用：pending 期禁止空态、并发池上限与优先级 | `scripts/check.mjs#R-01-001/AC-02`、`src/client.mjs::ensureListStatus` |
 | 副作用 | 适用：加载指示不重建卡片、不破坏既有交互与签名去重 | `scripts/check.mjs#R-02-003/AC-01`、`src/client.mjs::renderCardIntoList` |
 
 ## 终态与证据

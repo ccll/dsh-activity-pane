@@ -581,9 +581,11 @@ export function cardSignature(entries) {
 // ---- 列表加载态（R-01-014）、最近历史区（R-01-010）与运行统计（R-01-009） ----
 
 /** 会话列表加载态：快照缺失或 `phase === "pending"` → "loading"（列表在途，禁止空态冒充）；
+ *  `state === "error"` 或携带 `error` → "error"（前向兼容带错误轴的快照形态）；
  *  否则 → "ready"（宿主契约：empty-with-ready 才是真的无会话）。 */
 export function listLoadState(snapshot) {
 	if (!snapshot || snapshot.phase === "pending") return "loading";
+	if (snapshot.state === "error" || snapshot.error != null) return "error";
 	return "ready";
 }
 

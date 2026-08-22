@@ -767,6 +767,10 @@ function apply(ctx) {
 						detail.modelError = error instanceof Error ? error.message : String(error);
 					}));
 				modelLoads.set(id, promise);
+				// settle 即移除记账：在途判定驱动加载指示，残留会让空字段永久误报加载。
+				promise.finally(() => {
+					if (modelLoads.get(id) === promise) modelLoads.delete(id);
+				});
 				modelPromises.push(promise);
 			}
 			if (plan.history && typeof api.history === "function") {
@@ -791,6 +795,9 @@ function apply(ctx) {
 						detail.historyError = error instanceof Error ? error.message : String(error);
 					}));
 				historyLoads.set(id, promise);
+				promise.finally(() => {
+					if (historyLoads.get(id) === promise) historyLoads.delete(id);
+				});
 				historyPromises.push(promise);
 			}
 		}
@@ -1190,6 +1197,20 @@ function apply(ctx) {
 		container.replaceChildren(row);
 	}
 
+	/** 时间线区统一渲染：在途且无工作项时显示加载行，否则渲染工作项时间线。 */
+	function renderTimelineArea(container, entry, nativeSessionId, { lastOnly = false } = {}) {
+		if (entry.loadingTimeline === true && entry.timeline.length === 0) {
+			renderTraceLoading(container);
+			return;
+		}
+		if (container.dataset.loading === "true") delete container.dataset.loading;
+		renderTrace(container, entry.timeline, {
+			lastOnly,
+			nativeSessionId: nativeSessionId ?? "",
+			allowNativePresentation: nativeSessionId !== null,
+		});
+	}
+
 	function renderCardInto(el, entry) {
 		const workspaceLabel = el.querySelector(".dap-workspace");
 		if (workspaceLabel !== null) {
@@ -1228,17 +1249,7 @@ function apply(ctx) {
 				pct.textContent = `${Math.round(entry.progress ?? PROGRESS_THINK_BASE)}%`;
 			const traceContainer = el.querySelector(".dap-trace");
 			const nativeSessionId = nativePresentationSessionId(entry);
-			if (traceContainer !== null) {
-				if (entry.loadingTimeline === true && entry.timeline.length === 0) {
-					renderTraceLoading(traceContainer);
-				} else {
-					if (traceContainer.dataset.loading === "true") delete traceContainer.dataset.loading;
-					renderTrace(traceContainer, entry.timeline, {
-						nativeSessionId: nativeSessionId ?? "",
-						allowNativePresentation: nativeSessionId !== null,
-					});
-				}
-			}
+			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, nativeSessionId);
 			const fill = el.querySelector(".dap-fill");
 			if (fill !== null) {
 				const width = `${Math.min(100, Math.max(0, entry.progress ?? 0))}%`;
@@ -1258,18 +1269,7 @@ function apply(ctx) {
 		if (entry.kind === "subagent") {
 			const traceContainer = el.querySelector(".dap-subtrace");
 			const nativeSessionId = nativePresentationSessionId(entry);
-			if (traceContainer !== null) {
-				if (entry.loadingTimeline === true && entry.timeline.length === 0) {
-					renderTraceLoading(traceContainer);
-				} else {
-					if (traceContainer.dataset.loading === "true") delete traceContainer.dataset.loading;
-					renderTrace(traceContainer, entry.timeline, {
-						lastOnly: true,
-						nativeSessionId: nativeSessionId ?? "",
-						allowNativePresentation: nativeSessionId !== null,
-					});
-				}
-			}
+			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, nativeSessionId, { lastOnly: true });
 			return;
 		}
 
@@ -1387,7 +1387,7 @@ function apply(ctx) {
 
 	/** 保证 list 内存在/移除空态或加载指示节点（R-01-001/AC-02、R-01-014/AC-01）。
 	 *  loading=true 时显示活动图标 + 文案（列表在途，禁止空态冒充）。 */
-	function ensureEmpty(list, show, text, { loading = false } = {}) {
+	function ensureListStatus(list, show, text, { loading = false } = {}) {
 		let node = list.querySelector(".dap-empty");
 		if (show) {
 			if (node === null) {
@@ -1609,7 +1609,7 @@ function apply(ctx) {
 			if (renderCardIntoList(activeList, entry, cardsById, index))
 				aliveActive.add(entry.id);
 		pruneCards(cardsById, aliveActive);
-		ensureEmpty(activeList, active.length === 0, listState === "loading" ? "加载中…" : "暂无活动会话", { loading: listState === "loading" });
+		ensureListStatus(activeList, active.length === 0, listState === "loading" ? "加载中…" : listState === "error" ? "列表加载失败" : "暂无活动会话", { loading: listState === "loading" });
 		const aliveRecent = new Set();
 		// 历史区容器首个子节点是段头（.dap-recent-head），卡片从 offset 1 开始。
 		for (const [index, entry] of recent.entries())
@@ -1617,8 +1617,20 @@ function apply(ctx) {
 				aliveRecent.add(entry.id);
 		pruneCards(recentCardsById, aliveRecent);
 		if (recentSection !== null) {
-			recentSection.hidden = listState !== "loading" && recent.length === 0;
-			ensureEmpty(recentSection, listState === "loading" && recent.length === 0, "加载中…", { loading: true });
+			recentSection.hidden = listState === "ready" && recent.length === 0;
+			ensureListStatus(recentSection, listState !== "ready" && recent.length === 0, listState === "loading" ? "加载中…" : "列表加载失败", { loading: listState === "loading" });
+		}
+		// 区域已有条目但列表仍在途时，在区头部显示行内加载指示（R-01-014/AC-01）。
+		const headerEl = pane.querySelector(".dap-header");
+		const recentHeadEl = recentSection?.querySelector(".dap-recent-head") ?? null;
+		for (const [head, hasItems] of [[headerEl, active.length > 0], [recentHeadEl, recent.length > 0]]) {
+			if (head === null) continue;
+			const spin = head.querySelector(".dap-spinner");
+			if (listState === "loading" && hasItems) {
+				if (spin === null) head.prepend(makeEl("span", "dap-spinner"));
+			} else {
+				spin?.remove();
+			}
 		}
 
 		// 计数与折叠

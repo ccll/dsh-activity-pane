@@ -675,6 +675,8 @@ assert.ok(
 assert.equal(listLoadState(null), "loading", "快照缺失视为列表在途");
 assert.equal(listLoadState({ phase: "pending" }), "loading", "phase 为 pending 视为列表在途");
 assert.equal(listLoadState({ phase: "ready" }), "ready", "phase 为 ready 才允许空态");
+assert.equal(listLoadState({ phase: "ready", state: "error" }), "error", "列表错误轴归一为 error");
+assert.equal(listLoadState({ phase: "ready", error: { code: "x" } }), "error", "携带 error 字段归一为 error");
 
 // ---- R-01-014/AC-05 补充数据失败降级为空字段并可重试 ----
 // （行为链详见 R-01-012/AC-01 的 detailLoadPlan 锚点：失败置空 → 可见期内不热重试 →
@@ -741,7 +743,8 @@ assert.ok(bundle.includes("setInterval(() => queueSync(), CLOCK_MS)"), "仅保�
 // R-01-014/AC-04
 // ---- R-01-014 加载过程可见与渐进呈现 ----
 assert.ok(bundle.includes("listLoadState"), "列表加载态经 listLoadState 归一");
-assert.ok(bundle.includes('loading" ? "加载中…" : "暂无活动会话'), "列表在途时活动区显示加载指示而非空态");
+assert.ok(bundle.includes('listState === "loading" ? "加载中…"'), "列表在途时活动区显示加载指示而非空态");
+assert.ok(bundle.includes('"列表加载失败"'), "列表错误时显示失败文案而非空态");
 assert.ok(bundle.includes("node.dataset.mode"), "加载指示与空态分模式渲染");
 assert.ok(bundle.includes("dap-spinner"), "加载指示使用活动图标");
 assert.ok(bundle.includes("loadingModel"), "模型字段级加载指示并入签名");

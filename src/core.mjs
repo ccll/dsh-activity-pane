@@ -249,26 +249,20 @@ export function needsHistorySnapshot(snapshot) {
 	return !snapshot || !Array.isArray(snapshot.chat?.order) || snapshot.chat.order.length === 0;
 }
 
-/** 冷会话 history 的同序降级，供没有 ChatSnapshot 的活动/历史会话使用。 */
-export function conversationTimelineFromHistory(history, partial = null, runningCalls = [], limit = 4) {
+/** 冷会话 history 的同序降级，供没有 ChatSnapshot 的活动/历史会话使用。
+ *  native `sessions.history` 响应只含 `{events, hasMore, projections?}`（in-flight
+ *  partial 以 chunk 事件携带，不做逐 chunk 折叠），故只从事件流取尾部工作项。 */
+export function conversationTimelineFromHistory(history, limit = 4) {
 	const items = [];
 	for (const entry of Array.isArray(history) ? history : []) {
 		const item = timelineItemFromEvent(entry);
 		if (item) items.push(item);
 	}
-	const partialText = assistantBlockText(partial?.blocks, "text");
-	const partialReasoning = assistantBlockText(partial?.blocks, "reasoning");
-	if (partialText || partialReasoning) items.push({ id: `partial:${partial.turn}:${partial.step}`, kind: "assistant", icon: "assistant", text: partialText, detail: partialReasoning || null, status: "running", durationMs: null });
-	for (const call of Array.isArray(runningCalls) ? runningCalls : []) {
-		const item = timelineToolItem(call);
-		if (item) items.push(item);
-	}
 	const max = Math.max(0, limit);
 	return max === 0 ? [] : items.slice(-max);
 }
-
-/** 从 ChatSnapshot/history/projection 取最近用户与 agent reply 的物理首行。 */
-export function messagePreviews({ snapshot = null, history = [], projectionValues = null } = {}) {
+/** 从 ChatSnapshot/history 取最近用户与 agent reply 的物理首行。 */
+export function messagePreviews({ snapshot = null, history = [] } = {}) {
 	let user = "";
 	let agent = "";
 	const timeline = conversationTimeline(snapshot, Number.MAX_SAFE_INTEGER);
@@ -283,14 +277,8 @@ export function messagePreviews({ snapshot = null, history = [], projectionValue
 			if (event?.type === "assistant/message") agent = firstPhysicalLine(contentText(event.data?.message?.content)) || agent;
 		}
 	}
-	const rows = projectionValues?.timelineUserMessages;
-	const last = Array.isArray(rows) ? [...rows].sort((a, b) => Number(b?.seq) - Number(a?.seq))[0] : null;
-	return {
-		userPreview: user || firstPhysicalLine(last?.text),
-		agentPreview: agent || firstPhysicalLine(last?.reply),
-	};
+	return { userPreview: user, agentPreview: agent };
 }
-
 /** 归一化 native sessions.models 返回的当前模型与 reasoning level。 */
 export function modelMetadata(models) {
 	const current = isRecord(models?.current) ? models.current : null;
@@ -328,6 +316,19 @@ export function nativePresentationSessionId(entry) {
 /** 需要用户行动的种类的展示文案。 */
 export function pendingText(kind) {
 	return PENDING_LABELS[kind] ?? "需要响应";
+}
+
+/** CSS 字符串字面量转义（用于属性选择器的加引号形式）：先转义反斜杠再转义引号，顺序不可颠倒。 */
+export function escapeCssString(value) {
+	return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/** 打开重试链是否应取消：目标已成为当前会话（已到达），或用户已激活其它卡片（被新意图取代）。 */
+export function shouldCancelOpenRetry({ targetId, currentId = null, activatedId = null } = {}) {
+	if (targetId === undefined || targetId === null) return true;
+	if (currentId !== null && currentId !== undefined && String(currentId) === String(targetId)) return true;
+	if (activatedId !== null && activatedId !== undefined && String(activatedId) !== String(targetId)) return true;
+	return false;
 }
 
 /** 会话 cwd 是否被某个 workspace 记录（含 title/path 两种命中）。 */
@@ -463,7 +464,6 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 			const previews = details.previews ?? messagePreviews({
 				snapshot: details.snapshot,
 				history: details.history,
-				projectionValues: m.row.projectionValues,
 			});
 			entries.push({
 				id,
@@ -575,7 +575,6 @@ export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WI
 		const previews = details.previews ?? messagePreviews({
 			snapshot: details.snapshot,
 			history: details.history,
-			projectionValues: row.projectionValues,
 		});
 		entries.push({
 			id,

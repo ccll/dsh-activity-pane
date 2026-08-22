@@ -16,6 +16,7 @@ import {
 	cleanPreview,
 	conversationTimeline,
 	conversationTimelineFromHistory,
+	escapeCssString,
 	firstPhysicalLine,
 	fmtElapsedMs,
 	fmtTokens,
@@ -28,6 +29,7 @@ import {
 	PROGRESS_THINK_BASE,
 	progressOf,
 	runtimeStats,
+	shouldCancelOpenRetry,
 	subagentTitle,
 	summarizeToolArguments,
 	TRACE_MAX_ITEMS,
@@ -99,6 +101,36 @@ activateEvent("click");
 assert.deepEqual(cardOpened, ["card-a", "card-a", "card-a", "card-b"], "复用同一 card 时读取最新 session id");
 unbindCard();
 assert.equal(cardListeners.size, 0, "card 卸载移除 click/keydown 监听");
+
+// ---- R-01-005/AC-02 打开重试链取消判定与卡片定位选择器转义 ----
+assert.equal(
+	shouldCancelOpenRetry({ targetId: "a", currentId: "a", activatedId: "a" }),
+	true,
+	"重试目标已成为当前会话（他途到达）时取消本链",
+);
+assert.equal(
+	shouldCancelOpenRetry({ targetId: "a", currentId: null, activatedId: "b" }),
+	true,
+	"用户激活其它卡片后旧重试链被新意图取代",
+);
+assert.equal(
+	shouldCancelOpenRetry({ targetId: "a", currentId: "b", activatedId: "a" }),
+	false,
+	"本链目标即最新激活意图且未到达时保留重试",
+);
+assert.equal(
+	shouldCancelOpenRetry({ targetId: "a", currentId: null, activatedId: null }),
+	false,
+	"无到达也无新意图时保留重试",
+);
+assert.equal(
+	shouldCancelOpenRetry({ targetId: null, currentId: "a", activatedId: "a" }),
+	true,
+	"非法目标直接取消",
+);
+assert.equal(escapeCssString('a"b\\c'), 'a\\"b\\\\c', "先转义反斜杠再转义引号，选择器不破裂");
+assert.equal(escapeCssString(""), "", "空 id 转义为空，加引号选择器仍合法");
+assert.equal(escapeCssString(42), "42", "非字符串 id 归一为字符串");
 
 // ---- R-01-008/AC-03 点击遮罩（抽屉外部）收起抽屉 ----
 const backdropListeners = new Map();
@@ -561,6 +593,11 @@ assert.ok(bundle.includes("notifyLayoutChange"), "布局变化通知 sibling ove
 assert.ok(bundle.includes('window.dispatchEvent(new Event("resize"))'), "布局变化派发标准 resize 通知");
 assert.ok(bundle.includes("pane !== renderedPane"), "新窗格实例必须重置渲染签名");
 assert.ok(bundle.includes("openRetryStates"), "跳转重试链必须可合并并清理");
+assert.ok(bundle.includes("shouldCancelOpenRetry"), "打开重试链经统一取消判定防止过期链条拽回会话");
+assert.ok(bundle.includes("escapeCssString"), "卡片定位选择器经统一转义");
+assert.ok(!clientSource.includes("value.partial"), "history 响应不读取不存在的 partial 字段（宿主契约为 events/hasMore/projections）");
+assert.ok(!clientSource.includes("timelineUserMessages"), "不重新引入 C-007/C-008 否决的 timelineUserMessages 投影");
+assert.ok(bundle.includes("isSubagentRow(byId[id], byId)"), "子代理跳过必被 agent-busy 拒绝的 models 读取");
 assert.ok(
 	!bundle.includes("list.appendChild(rec.el)"),
 	"渲染不得无条件 appendChild 移动卡片：卡片瞬时脱离文档会让浏览器取消按下/抬起之间的 click、让焦点卡失焦、丢失悬停态（会话活跃期高频渲染时窗格整体不响应）",

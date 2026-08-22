@@ -255,26 +255,20 @@ function needsHistorySnapshot(snapshot) {
 	return !snapshot || !Array.isArray(snapshot.chat?.order) || snapshot.chat.order.length === 0;
 }
 
-/** 冷会话 history 的同序降级，供没有 ChatSnapshot 的活动/历史会话使用。 */
-function conversationTimelineFromHistory(history, partial = null, runningCalls = [], limit = 4) {
+/** 冷会话 history 的同序降级，供没有 ChatSnapshot 的活动/历史会话使用。
+ *  native `sessions.history` 响应只含 `{events, hasMore, projections?}`（in-flight
+ *  partial 以 chunk 事件携带，不做逐 chunk 折叠），故只从事件流取尾部工作项。 */
+function conversationTimelineFromHistory(history, limit = 4) {
 	const items = [];
 	for (const entry of Array.isArray(history) ? history : []) {
 		const item = timelineItemFromEvent(entry);
 		if (item) items.push(item);
 	}
-	const partialText = assistantBlockText(partial?.blocks, "text");
-	const partialReasoning = assistantBlockText(partial?.blocks, "reasoning");
-	if (partialText || partialReasoning) items.push({ id: `partial:${partial.turn}:${partial.step}`, kind: "assistant", icon: "assistant", text: partialText, detail: partialReasoning || null, status: "running", durationMs: null });
-	for (const call of Array.isArray(runningCalls) ? runningCalls : []) {
-		const item = timelineToolItem(call);
-		if (item) items.push(item);
-	}
 	const max = Math.max(0, limit);
 	return max === 0 ? [] : items.slice(-max);
 }
-
-/** 从 ChatSnapshot/history/projection 取最近用户与 agent reply 的物理首行。 */
-function messagePreviews({ snapshot = null, history = [], projectionValues = null } = {}) {
+/** 从 ChatSnapshot/history 取最近用户与 agent reply 的物理首行。 */
+function messagePreviews({ snapshot = null, history = [] } = {}) {
 	let user = "";
 	let agent = "";
 	const timeline = conversationTimeline(snapshot, Number.MAX_SAFE_INTEGER);
@@ -289,14 +283,8 @@ function messagePreviews({ snapshot = null, history = [], projectionValues = nul
 			if (event?.type === "assistant/message") agent = firstPhysicalLine(contentText(event.data?.message?.content)) || agent;
 		}
 	}
-	const rows = projectionValues?.timelineUserMessages;
-	const last = Array.isArray(rows) ? [...rows].sort((a, b) => Number(b?.seq) - Number(a?.seq))[0] : null;
-	return {
-		userPreview: user || firstPhysicalLine(last?.text),
-		agentPreview: agent || firstPhysicalLine(last?.reply),
-	};
+	return { userPreview: user, agentPreview: agent };
 }
-
 /** 归一化 native sessions.models 返回的当前模型与 reasoning level。 */
 function modelMetadata(models) {
 	const current = isRecord(models?.current) ? models.current : null;
@@ -334,6 +322,19 @@ function nativePresentationSessionId(entry) {
 /** 需要用户行动的种类的展示文案。 */
 function pendingText(kind) {
 	return PENDING_LABELS[kind] ?? "需要响应";
+}
+
+/** CSS 字符串字面量转义（用于属性选择器的加引号形式）：先转义反斜杠再转义引号，顺序不可颠倒。 */
+function escapeCssString(value) {
+	return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/** 打开重试链是否应取消：目标已成为当前会话（已到达），或用户已激活其它卡片（被新意图取代）。 */
+function shouldCancelOpenRetry({ targetId, currentId = null, activatedId = null } = {}) {
+	if (targetId === undefined || targetId === null) return true;
+	if (currentId !== null && currentId !== undefined && String(currentId) === String(targetId)) return true;
+	if (activatedId !== null && activatedId !== undefined && String(activatedId) !== String(targetId)) return true;
+	return false;
 }
 
 /** 会话 cwd 是否被某个 workspace 记录（含 title/path 两种命中）。 */
@@ -469,7 +470,6 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 			const previews = details.previews ?? messagePreviews({
 				snapshot: details.snapshot,
 				history: details.history,
-				projectionValues: m.row.projectionValues,
 			});
 			entries.push({
 				id,
@@ -581,7 +581,6 @@ function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS
 		const previews = details.previews ?? messagePreviews({
 			snapshot: details.snapshot,
 			history: details.history,
-			projectionValues: row.projectionValues,
 		});
 		entries.push({
 			id,
@@ -1362,6 +1361,8 @@ function apply(ctx) {
 	let boundPane = null;
 	let unbindPaneControls = null;
 	let collapsed = false;
+	/** 用户最近一次激活的卡片 id；打开重试链被更新的激活意图取代即取消。 */
+	let lastActivatedId = null;
 	/** 活动区卡片 id → { el, kind } 复用表。 */
 	const cardsById = new Map();
 	/** 历史区卡片 id → { el } 复用表。 */
@@ -1489,6 +1490,7 @@ function apply(ctx) {
 	function loadNativeDetails(ids) {
 		const api = ctx.get("connection")?.api?.sessions;
 		if (!api) return;
+		const byId = getSnapshot(sessions, "list")?.byId ?? {};
 		const modelPromises = [];
 		const historyPromises = [];
 		for (const id of ids) {
@@ -1496,7 +1498,10 @@ function apply(ctx) {
 			const liveSnapshot = livenessById.get(id)?.snapshot;
 			if (liveSnapshot) detail.snapshot = liveSnapshot;
 			sessionDetailsById.set(id, detail);
-			if (!detail.model && typeof api.models === "function" && !modelLoads.has(id)) {
+			if (isSubagentRow(byId[id], byId)) {
+				// 子代理的 models 读取必被宿主以 agent-busy 拒绝：直接留空，不发注定失败的 RPC。
+				detail.model ??= { model: "", reasoning: "" };
+			} else if (!detail.model && typeof api.models === "function" && !modelLoads.has(id)) {
 				const promise = Promise.resolve()
 					.then(() => api.models({ sessionId: id }))
 					.then((response) => {
@@ -1528,7 +1533,7 @@ function apply(ctx) {
 							return;
 						}
 						detail.history = Array.isArray(value.events) ? value.events : [];
-						detail.timeline = conversationTimelineFromHistory(detail.history, value.partial, value.runningCalls);
+						detail.timeline = conversationTimelineFromHistory(detail.history);
 						detail.previews = messagePreviews({ history: detail.history });
 					})
 					.catch((error) => {
@@ -1554,8 +1559,16 @@ function apply(ctx) {
 		workspaceUnsubscribe?.();
 		sessions = nextSessions ?? null;
 		workspaces = nextWorkspaces ?? null;
-		sessionUnsubscribe = sessions?.list?.subscribe?.(queueSync) ?? null;
-		workspaceUnsubscribe = workspaces?.list?.subscribe?.(queueSync) ?? null;
+		try {
+			sessionUnsubscribe = sessions?.list?.subscribe?.(queueSync) ?? null;
+		} catch {
+			sessionUnsubscribe = null;
+		}
+		try {
+			workspaceUnsubscribe = workspaces?.list?.subscribe?.(queueSync) ?? null;
+		} catch {
+			workspaceUnsubscribe = null;
+		}
 
 		queueSync();
 	}
@@ -1987,18 +2000,21 @@ function apply(ctx) {
 			}
 			if (session === null) continue; // 下次渲染再试
 			let unsubscribe = null;
-			unsubscribe = session.subscribe(() => {
-				if (disposed) return;
-				const snapshot = getSessionSnapshot(session);
-				const live = livenessFromSnapshot(snapshot);
-				livenessById.set(id, { unsubscribe, liveness: live, snapshot });
-				const detail = sessionDetailsById.get(id) ?? {};
-				detail.snapshot = snapshot;
-				detail.timeline = conversationTimeline(snapshot);
-				sessionDetailsById.set(id, detail);
-				queueSync();
-			});
-			let opening;
+			try {
+				unsubscribe = session.subscribe(() => {
+					if (disposed) return;
+					const snapshot = getSessionSnapshot(session);
+					const live = livenessFromSnapshot(snapshot);
+					livenessById.set(id, { unsubscribe, liveness: live, snapshot });
+					const detail = sessionDetailsById.get(id) ?? {};
+					detail.snapshot = snapshot;
+					detail.timeline = conversationTimeline(snapshot);
+					sessionDetailsById.set(id, detail);
+					queueSync();
+				});
+			} catch {
+				continue; // 订阅失败：本次跳过，下次渲染重试
+			}
 			try {
 				opening = session.open?.();
 			} catch {
@@ -2075,6 +2091,10 @@ function apply(ctx) {
 			el.className = CARD_CLASS;
 			const unbind = bindCardActivation(el, (sessionId) => {
 				if (typeof sessions?.open !== "function") return;
+				lastActivatedId = sessionId;
+				// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标。
+				for (const id of [...openRetryStates.keys()])
+					if (shouldCancelOpenRetry({ targetId: id, activatedId: sessionId })) cancelOpenRetry(id);
 				attemptOpen(sessionId, 0);
 			});
 			rec = { el, kind: null, unbind };
@@ -2240,6 +2260,14 @@ function apply(ctx) {
 		const visibleIds = new Set([...active, ...recent].map((entry) => entry.id));
 		for (const id of sessionDetailsById.keys())
 			if (!visibleIds.has(id)) sessionDetailsById.delete(id);
+		// loads 记账与详情同生命周期：离开可见集合即放行，重回可见时允许重拉/重试。
+		for (const loads of [modelLoads, historyLoads, sessionOpenLoads])
+			for (const id of loads.keys())
+				if (!visibleIds.has(id)) loads.delete(id);
+		// 重试链目标已成为当前会话（他途到达）即取消，避免过期链条拽回会话。
+		for (const id of [...openRetryStates.keys()])
+			if (shouldCancelOpenRetry({ targetId: id, currentId: snapshot?.current ?? null, activatedId: lastActivatedId }))
+				cancelOpenRetry(id);
 
 		const sig = cardSignature([...active, ...recent]);
 		if (sig === lastSig) return;
@@ -2263,34 +2291,34 @@ function apply(ctx) {
 		const count = pane.querySelector(".dap-count");
 		const railCount = pane.querySelector(".dap-rail-count");
 		const hasAwaiting = active.some((entry) => entry.kind === "awaiting");
+		const countText = String(active.length);
 		for (const el of [count, railCount])
 			if (el !== null) {
-				el.textContent = String(active.length);
+				// 值未变不写文本节点：aria-live 下相同赋值也会触发替换与重复播报。
+				if (el.textContent !== countText) el.textContent = countText;
 				el.toggleAttribute("data-awaiting", hasAwaiting);
 			}
 		const toggleCount = toggle.querySelector(".dap-toggle-count");
 		if (toggleCount !== null) {
-			toggleCount.textContent = String(active.length);
+			if (toggleCount.textContent !== countText) toggleCount.textContent = countText;
 			toggle.toggleAttribute("data-awaiting", hasAwaiting);
 		}
-		pane.toggleAttribute("data-collapsed", collapsed ? "true" : "false");
+		pane.toggleAttribute("data-collapsed", collapsed);
 	}
 
 	// ---- 打开会话（让 sessions.open 自己校验列表，失败时 refresh + 重试） ----
 	const MAX_OPEN_ATTEMPTS = 60;
 	function cardElFor(sessionId) {
-		return document.querySelector(
-			`[${PANE_ATTR}] [data-session-id="${String(sessionId)
-				.replace(/"/g, '\\"')
-				.replace(/\\/g, "\\\\")}"]`,
-		);
+		return document.querySelector(`[${PANE_ATTR}] [data-session-id="${escapeCssString(sessionId)}"]`);
 	}
 	function cancelOpenRetry(sessionId) {
 		const state = openRetryStates.get(sessionId);
-		if (state === undefined) return;
-		state.cancelled = true;
-		if (state.timer !== null) clearTimeout(state.timer);
-		openRetryStates.delete(sessionId);
+		if (state !== undefined) {
+			state.cancelled = true;
+			if (state.timer !== null) clearTimeout(state.timer);
+			openRetryStates.delete(sessionId);
+		}
+		cardElFor(sessionId)?.removeAttribute("data-opening");
 	}
 	function scheduleOpenRetry(sessionId, attempt) {
 		if (disposed || openRetryStates.has(sessionId)) return;
@@ -2317,19 +2345,28 @@ function apply(ctx) {
 			});
 	}
 	function attemptOpen(sessionId, attempt) {
+		// 过期链条（目标已到达 / 已被新激活意图取代）不再发起 open，防止拽回会话。
+		if (
+			shouldCancelOpenRetry({
+				targetId: sessionId,
+				currentId: getSnapshot(sessions, "list")?.current ?? null,
+				activatedId: lastActivatedId,
+			})
+		) {
+			cancelOpenRetry(sessionId);
+			return;
+		}
 		const el = cardElFor(sessionId);
 		if (el !== null) el.setAttribute("data-opening", "");
 
 		if (openSession(sessions, sessionId)) {
-			cancelOpenRetry(sessionId);
+			// 到达新目标后取消全部剩余链条：任何旧链成功都会把会话从新目标拽走。
+			for (const id of [...openRetryStates.keys()]) cancelOpenRetry(id);
 			el?.removeAttribute("data-opening");
 			return;
 		}
 		if (attempt < MAX_OPEN_ATTEMPTS) scheduleOpenRetry(sessionId, attempt + 1);
-		else {
-			cancelOpenRetry(sessionId);
-			el?.removeAttribute("data-opening");
-		}
+		else cancelOpenRetry(sessionId);
 	}
 	// ---- 观察者：只监听宿主结构与 conversation seat 的流式 DOM ----
 	let bodyObserver = null;

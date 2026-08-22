@@ -320,6 +320,10 @@ export function runtimeStats({ elapsedMs = null, outputTokens = null, rateTokS =
 		rateTokS: Number.isFinite(rateTokS) && rateTokS > 0 ? rateTokS : null,
 	};
 }
+/** 只有当前会话卡片允许读取主窗口 DOM；其它卡片必须使用自身快照，避免跨会话串线。 */
+export function nativePresentationSessionId(entry) {
+	return entry?.isCurrent === true && entry?.id !== undefined && entry?.id !== null ? String(entry.id) : null;
+}
 
 /** 需要用户行动的种类的展示文案。 */
 export function pendingText(kind) {

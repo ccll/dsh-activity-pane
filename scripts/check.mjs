@@ -22,6 +22,7 @@ import {
 	isActiveRow,
 	messagePreviews,
 	modelMetadata,
+	nativePresentationSessionId,
 	needsHistorySnapshot,
 	pendingText,
 	PROGRESS_THINK_BASE,
@@ -195,6 +196,8 @@ assert.deepEqual(
 );
 assert.equal(fmtElapsedMs(47_000), "47s", "时长短格式");
 assert.equal(fmtElapsedMs(193_000), "3m13s", "时长分秒格式");
+assert.equal(nativePresentationSessionId({ id: "s1", isCurrent: true }), "s1", "当前 card 才允许读取当前会话 DOM");
+assert.equal(nativePresentationSessionId({ id: "s2", isCurrent: false }), null, "非当前 card 禁止读取当前会话 DOM");
 
 // R-01-012/AC-01
 // R-01-012/AC-02
@@ -596,7 +599,7 @@ assert.ok(bundle.includes('M11.4818 5.57813'), "Bash fallback 使用 DSH IconApi
 assert.ok(bundle.includes('item.toolName === "bash"'), "Bash 图标不随原生行状态/展开态漂移");
 assert.ok(bundle.includes('[class*="iconIdle"] svg'), "原生动作图标从 iconIdle 读取而非 disclosure 箭头");
 assert.ok(bundle.includes("nativeIconsByTraceKey"), "错误状态复用此前缓存的动作图标");
-assert.ok(bundle.includes("nativeWorkItemPresentation(item, key)"), "图标缓存按工作项渲染 key 隔离");
+assert.ok(bundle.includes("nativeWorkItemPresentation(item, nativeCacheKey)"), "图标缓存按会话与工作项 key 隔离");
 assert.ok(!bundle.includes('const cacheKey = String(item.id ?? "")'), "图标缓存不得使用空 id 共享 key");
 assert.ok(!bundle.includes('disclosure?.querySelector("svg")'), "不得直接复制 disclosure 内第一个 SVG");
 assert.ok(bundle.includes("tintSvgCurrentColor"), "错误图标显式归一到 currentColor");

@@ -326,6 +326,10 @@ function runtimeStats({ elapsedMs = null, outputTokens = null, rateTokS = null }
 		rateTokS: Number.isFinite(rateTokS) && rateTokS > 0 ? rateTokS : null,
 	};
 }
+/** 只有当前会话卡片允许读取主窗口 DOM；其它卡片必须使用自身快照，避免跨会话串线。 */
+function nativePresentationSessionId(entry) {
+	return entry?.isCurrent === true && entry?.id !== undefined && entry?.id !== null ? String(entry.id) : null;
+}
 
 /** 需要用户行动的种类的展示文案。 */
 function pendingText(kind) {
@@ -1764,7 +1768,7 @@ function apply(ctx) {
 	 * 更新 trace 容器。运行中的同一节点只更新文字/耗时，复用 DOM 保持脉冲动画连续；
 	 * 节点身份或数量变化时才重建（R-02-003/AC-01）。
 	 */
-	function renderTrace(container, items, { lastOnly = false } = {}) {
+	function renderTrace(container, items, { lastOnly = false, allowNativePresentation = false, nativeSessionId = "" } = {}) {
 		const list = Array.isArray(items) ? items : [];
 		const sources = lastOnly ? (list.length === 0 ? [] : [list[list.length - 1]]) : list;
 		const valid = sources.filter((item) => item !== null && typeof item === "object");
@@ -1777,11 +1781,12 @@ function apply(ctx) {
 		for (let index = 0; index < valid.length; index += 1) {
 			const item = valid[index];
 			const key = String(item.id ?? index);
+			const nativeCacheKey = JSON.stringify([nativeSessionId, key]);
 			const line = lines[index] ?? makeEl("div", "dap-trace-item");
 			line.dataset.traceKey = key;
 			const presentation = item.kind === "user"
 				? { label: "", summary: "", state: "done", icon: createUserIcon() }
-				: nativeWorkItemPresentation(item, key);
+				: allowNativePresentation ? nativeWorkItemPresentation(item, nativeCacheKey) : null;
 			const nativeState = presentation?.state;
 			line.dataset.status = nativeState === "ok" ? "done" : nativeState || (typeof item.status === "string" ? item.status : "running");
 			line.dataset.icon = typeof item.icon === "string" ? item.icon : "other";
@@ -1800,7 +1805,7 @@ function apply(ctx) {
 				summaryText ? "dap-trace-summary" : null,
 			].filter(Boolean);
 			const currentStructure = [...main.children].map((child) => child.className);
-			const iconKey = JSON.stringify([item.kind ?? "", item.icon ?? "", presentation?.state ?? "", line.dataset.status]);
+			const iconKey = JSON.stringify([nativeCacheKey, item.kind ?? "", item.icon ?? "", presentation?.state ?? "", line.dataset.status]);
 			const paintIcon = (host) => {
 				host.replaceChildren();
 				if (presentation?.icon instanceof SVGElement) {
@@ -1871,7 +1876,12 @@ function apply(ctx) {
 			if (pct !== null)
 				pct.textContent = `${Math.round(entry.progress ?? PROGRESS_THINK_BASE)}%`;
 			const traceContainer = el.querySelector(".dap-trace");
-			if (traceContainer !== null) renderTrace(traceContainer, entry.timeline?.length ? entry.timeline : entry.trace);
+			const nativeSessionId = nativePresentationSessionId(entry);
+			if (traceContainer !== null)
+				renderTrace(traceContainer, entry.timeline?.length ? entry.timeline : entry.trace, {
+					nativeSessionId: nativeSessionId ?? "",
+					allowNativePresentation: nativeSessionId !== null,
+				});
 			const fill = el.querySelector(".dap-fill");
 			if (fill !== null) {
 				const width = `${Math.min(100, Math.max(0, entry.progress ?? 0))}%`;
@@ -1890,8 +1900,13 @@ function apply(ctx) {
 
 		if (entry.kind === "subagent") {
 			const traceContainer = el.querySelector(".dap-subtrace");
+			const nativeSessionId = nativePresentationSessionId(entry);
 			if (traceContainer !== null)
-				renderTrace(traceContainer, entry.timeline?.length ? entry.timeline : entry.trace, { lastOnly: true });
+				renderTrace(traceContainer, entry.timeline?.length ? entry.timeline : entry.trace, {
+					lastOnly: true,
+					nativeSessionId: nativeSessionId ?? "",
+					allowNativePresentation: nativeSessionId !== null,
+				});
 			return;
 		}
 

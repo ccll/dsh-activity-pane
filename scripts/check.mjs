@@ -347,7 +347,15 @@ assert.equal(grepItem.label, "Grep", "grep 标题与主会话网页一致");
 const globItem = conversationTimeline({
 	chat: { order: ["glob"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-call", callId: "glob-1", call: { name: "glob", argsRaw: "{}" } } } }) } },
 })[0];
-assert.equal(globItem.label, "Search", "glob 标题保持既有 Search 语义");
+assert.equal(globItem.label, "Glob", "glob 标题与主会话网页一致（SEARCH_TITLES: glob → Glob）");
+const webFetchItem = conversationTimeline({
+	chat: { order: ["wf"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-call", callId: "wf-1", call: { name: "web_fetch", argsRaw: '{"url":"https://a.b"}' } } } }) } },
+})[0];
+assert.equal(webFetchItem.label, "Fetch", "web_fetch 标题与主会话网页一致（WEB_TITLES: web_fetch → Fetch）");
+const cordisItem = conversationTimeline({
+	chat: { order: ["c"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-call", callId: "c-1", call: { name: "cordis_run", argsRaw: "{}" } } } }) } },
+})[0];
+assert.equal(cordisItem.label, "Run Cordis Plugin", "cordis 动作标题使用主会话网页完整动宾文案");
 const outsideCurrent = conversationTimeline({
 	chat: { order: ["u1", "u2", "u3", "u4", "u5"], nodes: { get: (key) => ({ key, kind: "user", data: { content: [{ type: "text", text: key }] } }) } },
 	partial: { turn: 2, step: 0, blocks: [{ kind: "text", text: "当前项" }] },
@@ -900,8 +908,18 @@ assert.ok(bundle.includes("pruneInvisibleEntries"), "可见性清理统一经 pr
 assert.ok(bundle.includes("createUserIcon"), "用户工作项使用人物 SVG 图标");
 assert.ok(bundle.includes('item.kind === "user"'), "用户图标按工作项语义固定选择");
 assert.ok(bundle.includes("createBashIcon"), "Bash 使用稳定的 canonical 图标");
-assert.ok(bundle.includes('M11.4818 5.57813'), "Bash fallback 使用 DSH IconApiOutline14 路径");
 assert.ok(bundle.includes('item.toolName === "bash"'), "Bash 图标不随原生行状态/展开态漂移");
+assert.ok(bundle.includes('M11.4818 5.57813'), "Bash fallback 使用 DSH IconApiOutline14 路径");
+// R-01-012/AC-03
+// ---- 回归锚点：非当前会话 fallback 与主会话网页同一 canonical 图标表，选中/非选中态不漂移 ----
+assert.ok(bundle.includes("fallbackTraceIcon"), "fallback 图标统一经 canonical 图标工厂");
+assert.ok(bundle.includes("TOOL_ICON_FACTORIES"), "fallback 图标按 toolName 镜像原生 classifyTool 分类");
+assert.ok(!bundle.includes('assistant: "✦"'), "fallback 不再使用字符画图标");
+assert.ok(bundle.includes("createSearchIcon") && bundle.includes("M11.894845 6.647401"), "grep/glob fallback 使用 DSH IconSearchOutline16 路径");
+assert.ok(bundle.includes("createGlobeIcon") && bundle.includes("M7.00018 0.353516"), "web_search fallback 使用 DSH IconGlobeOutline14 路径");
+assert.ok(bundle.includes("createBrowseIcon") && bundle.includes("M11.2426 4.80473"), "read/web_fetch fallback 使用 DSH IconBrowseOutline16 路径");
+assert.ok(bundle.includes("createEditIcon") && bundle.includes("M9.94076 1.34942"), "write/edit fallback 使用 DSH IconEditOutline16 路径");
+assert.ok(bundle.includes("createThinkIcon"), "Think fallback 使用 DSH IconThinkOutline14 图标");
 assert.ok(bundle.includes('[class*="iconIdle"] svg'), "原生动作图标从 iconIdle 读取而非 disclosure 箭头");
 assert.ok(bundle.includes("nativeIconsByTraceKey"), "错误状态复用此前缓存的动作图标");
 assert.ok(bundle.includes("ancestorObservers"), "祖先链逐级观察保证视图级重挂载自愈");

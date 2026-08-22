@@ -23,22 +23,24 @@ const PENDING_LABELS = {
 
 /** 工具参数白名单：只在其中提取摘要，绝不展示完整命令或原始 JSON（沿用 answer-pet trace 摘要，MIT 参考）。 */
 const TRACE_DETAIL_KEYS = ["description", "query", "pattern", "file_path", "path", "url"];
+// 动作标题对齐主会话网页 canonical 文案（dsh-client-ui-tool 的 VARIANT_TITLES/TOOL_TITLES/SEARCH_TITLES/WEB_TITLES
+// figma literals）：glob 是 Glob、web_fetch 是 Fetch、cordis 插件动作带完整动宾；未知工具名保留原名。
 const TOOL_LABELS = {
 	bash: "Bash",
 	pwsh: "Pwsh",
 	read: "Read",
-	web_fetch: "Read",
+	web_fetch: "Fetch",
 	web_search: "Search",
 	grep: "Grep",
-	glob: "Search",
+	glob: "Glob",
 	write: "Write",
 	edit: "Edit",
 	run_code: "Code",
 	cordis_package_inspect: "Inspect",
 	cordis_runtime_inspect: "Inspect",
-	cordis_run: "Run",
-	cordis_stop: "Stop",
-	cordis_undefine: "Remove",
+	cordis_run: "Run Cordis Plugin",
+	cordis_stop: "Stop Cordis Plugin",
+	cordis_undefine: "Remove Cordis Plugin",
 };
 /** think 阶段进度起点（%）：progressOf 与渲染层兜底共用的同源常量，防两处"5"漂移。 */
 export const PROGRESS_THINK_BASE = 5;
@@ -106,7 +108,7 @@ function timelineToolItem(root, fallbackView = null) {
 	const argsRaw = typeof call.argsRaw === "string" ? call.argsRaw : root.argsRaw;
 	const view = root.callView ?? fallbackView;
 	const resultView = root.resultView;
-	const label = TOOL_LABELS[name] ?? (name === "tool" ? "Tool Call" : name);
+	const label = TOOL_LABELS[name] ?? (name === "tool" ? "Tool call" : name);
 	const detail = toolViewDetail(view) ?? toolViewDetail(resultView) ?? summarizeToolArguments(argsRaw);
 	return {
 		id: typeof root.callId === "string" ? root.callId : `tool:${name}`,

@@ -253,7 +253,6 @@ const CSS = `
 [data-dsh-activity-pane] .dap-card[data-kind="recent"] .dap-title {
   font-weight: 400;
 }
-[data-dsh-activity-pane] .dap-badge {
 /* 等待标识徽标改用主题协调的柔和底（与 workspace chip 同系）：醒目性由等待卡
    描边与计数徽标红色脉冲变体承载（R-01-002/AC-04）。 */
 [data-dsh-activity-pane] .dap-badge {
@@ -261,6 +260,7 @@ const CSS = `
   color: color-mix(in srgb, currentColor 88%, transparent);
   background: color-mix(in srgb, currentColor 12%, transparent);
   border-radius: 999px; padding: 0 7px;
+}
 [data-dsh-activity-pane] .dap-workspace {
   width: fit-content; max-width: 100%; display: block;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

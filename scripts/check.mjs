@@ -984,6 +984,16 @@ assert.ok(
 // 等待标识徽标改用主题协调的柔和底，不再使用突兀的橙金渐变。
 assert.ok(bundle.includes('.dap-badge {\n  flex: none; font-size: 10px; line-height: 14px; font-weight: 600;\n  color: color-mix(in srgb, currentColor 88%, transparent);\n  background: color-mix(in srgb, currentColor 12%, transparent);'), "等待标识徽标使用主题协调的柔和底色");
 assert.ok(!bundle.includes('color: #221a10; background: linear-gradient(180deg, #ffd488, #e8a33d);'), "等待标识徽标不再使用橙金渐变");
+assert.ok(
+	bundle.includes("border-radius: 999px; padding: 0 7px;\n}\n[data-dsh-activity-pane] .dap-workspace {"),
+	"徽标规则正确闭合，后续 .dap-workspace 保持顶层规则（R-01-002/AC-04 结构回归防护）",
+);
+// CSS 模板结构完整：花括号配平，不错位吞并后续规则（R-01-002/AC-04 结构回归防护）。
+assert.equal(
+	(bundle.match(/\{/g) ?? []).length,
+	(bundle.match(/\}/g) ?? []).length,
+	"bundle 花括号配平（CSS 模板不错位吞并后续规则）",
+);
 
 // R-01-001/AC-04
 // 数量徽标紧跟标题文字（去掉 margin-left: auto），配色同样柔和化；等待态红色脉冲保留。

@@ -1641,6 +1641,16 @@ function apply(ctx) {
 		}
 	}
 
+	/** 卡片渲染异常上报（按会话+错误内容去重）：持续故障不刷屏，错误变化时再记。
+	 *  隔离是为让其余卡片继续更新，错误本身必须保持可见、不吞错。 */
+	let lastCardRenderErrorKey = "";
+	function logCardRenderError(sessionId, error) {
+		const key = `${sessionId}:${error instanceof Error ? error.message : String(error)}`;
+		if (key === lastCardRenderErrorKey) return;
+		lastCardRenderErrorKey = key;
+		console.error(`[dsh-activity-pane] 卡片渲染失败（${sessionId}）:`, error);
+	}
+
 	function render() {
 		renderStamp += 1;
 		installFrameObserver();
@@ -1781,19 +1791,37 @@ function apply(ctx) {
 
 		const sig = cardSignature([...active, ...recent]);
 		if (sig === lastSig) return;
-		lastSig = sig;
 
+		// 逐卡异常隔离：一张卡渲染抛错不得冻结其余卡片（此前签名先于循环提交，
+		// 故障卡及其后全部卡片永久滞留旧内容——历史卡因此停在过去的首条消息
+		// fallback 标题，与左侧栏脱节）；本轮有失败则不提交签名，下一次同步整体
+		// 重试——瞬时异常自愈，持续异常只滞留故障卡本身（R-01-013/AC-02）。
+		let renderOk = true;
 		const aliveActive = new Set();
-		for (const [index, entry] of active.entries())
-			if (renderCardIntoList(activeList, entry, cardsById, index))
-				aliveActive.add(entry.id);
+		for (const [index, entry] of active.entries()) {
+			try {
+				renderCardIntoList(activeList, entry, cardsById, index);
+			} catch (error) {
+				renderOk = false;
+				logCardRenderError(entry.id, error);
+			}
+			// 渲染失败的卡同样计为存活：保留最后内容在位（下轮重试自愈），
+			// 不得被 pruneCards 摘除后每轮重建闪烁。
+			aliveActive.add(entry.id);
+		}
 		pruneCards(cardsById, aliveActive);
 		ensureListStatus(activeList, active.length === 0, listState === "loading" ? "加载中…" : listState === "error" ? "列表加载失败" : "暂无活动会话", { loading: listState === "loading" });
 		const aliveRecent = new Set();
 		// 历史区容器首个子节点是段头（.dap-recent-head），卡片从 offset 1 开始。
-		for (const [index, entry] of recent.entries())
-			if (renderCardIntoList(recentSection, entry, recentCardsById, index, 1))
-				aliveRecent.add(entry.id);
+		for (const [index, entry] of recent.entries()) {
+			try {
+				renderCardIntoList(recentSection, entry, recentCardsById, index, 1);
+			} catch (error) {
+				renderOk = false;
+				logCardRenderError(entry.id, error);
+			}
+			aliveRecent.add(entry.id);
+		}
 		pruneCards(recentCardsById, aliveRecent);
 		if (recentSection !== null) {
 			recentSection.hidden = listState === "ready" && recent.length === 0;
@@ -1840,6 +1868,10 @@ function apply(ctx) {
 			if (oldest === undefined) break;
 			nativeIconsByTraceKey.delete(oldest);
 		}
+
+		// 渲染签名在整轮 DOM 写入全部成功后提交：任何一步失败都保留下一轮
+		// 同步重试的机会，避免故障被签名吞掉后卡片永久滞留（R-01-013/AC-02）。
+		if (renderOk) lastSig = sig;
 	}
 
 	// ---- 打开会话（让 sessions.open 自己校验列表，失败时 refresh + 重试） ----

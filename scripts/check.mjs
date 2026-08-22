@@ -811,6 +811,18 @@ assert.ok(bundle.includes("unbindPaneControls"), "窗格控制监听可清理");
 assert.ok(bundle.includes("notifyLayoutChange"), "布局变化通知 sibling overlay 重测");
 assert.ok(bundle.includes('window.dispatchEvent(new Event("resize"))'), "布局变化派发标准 resize 通知");
 assert.ok(bundle.includes("pane !== renderedPane"), "新窗格实例必须重置渲染签名");
+// R-01-013/AC-02 回归：卡片标题必须随快照更新——单卡渲染异常不得冻结其余卡片
+// （此前渲染签名先于卡片循环提交且无异常隔离，故障卡及其后全部卡片永久滞留旧标题，
+//  历史卡因此停在首条消息形态的 fallback 标题，与左侧栏脱节）。
+assert.ok(
+	clientSource.includes("if (renderOk) lastSig = sig;") && !/if \(sig === lastSig\) return;\s*lastSig = sig;/.test(clientSource),
+	"渲染签名仅在整轮卡片渲染成功后提交，不得在卡片循环前预先提交",
+);
+assert.equal(
+	(clientSource.match(/logCardRenderError\(entry\.id, error\)/g) ?? []).length,
+	2,
+	"活动区与历史区卡片渲染均须逐卡 try/catch 异常隔离并上报",
+);
 assert.ok(bundle.includes("openRetryStates"), "跳转重试链必须可合并并清理");
 assert.ok(bundle.includes("shouldCancelOpenRetry"), "打开重试链经统一取消判定防止过期链条拽回会话");
 assert.ok(bundle.includes("escapeCssString"), "卡片定位选择器经统一转义");

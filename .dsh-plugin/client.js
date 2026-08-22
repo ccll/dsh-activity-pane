@@ -2300,9 +2300,9 @@ function apply(ctx) {
 
 		// 图标缓存修剪：只保留当前会话（缓存键为 [sessionId, itemKey]，非当前会话
 		// 永不命中），并按插入序限量，避免随工具调用终身增长（INV）。
-		const currentKeyPrefix = JSON.stringify([snapshot?.current != null ? String(snapshot.current) : ""]).slice(0, -1);
+		const iconCacheSessionPrefix = JSON.stringify([snapshot?.current != null ? String(snapshot.current) : ""]).slice(0, -1);
 		for (const key of nativeIconsByTraceKey.keys())
-			if (!key.startsWith(currentKeyPrefix)) nativeIconsByTraceKey.delete(key);
+			if (!key.startsWith(iconCacheSessionPrefix)) nativeIconsByTraceKey.delete(key);
 		while (nativeIconsByTraceKey.size > ICON_CACHE_MAX) {
 			const oldest = nativeIconsByTraceKey.keys().next().value;
 			if (oldest === undefined) break;

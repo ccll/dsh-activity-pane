@@ -890,7 +890,6 @@ function apply(ctx) {
 		// 滚动条仅滚动时显示（R-01-004/AC-03）：滚动即置位，停滚 600ms 后隐藏。
 		let scrollHideTimer = null;
 		const onScroll = () => {
-			if (scroll === null) return;
 			scroll.setAttribute("data-scrolling", "");
 			if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);
 			scrollHideTimer = setTimeout(() => {

@@ -1011,6 +1011,6 @@ assert.ok(bundle.includes(".dap-scroll::-webkit-scrollbar-thumb {\n  background:
 assert.ok(bundle.includes(".dap-scroll[data-scrolling]::-webkit-scrollbar-thumb"), "滚动中经 data-scrolling 显示滚动条");
 assert.ok(bundle.includes("@supports not selector(::-webkit-scrollbar)") && bundle.includes("scrollbar-color: transparent transparent"), "Firefox 路径以 @supports 门隔离（防 Chromium 丢弃伪元素规则）");
 assert.ok(bundle.includes('scroll?.addEventListener("scroll", onScroll, { passive: true })'), "滚动监听置位 data-scrolling");
-assert.ok(bundle.includes('scroll?.removeEventListener("scroll", onScroll)') && bundle.includes("clearTimeout(scrollHideTimer)"), "卸载清理滚动监听与隐藏定时器（R-02-003/AC-02）");
+assert.ok(bundle.includes('scroll?.removeEventListener("scroll", onScroll);\n\t\t\tif (scrollHideTimer !== null) clearTimeout(scrollHideTimer);'), "unbind 同步清理滚动监听与隐藏定时器（R-02-003/AC-02）");
 
 console.log("check: all assertions passed");

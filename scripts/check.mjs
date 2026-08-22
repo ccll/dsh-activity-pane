@@ -1005,4 +1005,12 @@ assert.ok(bundle.includes('[data-dsh-activity-pane] .dap-count {\n  flex: none;\
 assert.ok(bundle.includes("border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent);\n  padding: 10px 8px 0;\n  margin-top: 10px;"), "分隔线上下各 10px 留白");
 assert.ok(bundle.includes(".dap-recent[hidden] { display: none; }"), "历史区无内容时整段隐藏（分隔线不占位）");
 
+// R-01-004/AC-03
+// 滚动条仅滚动时显示：thumb 默认透明、data-scrolling 时显示；Firefox 路径在 @supports 门内。
+assert.ok(bundle.includes(".dap-scroll::-webkit-scrollbar-thumb {\n  background: transparent;"), "滚动条 thumb 默认透明（不滚动时不显示）");
+assert.ok(bundle.includes(".dap-scroll[data-scrolling]::-webkit-scrollbar-thumb"), "滚动中经 data-scrolling 显示滚动条");
+assert.ok(bundle.includes("@supports not selector(::-webkit-scrollbar)") && bundle.includes("scrollbar-color: transparent transparent"), "Firefox 路径以 @supports 门隔离（防 Chromium 丢弃伪元素规则）");
+assert.ok(bundle.includes('scroll?.addEventListener("scroll", onScroll, { passive: true })'), "滚动监听置位 data-scrolling");
+assert.ok(bundle.includes('scroll?.removeEventListener("scroll", onScroll)') && bundle.includes("clearTimeout(scrollHideTimer)"), "卸载清理滚动监听与隐藏定时器（R-02-003/AC-02）");
+
 console.log("check: all assertions passed");

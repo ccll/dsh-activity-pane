@@ -103,6 +103,21 @@ const CSS = `
   -webkit-overflow-scrolling: touch;
   padding: 0 0 10px;
 }
+/* 滚动条仅在滚动时显示（R-01-004/AC-03，与外壳侧栏一致）：thumb 默认透明，滚动中
+   经 data-scrolling 显示。Firefox 路径必须在 @supports 门内——非 auto 的
+   scrollbar-color 会让 Chromium 丢弃该元素的 ::-webkit-scrollbar 规则。 */
+[data-dsh-activity-pane] .dap-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+[data-dsh-activity-pane] .dap-scroll[data-scrolling]::-webkit-scrollbar-thumb {
+  background: var(--dsh-scrollbar-thumb, color-mix(in srgb, currentColor 25%, transparent));
+}
+@supports not selector(::-webkit-scrollbar) {
+  [data-dsh-activity-pane] .dap-scroll { scrollbar-color: transparent transparent; }
+  [data-dsh-activity-pane] .dap-scroll[data-scrolling] {
+    scrollbar-color: var(--dsh-scrollbar-thumb, color-mix(in srgb, currentColor 25%, transparent)) transparent;
+  }
+}
 [data-dsh-activity-pane] .dap-list {
   display: flex;
   flex-direction: column;
@@ -860,6 +875,7 @@ function apply(ctx) {
 		const close = pane.querySelector(".dap-close");
 		const collapse = pane.querySelector(".dap-collapse");
 		const rail = pane.querySelector(".dap-rail");
+		const scroll = pane.querySelector(".dap-scroll");
 		const onCloseClick = () => togglePane(false);
 		const onCollapseClick = () => {
 			collapsed = !collapsed;
@@ -871,13 +887,27 @@ function apply(ctx) {
 			pane.setAttribute("data-collapsed", "false");
 			notifyLayoutChange();
 		};
+		// 滚动条仅滚动时显示（R-01-004/AC-03）：滚动即置位，停滚 600ms 后隐藏。
+		let scrollHideTimer = null;
+		const onScroll = () => {
+			if (scroll === null) return;
+			scroll.setAttribute("data-scrolling", "");
+			if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);
+			scrollHideTimer = setTimeout(() => {
+				scrollHideTimer = null;
+				scroll.removeAttribute("data-scrolling");
+			}, 600);
+		};
 		close?.addEventListener("click", onCloseClick);
 		collapse?.addEventListener("click", onCollapseClick);
 		rail?.addEventListener("click", onRailClick);
+		scroll?.addEventListener("scroll", onScroll, { passive: true });
 		return () => {
 			close?.removeEventListener("click", onCloseClick);
 			collapse?.removeEventListener("click", onCollapseClick);
 			rail?.removeEventListener("click", onRailClick);
+			scroll?.removeEventListener("scroll", onScroll);
+			if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);
 		};
 	}
 

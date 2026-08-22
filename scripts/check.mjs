@@ -391,27 +391,50 @@ assert.deepEqual(
 	"冷会话 history 按原始事件顺序降级",
 );
 
-// ---- R-01-009/AC-04 工具参数白名单摘要（不含完整命令/原始 JSON）----
+// ---- R-01-009/AC-04 工具动作摘要镜像主会话窗口 deriveSummary 语义（可含原始命令）----
 assert.equal(
-	summarizeToolArguments('{"command":"rm -rf /","description":"清理目录"}'),
+	summarizeToolArguments("bash", '{"command":"rm -rf /","description":"清理目录"}'),
 	"清理目录",
-	"白名单 description 字段提取摘要",
+	"bash 摘要优先 description 参数键",
 );
 assert.equal(
-	summarizeToolArguments('{"path":"/srv/ops/a.log"}'),
+	summarizeToolArguments("bash", '{"command":"top","cwd":"/srv"}'),
+	"top",
+	"bash 无 description 时展示原始命令首行（C-011）",
+);
+assert.equal(
+	summarizeToolArguments("read", '{"path":"/srv/ops/a.log"}'),
 	"/srv/ops/a.log",
-	"白名单 path 字段提取摘要",
+	"read 摘要取 path 参数键",
 );
 assert.equal(
-	summarizeToolArguments('{"url":"https://example.com/x"}'),
+	summarizeToolArguments("web_fetch", '{"url":"https://example.com/x"}'),
 	"https://example.com/x",
-	"白名单 url 字段提取摘要",
+	"web_fetch 摘要取 url 参数键（read variant）",
 );
 assert.equal(
-	summarizeToolArguments('{"command":"top","cwd":"/srv"}'),
-	null,
-	"仅 command/cwd 不入摘要（不含完整命令）",
+	summarizeToolArguments("read", '{"path":"/ws/src/a.ts"}', "/ws"),
+	"src/a.ts",
+	"工作区内绝对路径按 cwd 相对化（镜像 relativizeToCwd）",
 );
+assert.equal(
+	summarizeToolArguments("read", '{"path":"/elsewhere/a.ts"}', "/ws"),
+	"/elsewhere/a.ts",
+	"工作区外路径保持原样",
+);
+assert.equal(
+	summarizeToolArguments("read", '{"path":"/ws/src/a.ts"}'),
+	"/ws/src/a.ts",
+	"无 cwd 时路径原样保留",
+);
+assert.equal(
+	summarizeToolArguments("custom_tool", '{"note":"hi"}'),
+	"hi",
+	"无参数键命中时取首个字符串参数值",
+);
+assert.equal(summarizeToolArguments("bash", "not-json{{"), "not-json{{", "不可解析参数取 argsRaw 首行（镜像原生）");
+assert.equal(summarizeToolArguments("bash", 123), null, "非字符串参数返回 null");
+assert.equal(summarizeToolArguments("bash", ""), null, "空参数返回 null（callId 由 timelineToolItem 补）");
 assert.equal(summarizeToolArguments("not-json{{"), null, "不可解析参数返回 null");
 assert.equal(summarizeToolArguments(123), null, "非对象参数返回 null");
 assert.equal(cleanPreview("  a   b "), "a b", "摘要文本折叠空白");
@@ -441,7 +464,7 @@ assert.equal(progressOf({ phase: "tool", outputTokens: 100, elapsedMs: 1000 }), 
 assert.ok(progressOf({ phase: "stream", outputTokens: 1_000_000 }) <= 90, "进度有上界");
 // 注：R-01-009/AC-06 的"同回合不倒退/回合重置"为渲染层单调下限，属 GUI 验收项（scripts/acceptance.mjs）。
 
-// ---- R-01-009/AC-07 工作项时间线的状态/耗时与白名单摘要（不泄密）----
+// ---- R-01-009/AC-07 工作项时间线的状态/耗时与主会话窗口语义摘要 ----
 const statusTimeline = conversationTimeline({
 	chat: {
 		order: ["t1", "t2"],
@@ -456,16 +479,70 @@ const statusTimeline = conversationTimeline({
 });
 assert.equal(statusTimeline[0].status, "done", "成功工作项状态为 done");
 assert.equal(statusTimeline[0].durationMs, 2000, "工作项耗时=time-callTime");
-assert.equal(statusTimeline[0].detail, "/tmp", "工具工作项详情只取白名单摘要");
+assert.equal(statusTimeline[0].detail, "ls", "bash 工作项详情展示原始命令首行（C-011）");
 assert.equal(statusTimeline[1].status, "error", "出错工作项状态为 error");
-assert.equal(statusTimeline[1].detail, "/a/b.txt", "file_path 白名单摘要");
-assert.ok(!JSON.stringify(statusTimeline).includes('"ls"'), "工作项摘要不含完整命令/原始 JSON");
+assert.equal(statusTimeline[1].detail, "/a/b.txt", "read 工作项详情取 file_path 参数键");
 const runningTimeline = conversationTimeline({
 	chat: { order: [], nodes: { get: () => undefined } },
 	runningCalls: [{ callId: "rc1", name: "web_search", argsRaw: '{"query":"dsh","url":"https://x"}', turn: 1, step: 0, time: 100 }],
 });
 assert.equal(runningTimeline[0].status, "running", "进行中工具调用状态为 running");
-assert.equal(runningTimeline[0].detail, "dsh", "进行中工具参数摘要（白名单按序取 description/query/path/url）");
+assert.equal(runningTimeline[0].detail, "dsh", "进行中工具参数摘要按 search variant 参数键取 query");
+
+// ---- R-01-012/AC-03 fallback 文字镜像原生 keyed/通用行，选中/非选中态不漂移 ----
+const todoItem = conversationTimeline({
+	chat: { order: ["td"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "td1", call: { name: "todo_write", argsRaw: '{"todos":[{"content":"写代码","status":"completed"},{"content":"写测试","status":"in_progress"},{"content":"部署","status":"pending"}]}' }, isError: false } } }) } },
+})[0];
+assert.equal(todoItem.label, "更新任务清单", "todo_write 标题镜像原生 keyed 行");
+assert.equal(todoItem.detail, "1/3 已完成 · 写测试", "todo_write 摘要复刻原生进度文案");
+const askRunning = conversationTimeline({
+	chat: { order: [], nodes: { get: () => undefined } },
+	runningCalls: [{ callId: "q1", name: "ask_user_question", argsRaw: '{"questions":[]}', turn: 1, step: 0 }],
+})[0];
+assert.equal(askRunning.label, "提问", "ask_user_question 标题镜像原生 keyed 行");
+assert.equal(askRunning.detail, "等待回答", "ask 进行中摘要镜像原生等待文案");
+const askAnswered = conversationTimeline({
+	chat: { order: ["q"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "q2", call: { name: "ask_user_question", argsRaw: "{}" }, isError: false, content: [{ type: "text", text: '{"answers":[{"selected":["a"]},{"selected":[],"custom":""}]}' }] } } }) } },
+})[0];
+assert.equal(askAnswered.detail, "1/2 已回答", "ask 定案摘要复刻原生已答计数");
+const askCancelled = conversationTimeline({
+	chat: { order: ["q"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "q3", call: { name: "ask_user_question", argsRaw: "{}" }, isError: true, error: { name: "AskError", code: "ASK_CANCELLED" } } } }) } },
+})[0];
+assert.equal(askCancelled.detail, "已取消", "ask 取消摘要镜像原生");
+assert.equal(askCancelled.status, "error", "ask 取消保持 error 状态");
+const askAborted = conversationTimeline({
+	chat: { order: ["q"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "q4", call: { name: "ask_user_question", argsRaw: "{}" }, isError: true, error: { name: "AskError", code: "ASK_ABORTED" } } } }) } },
+})[0];
+assert.equal(askAborted.detail, "已中断", "ask 中断摘要镜像原生");
+assert.equal(askAborted.status, "stopped", "ask 中断状态归 stopped（镜像原生）");
+const unknownTool = conversationTimeline({
+	chat: { order: ["x"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-call", callId: "x1", call: { name: "my_mcp_tool", argsRaw: '{"note":"hi"}' } } } }) } },
+})[0];
+assert.equal(unknownTool.label, "Tool call", "未知工具标题镜像原生 others variant");
+assert.equal(unknownTool.detail, "my_mcp_tool · hi", "未知工具摘要带 `工具名 · ` 前缀（镜像原生）");
+const cordisDefine = conversationTimeline({
+	chat: { order: ["cd"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-call", callId: "cd1", call: { name: "cordis_define", argsRaw: '{"name":"my-plugin"}' } } } }) } },
+})[0];
+assert.equal(cordisDefine.label, "注册 Cordis 插件", "cordis_define 标题镜像原生 keyed 行");
+assert.equal(cordisDefine.detail, "my-plugin", "cordis_define 摘要取插件名参数（keyed 行无前缀）");
+const failedBash = conversationTimeline({
+	chat: { order: ["f"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "f1", call: { name: "bash", argsRaw: '{"command":"bad","description":"跑坏命令"}' }, isError: true, content: [{ type: "text", text: "boom happened\nstack line" }] } } }) } },
+})[0];
+assert.equal(failedBash.status, "error", "失败 bash 状态为 error");
+assert.equal(failedBash.detail, "boom happened", "错误态摘要取结果输出首行（镜像原生 errorSummary）");
+const interruptedBash = conversationTimeline({
+	chat: { order: ["i"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "i1", call: { name: "bash", argsRaw: '{"command":"sleep 9"}' }, isError: true, error: { name: "Error", code: "interrupted" } } } }) } },
+})[0];
+assert.equal(interruptedBash.status, "stopped", "interrupted 归 stopped（镜像原生）");
+assert.equal(interruptedBash.detail, "sleep 9", "stopped 不套用错误首行，保持参数摘要");
+const thinkSettled = conversationTimeline({
+	chat: { order: ["th"], nodes: { get: () => ({ kind: "assistant-step", data: { status: "settled", turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "第一段\n第二段" }] } }) } },
+})[0];
+assert.equal(thinkSettled.summary, "第一段", "Think 摘要镜像原生 firstLine");
+const thinkStreaming = conversationTimeline({
+	chat: { order: ["th"], nodes: { get: () => ({ kind: "assistant-step", data: { status: "running", turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "第一段\n进行中段" }] } }) } },
+})[0];
+assert.equal(thinkStreaming.summary, "进行中段", "流式 Think 摘要镜像原生 latestLine");
 // R-01-012/AC-02
 const unlocatedPartial = conversationTimeline({
 	chat: {

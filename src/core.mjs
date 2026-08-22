@@ -21,10 +21,38 @@ const PENDING_LABELS = {
 	question: "待回复",
 };
 
-/** 工具参数白名单：只在其中提取摘要，绝不展示完整命令或原始 JSON（沿用 answer-pet trace 摘要，MIT 参考）。 */
-const TRACE_DETAIL_KEYS = ["description", "query", "pattern", "file_path", "path", "url"];
-// 动作标题对齐主会话网页 canonical 文案（dsh-client-ui-tool 的 VARIANT_TITLES/TOOL_TITLES/SEARCH_TITLES/WEB_TITLES
-// figma literals）：glob 是 Glob、web_fetch 是 Fetch、cordis 插件动作带完整动宾；未知工具名保留原名。
+/** 镜像原生 toolRowModel 的 classifyTool（dsh-client-ui-tool）：摘要参数键按 variant 分派（C-011）。 */
+const TOOL_VARIANTS = {
+	bash: "bash",
+	pwsh: "bash",
+	read: "read",
+	web_fetch: "read",
+	web_search: "search",
+	grep: "search",
+	glob: "search",
+	write: "write",
+	edit: "edit",
+	run_code: "code",
+	cordis_package_inspect: "read",
+	cordis_runtime_inspect: "read",
+	cordis_run: "others",
+	cordis_stop: "others",
+	cordis_undefine: "others",
+};
+/** 镜像原生 SUMMARY_KEYS：各 variant 的参数键优先级，bash 含 command（可展示原始命令，C-011）。 */
+const SUMMARY_KEYS = {
+	bash: ["description", "command"],
+	read: ["path", "file_path", "url"],
+	search: ["query", "pattern", "url"],
+	write: ["path", "file_path"],
+	edit: ["path", "file_path"],
+	code: ["description"],
+	others: [],
+};
+/** 镜像原生「摘要不带 `工具名 · ` 前缀」的工具集：TOOL_TITLES 键集 + keyed 行（cordis_define 显示插件名，todo/ask 由专用摘要覆盖）。 */
+const NATIVE_TOOL_TITLES = new Set(["cordis_package_inspect", "cordis_runtime_inspect", "cordis_run", "cordis_stop", "cordis_undefine", "cordis_define", "pwsh"]);
+// 动作标题对齐主会话窗口文案：通用行镜像 dsh-client-ui-tool 的 VARIANT_TITLES/TOOL_TITLES/SEARCH_TITLES/WEB_TITLES
+// figma literals，keyed 行（todo/ask/cordis_define）镜像其中文 locale；未知工具回退 "Tool call"（原生 others 标题）。
 const TOOL_LABELS = {
 	bash: "Bash",
 	pwsh: "Pwsh",
@@ -41,6 +69,9 @@ const TOOL_LABELS = {
 	cordis_run: "Run Cordis Plugin",
 	cordis_stop: "Stop Cordis Plugin",
 	cordis_undefine: "Remove Cordis Plugin",
+	cordis_define: "注册 Cordis 插件",
+	todo_write: "更新任务清单",
+	ask_user_question: "提问",
 };
 /** think 阶段进度起点（%）：progressOf 与渲染层兜底共用的同源常量，防两处"5"漂移。 */
 export const PROGRESS_THINK_BASE = 5;
@@ -93,34 +124,154 @@ function mapValue(source, key) {
 	return isRecord(source) ? source[key] : undefined;
 }
 
-function toolViewDetail(view) {
-	if (!isRecord(view)) return null;
-	if (typeof view.description === "string") return cleanPreview(view.description);
-	if (typeof view.output === "string") return cleanPreview(view.output);
-	if (typeof view.text === "string") return cleanPreview(view.text);
+/** 原生 firstLine 语义：首行截断，不折叠空白、不限长（行内由 CSS 省略）。 */
+function firstLineOf(text) {
+	const nl = text.indexOf("\n");
+	return nl === -1 ? text : text.slice(0, nl);
+}
+
+/** 原生 latestLine 语义：流式 Think 行显示尾部最新行（ReasoningRow running 分支）。 */
+function latestLineOf(text) {
+	const visible = text.trimEnd();
+	const nl = visible.lastIndexOf("\n");
+	return nl === -1 ? visible : visible.slice(nl + 1);
+}
+
+/** 镜像原生 relativizeToCwd：工作区内绝对路径显示为相对路径。 */
+function relativizeToCwd(text, cwd) {
+	if (typeof cwd !== "string" || cwd === "") return text;
+	const root = cwd.replace(/[/\\]+$/, "");
+	if (text.startsWith(`${root}/`) || text.startsWith(`${root}\\`)) return text.slice(root.length + 1);
+	return text;
+}
+
+/** 镜像原生 deriveSummary：variant 参数键 → 首个字符串参数值 → argsRaw 首行。 */
+function deriveToolSummary(name, argsRaw) {
+	const variant = TOOL_VARIANTS[name] ?? "others";
+	let parsed;
+	try {
+		parsed = JSON.parse(argsRaw);
+	} catch {
+		return firstLineOf(argsRaw);
+	}
+	if (typeof parsed !== "object" || parsed === null) return firstLineOf(argsRaw);
+	for (const key of SUMMARY_KEYS[variant]) {
+		const value = parsed[key];
+		if (typeof value === "string" && value !== "") return firstLineOf(value);
+	}
+	for (const value of Object.values(parsed)) if (typeof value === "string" && value !== "") return firstLineOf(value);
+	return firstLineOf(argsRaw);
+}
+
+/**
+ * 工具参数摘要：镜像原生 `deriveSummary` + `relativizeToCwd` 语义（分工具类型参数键，
+ * bash 含 command，无命中取首个字符串参数值，兜底 argsRaw 首行；C-011 起可展示原始命令）。
+ * 参数非字符串或为空串时返回 null（原生该场景显示 callId，由 timelineToolItem 补）。
+ */
+export function summarizeToolArguments(name, raw, cwd = "") {
+	if (typeof raw !== "string" || raw === "") return null;
+	return relativizeToCwd(deriveToolSummary(name, raw), cwd);
+}
+
+/** 镜像原生 resultText：结果内容块拍平为文本（非文本块 JSON），空内容且带 error 时为 `name: code`。 */
+function toolResultText(root) {
+	const content = Array.isArray(root.content) ? root.content : [];
+	const parts = [];
+	for (const block of content) {
+		if (isRecord(block) && block.type === "text" && typeof block.text === "string") parts.push(block.text);
+		else parts.push(JSON.stringify(block, null, 2));
+	}
+	if (parts.length === 0 && isRecord(root.error)) parts.push(`${root.error.name}: ${root.error.code}`);
+	return parts.join("\n");
+}
+
+/** 复刻原生 TodoRow 摘要：`done/total 已完成 · 首个进行中项`；todos 结构不符返回 null 走参数兜底（C-011）。 */
+function todoProgressSummary(argsRaw) {
+	let parsed;
+	try {
+		parsed = JSON.parse(argsRaw);
+	} catch {
+		return null;
+	}
+	if (!isRecord(parsed)) return null;
+	const todos = parsed.todos;
+	if (!Array.isArray(todos) || !todos.every(isRecord)) return null;
+	const active = todos.filter((todo) => todo.status === "in_progress");
+	const first = active[0]?.content;
+	const named = typeof first === "string" && first.trim() !== "";
+	const head = `${todos.filter((todo) => todo.status === "completed").length}/${todos.length} 已完成`;
+	return named ? `${head} · ${first}` : head;
+}
+
+/** 复刻原生 AskQuestionRow 摘要：已取消/已中断/等待回答/已答 x/y；数据不足返回 null 走参数兜底（C-011）。 */
+function askStatusSummary(root, status) {
+	const code = isRecord(root.error) ? root.error.code : undefined;
+	if (code === "ASK_CANCELLED") return "已取消";
+	if (code === "ASK_ABORTED") return "已中断";
+	if (status === "running") return "等待回答";
+	if (status === "done") {
+		try {
+			const parsed = JSON.parse(contentText(Array.isArray(root.content) ? root.content : []));
+			const answers = isRecord(parsed) ? parsed.answers : null;
+			if (Array.isArray(answers) && answers.every(isRecord)) {
+				const answered = answers.filter(
+					(answer) => Array.isArray(answer.selected) && answer.selected.length > 0 || typeof answer.custom === "string" && answer.custom !== "",
+				).length;
+				return `${answered}/${answers.length} 已回答`;
+			}
+		} catch {
+			/* 结果内容缺失或非 JSON 时走参数兜底 */
+		}
+	}
 	return null;
 }
 
-function timelineToolItem(root, fallbackView = null) {
+function timelineToolItem(root, fallbackView = null, cwd = "") {
 	if (!isRecord(root)) return null;
 	const call = isRecord(root.call) ? root.call : root;
-	const name = typeof call.name === "string" ? call.name : "tool";
+	const rawName = typeof call.name === "string" ? call.name : "";
+	const name = rawName || "tool";
 	const argsRaw = typeof call.argsRaw === "string" ? call.argsRaw : root.argsRaw;
 	const view = root.callView ?? fallbackView;
 	const resultView = root.resultView;
-	const label = TOOL_LABELS[name] ?? (name === "tool" ? "Tool call" : name);
-	const detail = toolViewDetail(view) ?? toolViewDetail(resultView) ?? summarizeToolArguments(argsRaw);
+	const errorCode = isRecord(root.error) ? root.error.code : undefined;
+	// 镜像原生状态派生：interrupted（与 ask 的 ASK_ABORTED）归 stopped，不归 error。
+	const status =
+		root.kind !== "tool-result"
+			? "running"
+			: errorCode === "interrupted" || (name === "ask_user_question" && errorCode === "ASK_ABORTED")
+				? "stopped"
+				: root.isError === true
+					? "error"
+					: "done";
+	// 镜像原生 toolRowModel：`工具名 · ` 前缀只出现在 others variant 且无 TOOL_TITLES 条目时。
+	const argsBase =
+		summarizeToolArguments(name, argsRaw, cwd) ?? (typeof root.callId === "string" ? root.callId : "");
+	const argsSummary =
+		(TOOL_VARIANTS[name] ?? "others") === "others" && rawName !== "" && !NATIVE_TOOL_TITLES.has(rawName)
+			? `${rawName} · ${argsBase}`
+			: argsBase;
+	const output = toolResultText(root) || (isRecord(resultView) && typeof resultView.output === "string" ? resultView.output : "");
+	// 摘要优先级镜像原生行：错误首行 → terminal callView description → search 结果卡标题 → todo 进度 → 参数派生。
+	const detail =
+		name === "ask_user_question"
+			? askStatusSummary(root, status) ?? argsSummary
+			: (status === "error" && output !== "" ? firstLineOf(output) : null) ??
+				(isRecord(view) && view.card === "terminal" && typeof view.description === "string" ? view.description : null) ??
+				(isRecord(resultView) && resultView.card === "search" && typeof resultView.title === "string" ? resultView.title : null) ??
+				(name === "todo_write" && typeof argsRaw === "string" ? todoProgressSummary(argsRaw) : null) ??
+				argsSummary;
 	return {
 		id: typeof root.callId === "string" ? root.callId : `tool:${name}`,
 		kind: "tool",
 		icon: isRecord(view) && typeof view.kind === "string" ? view.kind : "tool",
 		toolName: name,
 		callId: typeof root.callId === "string" ? root.callId : "",
-		label,
+		label: TOOL_LABELS[name] ?? "Tool call",
 		text: name,
-		summary: detail ?? "",
+		summary: detail,
 		detail,
-		status: root.kind === "tool-result" ? (root.isError === true ? "error" : "done") : "running",
+		status,
 		durationMs:
 			Number.isFinite(root.time) && Number.isFinite(root.callTime)
 				? Math.max(0, root.time - root.callTime)
@@ -128,7 +279,7 @@ function timelineToolItem(root, fallbackView = null) {
 	};
 }
 
-function timelineItemFromChatNode(node) {
+function timelineItemFromChatNode(node, cwd = "") {
 	if (!isRecord(node)) return null;
 	const data = isRecord(node.data) ? node.data : {};
 	if (node.visibility === "hidden") return null;
@@ -157,13 +308,13 @@ function timelineItemFromChatNode(node) {
 			turn: data.turn,
 			step: data.step,
 			text,
-			summary: reasoning || text,
+		summary: reasoning ? (data.status === "running" ? latestLineOf(reasoning) : firstLineOf(reasoning)) : text,
 			detail: reasoning || null,
 			status: data.status === "running" ? "running" : "done",
 			durationMs: null,
 		};
 	}
-	if (node.kind === "tool-call") return timelineToolItem(data.root ?? data);
+	if (node.kind === "tool-call") return timelineToolItem(data.root ?? data, null, cwd);
 	if (node.kind === "context") {
 		const text = contentText(data.content);
 		return text
@@ -182,7 +333,7 @@ function timelineItemFromChatNode(node) {
 }
 
 /** 从主会话 ChatSnapshot 的真实 order 提取最近工作项，保留当前 live 项。 */
-export function conversationTimeline(snapshot, limit = 4) {
+export function conversationTimeline(snapshot, limit = 4, cwd = "") {
 	const chat = snapshot?.chat;
 	const order = Array.isArray(chat?.order) ? chat.order : [];
 	const nodes = chat?.nodes;
@@ -198,7 +349,7 @@ export function conversationTimeline(snapshot, limit = 4) {
 		} catch {
 			node = undefined;
 		}
-		const item = timelineItemFromChatNode(node);
+		const item = timelineItemFromChatNode(node, cwd);
 		if (item) items.unshift(item);
 	}
 	const liveItems = [];
@@ -217,11 +368,13 @@ export function conversationTimeline(snapshot, limit = 4) {
 			...(current ?? { id: `partial:${snapshot.partial.turn}:${snapshot.partial.step}`, kind: "assistant", icon: "assistant", durationMs: null }),
 			text: partialText,
 			detail: partialReasoning || null,
+			// 镜像原生 ReasoningRow：流式 Think 显示尾部最新行，避免与已定案首行摘要漂移。
+			summary: partialReasoning ? latestLineOf(partialReasoning) : partialText,
 			status: "running",
 		});
 	}
 	for (const call of Array.isArray(snapshot?.runningCalls) ? snapshot.runningCalls : []) {
-		const item = timelineToolItem(call);
+		const item = timelineToolItem(call, null, cwd);
 		if (!item) continue;
 		const existingIndex = items.findIndex((candidate) => candidate.id === item.id);
 		if (existingIndex >= 0) liveItems.push({ ...items.splice(existingIndex, 1)[0], ...item });
@@ -232,7 +385,7 @@ export function conversationTimeline(snapshot, limit = 4) {
 		: items;
 }
 
-function timelineItemFromEvent(entry) {
+function timelineItemFromEvent(entry, cwd = "") {
 	const event = isRecord(entry?.event) ? entry.event : entry;
 	const data = isRecord(event?.data) ? event.data : {};
 	if (!event || typeof event.type !== "string") return null;
@@ -244,10 +397,10 @@ function timelineItemFromEvent(entry) {
 		return text ? { id: `assistant:${event.seq}`, kind: "assistant", icon: "assistant", text, detail: null, status: "done", durationMs: null } : null;
 	}
 	if (event.type === "tool/call") {
-		return timelineToolItem({ kind: "tool-call", callId: data.callId, name: data.name, argsRaw: data.arguments, callView: entry?.view?.for === "call" ? entry.view.view : null });
+		return timelineToolItem({ kind: "tool-call", callId: data.callId, name: data.name, argsRaw: data.arguments, callView: entry?.view?.for === "call" ? entry.view.view : null }, null, cwd);
 	}
 	if (event.type === "tool/result") {
-		return timelineToolItem({ kind: "tool-result", callId: data.callId, call: data.name ? { name: data.name, argsRaw: data.arguments ?? "" } : null, time: event.time, callTime: data.callTime, isError: data.isError, resultView: entry?.view?.for === "result" ? entry.view.view : null });
+		return timelineToolItem({ kind: "tool-result", callId: data.callId, call: data.name ? { name: data.name, argsRaw: data.arguments ?? "" } : null, time: event.time, callTime: data.callTime, isError: data.isError, resultView: entry?.view?.for === "result" ? entry.view.view : null }, null, cwd);
 	}
 	return null;
 }
@@ -290,10 +443,10 @@ export async function pagedHistoryEvents({ fetchPage, maxPages = 3 }) {
 /** 冷会话 history 的同序降级，供没有 ChatSnapshot 的活动/历史会话使用。
  *  native `sessions.history` 响应只含 `{events, hasMore, projections?}`（in-flight
  *  partial 以 chunk 事件携带，不做逐 chunk 折叠），故只从事件流取尾部工作项。 */
-export function conversationTimelineFromHistory(history, limit = 4) {
+export function conversationTimelineFromHistory(history, limit = 4, cwd = "") {
 	const items = [];
 	for (const entry of Array.isArray(history) ? history : []) {
-		const item = timelineItemFromEvent(entry);
+		const item = timelineItemFromEvent(entry, cwd);
 		if (item) items.push(item);
 	}
 	const max = Math.max(0, limit);
@@ -702,26 +855,6 @@ export function fmtTokens(n) {
 	return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n));
 }
 
-/**
- * 从工具参数中提取安全短摘要：只从白名单字段取，绝不展示完整命令或原始 JSON。
- * 参数为字符串时先尝试 JSON 解析；解析失败或非对象一律返回 null（R-01-009/AC-04）。
- */
-export function summarizeToolArguments(raw) {
-	let args = raw;
-	if (typeof raw === "string") {
-		try {
-			args = JSON.parse(raw);
-		} catch {
-			return null;
-		}
-	}
-	if (args === null || typeof args !== "object" || Array.isArray(args)) return null;
-	for (const key of TRACE_DETAIL_KEYS) {
-		const text = cleanPreview(args[key]);
-		if (text !== null) return text;
-	}
-	return null;
-}
 
 /**
  * 轮内进度估计（0–100）：阶段权重 + 输出 token 累计填充（无 maxTokens 时用饱和

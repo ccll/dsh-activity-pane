@@ -817,7 +817,7 @@ function apply(ctx) {
 						});
 						if (error) detail.historyError = error instanceof Error ? error.message : String(error);
 						detail.history = events;
-						detail.timeline = conversationTimelineFromHistory(events);
+						detail.timeline = conversationTimelineFromHistory(events, 4, byId[id]?.cwd ?? "");
 						detail.previews = messagePreviews({ history: events });
 					}))
 				historyLoads.set(id, promise);
@@ -1005,7 +1005,7 @@ function apply(ctx) {
 	function nativeRowIndex() {
 		if (domIndex !== null && domIndexStamp === renderStamp) return domIndex;
 		const conversation = document.querySelector(CONVERSATION_SELECTOR);
-		const index = { conversation, byKey: new Map(), byCallId: new Map(), byTool: new Map(), think: null, context: null };
+		const index = { conversation, byKey: new Map(), byCallId: new Map(), byTool: new Map(), thinks: [], contexts: [] };
 		if (conversation !== null) {
 			for (const row of conversation.querySelectorAll("[data-chat-flow-key], [data-chat-anchor-key]")) {
 				const flowKey = row.getAttribute("data-chat-flow-key");
@@ -1019,12 +1019,33 @@ function apply(ctx) {
 				const tool = row.getAttribute("data-tool") ?? row.querySelector("[data-tool]")?.getAttribute("data-tool");
 				if (tool && !index.byTool.has(tool)) index.byTool.set(tool, row);
 			}
-			index.think = conversation.querySelector('[data-variant="think"]:not([data-tool])');
-			index.context = conversation.querySelector('[data-chat-flow-kind="context"]');
+			index.thinks = [...conversation.querySelectorAll('[data-variant="think"]:not([data-tool])')];
+			index.contexts = [...conversation.querySelectorAll('[data-chat-flow-kind="context"]')];
 		}
 		domIndexStamp = renderStamp;
 		domIndex = index;
 		return index;
+	}
+	/** 原生行摘要文本：disclosure 标题后的首个非空节点，与 nativeWorkItemPresentation 同口径。 */
+	function disclosureRowSummary(row) {
+		const disclosure = row.querySelector("[data-disclosure-row]");
+		if (disclosure === null) return "";
+		const children = [...disclosure.children];
+		return children.slice(2).map((child) => child.textContent.trim()).find(Boolean)
+			?? row.querySelector("[data-follow-end]")?.textContent?.trim()
+			?? "";
+	}
+	/** 多个 Think 行时按摘要文本精确匹配（fallback 摘要已镜像原生 firstLine/latestLine）；单行直取，无匹配走 fallback。 */
+	function matchNativeThinkRow(rows, item) {
+		if (rows.length === 1) return rows[0];
+		const expected = typeof item.summary === "string" ? item.summary.trim() : "";
+		return rows.find((row) => disclosureRowSummary(row) === expected) ?? null;
+	}
+	/** 多个 context 行时按内容文本匹配（空白归一）；单行直取，无匹配走 fallback，避免错配首行。 */
+	function matchNativeContextRow(rows, item) {
+		if (rows.length === 1) return rows[0];
+		const expected = typeof item.text === "string" ? item.text.replace(/\s+/g, " ").trim() : "";
+		return rows.find((row) => row.textContent.replace(/\s+/g, " ").trim() === expected) ?? null;
 	}
 	function nativeWorkItemRow(item) {
 		const index = nativeRowIndex();
@@ -1033,7 +1054,7 @@ function apply(ctx) {
 			const keyed = index.byKey.get(String(item.id));
 			if (keyed !== undefined) return keyed;
 		}
-		if (item.label === "Think") return index.think;
+		if (item.label === "Think") return matchNativeThinkRow(index.thinks, item);
 		if (item.callId) {
 			const byCallId = index.byCallId.get(item.callId);
 			if (byCallId !== undefined) return byCallId;
@@ -1042,7 +1063,7 @@ function apply(ctx) {
 			const byTool = index.byTool.get(item.toolName);
 			if (byTool !== undefined) return byTool;
 		}
-		if (item.icon === "context") return index.context;
+		if (item.icon === "context") return matchNativeContextRow(index.contexts, item);
 		return null;
 	}
 
@@ -1258,9 +1279,7 @@ function apply(ctx) {
 		const disclosure = row.querySelector("[data-disclosure-row]");
 		const children = disclosure === null ? [] : [...disclosure.children];
 		const label = children[1]?.textContent?.trim() ?? "";
-		const summary = children.slice(2).map((child) => child.textContent.trim()).find(Boolean)
-			?? row.querySelector("[data-follow-end]")?.textContent?.trim()
-			?? "";
+		const summary = disclosureRowSummary(row);
 		const state = row.getAttribute("data-state") ?? row.querySelector("[data-state]")?.getAttribute("data-state") ?? "";
 		const icon = cloneNativeIcon(findNativeActionIcon(row))
 			?? nativeIconsByTraceKey.get(cacheKey)?.cloneNode(true)
@@ -1692,9 +1711,11 @@ function apply(ctx) {
 			if (detail && detailSnapshot) {
 				// 按快照引用 memo：引用不变（时钟 tick、无关推送）时命中缓存，
 				// 长会话不再每次渲染全序扫描。
-				if (detail.memoTimelineOf !== detailSnapshot) {
+				const entryCwd = snapshot?.byId?.[entry.id]?.cwd ?? "";
+				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd) {
 					detail.memoTimelineOf = detailSnapshot;
-					detail.memoTimeline = conversationTimeline(detailSnapshot);
+					detail.memoTimelineCwd = entryCwd;
+					detail.memoTimeline = conversationTimeline(detailSnapshot, 4, entryCwd);
 				}
 				entry.timeline = detail.memoTimeline.length > 0 ? detail.memoTimeline : detail.timeline ?? [];
 			} else {

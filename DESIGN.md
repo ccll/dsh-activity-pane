@@ -102,7 +102,7 @@ sequenceDiagram
   - 轮内状态通过 `sessions.binding(sessionId).session` 订阅运行中会话取得，随运行结束断开；token/速率统计取 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`，复用既有列表订阅，无新增轮询）；运行时长与进度在渲染期按回合开始时间实时计算（R-01-009、R-02-004）。
   - 工作项数据优先从原生 `ConversationSnapshot.chat` 的 `order` / `nodes` 读取，按主会话窗口显示顺序取尾部 4 项；冷会话使用 native `sessions.history` 读取补齐：尾页取不到最近用户/agent 消息时按 `beforeSeq` 向前有界深翻（最多 3 页，找到或翻尽即止），不克隆第三方 UI 路由。运行中当前项由原生 `session.subscribe` 推送刷新（R-01-012）。
   - 模型上下文从 native `sessions.models` 的当前选择与 catalog metadata 归一，模型名称与 reasoning level 缺失时保持空值；不使用 `agentPreset` 冒充模型（R-01-012）。
-  - 富卡统计：运行卡展示工具白名单参数摘要、输出 token/速率与阶段进度；原始参数经 `summarizeToolArguments` 白名单过滤后再上卡（R-01-009）。
+  - 富卡统计：运行卡展示工具动作摘要、输出 token/速率与阶段进度；动作摘要由 `summarizeToolArguments` 按主会话窗口同一语义派生（分工具类型参数键、bash 含 command、无命中取首个字符串参数值、剥离工作区前缀、取首行）后上卡（R-01-009）。
   - 运行卡外观沿用 answer-pet 的卡片质感。
     - 工作项时间线从卡片内容左边界起步，竖线与圆点严格同圆心；当前节点圆点带半透明外环并闪烁。
     - 进度条为 5px 圆角；流式阶段内部显示经 `data-streaming` 驱动的向右滚动条纹。
@@ -173,11 +173,12 @@ sequenceDiagram
 - 活动卡片集合：`活动状态模型#buildEntries(snapshot, workspaceItems)` 产出已排序的活动卡片条目数组（R-01-001）。
 - 最近历史集合：`活动状态模型#buildRecent(snapshot, workspaceItems, now)` 产出按最近活动时间倒序、容限 24h、上限 20 条的最近卡片（R-01-010）。
 - 轮内状态数据：`活动状态模型#runtimeStats({ runningTool, streaming, elapsedMs, outputTokens, rateTokS })` 产出运行卡所需的时长、token 与速率字段；当前动作不再单独输出为卡片状态行，工具名、回复文本与详情进入 `工作项时间线`（R-01-009/AC-01、AC-02、AC-03、AC-05）。
-- 工作项时间线呈现：`活动状态模型#conversationTimeline` 产出的工作项含 label/summary/status/durationMs；工具项详情经 `summarizeToolArguments` 白名单摘要（R-01-009/AC-07、R-01-012）。
+- 工作项时间线呈现：`活动状态模型#conversationTimeline` 产出的工作项含 label/summary/status/durationMs；工具项详情经 `summarizeToolArguments` 镜像主会话窗口 `deriveSummary` 语义（R-01-009/AC-07、R-01-012）。
   - 渲染层以竖线串圆点的时间线呈现：轨道从卡片内容左边界起步，竖线与圆点严格同圆心（整数像素位，避免 1px 竖线分数位吸附偏移）；竖线穿过首个节点圆点并向上引出，终点没入最新动作圆点内部不外露。
   - 圆点带半透明外环；正在执行节点使用蓝色外环并闪烁，已定案节点使用绿/红实心圆点；圆点位于内容区，不被容器裁切。
   - 工作项渲染优先读取原生 `iconIdle` 中的动作图标，排除 hover/open disclosure 箭头与错误 `StateDot`；用户项使用人物 SVG。
   - 非当前会话或原生行缺失时，fallback 使用与主网页同一张 canonical 图标表（按 toolName 镜像原生 classifyTool 与行级覆盖，未知工具按 view.kind 语义兜底）与 canonical 动作标题，选中/非选中态不漂移（R-01-012/AC-03）。
+  - fallback 文字镜像原生 keyed 行：`TOOL_LABELS` 含 todo_write「更新任务清单」与 ask_user_question「提问」；todo 摘要复刻「done/total 已完成 · 当前活动项」、ask 摘要复刻「等待回答 / 已答 x/y / 已取消 / 已中断」状态文案，错误态摘要取结果输出首行；Think/context 原生行按工作项身份匹配，不共用首个同类行（R-01-012/AC-03）。
   - Bash 无论状态/展开态均使用稳定的原生 API 图标；错误项只改变图标与标题/摘要颜色，不替换图标；标题和摘要之间插入 2px 圆形分隔符（R-01-009/AC-09、R-01-012/AC-03～AC-08）。
 - 阶段进度：`活动状态模型#progressOf({ phase, outputTokens, elapsedMs })` 产出 0–100 的估计百分比（tool 阶段冻结返回 null）；渲染层按回合叠加单调下限，保证同回合不倒退；首观测即 tool 阶段（中途接入）以思考基线兜底防 0（R-01-009/AC-06）。渲染层以 5px 圆角进度条呈现，流式阶段（`data-streaming`）填充为向右滚动条纹动画（R-01-009/AC-08）。
 - 最近卡消息预览行：第三行（最近用户消息首行）文本前常驻人物图标（与工作项时间线的用户语义一致）、第四行（最近 agent reply 首行）文本前常驻机器人图标；文本缺失时仅显示图标，文本与加载指示写入图标后的独立文本段（R-01-013/AC-03、AC-04、AC-07、AC-08）。
@@ -203,7 +204,7 @@ sequenceDiagram
   - `buildRecent` 按 24h 历史窗口派生历史区（仅主会话、倒序、上限 20），并归一化 workspace/model/reasoning、最近用户首行与 agent 首行。
   - `conversationTimeline` 从原生 ChatSnapshot 的实际 order 提取最近 4 个工作项，保留图标语义、文字、详情与状态；`firstPhysicalLine` 只取消息的第一个非空物理行。
   - `modelMetadata` 从 native models response 提取当前模型名称与 reasoning level；缺失值保持空白。
-  - 富卡辅助：`fmtTokens`、`summarizeToolArguments`（白名单）、`progressOf`（阶段进度）、`runtimeStats`（时长/token/速率）为运行卡提供纯函数派生。
+  - 富卡辅助：`fmtTokens`、`summarizeToolArguments`（镜像原生 `deriveSummary` 语义）、`progressOf`（阶段进度）、`runtimeStats`（时长/token/速率）为运行卡提供纯函数派生。
   - 排序由工作区索引 + lineage 稳定序共同决定。
   - `cardSignature` 提供渲染去重签名。
 - 代码位置: src/core.mjs

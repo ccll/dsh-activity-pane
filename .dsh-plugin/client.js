@@ -779,7 +779,9 @@ function openSession(sessions, sessionId) {
 /**
  * 为移动端抽屉的透明遮罩绑定点击收起，并返回卸载函数。
  * 抽屉与浮动开关位于遮罩之上，能到达遮罩的点击必然来自抽屉外部，
- * 无需 contains 判定（R-01-008/AC-03）。
+ * 无需 contains 判定。触摸轻点经浏览器 tap→click 合成事件覆盖
+ * （与浮动开关、× 与卡片的既有交互一致，故仅绑 click），
+ * 不额外绑 touch 事件以避免双触发与滑动误收起（R-01-008/AC-03）。
  */
 function bindBackdropDismiss(backdrop, dismiss) {
 	if (typeof backdrop?.addEventListener !== "function" || typeof dismiss !== "function")

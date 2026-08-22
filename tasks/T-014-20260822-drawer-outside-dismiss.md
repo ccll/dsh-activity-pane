@@ -37,7 +37,7 @@ mutation: lifecycle
 
 ## 测试计划
 
-- `scripts/check.mjs` 锚定 R-01-008/AC-03：遮罩 click 触发收起并阻止传播；非 click 事件不触发；卸载后监听移除、点击不再触发；非法输入返回 no-op 卸载函数。
+- `scripts/check.mjs` 锚定 R-01-008/AC-03：遮罩 click（触摸轻点经浏览器 tap→click 合成，与既有交互一致）触发收起并阻止传播；非 click 事件不触发；卸载后监听移除、点击不再触发；非法输入返回 no-op 卸载函数。
 - `scripts/acceptance.mjs` 增加人工步骤：移动端打开抽屉后点击外部区域收起且不误触主会话；开关按钮不受遮罩拦截；桌面宽度无遮罩。
 - `pnpm build:client && pnpm check`；`python3 tools/agentmap_lint.py --report`；`git diff --check`。
 

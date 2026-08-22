@@ -211,7 +211,7 @@ sequenceDiagram
     - 工作项标题与摘要之间渲染小圆点；错误项通过 `data-status="error"` 将保留的动作 SVG、标题和摘要染红。
     - `prefers-reduced-motion` 仅关闭填充宽度 transition，不关闭状态脉冲/流式条纹；`streaming` 字段并入稳定签名以驱动属性翻转重绘。
   - 桌面列折叠为窄条 + 计数；移动端经媒体查询切为固定抽屉 + 浮动开关按钮。
-  - 抽屉开合状态经 `togglePane` 单点写入，同步 `data-open` 与透明遮罩显隐；遮罩为 `position:fixed` 透明层（z-index 介于主会话与抽屉之间），点击经 `bindBackdropDismiss` 收起抽屉，桌面断点外由媒体查询直接隐藏，无需 JS 断点监听（R-01-008/AC-03）。
+  - 抽屉开合状态经 `togglePane` 单点写入，同步 `data-open` 与透明遮罩显隐；遮罩为 `position:fixed` 透明层（z-index 介于主会话与抽屉之间），点击经 `bindBackdropDismiss` 收起抽屉；触摸轻点经浏览器 tap→click 合成事件覆盖（与开关/×/卡片交互一致，仅绑 click，不额外绑 touch 事件避免双触发与滑动误收起）；桌面断点外由媒体查询直接隐藏，无需 JS 断点监听（R-01-008/AC-03）。
   - 每张 card 在创建时注册自身的 `click` / `keydown` handler，直接读取当前 card 的 `data-session-id`；外部菜单与 pane 空白不进入卡片处理，配列表就绪重试。
 - 代码位置: src/client.mjs
 - 实现: 单端（浏览器 client bundle）

@@ -929,21 +929,21 @@ function apply(ctx) {
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
 			return [head, row, makeEl("div", "dap-subtrace")];
 		}
-	if (kind === "recent") {
-		const row = makeEl("div", "dap-row");
-		row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
-		const userLine = makeEl("div", "dap-history-line");
-		userLine.dataset.role = "user";
-		const userIcon = makeEl("span", "dap-history-icon");
-		userIcon.append(createUserIcon());
-		userLine.append(userIcon, makeEl("span", "dap-history-text"));
-		const agentLine = makeEl("div", "dap-history-line");
-		agentLine.dataset.role = "agent";
-		const agentIcon = makeEl("span", "dap-history-icon");
-		agentIcon.append(createSparkleIcon());
-		agentLine.append(agentIcon, makeEl("span", "dap-history-text"));
-		return [head, row, userLine, agentLine, makeEl("div", "dap-note")];
-	}
+		if (kind === "recent") {
+			const row = makeEl("div", "dap-row");
+			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
+			const userLine = makeEl("div", "dap-history-line");
+			userLine.dataset.role = "user";
+			const userIcon = makeEl("span", "dap-history-icon");
+			userIcon.append(createUserIcon());
+			userLine.append(userIcon, makeEl("span", "dap-history-text"));
+			const agentLine = makeEl("div", "dap-history-line");
+			agentLine.dataset.role = "agent";
+			const agentIcon = makeEl("span", "dap-history-icon");
+			agentIcon.append(createSparkleIcon());
+			agentLine.append(agentIcon, makeEl("span", "dap-history-text"));
+			return [head, row, userLine, agentLine, makeEl("div", "dap-note")];
+		}
 		if (kind === "awaiting") {
 			const row = makeEl("div", "dap-row");
 			row.append(
@@ -1408,7 +1408,8 @@ function apply(ctx) {
 			for (let i = 0; i < 2; i += 1) {
 				const line = lines[i];
 				if (!line) continue;
-				const text = line.lastElementChild;
+				const text = line.querySelector(".dap-history-text");
+				if (!text) continue;
 				if (entry.loadingPreviews === true) {
 					if (text.dataset.loading !== "true") {
 						text.dataset.loading = "true";

@@ -7,7 +7,7 @@ mutation: lifecycle
 # T-018 观察者自愈与零星健壮性批
 
 风险等级: standard
-状态: active
+状态: completed
 
 ## 背景与目标
 
@@ -57,4 +57,13 @@ mutation: lifecycle
 
 ## 终态与证据
 
-（待关闭时填写：实现 / 测试 / DESIGN 对照 / commit / review）
+- 实现: `src/client.mjs`：`frameParentObserver` 升级为 center→body 祖先链逐级 `childList` 观察（`ancestorObservers` + `disconnectAncestorObservers` 统一管理，断裂判定 `!center.isConnected || seat 父级变化` 即重装 + queueSync；cleanup 与 center===null 分支同步断开）；render 末尾图标缓存按 `iconCacheSessionPrefix`（当前会话）修剪并按插入序限量 `ICON_CACHE_MAX=128`。`src/core.mjs`：`fmtElapsedMs` 非有限/负输入返回空串；`conversationTimeline` partial 匹配要求 turn/step 均为有限数才参与摘除。
+- 测试: `pnpm build:client && pnpm check` 通过（新增 R-01-009/AC-03 时长边界、R-01-012/AC-02 partial 缺省守卫、祖先链/缓存限量 bundle 契约断言；卸载断言更新为 `disconnectAncestorObservers`）；`scripts/acceptance.mjs` 新增「视图级祖先替换后窗格自愈 + 空闲不丢失」「长跑资源不爬升」两条人工步骤（本环境无浏览器 E2E 基建，人工步骤未执行）；`python3 tools/agentmap_lint.py --report` 通过（17 需求 / 56 AC，测试锚定 56/56）；`git diff --check` 通过。
+- DESIGN 对照: DESIGN 宿主 DOM 观察已补充祖先链机制（任一级断裂即重装恢复），与实现一致；R-02-002/AC-01 重挂载自愈覆盖到祖先级替换；不引入定时器轮询（R-02-001 纪律保持）。
+- commit: ef6e1ad
+- review:
+  - 审核方: 独立 `code-review` Standards 子代理；独立 `code-review` Spec 子代理。
+  - 目的理解: T-018 为 map 不变的零星缺陷修复批（GF2 祖先级重挂载自愈、B2c 时长防御、zQT partial 缺省守卫、INV 图标缓存修剪限量）；关联约束 R-02-001/R-02-002/R-02-003/R-02-004；验证方式为 check.mjs 断言 + bundle 契约 + acceptance 人工步骤。
+  - 执行方式: `code-review` skill；评审基线 `f4c44b4`，范围 `git diff f4c44b4...HEAD`（1beb159 实现、ef6e1ad 修复），Standards/Spec 两轴独立审核，修复后由同一审核方复审。
+  - 问题与修复: Standards 轴 0 硬违例、2 项判断题——`currentKeyPrefix` 命名（ef6e1ad 重命名为 `iconCacheSessionPrefix`）、回调重复 querySelector（复审裁定职责不同、维持现状）；Spec 轴 0 finding 通过。
+  - 复审结论: Standards 复审三项全部关闭；Spec 首轮即通过，无待复审项。

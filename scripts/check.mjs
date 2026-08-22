@@ -980,4 +980,14 @@ assert.ok(
 	"recent 淡化规则位于 opening 脉冲规则之前，等待态由脉冲接管（R-01-013/AC-10 边界）",
 );
 
+// R-01-002/AC-04
+// 等待标识徽标改用主题协调的柔和底，不再使用突兀的橙金渐变。
+assert.ok(bundle.includes('.dap-badge {\n  flex: none; font-size: 10px; line-height: 14px; font-weight: 600;\n  color: color-mix(in srgb, currentColor 88%, transparent);\n  background: color-mix(in srgb, currentColor 12%, transparent);'), "等待标识徽标使用主题协调的柔和底色");
+assert.ok(!bundle.includes('color: #221a10; background: linear-gradient(180deg, #ffd488, #e8a33d);'), "等待标识徽标不再使用橙金渐变");
+
+// R-01-001/AC-04
+// 数量徽标紧跟标题文字（去掉 margin-left: auto），配色同样柔和化；等待态红色脉冲保留。
+assert.ok(bundle.includes('[data-dsh-activity-pane] .dap-count {\n  flex: none;\n  font-size: 10px;'), "数量徽标紧跟标题文字（不再 margin-left: auto）");
+assert.ok(bundle.includes('.dap-count[data-awaiting]') && bundle.includes('animation: dap-await-pulse 1.2s ease-in-out infinite'), "数量徽标等待态保留醒目红色与脉冲");
+
 console.log("check: all assertions passed");

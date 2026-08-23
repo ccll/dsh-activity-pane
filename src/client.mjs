@@ -474,9 +474,10 @@ const CSS = `
 [data-dsh-activity-pane] .dap-history-line .dap-spinner {
   width: 8px; height: 8px; border-width: 1.5px;
 }
-/* 移动端浮动开关按钮：仅在窄屏显示（桌面隐藏）。 */
+/* 移动端浮动开关按钮：仅在窄屏显示（桌面隐藏）。固定于会话头部左上角、
+   原生左边栏切换按钮（28px @ left:8px; top:12px）右侧（R-01-008/AC-04）。 */
 .dap-toggle {
-  position: fixed; top: 12px; right: 12px; z-index: 2147482991;
+  position: fixed; top: 12px; left: 44px; z-index: 2147482991;
   display: none;
   align-items: center; gap: 6px;
   min-height: 30px; padding: 0 11px;
@@ -499,8 +500,9 @@ const CSS = `
   animation: dap-await-pulse 1.2s ease-in-out infinite;
 }
 /* 移动端抽屉透明遮罩：抽屉打开时铺满视口、点击收起抽屉（R-01-008/AC-03）。
-   完全透明不占布局；z-index 介于主会话与抽屉（2147482990）之间，浮动开关
-   （2147482991）位于其上不被遮罩拦截；桌面断点外由媒体查询保持隐藏。 */
+   完全透明不占布局；z-index 介于主会话与抽屉（2147482990）之间；抽屉打开期间
+   浮动开关隐藏（见 .dap-toggle[data-drawer-open]，R-01-008/AC-05），关闭由抽屉
+   头部 × 与遮罩承担；桌面断点外由媒体查询保持隐藏。 */
 .dap-backdrop {
   position: fixed; inset: 0;
   z-index: 2147482989;
@@ -528,6 +530,7 @@ const CSS = `
   [data-dsh-activity-pane][data-open="true"] { transform: translateX(0); }
   .dap-backdrop[data-drawer-open] { display: block; }
   .dap-toggle { display: flex; }
+  .dap-toggle[data-drawer-open] { display: none; }
 }
 `;
 
@@ -668,7 +671,7 @@ function apply(ctx) {
 	toggle.type = "button";
 	toggle.setAttribute("aria-label", "切换活动会话窗格");
 	toggle.innerHTML =
-		"<span>活动会话</span><span class=\"dap-toggle-count\"></span>";
+		"<span>活动</span><span class=\"dap-toggle-count\"></span>";
 	document.body.appendChild(toggle);
 
 	// 移动端抽屉透明遮罩：仅窄屏且抽屉打开时显示，点击收起抽屉（R-01-008/AC-03）。
@@ -863,8 +866,11 @@ function apply(ctx) {
 		const pane = document.querySelector(`[${PANE_ATTR}]`);
 		if (pane === null) return;
 		// 开合状态单点写入：同步抽屉滑入与透明遮罩显隐（R-01-008/AC-03）。
+		// 开合状态单点写入：同步抽屉滑入、透明遮罩显隐与浮动开关显隐
+		//（R-01-008/AC-03、AC-05）。
 		pane.setAttribute("data-open", open ? "true" : "false");
 		backdrop.toggleAttribute("data-drawer-open", open);
+		toggle.toggleAttribute("data-drawer-open", open);
 	}
 	function notifyLayoutChange() {
 		try {

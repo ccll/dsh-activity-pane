@@ -1071,6 +1071,17 @@ assert.ok(
 	"recent 淡化规则位于 opening 脉冲规则之前，等待态由脉冲接管（R-01-013/AC-10 边界）",
 );
 
+// R-01-008/AC-04
+// 移动端浮动开关固定在会话头部左上角、左边栏切换按钮（28px @ left:8px; top:12px）右侧，文案「活动」。
+assert.ok(bundle.includes("position: fixed; top: 12px; left: 44px;"), "浮动开关位于左上角左边栏切换按钮右侧（left:44px）");
+assert.ok(!bundle.includes(".dap-toggle {\n  position: fixed; top: 12px; right: 12px;"), "浮动开关不再位于右上角");
+assert.ok(bundle.includes('"<span>活动</span><span class=\\"dap-toggle-count\\"></span>"'), "浮动开关文案为「活动」并保留计数徽标");
+
+// R-01-008/AC-05
+// 抽屉打开时浮动开关隐藏，关闭后恢复；显隐随 togglePane 单点同步。
+assert.ok(bundle.includes(".dap-toggle[data-drawer-open] { display: none; }"), "抽屉打开时浮动开关隐藏");
+assert.ok(bundle.includes('toggle.toggleAttribute("data-drawer-open", open)'), "开关显隐由 togglePane 单点同步");
+
 // R-01-002/AC-04
 // 等待标识徽标改用主题协调的柔和底，不再使用突兀的橙金渐变。
 assert.ok(bundle.includes('.dap-badge {\n  flex: none; font-size: 10px; line-height: 14px; font-weight: 600;\n  color: color-mix(in srgb, currentColor 88%, transparent);\n  background: color-mix(in srgb, currentColor 12%, transparent);'), "等待标识徽标使用主题协调的柔和底色");

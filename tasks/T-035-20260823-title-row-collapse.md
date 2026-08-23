@@ -6,7 +6,7 @@ id: T-035
 
 # T-035 桌面列折叠改为标题行整体控件
 
-状态: active
+状态: completed
 关联: R-01-011 → 窗格渲染器
 风险等级: standard
 
@@ -49,4 +49,13 @@ id: T-035
 
 ## 终态与证据
 
-（active：实现、测试、DESIGN 对照、commit 与 review 证据在关闭时填写。）
+- 实现: `src/client.mjs`——`.dap-header` 标题行整体控件（role/tabindex/aria-expanded，click 与 Enter/Space 同路径，matchMedia 桌面断点门控，× 阻止冒泡）；行尾 « 为 aria-hidden 的 `.dap-collapse-hint` 行内符号；折叠态隐藏 header，`.dap-rail` 竖排标题 + 计数并 `flex: 1` 撑满整面命中区；独立 « 按钮与其 CSS/事件全部移除；渲染期同步 header aria-expanded。`scripts/check.mjs` 契约断言锚定 R-01-011/AC-03、AC-04、AC-06；`scripts/acceptance.mjs` 四条人工验收步骤锚定 AC-03~AC-06。
+- 测试: `pnpm build:client && pnpm check` 全部断言通过；`python3 tools/agentmap_lint.py --report` 通过（19 需求 / 80 AC 全追溯、全锚定）；`git diff --check` 干净。GUI 现场验收（标题行收起、窄条整面展开、同位往返、移动端不折叠）由东家按 scripts/acceptance.mjs 清单执行。
+- DESIGN 对照: 与 DESIGN「边界与对外契约 → 关键机制」「产品契约 → 窗口形态」「窗格渲染器 → 关键内部结构（桌面列折叠）」及需求追溯索引（R-01-011 → 标题行整体折叠控件 → src/client.mjs）逐条一致，无差异。
+- commit: 9dab2890ad0f9a85d1f2450a9fa612d5b832fade
+- review:
+  - 审核方: 独立 reviewer 双轴（Standards 子代理 998032ba、Spec 子代理 d8a77619，code-review skill 流程）
+  - 目的理解: 桌面折叠/展开由割裂双控件改为「活动会话」标题行整体控件，两态同位于窗格顶部；移动端不提供标题行收起；关联 R-01-011/AC-03~AC-06 与 DESIGN 窗格渲染器条目；预期行为与验证方式以 PRD 验收点 + check/acceptance 锚点为准（两轴均在审核前记录目的理解）。
+  - 执行方式: `code-review` skill，评审基线为工作树 `git diff HEAD`（实现提交前），范围含 src/client.mjs、scripts/check.mjs、scripts/acceptance.mjs、PRD/DESIGN/TODO 与构建产物一致性。
+  - 问题与修复: Standards 轴 2 条判断性建议——`dap-fold` 改名 `dap-collapse-hint`（沿用 collapse canonical term，已修）；`onHeaderKeydown` 增加 `event.target !== header` 守卫（× 保留原生键盘激活，已修）。Spec 轴 1 项必修——`.dap-rail` 增加 `flex: 1` 使窄条整面可点展开并钉住断言（已修）；2 项观察（移动端 header 保留 role=button、rail 不携带 aria-expanded）经取舍说明后认可，不改动，取舍记录于实现提交正文。
+  - 复审结论: 双轴复审均通过，无遗留 finding。

@@ -396,6 +396,8 @@ const CSS = `
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: #8f9aaa;
 }
+/* 镜像原生 ReasoningRow：钉行尾跟随时不渲染省略号（溢出在左侧行首）。 */
+[data-dsh-activity-pane] .dap-trace-summary[data-follow="end"] { text-overflow: clip; }
 [data-dsh-activity-pane] .dap-trace-detail {
   color: #8f9aaa;
 }
@@ -1414,7 +1416,16 @@ function apply(ctx) {
 			const separator = main.querySelector(".dap-trace-separator");
 			if (separator !== null) separator.setAttribute("aria-hidden", "true");
 			const summary = main.querySelector(".dap-trace-summary");
-			if (summary !== null) summary.textContent = summaryText;
+			if (summary !== null) {
+				// 镜像原生 ReasoningRow follow-end：running 摘要视口钉行尾跟随流式输出，
+				// 否则回行首；仅在文本或跟随态变化时读写 scrollLeft（scrollWidth 读取触发布局）。
+				const follow = line.dataset.status === "running" ? "end" : "start";
+				if (summary.textContent !== summaryText || summary.dataset.follow !== follow) {
+					summary.textContent = summaryText;
+					summary.dataset.follow = follow;
+					summary.scrollLeft = follow === "end" ? summary.scrollWidth : 0;
+				}
+			}
 			const statusLabels = { running: "进行中", done: "已完成", ok: "已完成", error: "失败", stopped: "已停止" };
 			line.setAttribute("aria-label", [labelText, summaryText, statusLabels[line.dataset.status] ?? line.dataset.status].filter(Boolean).join(" · "));
 			if (!lastOnly) {

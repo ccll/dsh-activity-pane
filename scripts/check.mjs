@@ -1134,6 +1134,9 @@ assert.ok(bundle.includes('main.append(makeEl("span", "dap-trace-separator"))'),
 assert.ok(bundle.includes('[data-status="error"] .dap-trace-icon'), "错误时动作图标染红");
 assert.ok(bundle.includes('[data-status="error"] .dap-trace-label'), "错误时动作标题染红");
 assert.ok(bundle.includes('[data-status="error"] .dap-trace-summary'), "错误时动作摘要染红");
+assert.ok(bundle.includes('summary.dataset.follow !== follow'), "流式摘要记录跟随态以区分钉行尾与回行首（R-01-012/AC-03）");
+assert.ok(bundle.includes('summary.scrollLeft = follow === "end" ? summary.scrollWidth : 0'), "running 摘要钉行尾跟随流式输出、结束后回行首（R-01-012/AC-03）");
+assert.ok(bundle.includes('.dap-trace-summary[data-follow="end"] { text-overflow: clip; }'), "钉行尾跟随时摘要不渲染省略号（镜像原生 ReasoningRow follow-end）");
 
 // R-01-009/AC-09
 // ---- 回归锚点：时间线几何/状态动画（R-01-009/AC-08、AC-09 呈现细节）----

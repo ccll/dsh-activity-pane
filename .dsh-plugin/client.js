@@ -1742,15 +1742,17 @@ const CSS = `
   background: transparent;
   display: none;
 }
-/* 活动区→历史区迁移动画（R-01-010/AC-07）：旧卡克隆 ghost 以 fixed 覆盖层从原矩形
-   FLIP 平移淡降至目标最近卡位置，真卡同步淡入；ghost 生命周期由 transitionend 收口，
-   prefers-reduced-motion 时 JS 侧整体跳过（不创建 ghost、不加 dap-move-in）。 */
-.dap-move-ghost {
-  position: fixed;
+/* 活动区→历史区迁移动画（R-01-010/AC-07）：旧卡克隆 ghost 挂载于窗格元素内
+   （卡片样式经 [data-dsh-activity-pane] 作用域自然生效），以 absolute 覆盖层从原矩形
+   FLIP 平移并形变至目标最近卡矩形，到位后再淡出、真卡同步淡入；ghost 生命周期由
+   transitionend 收口，prefers-reduced-motion 时 JS 侧整体跳过（不创建 ghost、不加
+   dap-move-in）。 */
+[data-dsh-activity-pane] > .dap-move-ghost {
+  position: absolute;
+  z-index: 6;
   margin: 0;
-  z-index: 2147482991;
   pointer-events: none;
-  transition: transform 0.3s ease, opacity 0.3s ease;
+  transition: transform 0.3s ease, width 0.3s ease, height 0.3s ease, opacity 0.1s ease 0.2s;
 }
 [data-dsh-activity-pane] .dap-move-in {
   animation: dap-move-in 0.3s ease;
@@ -3199,9 +3201,12 @@ function apply(ctx) {
 		ghost.remove();
 	}
 
-	/** 迁移动画前半（DOM 写入前）：量取迁出活动卡矩形并克隆 fixed ghost 覆盖层。 */
+	/** 迁移动画前半（DOM 写入前）：量取迁出活动卡矩形（换算为窗格相对坐标）并克隆
+	 *  ghost；ghost 挂载于窗格元素内，卡片样式经作用域自然生效。 */
 	function prepareMoveGhosts(movedIds) {
 		if (movedIds.length === 0 || disposed || prefersReducedMotion()) return [];
+		const paneRect = renderedPane?.getBoundingClientRect?.();
+		if (paneRect == null) return [];
 		const plans = [];
 		for (const id of movedIds) {
 			const source = cardsById.get(id)?.el;
@@ -3215,36 +3220,42 @@ function apply(ctx) {
 			ghost.removeAttribute("data-session-id");
 			ghost.removeAttribute("id");
 			ghost.style.marginLeft = "0";
-			ghost.style.left = `${rect.left}px`;
-			ghost.style.top = `${rect.top}px`;
+			ghost.style.boxSizing = "border-box";
+			ghost.style.left = `${rect.left - paneRect.left}px`;
+			ghost.style.top = `${rect.top - paneRect.top}px`;
 			ghost.style.width = `${rect.width}px`;
 			ghost.style.height = `${rect.height}px`;
 			// 克隆在此不挂载：其后 DOM 写入若中途抛错，未挂载克隆随 plans 自然丢弃，
-			// fixed 覆盖层不会无 transition 残留（transitionend 收口的唯一兜底）。
-			plans.push({ id, ghost, rect });
+			// 覆盖层不会无 transition 残留（transitionend 收口的唯一兜底）。
+			plans.push({ id, ghost, left: rect.left - paneRect.left, top: rect.top - paneRect.top });
 		}
 		return plans;
 	}
 
-	/** 迁移动画后半（DOM 写入后）：量取目标最近卡矩形，rAF 内启动 FLIP 过渡、真卡淡入；
-	 *  目标不可量取时直接落位（移除 ghost）。transitionend 收口，不引入定时器。 */
+	/** 迁移动画后半（DOM 写入后）：量取目标最近卡矩形，rAF 内启动 FLIP 平移并形变至
+	 *  目标矩形，到位后淡出、真卡淡入；目标不可量取时直接落位（克隆未挂载，无需清理）。
+	 *  transitionend 收口，不引入定时器。 */
 	function runMoveGhosts(plans) {
+		const paneRect = renderedPane?.getBoundingClientRect?.();
+		if (paneRect == null) return;
 		for (const plan of plans) {
 			const target = recentCardsById.get(plan.id)?.el;
 			const rect = target?.getBoundingClientRect?.();
 			if (target == null || rect == null || rect.width <= 0 || rect.height <= 0) {
 				continue;
 			}
-			document.body.appendChild(plan.ghost);
+			renderedPane.appendChild(plan.ghost);
 			moveGhosts.add(plan.ghost);
 			moveGhostsById.set(plan.id, plan.ghost);
 			target.classList.add("dap-move-in");
-			const dx = rect.left - plan.rect.left;
-			const dy = rect.top - plan.rect.top;
+			const dx = rect.left - paneRect.left - plan.left;
+			const dy = rect.top - paneRect.top - plan.top;
 			const ghost = plan.ghost;
 			requestAnimationFrame(() => {
 				if (!moveGhosts.has(ghost)) return;
 				ghost.style.transform = `translate(${dx}px, ${dy}px)`;
+				ghost.style.width = `${rect.width}px`;
+				ghost.style.height = `${rect.height}px`;
 				ghost.style.opacity = "0";
 			});
 			ghost.addEventListener(

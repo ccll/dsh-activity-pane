@@ -1554,7 +1554,10 @@ assert.ok(bundle.includes(".dap-recent[hidden] { display: none; }"), "历史区�
 
 // R-01-010/AC-07
 // 活动区→历史区迁移动画：旧卡克隆 ghost FLIP 平移淡降 + 真卡淡入，transitionend 收口，reduced-motion 降级。
-assert.ok(bundle.includes(".dap-move-ghost"), "迁移动画使用旧卡克隆 ghost 覆盖层");
+assert.ok(bundle.includes("[data-dsh-activity-pane] > .dap-move-ghost"), "迁移 ghost 挂载于窗格内，卡片样式作用域生效（不虚框）");
+assert.ok(bundle.includes("renderedPane.appendChild(plan.ghost)"), "ghost 挂载于窗格元素内（absolute、窗格相对坐标）");
+assert.ok(bundle.includes("transition: transform 0.3s ease, width 0.3s ease, height 0.3s ease"), "ghost 平移同时形变至目标矩形（精准落位）");
+assert.ok(bundle.includes("opacity 0.1s ease 0.2s"), "ghost 到位后才淡出（不在飞行途中消失）");
 assert.ok(bundle.includes(".dap-move-in"), "目标最近卡迁移时淡入");
 assert.ok(bundle.includes('"transitionend"'), "ghost 生命周期由 transitionend 收口（不引入定时器）");
 assert.ok(bundle.includes('matchMedia?.("(prefers-reduced-motion: reduce)")'), "reduced-motion 时跳过迁移动画直接落位");

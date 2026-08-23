@@ -1526,17 +1526,21 @@ assert.ok(bundle.includes('.dap-trace-summary[data-follow="end"] { text-overflow
 
 // R-01-009/AC-09
 // ---- 回归锚点：时间线几何/状态动画（R-01-009/AC-08、AC-09 呈现细节）----
-// 轨道列从卡片内容左边起步：末项不画连接竖线、竖线 left 3px 与 5px 圆点 left 1px
-//（圆心 x=3.5）同圆心，并与 7px 标题圆点（圆心 x=3.5）竖直对齐，竖线贯穿首项圆点并向上引出，
+// 轨道列从卡片内容左边起步：圆点盒子与 7px 标题圆点完全同盒（7px、left:0、圆心 x=3.5）——
+// 分数位原点下 Chrome 对不同尺寸圆盒的吸附相位不同，同盒才能保证跨 DPR 渲染对齐；
+// 5px 视觉圆点烘进径向渐变（核 0–2.5px），外环由渐变内半 + 1px box-shadow 外半拼成；
+// 竖线 left 3px（圆心 x=3.5）与圆点严格同圆心，竖线贯穿首项圆点并向上引出，
 // reduced-motion 只关闭宽度 transition，不关闭 answer-pet 同款状态脉冲/流式条纹。
 assert.ok(bundle.includes(".dap-trace-item:last-child::after"), "时间线末项不画竖线（终点没入最末圆点）");
 assert.ok(bundle.includes("margin: 1px 0 2px;"), "时间线整体与卡片内容左边界对齐");
-assert.ok(bundle.includes("left: 3px; top: 0; bottom: -8px"), "1px 竖线（整数位）与 5px 圆点严格同圆心 x=3.5（对齐标题圆点）");
+assert.ok(bundle.includes("left: 3px; top: 0; bottom: -8px"), "1px 竖线（整数位）与圆点严格同圆心 x=3.5（对齐标题圆点）");
 assert.ok(bundle.includes("color: #c7ced9; font-size: 10px; line-height: 14px;"), "工作项文字恢复原有 10px/14px 尺度");
 assert.ok(bundle.includes("width: 12px; height: 12px; flex: none; display: inline-flex;"), "工作项图标容器保持 12px");
 assert.ok(bundle.includes("display: block; width: 12px; height: 12px;"), "工作项 SVG 保持 12px");
 assert.ok(bundle.includes('svg.setAttribute("width", "12")') && bundle.includes('svg.setAttribute("height", "12")'), "生成 SVG 强制写入 12px 尺寸");
-assert.ok(bundle.includes("left: 1px; top: 4px;\n  width: 5px; height: 5px;"), "时间线圆点 5px 奇数宽（整数位圆心 x=3.5，与竖线及标题圆点同圆心）");
+assert.ok(bundle.includes("left: 0; top: 3px;\n  width: 7px; height: 7px;"), "时间线圆点盒子与标题圆点同盒（7px、left:0，跨 DPR 渲染对齐）");
+assert.ok(bundle.includes("radial-gradient(circle, #778394 0 2.5px, rgba(119, 131, 148, .14) 2.5px 3.5px, transparent 3.5px)"), "5px 视觉圆点烘进径向渐变（实心核 0–2.5px + 外环内半）");
+assert.ok(bundle.includes("box-shadow: 0 0 0 1px rgba(119, 131, 148, .14);"), "圆点半透明外环外半由 1px box-shadow 拼成（整体 2px 外环不变）");
 assert.ok(bundle.includes(".dap-dot {\n  width: 7px; height: 7px;"), "标题圆点保持 7px（圆心 x=3.5，时间线圆点对齐基准）");
 assert.ok(bundle.includes("padding-left: 14px"), "时间线文字轨道保持 14px 内缩");
 assert.ok(bundle.includes(".dap-subtrace {\n  min-width: 0;"), "子代理容器不再 padding/border/overflow 包裹（不裁切圆点）");

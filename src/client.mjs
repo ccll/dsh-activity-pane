@@ -411,11 +411,14 @@ const CSS = `
 }
 /* 动作时间线：纵向竖线串起圆点（对齐 answer-pet 的 .ap-session-trace，并修正几何细节——
    轨道列从卡片内容左边起步，和标题圆点/状态行/进度条共用左边界；轨道下放到每个
-   节点项自身：5px 奇数宽圆点 left:1px、1px 竖线 left:3px，圆心同在 x=3.5，与 7px
-   标题圆点（left:0，圆心 x=3.5）竖直对齐，且都在整数 CSS 像素位上，避免分数位
-   栅格吸附导致偏移。每项一段竖线从项顶（容器顶）贯穿，使线穿过首个节点圆点并向
-   上引出（表示更早历史被省略）、末项不画竖线（终点没入最新动作圆点内部不外露）；
-   圆点高处盖线、位于内容区内不被子代理卡 overflow 裁切。 */
+   节点项自身。圆点盒子与 7px 标题圆点完全同盒（7px、left:0、圆心 x=3.5）：分数位
+   原点下 Chrome 对 5px 与 7px 圆盒的吸附取整相位不同，渲染质心可差出 0.5 设备像素，
+   同盒才能保证跨 DPR 渲染对齐；视觉上的 5px 圆点烘进径向渐变（实心核 0–2.5px），
+   半透明外环由渐变内半（2.5–3.5px）与 1px box-shadow 外半（3.5–4.5px）拼成，
+   整体视觉几何不变。1px 竖线 left:3px（圆心 x=3.5），与圆点严格同圆心。每项一段
+   竖线从项顶（容器顶）贯穿，使线穿过首个节点圆点并向上引出（表示更早历史被省略）、
+   末项不画竖线（终点没入最新动作圆点内部不外露）；圆点高处盖线、位于内容区内不被
+   子代理卡 overflow 裁切。 */
 [data-dsh-activity-pane] .dap-trace {
   display: flex; flex-direction: column; gap: 3px;
   margin: 1px 0 2px;
@@ -430,25 +433,25 @@ const CSS = `
   color: #c7ced9; font-size: 10px; line-height: 14px;
 }
 [data-dsh-activity-pane] .dap-trace-item::before {
-  content: ""; position: absolute; left: 1px; top: 4px;
-  width: 5px; height: 5px; border-radius: 50%;
+  content: ""; position: absolute; left: 0; top: 3px;
+  width: 7px; height: 7px; border-radius: 50%;
   z-index: 1;           /* 圆点盖在竖线上：竖线从圆点中穿过被其遮盖 */
-  background: #778394;
-  box-shadow: 0 0 0 2px rgba(119, 131, 148, .14);
+  background: radial-gradient(circle, #778394 0 2.5px, rgba(119, 131, 148, .14) 2.5px 3.5px, transparent 3.5px);
+  box-shadow: 0 0 0 1px rgba(119, 131, 148, .14);
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="running"]::before {
-  background: #65a0ff;
-  box-shadow: 0 0 0 2px rgba(101,160,255,.16), 0 0 6px rgba(101,160,255,.65);
+  background: radial-gradient(circle, #65a0ff 0 2.5px, rgba(101,160,255,.16) 2.5px 3.5px, transparent 3.5px);
+  box-shadow: 0 0 0 1px rgba(101,160,255,.16), 0 0 6px rgba(101,160,255,.65);
   animation: dap-pulse 1.15s ease-in-out infinite;
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="done"]::before {
-  background: #58c98f;
+  background: radial-gradient(circle, #58c98f 0 2.5px, rgba(119, 131, 148, .14) 2.5px 3.5px, transparent 3.5px);
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="error"]::before {
-  background: #f06a72;
+  background: radial-gradient(circle, #f06a72 0 2.5px, rgba(119, 131, 148, .14) 2.5px 3.5px, transparent 3.5px);
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="stopped"]::before {
-  background: #f5a524;
+  background: radial-gradient(circle, #f5a524 0 2.5px, rgba(119, 131, 148, .14) 2.5px 3.5px, transparent 3.5px);
 }
 /* 每项一段竖线（末项不画，z-index 低于圆点）：从项顶（容器顶）贯穿本项、经圆点下方
    继续延伸到下一颗圆点顶缘 —— 线穿过首个节点圆点并向上引出（省略的历史）、终点没入

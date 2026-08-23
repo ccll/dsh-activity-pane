@@ -3150,8 +3150,12 @@ function apply(ctx) {
 			el.className = CARD_CLASS;
 			const unbind = bindCardActivation(el, (sessionId) => {
 				if (typeof sessions?.open !== "function") return;
+				lastActivatedId = sessionId;
+				// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标；
+				// 收起抽屉的分支同样是最新意图，必须先取消挂起链条再 return。
+				cancelStaleOpenRetries({ activatedId: sessionId });
 				// 二次激活当前会话卡片：移动断点抽屉打开时收起抽屉直达会话
-				//（R-01-008/AC-06），不进入打开重试链、不发起会话切换。
+				//（R-01-008/AC-06），不发起会话切换。
 				if (
 					shouldDismissDrawerOnActivation({
 						targetId: sessionId,
@@ -3164,9 +3168,6 @@ function apply(ctx) {
 					togglePane(false);
 					return;
 				}
-				lastActivatedId = sessionId;
-				// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标。
-				cancelStaleOpenRetries({ activatedId: sessionId });
 				attemptOpen(sessionId, 0);
 			});
 			rec = { el, kind: null, unbind };

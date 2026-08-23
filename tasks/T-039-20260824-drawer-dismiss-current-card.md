@@ -28,7 +28,7 @@ mutation: lifecycle
 ## 收敛方案
 
 1. `src/navigation.mjs` 新增纯函数 `shouldDismissDrawerOnActivation({ targetId, currentId, mobile, drawerOpen })`：仅当 `mobile === true && drawerOpen === true` 且 `targetId` 为非空字符串并等于 `currentId` 时返回 true；无 DOM 假设，可 Node 单测。
-2. `src/client.mjs` 卡片激活回调分流：先经该纯函数判定（`currentId` 取 `getSnapshot(sessions, "list")?.current`，`mobile` 取 matchMedia 移动断点，`drawerOpen` 取窗格 `data-open`），命中则 `togglePane(false)` 并 return；未命中走既有 `lastActivatedId` + 取消过期重试 + `attemptOpen`。
+2. `src/client.mjs` 卡片激活回调分流：先更新 `lastActivatedId` 并取消过期打开重试链（任何新激活意图均生效，含收起分支，防止挂起链条稍后拽回会话，R-01-005），再经该纯函数判定（`currentId` 取 `getSnapshot(sessions, "list")?.current`，`mobile` 取 matchMedia 移动断点，`drawerOpen` 取窗格 `data-open`），命中则 `togglePane(false)` 并 return；未命中走既有 `attemptOpen`。
 3. `pnpm build:client` 同步 `.dsh-plugin/client.js`。
 
 ## 测试计划

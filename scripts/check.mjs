@@ -51,6 +51,7 @@ import {
 	bindBackdropDismiss,
 	bindCardActivation,
 	openSession,
+	shouldDismissDrawerOnActivation,
 	suppressComposerAutofocus,
 } from "../src/navigation.mjs";
 
@@ -258,6 +259,37 @@ assert.equal(backdropListeners.size, 0, "遮罩卸载移除 click 监听");
 backdropActivate("click");
 assert.equal(backdropDismissed, 1, "卸载后点击不再收起");
 
+// ---- R-01-008/AC-06 二次激活当前会话卡片收起移动端抽屉 ----
+assert.equal(
+	shouldDismissDrawerOnActivation({ targetId: "s1", currentId: "s1", mobile: true, drawerOpen: true }),
+	true,
+	"移动断点抽屉打开时激活当前会话卡片转为收起抽屉",
+);
+assert.equal(
+	shouldDismissDrawerOnActivation({ targetId: "s2", currentId: "s1", mobile: true, drawerOpen: true }),
+	false,
+	"激活非当前卡片仍走会话切换",
+);
+assert.equal(
+	shouldDismissDrawerOnActivation({ targetId: "s1", currentId: "s1", mobile: false, drawerOpen: true }),
+	false,
+	"桌面断点不收起（无抽屉形态）",
+);
+assert.equal(
+	shouldDismissDrawerOnActivation({ targetId: "s1", currentId: "s1", mobile: true, drawerOpen: false }),
+	false,
+	"抽屉未打开不收起",
+);
+assert.equal(
+	shouldDismissDrawerOnActivation({ targetId: "s1", currentId: null, mobile: true, drawerOpen: true }),
+	false,
+	"无当前会话不误判收起",
+);
+assert.equal(
+	shouldDismissDrawerOnActivation({ targetId: "", currentId: null, mobile: true, drawerOpen: true }),
+	false,
+	"空目标 id 不误判收起",
+);
 // ---- R-01-002/AC-01 待确认 ｜ R-01-002/AC-02 待审查/待回复 ----
 assert.equal(pendingText("approval"), "待确认");
 assert.equal(pendingText("plan-review"), "待审查");

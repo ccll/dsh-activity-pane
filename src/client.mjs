@@ -1983,6 +1983,20 @@ function apply(ctx) {
 			el.className = CARD_CLASS;
 			const unbind = bindCardActivation(el, (sessionId) => {
 				if (typeof sessions?.open !== "function") return;
+				// 二次激活当前会话卡片：移动断点抽屉打开时收起抽屉直达会话
+				//（R-01-008/AC-06），不进入打开重试链、不发起会话切换。
+				if (
+					shouldDismissDrawerOnActivation({
+						targetId: sessionId,
+						currentId: getSnapshot(sessions, "list")?.current ?? null,
+						mobile: window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`).matches,
+						drawerOpen:
+							document.querySelector(`[${PANE_ATTR}]`)?.getAttribute("data-open") === "true",
+					})
+				) {
+					togglePane(false);
+					return;
+				}
 				lastActivatedId = sessionId;
 				// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标。
 				cancelStaleOpenRetries({ activatedId: sessionId });

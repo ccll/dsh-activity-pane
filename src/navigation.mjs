@@ -24,6 +24,16 @@ export function bindCardActivation(card, open) {
 }
 
 /**
+ * 判定卡片激活是否转为收起移动端抽屉（R-01-008/AC-06）：移动断点内抽屉打开、
+ * 且激活目标已是当前会话时，激活不再发起切换（避免无意义 open 与重试链），
+ * 改为收起抽屉直达会话。纯函数，无 DOM 假设。
+ */
+export function shouldDismissDrawerOnActivation({ targetId, currentId, mobile, drawerOpen } = {}) {
+	if (mobile !== true || drawerOpen !== true) return false;
+	return typeof targetId === "string" && targetId !== "" && targetId === currentId;
+}
+
+/**
  * 调用 DSH 原生会话导航；由调用方决定失败后的 refresh/retry 策略。
  * 不读取 sessions.list，避免用另一份可能已过期的快照拦截跳转。
  */

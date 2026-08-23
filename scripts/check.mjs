@@ -1127,7 +1127,7 @@ assert.ok(bundle.includes("left: -8px;\n  top: -6px;"), "竖向连接线位于�
 assert.ok(bundle.includes("left: -8px;\n  top: 50%;\n  width: 8px;"), "横向连接线从缩进槽接入子代理卡片中心");
 // R-01-003/AC-05
 assert.ok(bundle.includes("function activeSessionIds(byId = {})"), "活动子代理沿 parentId 链补齐活动祖先");
-assert.ok(bundle.includes("top: -6px;\n  bottom: -1px;"), "相邻卡片连接线接入前一卡片边缘且不形成明显重叠");
+assert.ok(bundle.includes("top: -6px;\n  bottom: -2px;"), "连接线以 2px 边缘冗余抵抗子像素布局变化且不形成明显重叠");
 // R-01-013/AC-07、R-01-013/AC-08
 assert.ok(bundle.includes('dataset.role = "user"'), "用户消息行骨架静态标识 user 角色");
 assert.ok(bundle.includes('dataset.role = "agent"'), "agent 回复行骨架静态标识 agent 角色");

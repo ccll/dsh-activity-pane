@@ -209,7 +209,7 @@ const CSS = `
   position: absolute;
   left: -8px;
   top: -6px;
-  bottom: -1px;
+  bottom: -2px;
   width: 1px;
   background: color-mix(in srgb, currentColor 24%, transparent);
   pointer-events: none;

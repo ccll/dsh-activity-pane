@@ -397,9 +397,22 @@ function conversationTimeline(snapshot, limit = 4, cwd = "") {
 		if (existingIndex >= 0) liveItems.push({ ...items.splice(existingIndex, 1)[0], ...item });
 		else liveItems.push(item);
 	}
-	return liveItems.length > 0
+	const timeline = liveItems.length > 0
 		? items.slice(-Math.max(0, max - liveItems.length)).concat(liveItems).slice(-max)
 		: items;
+	// R-01-009/AC-10：会话运行中（无 pending）且无 live 项时，尾部已定案非用户项克隆提升为
+	// running，作为 agent 工作中的持续标志；error/stopped 与用户输入项不提升。
+	if (
+		liveItems.length === 0 &&
+		snapshot?.running === true &&
+		!(Array.isArray(snapshot?.pending) && snapshot.pending.length > 0)
+	) {
+		const tail = timeline[timeline.length - 1];
+		if (tail?.status === "done" && tail.kind !== "user") {
+			return timeline.slice(0, -1).concat({ ...tail, status: "running" });
+		}
+	}
+	return timeline;
 }
 
 function timelineItemFromEvent(entry, cwd = "") {
@@ -2361,7 +2374,10 @@ function apply(ctx) {
 				: allowNativePresentation ? nativeWorkItemPresentation(item, nativeCacheKey) : null;
 			const nativeState = presentation?.state;
 			line.dataset.status = nativeState === "ok" ? "done" : nativeState || (typeof item.status === "string" ? item.status : "running");
-			line.dataset.icon = typeof item.icon === "string" ? item.icon : "other";
+			const coreStatus = typeof item.status === "string" ? item.status : "running";
+			// 核心派生的 running 优先于原生行 data-state：提升的尾项（R-01-009/AC-10）与
+			// live 项在选中会话原生行已显示 ok，不允许覆盖回 done。
+			line.dataset.status = coreStatus === "running" ? "running" : nativeState === "ok" ? "done" : nativeState || coreStatus;
 			// 活动流式更新只改文本，保留命中节点；按下/抬起之间替换子节点会让浏览器取消 click。
 			let main = line.querySelector(".dap-trace-main");
 			if (main === null) {

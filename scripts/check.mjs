@@ -529,6 +529,40 @@ const runningTimeline = conversationTimeline({
 assert.equal(runningTimeline[0].status, "running", "进行中工具调用状态为 running");
 assert.equal(runningTimeline[0].detail, "dsh", "进行中工具参数摘要按 search variant 参数键取 query");
 
+// ---- R-01-009/AC-10 运行中无 live 项时尾部非用户已定案项提升为 running（agent 工作标志）----
+const idleGapSnapshot = {
+	chat: {
+		order: ["t1"],
+		nodes: { get: () => ({ key: "t1", kind: "tool-call", data: { root: { kind: "tool-result", callId: "c1", call: { name: "read", argsRaw: '{"path":"/tmp/a"}' }, callTime: 10, time: 35, isError: false } } }) },
+	},
+	running: true,
+	pending: [],
+};
+const idleGapTimeline = conversationTimeline(idleGapSnapshot);
+assert.equal(idleGapTimeline[0].status, "running", "运行中无 live 项时尾部已定案工具项提升为 running");
+const idleGapSettled = conversationTimeline({ ...idleGapSnapshot, running: false });
+assert.equal(idleGapSettled[0].status, "done", "非运行中尾部已定案项保持 done");
+assert.notEqual(idleGapTimeline[0], idleGapSettled[0], "提升产出克隆而非复用原引用");
+const pendingIdle = conversationTimeline({ ...idleGapSnapshot, pending: [{ kind: "approval" }] });
+assert.equal(pendingIdle[0].status, "done", "等待用户行动时尾部不提升");
+const errorTail = conversationTimeline({
+	chat: { order: ["t"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "c2", call: { name: "bash", argsRaw: '{"command":"bad"}' }, isError: true } } }) } },
+	running: true,
+});
+assert.equal(errorTail[0].status, "error", "尾部 error 项不提升，错误标识优先");
+const stoppedTail = conversationTimeline({
+	chat: { order: ["t"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "c3", call: { name: "bash", argsRaw: '{"command":"sleep 9"}' }, isError: true, error: { code: "interrupted" } } } }) } },
+	running: true,
+});
+assert.equal(stoppedTail[0].status, "stopped", "尾部 stopped 项不提升");
+const userTail = conversationTimeline({
+	chat: { order: ["u"], nodes: { get: () => ({ kind: "user", data: { content: [{ type: "text", text: "任务" }] } }) } },
+	running: true,
+});
+assert.equal(userTail[0].status, "done", "尾部用户输入项保持 done（提升不适用）");
+const liveTailUnchanged = conversationTimeline({ ...idleGapSnapshot, runningCalls: [{ callId: "rc9", name: "grep", argsRaw: '{"pattern":"x"}', turn: 1, step: 0 }] });
+assert.equal(liveTailUnchanged.map((item) => item.status).join(","), "done,running", "live 项存在时不额外提升已定案项");
+
 // ---- R-01-012/AC-03 fallback 文字镜像原生 keyed/通用行，选中/非选中态不漂移 ----
 const todoItem = conversationTimeline({
 	chat: { order: ["td"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "td1", call: { name: "todo_write", argsRaw: '{"todos":[{"content":"写代码","status":"completed"},{"content":"写测试","status":"in_progress"},{"content":"部署","status":"pending"}]}' }, isError: false } } }) } },

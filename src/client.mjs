@@ -1381,7 +1381,10 @@ function apply(ctx) {
 				: allowNativePresentation ? nativeWorkItemPresentation(item, nativeCacheKey) : null;
 			const nativeState = presentation?.state;
 			line.dataset.status = nativeState === "ok" ? "done" : nativeState || (typeof item.status === "string" ? item.status : "running");
-			line.dataset.icon = typeof item.icon === "string" ? item.icon : "other";
+			const coreStatus = typeof item.status === "string" ? item.status : "running";
+			// 核心派生的 running 优先于原生行 data-state：提升的尾项（R-01-009/AC-10）与
+			// live 项在选中会话原生行已显示 ok，不允许覆盖回 done。
+			line.dataset.status = coreStatus === "running" ? "running" : nativeState === "ok" ? "done" : nativeState || coreStatus;
 			// 活动流式更新只改文本，保留命中节点；按下/抬起之间替换子节点会让浏览器取消 click。
 			let main = line.querySelector(".dap-trace-main");
 			if (main === null) {

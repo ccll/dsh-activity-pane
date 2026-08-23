@@ -391,9 +391,22 @@ export function conversationTimeline(snapshot, limit = 4, cwd = "") {
 		if (existingIndex >= 0) liveItems.push({ ...items.splice(existingIndex, 1)[0], ...item });
 		else liveItems.push(item);
 	}
-	return liveItems.length > 0
+	const timeline = liveItems.length > 0
 		? items.slice(-Math.max(0, max - liveItems.length)).concat(liveItems).slice(-max)
 		: items;
+	// R-01-009/AC-10：会话运行中（无 pending）且无 live 项时，尾部已定案非用户项克隆提升为
+	// running，作为 agent 工作中的持续标志；error/stopped 与用户输入项不提升。
+	if (
+		liveItems.length === 0 &&
+		snapshot?.running === true &&
+		!(Array.isArray(snapshot?.pending) && snapshot.pending.length > 0)
+	) {
+		const tail = timeline[timeline.length - 1];
+		if (tail?.status === "done" && tail.kind !== "user") {
+			return timeline.slice(0, -1).concat({ ...tail, status: "running" });
+		}
+	}
+	return timeline;
 }
 
 function timelineItemFromEvent(entry, cwd = "") {

@@ -1512,6 +1512,59 @@ const CSS = `
   .dap-toggle { display: flex; }
   .dap-toggle[data-drawer-open] { display: none; }
 }
+/* 浅色主题适配：外壳以 body 上 data-ds-dark-theme 属性标记深色（缺省即浅色），
+   并在两个作用域下翻转整套 --dsw-alias-* 变量。本块只覆盖上文暗色专用的硬编码
+   颜色（卡片底色/描边/阴影、时间线文字与轨道、进度轨道、浮动开关），深色主题下
+   全部规则保持原值；状态色（绿/蓝/橙/红）与 currentColor 派生色两主题通用，不覆盖。
+   ::before 状态圆点不覆盖：基色本就被各 data-status 规则接管，覆盖反而会以更高
+   优先级压掉运行/完成/错误状态色。 */
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card {
+  background: var(--dsw-alias-bg-layer-2, #ffffff);
+  border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
+  box-shadow: var(--dsw-shadow-lv2, 0 6px 16px rgba(0, 0, 0, 0.12));
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card:hover {
+  border-color: var(--dsw-alias-border-l4, rgba(0, 0, 0, 0.16));
+  filter: brightness(0.97);
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="subagent"] {
+  background: var(--dsw-specific-sidebar-fill, rgb(249, 250, 251));
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="recent"] {
+  background: var(--dsw-specific-sidebar-fill, rgb(249, 250, 251));
+  border-color: transparent;
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"] {
+  background: var(--dsw-alias-state-warn-tertiary, rgb(254, 245, 231));
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-pct {
+  color: var(--dsw-alias-state-success-primary, #22c55e);
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-token-stats,
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-summary,
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-detail,
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-icon {
+  color: var(--dsw-alias-label-tertiary, rgb(129, 133, 140));
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item,
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-label {
+  color: var(--dsw-alias-label-secondary, rgb(97, 102, 107));
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-time {
+  color: var(--dsw-alias-label-caption, rgb(173, 178, 184));
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-separator {
+  background: var(--dsw-alias-label-caption, rgb(173, 178, 184));
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item::after {
+  background: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.12));
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-track {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.08));
+}
+body:not([data-ds-dark-theme]) .dap-toggle {
+  background: var(--dsw-alias-button-floating-fill, rgba(255, 255, 255, 0.94));
+}
 `;
 
 function getSnapshot(service, key) {

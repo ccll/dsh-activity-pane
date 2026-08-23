@@ -1214,4 +1214,19 @@ assert.ok(bundle.includes("@supports not selector(::-webkit-scrollbar)") && bund
 assert.ok(bundle.includes('scroll?.addEventListener("scroll", onScroll, { passive: true })'), "滚动监听置位 data-scrolling");
 assert.ok(bundle.includes('scroll?.removeEventListener("scroll", onScroll);\n\t\t\tif (scrollHideTimer !== null) clearTimeout(scrollHideTimer);'), "unbind 同步清理滚动监听与隐藏定时器（R-02-003/AC-02）");
 
+// ---- 回归锚点：浅色主题适配 ----
+// 外壳以 body[data-ds-dark-theme] 标记深色（缺省即浅色）并翻转整套 --dsw-alias-* 变量；
+// 暗色硬编码色仅在属性缺省时被浅色别名覆盖，深色规则保持原值。
+assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card {"), "浅色卡片底色/描边/阴影有独立覆盖块");
+assert.ok(bundle.includes("background: var(--dsw-alias-bg-layer-2, #ffffff);"), "浅色卡片底色取外壳 layer-2 别名");
+assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item,\nbody:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-label {"), "浅色时间线文字取外壳 label-secondary 别名");
+assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-track {"), "浅色进度轨道底色有覆盖");
+assert.ok(bundle.includes("body:not([data-ds-dark-theme]) .dap-toggle {"), "浅色移动端浮动开关底色取外壳浮动按钮填充");
+assert.ok(bundle.includes(".dap-card {\n  flex: none;\n  min-width: 0;\n  padding: 9px 11px;\n  border-radius: 14px;\n  background: rgba(29, 31, 37, 0.94);"), "深色卡片底色保持原值（浅色仅经覆盖块生效）");
+assert.ok(bundle.includes("color: #c7ced9; font-size: 10px; line-height: 14px;"), "深色时间线文字保持原值");
+assert.ok(!bundle.includes("@media (prefers-color-scheme"), "主题跟随外壳 data-ds-dark-theme 标记，不另读系统媒体查询（避免与外壳手动主题设置脱节）");
+// 覆盖块必须不接管 ::before 状态圆点基色：基色规则若被覆盖会以更高优先级
+// 压掉 running/done/error/stopped 状态色。
+assert.ok(!bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item::before"), "浅色覆盖不接管 ::before 圆点（保留状态色）");
+
 console.log("check: all assertions passed");

@@ -943,22 +943,25 @@ function isActiveRow(row, byId = {}, activeIds = null) {
 }
 
 /**
- * 响应保持记账（R-01-002/AC-05、R-01-010/AC-06）：完成提醒主会话被打开后宿主即清除
- * `completed`，保持期间由本记账让会话仍以 awaiting 留在活动区。登记：上一帧完成提醒
- * 的主会话成为当前会话（覆盖宿主同帧切换 current 并清除 completed 的原子时序），或同帧
- * `completed && current` 命中；解除：当前会话非空且切走、或会话行消失。仅主会话参与；
- * 返回新集合，不改入参。
+ * 响应保持记账（R-01-002/AC-05、R-01-010/AC-06）：主会话结束一轮后仍为当前会话期间，
+ * 由本记账让会话以 awaiting 留在活动区。登记（单点）：上一帧自身活动（running/awaiting）
+ * 的主会话在当前焦点下变为非活动——覆盖完成提醒卡被激活（宿主同帧切换 current 并清除
+ * completed 的原子时序）与当前焦点下运行结束（宿主不置 completed）两条路径；同帧
+ * `completed && current` 兜底（宿主先切 current 后清 completed 的时序）。
+ * 解除：当前会话非空且切走、或会话行消失。仅主会话参与；返回新集合，不改入参。
  */
-function updateCompletedHolds(heldIds, snapshot, prevCompletedIds = []) {
+function updateCompletedHolds(heldIds, snapshot, prevActiveIds = []) {
 	const next = new Set(heldIds instanceof Set ? heldIds : []);
 	// 列表快照在途（缺失/无 byId）时原样保留保持记账：瞬时 loading 不得误解除。
 	if (!isRecord(snapshot) || !isRecord(snapshot.byId)) return next;
 	const byId = snapshot.byId;
 	const current = snapshot?.current ?? null;
 	const isCurrent = (id) => current !== null && String(current) === id;
-	for (const id of Array.isArray(prevCompletedIds) ? prevCompletedIds : []) {
+	for (const id of Array.isArray(prevActiveIds) ? prevActiveIds : []) {
 		const key = String(id);
-		if (isCurrent(key) && isRecord(byId[key]) && !isSubagentRow(byId[key], byId)) next.add(key);
+		if (!isCurrent(key)) continue;
+		const row = byId[key];
+		if (isRecord(row) && !isSubagentRow(row, byId) && !isOwnActiveRow(row, byId)) next.add(key);
 	}
 	for (const [id, row] of Object.entries(byId)) {
 		if (row?.completed === true && isCurrent(String(id)) && !isSubagentRow(row, byId)) next.add(String(id));
@@ -1945,11 +1948,11 @@ function apply(ctx) {
 	let paneWidth = readStoredPaneWidth();
 	/** 用户最近一次激活的卡片 id；打开重试链被更新的激活意图取代即取消。 */
 	let lastActivatedId = null;
-	/** 响应保持（R-01-002/AC-05、R-01-010/AC-06）：完成提醒会话被打开后仍为当前会话期间，
+	/** 响应保持（R-01-002/AC-05、R-01-010/AC-06）：主会话结束一轮后仍为当前会话期间，
 	 *  保持其活动卡位置与「需要响应」呈现；易失内存态，不写回宿主、不持久化。 */
 	let heldCompletedIds = new Set();
-	/** 上一帧派生中以「需要响应」呈现的活动条目 id：供保持登记覆盖宿主原子帧时序。 */
-	let prevCompletedAwaitingIds = [];
+	/** 上一帧自身活动（running/awaiting）的主会话条目 id：供保持登记覆盖宿主原子帧时序。 */
+	let prevActiveMainIds = [];
 	/** 上一帧已提交渲染的活动区 id 集合：活动区→历史区迁移检测（R-01-010/AC-07）。 */
 	let prevRenderedActiveIds = new Set();
 	/** 迁移中 ghost 元素集合（含 id 索引）：同一 id 再迁移时旧 ghost 移除，卸载时统一清理。 */
@@ -3134,12 +3137,6 @@ function apply(ctx) {
 			const unbind = bindCardActivation(el, (sessionId) => {
 				if (typeof sessions?.open !== "function") return;
 				lastActivatedId = sessionId;
-				// 点击「需要响应」卡立即登记响应保持（R-01-002/AC-05）：宿主同帧切换 current
-				// 并清除 completed 的原子时序下，纯帧间观察登记可能错过。
-				const clickRows = getSnapshot(sessions, "list")?.byId ?? {};
-				const clickRow = clickRows[sessionId];
-				if (clickRow?.completed === true && !isSubagentRow(clickRow, clickRows))
-					heldCompletedIds.add(String(sessionId));
 				// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标。
 				cancelStaleOpenRetries({ activatedId: sessionId });
 				attemptOpen(sessionId, 0);
@@ -3302,9 +3299,9 @@ function apply(ctx) {
 		const now = Date.now();
 
 		// 响应保持登记/解除先于派生（R-01-002/AC-05、R-01-010/AC-06）。
-		heldCompletedIds = updateCompletedHolds(heldCompletedIds, snapshot, prevCompletedAwaitingIds);
+		heldCompletedIds = updateCompletedHolds(heldCompletedIds, snapshot, prevActiveMainIds);
 		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById, heldCompletedIds);
-		prevCompletedAwaitingIds = active.filter((entry) => entry.pendingText === "需要响应").map((entry) => entry.id);
+		prevActiveMainIds = active.filter((entry) => entry.kind === "running" || entry.kind === "awaiting").map((entry) => entry.id);
 		// 轮内订阅仅对"运行中"会话建立（主会话 + 运行中的子代理），保持在运行中的订阅
 		// 数量 == 运行中会话数量（R-02-004/AC-01）；暂停等待的子代理只显示标题。
 		const runLikeIds = new Set(

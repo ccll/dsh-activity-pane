@@ -1117,6 +1117,49 @@ assert.deepEqual(
 	"子代理 completed 同帧命中也不登记保持",
 );
 
+// ---- R-01-010/AC-06 响应保持扩展：当前焦点下运行结束（宿主不置 completed）同样保持 ----
+const focusRun = { ids: ["sB"], byId: { sB: { ...holdBase, running: true, completed: false } }, current: "sB" };
+let heldFocus = updateCompletedHolds(new Set(), focusRun, ["sB"]);
+assert.deepEqual([...heldFocus], [], "仍在运行时不登记保持（isOwnActiveRow 守卫）");
+const focusDone = { ids: ["sB"], byId: { sB: { ...holdBase, running: false, completed: false } }, current: "sB" };
+heldFocus = updateCompletedHolds(heldFocus, focusDone, ["sB"]);
+assert.deepEqual([...heldFocus], ["sB"], "当前焦点下运行结束即登记保持");
+assert.deepEqual(
+	buildEntries(focusDone, [], {}, heldFocus).map((e) => [e.id, e.kind, e.pendingText, e.isCurrent]),
+	[["sB", "awaiting", "需要响应", true]],
+	"焦点下结束的会话以「需要响应」留在活动区",
+);
+assert.equal(buildRecent(focusDone, [], NOW, undefined, {}, [], heldFocus).length, 0, "焦点下结束的会话不入历史区");
+assert.deepEqual(
+	[...updateCompletedHolds(new Set(), { ids: ["sB"], byId: { sB: { ...holdBase, running: false, completed: true } }, current: "sA" }, ["sB"])],
+	[],
+	"非当前会话结束不登记保持（走宿主 completed 完成提醒路径）",
+);
+// 等待项（待确认/待审查）在焦点下被解除转空闲：同属自身活动变为非活动，同样登记保持。
+const pendingWait = { ids: ["sB"], byId: { sB: { ...holdBase, running: false, completed: false, pendingInteraction: { kind: "approval" } } }, current: "sB" };
+let heldPending = updateCompletedHolds(new Set(), pendingWait, ["sB"]);
+assert.deepEqual([...heldPending], [], "等待未解除时不登记保持（isOwnActiveRow 守卫）");
+heldPending = updateCompletedHolds(heldPending, focusDone, ["sB"]);
+assert.deepEqual([...heldPending], ["sB"], "焦点下解除等待转空闲同样登记保持");
+assert.deepEqual(
+	[
+		...updateCompletedHolds(
+			new Set(),
+			{
+				ids: ["m", "m-c1"],
+				byId: {
+					m: { id: "m", displayTitle: "主M", running: false },
+					"m-c1": { id: "m-c1", displayTitle: "子S", running: false, parentId: "m" },
+				},
+				current: "m-c1",
+			},
+			["m-c1"],
+		),
+	],
+	[],
+	"子代理在焦点下结束不登记保持",
+);
+
 // ---- R-01-010/AC-07 活动区→历史区迁移判定 ----
 assert.deepEqual(
 	movedToRecentIds(new Set(["sA", "sB"]), [{ id: "sA" }], [{ id: "sB" }]),

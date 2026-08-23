@@ -300,10 +300,6 @@ function timelineToolItem(root, fallbackView = null, cwd = "") {
 		summary: detail,
 		detail,
 		status,
-		durationMs:
-			Number.isFinite(root.time) && Number.isFinite(root.callTime)
-				? Math.max(0, root.time - root.callTime)
-				: null,
 	};
 }
 
@@ -320,7 +316,6 @@ function timelineItemFromChatNode(node, cwd = "") {
 			text,
 			detail: null,
 			status: "done",
-			durationMs: null,
 		};
 	}
 	if (node.kind === "assistant-step" || node.kind === "assistant") {
@@ -339,7 +334,6 @@ function timelineItemFromChatNode(node, cwd = "") {
 			summary: reasoning ? (data.status === "running" ? latestLineOf(reasoning) : firstLineOf(reasoning)) : text,
 			detail: reasoning || null,
 			status: data.status === "running" ? "running" : "done",
-			durationMs: null,
 		};
 	}
 	if (node.kind === "tool-call") return timelineToolItem(data.root ?? data, null, cwd);
@@ -358,7 +352,6 @@ function timelineItemFromChatNode(node, cwd = "") {
 					summary: typeof provenance?.label === "string" ? provenance.label : "",
 					detail: null,
 					status: "done",
-					durationMs: null,
 				}
 			: null;
 	}
@@ -398,7 +391,7 @@ function conversationTimeline(snapshot, limit = 4, cwd = "") {
 				: -1;
 		const current = currentIndex >= 0 ? items.splice(currentIndex, 1)[0] : null;
 		liveItems.push({
-			...(current ?? { id: `partial:${snapshot.partial.turn}:${snapshot.partial.step}`, kind: "assistant", icon: "assistant", durationMs: null }),
+			...(current ?? { id: `partial:${snapshot.partial.turn}:${snapshot.partial.step}`, kind: "assistant", icon: "assistant" }),
 			text: partialText,
 			detail: partialReasoning || null,
 			// 镜像原生 ReasoningRow：流式 Think 显示尾部最新行，避免与已定案首行摘要漂移。
@@ -446,17 +439,17 @@ function timelineItemFromEvent(entry, cwd = "") {
 	const data = isRecord(event?.data) ? event.data : {};
 	if (!event || typeof event.type !== "string") return null;
 	if (event.type === "user/message" && data.source?.kind === "user") {
-		return { id: `user:${event.seq}`, kind: "user", icon: "user", text: contentText(data.content), detail: null, status: "done", durationMs: null };
+		return { id: `user:${event.seq}`, kind: "user", icon: "user", text: contentText(data.content), detail: null, status: "done" };
 	}
 	if (event.type === "assistant/message") {
 		const text = contentText(data.message?.content);
-		return text ? { id: `assistant:${event.seq}`, kind: "assistant", icon: "assistant", text, detail: null, status: "done", durationMs: null } : null;
+		return text ? { id: `assistant:${event.seq}`, kind: "assistant", icon: "assistant", text, detail: null, status: "done" } : null;
 	}
 	if (event.type === "tool/call") {
 		return timelineToolItem({ kind: "tool-call", callId: data.callId, name: data.name, argsRaw: data.arguments, callView: entry?.view?.for === "call" ? entry.view.view : null }, null, cwd);
 	}
 	if (event.type === "tool/result") {
-		return timelineToolItem({ kind: "tool-result", callId: data.callId, call: data.name ? { name: data.name, argsRaw: data.arguments ?? "" } : null, time: event.time, callTime: data.callTime, isError: data.isError, resultView: entry?.view?.for === "result" ? entry.view.view : null }, null, cwd);
+		return timelineToolItem({ kind: "tool-result", callId: data.callId, call: data.name ? { name: data.name, argsRaw: data.arguments ?? "" } : null, isError: data.isError, resultView: entry?.view?.for === "result" ? entry.view.view : null }, null, cwd);
 	}
 	return null;
 }
@@ -1607,10 +1600,6 @@ const CSS = `
 [data-dsh-activity-pane] .dap-trace-item[data-status="error"] .dap-trace-separator {
    background: currentColor;
 }
-[data-dsh-activity-pane] .dap-trace-time {
-  flex: none; font-size: 9.5px; color: #7f8998;
-  font-variant-numeric: tabular-nums;
-}
 /* 子代理：同一节点项几何（轨道/圆点/竖线在项内自绘）；去掉容器级 overflow/padding/
    border，避免把左侧圆点裁掉。文本截断由 .dap-trace-main 自处理。 */
 [data-dsh-activity-pane] .dap-subtrace {
@@ -1773,9 +1762,6 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-icon {
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-label {
   color: var(--dsw-alias-label-secondary, rgb(97, 102, 107));
-}
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-time {
-  color: var(--dsw-alias-label-caption, rgb(173, 178, 184));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-separator {
   background: var(--dsw-alias-label-caption, rgb(173, 178, 184));
@@ -2630,7 +2616,7 @@ function apply(ctx) {
 	}
 
 	/**
-	 * 更新 trace 容器。运行中的同一节点只更新文字/耗时，复用 DOM 保持脉冲动画连续；
+	 * 更新 trace 容器。运行中的同一节点只更新文字，复用 DOM 保持脉冲动画连续；
 	 * 节点身份或数量变化时才重建（R-02-003/AC-01）。
 	 */
 	function renderTrace(container, items, { lastOnly = false, allowNativePresentation = false, nativeSessionId = "" } = {}) {
@@ -2711,16 +2697,6 @@ function apply(ctx) {
 			}
 			const statusLabels = { running: "进行中", done: "已完成", ok: "已完成", error: "失败", stopped: "已停止" };
 			line.setAttribute("aria-label", [labelText, summaryText, statusLabels[line.dataset.status] ?? line.dataset.status].filter(Boolean).join(" · "));
-			if (!lastOnly) {
-				let time = line.querySelector(".dap-trace-time");
-				if (time === null) {
-					time = makeEl("span", "dap-trace-time");
-					line.append(time);
-				}
-				time.textContent = Number.isFinite(item.durationMs)
-					? fmtElapsedMs(item.durationMs)
-					: "";
-			}
 			if (!stable) container.append(line);
 		}
 	}

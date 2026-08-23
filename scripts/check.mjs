@@ -534,8 +534,8 @@ assert.deepEqual(
 		{ event: { type: "assistant/message", seq: 2, data: { message: { content: [{ type: "text", text: "历史回复" }] } } } },
 	]),
 	[
-		{ id: "user:1", kind: "user", icon: "user", text: "历史用户", detail: null, status: "done", durationMs: null },
-		{ id: "assistant:2", kind: "assistant", icon: "assistant", text: "历史回复", detail: null, status: "done", durationMs: null },
+		{ id: "user:1", kind: "user", icon: "user", text: "历史用户", detail: null, status: "done" },
+		{ id: "assistant:2", kind: "assistant", icon: "assistant", text: "历史回复", detail: null, status: "done" },
 	],
 	"冷会话 history 按原始事件顺序降级",
 );
@@ -611,7 +611,7 @@ assert.equal(progressOf({ phase: "tool", outputTokens: 100, elapsedMs: 1000 }), 
 assert.ok(progressOf({ phase: "stream", outputTokens: 1_000_000 }) <= 90, "进度有上界");
 // 注：R-01-009/AC-06 的"同回合不倒退/回合重置"为渲染层单调下限，属 GUI 验收项（scripts/acceptance.mjs）。
 
-// ---- R-01-009/AC-07 工作项时间线的状态/耗时与主会话窗口语义摘要 ----
+// ---- R-01-009/AC-07 工作项时间线的状态与主会话窗口语义摘要（无行级耗时，C-012）----
 const statusTimeline = conversationTimeline({
 	chat: {
 		order: ["t1", "t2"],
@@ -625,7 +625,7 @@ const statusTimeline = conversationTimeline({
 	},
 });
 assert.equal(statusTimeline[0].status, "done", "成功工作项状态为 done");
-assert.equal(statusTimeline[0].durationMs, 2000, "工作项耗时=time-callTime");
+assert.ok(!("durationMs" in statusTimeline[0]) && !("durationMs" in statusTimeline[1]), "工作项不携带行级耗时，对齐主会话窗口（C-012）");
 assert.equal(statusTimeline[0].detail, "ls", "bash 工作项详情展示原始命令首行（C-011）");
 assert.equal(statusTimeline[1].status, "error", "出错工作项状态为 error");
 assert.equal(statusTimeline[1].detail, "/a/b.txt", "read 工作项详情取 file_path 参数键");
@@ -1221,6 +1221,7 @@ assert.ok(
 );
 // ---- R-01-009/AC-02、R-01-009/AC-05、R-01-012/AC-01..04、R-01-013/AC-01..06 ----
 assert.ok(bundle.includes("conversationTimeline"), "活动卡使用主会话 ChatSnapshot 工作项时间线");
+assert.ok(!bundle.includes("dap-trace-time"), "工作项时间线不渲染行级耗时元素，对齐主会话窗口（R-01-009/AC-07、C-012）");
 // R-01-009/AC-10
 assert.ok(bundle.includes("mergeTraceStatus"), "渲染层状态合并经核心纯函数 mergeTraceStatus");
 assert.ok(bundle.includes("api.history"), "冷会话使用 native history 一次性补齐");

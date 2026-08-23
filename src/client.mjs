@@ -495,10 +495,6 @@ const CSS = `
 [data-dsh-activity-pane] .dap-trace-item[data-status="error"] .dap-trace-separator {
    background: currentColor;
 }
-[data-dsh-activity-pane] .dap-trace-time {
-  flex: none; font-size: 9.5px; color: #7f8998;
-  font-variant-numeric: tabular-nums;
-}
 /* 子代理：同一节点项几何（轨道/圆点/竖线在项内自绘）；去掉容器级 overflow/padding/
    border，避免把左侧圆点裁掉。文本截断由 .dap-trace-main 自处理。 */
 [data-dsh-activity-pane] .dap-subtrace {
@@ -661,9 +657,6 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-icon {
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-label {
   color: var(--dsw-alias-label-secondary, rgb(97, 102, 107));
-}
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-time {
-  color: var(--dsw-alias-label-caption, rgb(173, 178, 184));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-separator {
   background: var(--dsw-alias-label-caption, rgb(173, 178, 184));
@@ -1518,7 +1511,7 @@ function apply(ctx) {
 	}
 
 	/**
-	 * 更新 trace 容器。运行中的同一节点只更新文字/耗时，复用 DOM 保持脉冲动画连续；
+	 * 更新 trace 容器。运行中的同一节点只更新文字，复用 DOM 保持脉冲动画连续；
 	 * 节点身份或数量变化时才重建（R-02-003/AC-01）。
 	 */
 	function renderTrace(container, items, { lastOnly = false, allowNativePresentation = false, nativeSessionId = "" } = {}) {
@@ -1599,16 +1592,6 @@ function apply(ctx) {
 			}
 			const statusLabels = { running: "进行中", done: "已完成", ok: "已完成", error: "失败", stopped: "已停止" };
 			line.setAttribute("aria-label", [labelText, summaryText, statusLabels[line.dataset.status] ?? line.dataset.status].filter(Boolean).join(" · "));
-			if (!lastOnly) {
-				let time = line.querySelector(".dap-trace-time");
-				if (time === null) {
-					time = makeEl("span", "dap-trace-time");
-					line.append(time);
-				}
-				time.textContent = Number.isFinite(item.durationMs)
-					? fmtElapsedMs(item.durationMs)
-					: "";
-			}
 			if (!stable) container.append(line);
 		}
 	}

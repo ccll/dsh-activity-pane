@@ -175,7 +175,7 @@ sequenceDiagram
 - 活动卡片集合：`活动状态模型#buildEntries(snapshot, workspaceItems)` 产出已排序的活动卡片条目数组（R-01-001）。
 - 最近历史集合：`活动状态模型#buildRecent(snapshot, workspaceItems, now)` 产出按最近活动时间倒序、容限 24h、上限 20 条的最近卡片（R-01-010）。
 - 轮内状态数据：`活动状态模型#runtimeStats({ runningTool, streaming, elapsedMs, outputTokens, rateTokS })` 产出运行卡所需的时长、token 与速率字段；当前动作不再单独输出为卡片状态行，工具名、回复文本与详情进入 `工作项时间线`（R-01-009/AC-01、AC-02、AC-03、AC-05）。
-- 工作项时间线呈现：`活动状态模型#conversationTimeline` 产出的工作项含 label/summary/status/durationMs；工具项详情经 `summarizeToolArguments` 镜像主会话窗口 `deriveSummary` 语义（R-01-009/AC-07、R-01-012）。
+- 工作项时间线呈现：`活动状态模型#conversationTimeline` 产出的工作项含 label/summary/status；时间线不显示行级耗时，对齐主会话窗口工作项行（原生无行级耗时，C-012）；工具项详情经 `summarizeToolArguments` 镜像主会话窗口 `deriveSummary` 语义（R-01-009/AC-07、R-01-012）。
   - 渲染层以竖线串圆点的时间线呈现：轨道从卡片内容左边界起步，竖线与圆点严格同圆心（整数像素位，避免 1px 竖线分数位吸附偏移）；竖线穿过首个节点圆点并向上引出，终点没入最新动作圆点内部不外露。
   - 圆点带半透明外环；正在执行节点使用蓝色外环并闪烁，已定案节点使用绿/红实心圆点；圆点位于内容区，不被容器裁切。
   - 会话运行中（快照 `running === true` 且 `pending` 为空）、时间线无 live 工作项且无其他执行中项时，`conversationTimeline` 将尾部已定案的非用户工作项克隆提升为 `running`，作为 agent 工作中的持续标志；尾部为 error/stopped/用户输入项时不提升；渲染层经 `mergeTraceStatus` 合并工作项状态，核心派生的 `running` 优先于原生行 `data-state`，核心非 running 时保持原生优先旧语义（R-01-009/AC-10）。

@@ -6,7 +6,7 @@ id: T-031
 
 # T-031 母会话与子会话层级连接线
 
-状态: active
+状态: completed
 关联: R-01-003/AC-01、R-01-003/AC-04 / 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -60,4 +60,13 @@ TODO 中提出：仅靠缩进不足以直观表达母会话与子会话的层级
 
 ## 终态与证据
 
-待实现与验证完成后填写。
+- 实现: `src/core.mjs` 活动条目保留 `parentId`，`isLastChildEntry` 按 preorder 后续条目的深度与直属归属判断末级；`src/client.mjs` 以 `data-connector`/`data-last-child` 和 CSS 伪元素绘制缩进槽竖线、卡片中心横线，连接线不拦截交互；同步 `.dsh-plugin/client.js`、PRD/DESIGN/DOMAIN、测试与人工验收清单。
+- 测试: `pnpm build:client && pnpm check` 通过；`node scripts/check.mjs` 覆盖唯一子代理、P→A→G→B 多级同级轨道、几何 CSS 契约与 `parentId` 归属；`python3 tools/agentmap_lint.py --report` 通过（18 需求 / 73 AC / 73 测试锚点）；`git diff --check` 通过；`scripts/acceptance.mjs` 已加入 R-01-003/AC-04 GUI 步骤；`curl http://127.0.0.1:3080/` 返回 HTTP 200。真实页面视觉与键盘/点击回归仍需按该人工步骤验收。
+- DESIGN 对照: PRD R-01-003 新增 AC-04；DESIGN 的活动条目结构、`isLastChildEntry` preorder 末级判断、窗格渲染器连接线契约与实现位置已同步；DOMAIN 新增母会话/层级连接线术语与跨模块不变量；R-01-003 追溯行保持准确。
+- commit: b2a7739
+- review:
+  - 审核方: Standards 子代理 `bf12c9d1-edbe-430c-a48d-9b5470746450`；Spec 子代理 `a0a2712e-d15a-45df-aea4-8ffdbfc958f0`。
+  - 目的理解: T-031 实现 R-01-003/AC-04，在保持 `depth` 缩进、卡片点击/键盘激活和布局宽度不变的前提下，用连接线表达母会话与直属子会话层级，并支持多级树同级轨道连续。
+  - 执行方式: `code-review` skill；固定基线 `0c827b7`，范围为 `git diff 0c827b7...HEAD` 及 T-031 工作单元；Standards/Spec 双轴初审，修复后由同一审核方复审。
+  - 问题与修复: Spec 初审发现 `isLastChildEntry` 只看下一条 entry 会误判 P→A→G→B 中 A 为末级；改为扫描后续 preorder，跨过 descendants，仅遇到同深度同 `parentId` sibling 才保持轨道，并新增可执行断言。复审未发现确定性实现问题；几何精确位置和真实交互属于现有 GUI 人工验收边界，已补 CSS 契约与验收步骤。
+  - 复审结论: Standards 通过；Spec 通过，无遗留确定性 finding。

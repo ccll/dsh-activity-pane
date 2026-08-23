@@ -38,7 +38,13 @@ import {
 	summarizeToolArguments,
 	workspaceTitleForSession,
 } from "../src/core.mjs";
-import { bindBackdropDismiss, bindCardActivation, openSession } from "../src/navigation.mjs";
+import {
+	COMPOSER_SELECTOR,
+	bindBackdropDismiss,
+	bindCardActivation,
+	openSession,
+	suppressComposerAutofocus,
+} from "../src/navigation.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -104,6 +110,42 @@ activateEvent("click");
 assert.deepEqual(cardOpened, ["card-a", "card-a", "card-a", "card-b"], "复用同一 card 时读取最新 session id");
 unbindCard();
 assert.equal(cardListeners.size, 0, "card 卸载移除 click/keydown 监听");
+
+// ---- R-01-005/AC-01 回归：移动端切换会话后抑制原生 composer 自动聚焦（不弹软键盘） ----
+const composerEl = {
+	focused: true,
+	matches: (selector) => selector === COMPOSER_SELECTOR,
+	blur() {
+		this.focused = false;
+	},
+};
+const docListeners = new Map();
+const fakeDoc = {
+	activeElement: composerEl,
+	addEventListener(type, listener, capture) {
+		docListeners.set(`${type}:${capture}`, listener);
+	},
+	removeEventListener(type, listener, capture) {
+		if (docListeners.get(`${type}:${capture}`) === listener) docListeners.delete(`${type}:${capture}`);
+	},
+};
+let endFocusWindow = null;
+suppressComposerAutofocus(fakeDoc, (fn) => {
+	endFocusWindow = fn;
+});
+assert.equal(composerEl.focused, false, "激活时 composer 已持焦则立即 blur");
+const onFocusIn = docListeners.get("focusin:true");
+assert.equal(typeof onFocusIn, "function", "已安装捕获阶段 focusin 监听");
+composerEl.focused = true;
+onFocusIn({ target: composerEl });
+assert.equal(composerEl.focused, false, "窗口内 composer 自动聚焦被 blur");
+onFocusIn({ target: { matches: () => false, blur: () => assert.fail("非 composer 不应被 blur") } });
+endFocusWindow();
+assert.equal(docListeners.size, 0, "窗口结束后移除 focusin 监听");
+composerEl.focused = true;
+assert.equal(composerEl.focused, true, "监听移除后不再干预聚焦");
+suppressComposerAutofocus(null);
+suppressComposerAutofocus({});
 
 // ---- R-01-005/AC-02 打开重试链取消判定与卡片定位选择器转义 ----
 assert.equal(

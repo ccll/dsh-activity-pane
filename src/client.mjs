@@ -1962,6 +1962,9 @@ function apply(ctx) {
 		if (el !== null) el.setAttribute("data-opening", "");
 
 		if (openSession(sessions, sessionId)) {
+			// 移动视口下抑制原生 composer 在 sessionId 变化后的自动聚焦，
+			// 避免切换会话弹出软键盘（桌面保持原生自动聚焦）。
+			if (!desktopQuery.matches) suppressComposerAutofocus(document);
 			// 到达新目标后取消全部剩余链条：任何旧链成功都会把会话从新目标拽走。
 			cancelStaleOpenRetries({ activatedId: sessionId });
 			cancelOpenRetry(sessionId);

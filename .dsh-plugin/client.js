@@ -935,6 +935,27 @@ function openSession(sessions, sessionId) {
 	}
 }
 
+/** 原生会话输入框（dsh-client-ui-conversation composer 的 textarea）。 */
+const COMPOSER_SELECTOR = "textarea[data-phase]";
+
+/**
+ * 抑制切换会话后原生 composer 的自动聚焦（R-01-005/AC-01 移动端回归）。
+ * dsh-client-ui-conversation 的 composer 在 sessionId 变化的 effect 里
+ * focus 输入框（桌面便于立即输入）；移动视口下该聚焦会弹出软键盘遮挡会话。
+ * open 成功后立即 blur 一次（覆盖 composer 已持焦的情形），并在短暂窗口内
+ * 以捕获阶段 focusin 拦截随后的自动聚焦；窗口外用户主动聚焦不受影响。
+ */
+function suppressComposerAutofocus(doc, scheduleTimeout = setTimeout, windowMs = 1200) {
+	if (typeof doc?.addEventListener !== "function") return;
+	const blurComposer = (el) => {
+		if (typeof el?.matches === "function" && el.matches(COMPOSER_SELECTOR)) el.blur?.();
+	};
+	blurComposer(doc.activeElement);
+	const onFocusIn = (event) => blurComposer(event?.target);
+	doc.addEventListener("focusin", onFocusIn, true);
+	scheduleTimeout(() => doc.removeEventListener?.("focusin", onFocusIn, true), windowMs);
+}
+
 /**
  * 为移动端抽屉的透明遮罩绑定点击收起，并返回卸载函数。
  * 抽屉与浮动开关位于遮罩之上，能到达遮罩的点击必然来自抽屉外部，
@@ -2921,6 +2942,9 @@ function apply(ctx) {
 		if (el !== null) el.setAttribute("data-opening", "");
 
 		if (openSession(sessions, sessionId)) {
+			// 移动视口下抑制原生 composer 在 sessionId 变化后的自动聚焦，
+			// 避免切换会话弹出软键盘（桌面保持原生自动聚焦）。
+			if (!desktopQuery.matches) suppressComposerAutofocus(document);
 			// 到达新目标后取消全部剩余链条：任何旧链成功都会把会话从新目标拽走。
 			cancelStaleOpenRetries({ activatedId: sessionId });
 			cancelOpenRetry(sessionId);

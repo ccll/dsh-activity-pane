@@ -771,23 +771,66 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 
 	return entries;
 }
-/** 判断活动条目是否为其直属母会话的最后一个可见子代理。 */
-export function isLastChildEntry(entries, index) {
-	const entry = Array.isArray(entries) ? entries[index] : null;
-	if (entry?.parentId == null || (entry.kind !== "subagent" && entry.kind !== "parent")) return false;
-	for (let i = index + 1; i < entries.length; i += 1) {
-		const next = entries[i];
-		if ((next?.depth ?? 0) <= (entry.depth ?? 0)) {
-			return !(
-				next?.depth === entry.depth
-				&& String(next.parentId ?? "") === String(entry.parentId)
-			);
-		}
+/**
+ * 把活动条目压成母会话轨道运行（R-01-003/AC-04）：每个拥有可见直属子代理的
+ * 母会话一条，记录全部可见直属子代理 id（有序，末位即末级）与子级深度，供
+ * 渲染层测量后绘制整条连续轨道与接入横线。条目按 preorder 排列，同一直属
+ * 子代理组天然连续。直属性按「条目深度 = 母会话条目深度 + 1」判定（与条目
+ * 顺序无关）；无 id、无母会话条目或非直属的条目一律跳过。
+ */
+export function trackRuns(entries) {
+	const list = Array.isArray(entries) ? entries : [];
+	const depthById = new Map();
+	for (const entry of list) {
+		if (entry?.id != null) depthById.set(String(entry.id), entry.depth ?? 0);
 	}
-	return true;
+	const runs = new Map();
+	for (const entry of list) {
+		if (entry?.id == null || entry?.parentId == null || (entry.depth ?? 0) < 1) continue;
+		if (entry.kind !== "subagent" && entry.kind !== "parent") continue;
+		const pid = String(entry.parentId);
+		const parentDepth = depthById.get(pid);
+		if (parentDepth === undefined || entry.depth !== parentDepth + 1) continue;
+		const run = runs.get(pid);
+		if (run === undefined) runs.set(pid, { parentId: pid, depth: entry.depth, childIds: [entry.id] });
+		else run.childIds.push(entry.id);
+	}
+	return [...runs.values()];
 }
 
-
+/**
+ * 由测量矩形求一条轨道的全部绘制盒：竖轨（母会话卡片底缘 → 末级子卡中心，
+ * 含收口行）+ 每个子卡一条接入横线（竖轨右缘 → 子卡左缘）。所有坐标取整到
+ * CSS 像素：卡片高度是流式小数，任何一条按小数坐标定位的 1px 线段都会被
+ * 抗锯齿随机摊薄（粗细不一、端点方头错位）；统一取整后全部线段同相位，
+ * 粗细一致且端点天然相接（T-033 东家验收发现）。rectOf(id) 返回浮点
+ * { top, height, left } 或 null；读数缺失或高度非正（折叠/隐藏态）返回 null。
+ */
+export function trackBoxes(run, rectOf, indentPx) {
+	const parent = rectOf(run?.parentId);
+	if (parent == null) return null;
+	const childIds = Array.isArray(run?.childIds) ? run.childIds : [];
+	if (childIds.length === 0) return null;
+	const childRects = [];
+	for (const id of childIds) {
+		const rect = rectOf(id);
+		if (rect == null) return null;
+		childRects.push(rect);
+	}
+	const top = Math.round(parent.top + parent.height);
+	const left = Math.round(parent.left + indentPx / 2 + 1);
+	const lastRect = childRects[childRects.length - 1];
+	const bottom = Math.round(lastRect.top + lastRect.height / 2);
+	if (!(bottom > top)) return null;
+	// 竖轨延伸进收口横线所在行（+1），拐角像素由竖轨绘制，横线从其右缘起笔，互不重叠。
+	const track = { top, left, height: bottom - top + 1 };
+	const stubs = childRects.map((rect) => ({
+		top: Math.round(rect.top + rect.height / 2),
+		left: left + 1,
+		width: Math.round(rect.left) - (left + 1),
+	}));
+	return { track, stubs };
+}
 /**
  * 渲染去重签名：两份条目序列若产出字节一致的可见状态则签名相等，
  * 因此渲染可跳过全部 DOM 写入，打破 渲染→写 DOM→再次触发渲染 的循环。

@@ -24,7 +24,8 @@ import {
 	isActiveRow,
 	shouldSubscribeToSession,
 	activeSessionIds,
-	isLastChildEntry,
+	trackBoxes,
+	trackRuns,
 	isSubagentRow,
 	listLoadState,
 	mergeTraceStatus,
@@ -303,15 +304,76 @@ assert.deepEqual(
 );
 assert.equal(entries[0].isCurrent, true, "当前会话高亮标记");
 assert.equal(entries[1].parentId, "sA", "子代理条目保留直属母会话 id");
-assert.equal(isLastChildEntry(entries, 1), true, "唯一可见子代理在母会话下收口连接线");
+assert.deepEqual(trackRuns(entries), [{ parentId: "sA", depth: 1, childIds: ["sA-c1"] }], "唯一可见子代理产生一条母会话轨道运行");
 const hierarchyEntries = [
-	{ kind: "subagent", parentId: "root", depth: 1 },
-	{ kind: "subagent", parentId: "child-1", depth: 2 },
-	{ kind: "subagent", parentId: "root", depth: 1 },
+	{ id: "root", kind: "running", depth: 0 },
+	{ id: "A", kind: "subagent", parentId: "root", depth: 1 },
+	{ id: "G", kind: "subagent", parentId: "A", depth: 2 },
+	{ id: "B", kind: "subagent", parentId: "root", depth: 1 },
 ];
-assert.equal(isLastChildEntry(hierarchyEntries, 0), false, "母会话连接轨道跨过孙级继续连接后续同级子代理");
-assert.equal(isLastChildEntry(hierarchyEntries, 1), true, "多级子代理的末级连接线收口");
-assert.equal(isLastChildEntry(hierarchyEntries, 2), true, "同级末个子代理连接线收口");
+assert.deepEqual(
+	trackRuns(hierarchyEntries),
+	[
+		{ parentId: "root", depth: 1, childIds: ["A", "B"] },
+		{ parentId: "A", depth: 2, childIds: ["G"] },
+	],
+	"P→A→G→B：root 与 A 各一条连续轨道，跨孙级区间由同一元素覆盖（断线回归）",
+);
+assert.deepEqual(trackRuns(hierarchyEntries.slice(0, 3)), [
+	{ parentId: "root", depth: 1, childIds: ["A"] },
+	{ parentId: "A", depth: 2, childIds: ["G"] },
+], "无后续同级时轨道収于各自末级子代理");
+assert.deepEqual(trackRuns([hierarchyEntries[0]]), [], "无子代理的母会话不产生轨道");
+assert.deepEqual(trackRuns([{ kind: "subagent", parentId: "p", depth: 1 }]), [], "无 id 条目不产生轨道");
+assert.deepEqual(
+	trackRuns([...hierarchyEntries, { id: "X", kind: "subagent", parentId: "root", depth: 3 }]),
+	[
+		{ parentId: "root", depth: 1, childIds: ["A", "B"] },
+		{ parentId: "A", depth: 2, childIds: ["G"] },
+	],
+	"非直属条目不纳入轨道、不改末级",
+);
+assert.deepEqual(
+	trackRuns([
+		{ id: "root", kind: "running", depth: 0 },
+		{ id: "X", kind: "subagent", parentId: "root", depth: 2 },
+		{ id: "A", kind: "subagent", parentId: "root", depth: 1 },
+	]),
+	[{ parentId: "root", depth: 1, childIds: ["A"] }],
+	"异常深度条目先来也不污染轨道：直属性按母会话条目深度+1 判定，与顺序无关",
+);
+const hierarchyRuns = trackRuns(hierarchyEntries);
+const hierarchyRects = {
+	root: { top: 0, height: 40, left: 8 },
+	A: { top: 46, height: 30, left: 24 },
+	G: { top: 82, height: 30, left: 40 },
+	B: { top: 118, height: 30, left: 24 },
+};
+assert.deepEqual(
+	trackBoxes(hierarchyRuns[0], (id) => hierarchyRects[id] ?? null, 16),
+	{
+		track: { top: 40, left: 17, height: 94 },
+		stubs: [
+			{ top: 61, left: 18, width: 6 },
+			{ top: 133, left: 18, width: 6 },
+		],
+	},
+	"root 竖轨起于母会话底缘、穿过 G 所在区间、延伸进末级 B 的收口行；A/B 横线从竖轨右缘到各卡片左缘（几何回归）",
+);
+assert.deepEqual(
+	trackBoxes(hierarchyRuns[1], (id) => hierarchyRects[id] ?? null, 16),
+	{
+		track: { top: 76, left: 33, height: 22 },
+		stubs: [{ top: 97, left: 34, width: 6 }],
+	},
+	"A 竖轨起于 A 底缘、延伸进 G 的收口行（末级精确収口），横线同理相接",
+);
+assert.equal(
+	trackBoxes(hierarchyRuns[0], () => ({ top: 0, height: 0, left: 0 }), 16),
+	null,
+	"折叠/隐藏态零高度读数不绘制轨道，展开后由 ResizeObserver 重算",
+);
+assert.equal(trackBoxes(hierarchyRuns[0], () => null, 16), null, "卡片缺失时跳过该轨道（下轮渲染自愈）");
 assert.equal(entries[2].workspaceTitle, "", "无归属则无工作区徽标");
 // ---- R-01-003/AC-05 活动子代理补齐所有非活动母会话 ----
 const inheritedActivity = {
@@ -1103,6 +1165,14 @@ assert.ok(!clientSource.includes("value.partial"), "history 响应不读取不�
 assert.ok(!clientSource.includes("timelineUserMessages"), "不重新引入 C-007/C-008 否决的 timelineUserMessages 投影");
 assert.ok(bundle.includes("isSubagentRow(byId[id], byId)"), "子代理跳过必被 agent-busy 拒绝的 models 读取");
 assert.ok(
+	bundle.includes("let rec = reuseMap.get(entry.id);"),
+	"renderCardIntoList 必须先取复用记录再判空：丢失该行会让 rec 未声明抛 ReferenceError，逐卡 catch 吞掉后整区空白",
+);
+assert.ok(
+	!bundle.includes("[data-dsh-activity-pane] .dap-rail {\n  position: absolute;"),
+	"折叠态展开按钮 .dap-rail 不得被绝对定位：撞名规则会把按钮压成 1px 竖线，折叠态窗格整体空白",
+);
+assert.ok(
 	!bundle.includes("list.appendChild(rec.el)"),
 	"渲染不得无条件 appendChild 移动卡片：卡片瞬时脱离文档会让浏览器取消按下/抬起之间的 click、让焦点卡失焦、丢失悬停态（会话活跃期高频渲染时窗格整体不响应）",
 );
@@ -1120,14 +1190,66 @@ assert.ok(bundle.includes("dap-token-stats"), "token 统计 DOM 位于进度条�
 assert.ok(bundle.includes("dap-history-line"), "历史卡包含用户/agent 两条消息预览行");
 // R-01-003/AC-04
 assert.ok(bundle.includes("parentId: m.isSub ? String(parentId) : null"), "活动卡条目保留直属母会话 id");
-assert.ok(bundle.includes("function isLastChildEntry(entries, index)"), "渲染按直属母会话识别末级子代理");
-assert.ok(bundle.includes("[data-dsh-activity-pane] .dap-card[data-connector]::before"), "子代理卡片绘制层级竖向连接线");
-assert.ok(bundle.includes('"data-connector"'), "子代理连接线不进入卡片内容与点击区域");
-assert.ok(bundle.includes("left: -8px;\n  top: -6px;"), "竖向连接线位于缩进槽中部并跨越列表间距");
-assert.ok(bundle.includes("left: -8px;\n  top: 50%;\n  width: 8px;"), "横向连接线从缩进槽接入子代理卡片中心");
+assert.ok(bundle.includes("function trackRuns(entries)"), "母会话轨道拓扑由纯函数 trackRuns 一次求出");
+assert.ok(bundle.includes('[data-dsh-activity-pane] .dap-tracks {'), "列表内置绝对定位轨道层");
+assert.ok(bundle.includes('[data-dsh-activity-pane] .dap-conn-track {'), "每个母会话一条连续轨道元素");
+assert.ok(bundle.includes('trackEl.className = "dap-conn-track"'), "轨道元素使用独立类名");
+assert.ok(bundle.includes('class="dap-tracks" aria-hidden="true"'), "轨道层为纯装饰、不进可访问性树");
+assert.ok(
+	bundle.includes("syncTracks(activeList, active, cardsById)"),
+	"全部卡片写入后统一测量绘制轨道（读写分离，避免布局抖动）",
+);
+assert.ok(
+	bundle.includes("function trackBoxes(run, rectOf, indentPx)") && bundle.includes("trackBoxes(run, rectOf, INDENT_PX)"),
+	"竖轨与横线几何（母会话底缘 → 末级子卡中心、逐子卡横线、统一取整）在纯函数 trackBoxes 中推导并被可执行断言钉住，渲染层只做测量与写入",
+);
+assert.ok(
+	bundle.includes("rec.el.getBoundingClientRect()") && !bundle.includes("rec.el.offsetTop"),
+	"轨道测量必须用浮点矩形：offsetTop/offsetHeight 是整数舍入值，与 CSS 全精度定位的横线会随机差 1~2px",
+);
+assert.ok(bundle.includes("new ResizeObserver("), "卡片高度随流式内容变化时由 ResizeObserver 重算轨道");
+assert.ok(
+	bundle.includes("window.devicePixelRatio") && bundle.includes("Math.round(baseLeft * dpr) / dpr") && bundle.includes("queueTrackSync"),
+	"轨道层必须整体对齐设备像素网格（层原点的小数相位会让 1px 线段粗细不稳），滚动后经 rAF 重对齐",
+);
+assert.ok(
+	bundle.includes("cancelAnimationFrame(trackSyncHandle)"),
+	"卸载时必须取消未执行的滚动重对齐 rAF 并清空轨道上下文，避免回调落到已移除列表",
+);
+assert.ok(bundle.includes('[data-dsh-activity-pane] .dap-conn-stub {'), "接入横线由轨道层元素绘制");
+assert.ok(bundle.includes('el.className = "dap-conn-stub"'), "横线元素使用独立类名");
+assert.ok(
+	bundle.includes("Math.round(parent.left + indentPx / 2 + 1)") && bundle.includes("Math.round(rect.top + rect.height / 2)"),
+	"全部线段坐标统一取整到 CSS 像素：小数坐标定位的 1px 线段被抗锯齿随机摊薄（粗细不一、端点错位）",
+);
+assert.ok(
+	!bundle.includes('"data-connector"') && !bundle.includes(".dap-card[data-connector]::after"),
+	"横线不得回退到卡片伪元素：CSS 按小数 50% 定位的横线相位随机，粗细不稳定",
+);
+assert.ok(
+	!bundle.includes('.dap-card[data-connector]::before'),
+	"竖向轨道不得再由卡片伪元素分段拼接：接缝端点落在随机亚像素相位上，断口与重叠并存不可控（T-033）",
+);
+assert.ok(
+	!bundle.includes("data-last-child"),
+	"末级收口由测量给出精确值，不得回退到 data-last-child + calc(50%+6px) 的 CSS 凑数",
+);
+assert.ok(
+	!bundle.includes('el.className = "dap-rail"'),
+	"轨道元素不得复用 dap-rail：该类已被折叠态展开按钮占用，撞名会使按钮被绝对定位成 1px 竖线（折叠态窗格整体空白）并被 querySelector 误取",
+);
+assert.ok(
+	!bundle.includes("[data-dsh-activity-pane] .dap-rail {\n  position: absolute;"),
+	"折叠态展开按钮 .dap-rail 不得被绝对定位：撞名规则会把按钮压成 1px 竖线，折叠态窗格整体空白",
+);
+assert.ok(
+	clientSource.includes("const INDENT_PX = 16;") &&
+		bundle.includes("Math.round(parent.left + indentPx / 2 + 1)") &&
+		bundle.includes("renderCardIntoList(activeList, entry, cardsById, index, 1)"),
+	"几何耦合钉住：INDENT_PX=16、轨道 left 由母会话卡片左缘测量推导（+半槽+1px border，取整后与横线起笔相接）与活动区卡片 offset=1（轨道层为首子节点），改任一必须同步",
+);
 // R-01-003/AC-05
 assert.ok(bundle.includes("function activeSessionIds(byId = {})"), "活动子代理沿 parentId 链补齐活动祖先");
-assert.ok(bundle.includes("top: -6px;\n  bottom: -2px;"), "连接线以 2px 边缘冗余抵抗子像素布局变化且不形成明显重叠");
 // R-01-013/AC-07、R-01-013/AC-08
 assert.ok(bundle.includes('dataset.role = "user"'), "用户消息行骨架静态标识 user 角色");
 assert.ok(bundle.includes('dataset.role = "agent"'), "agent 回复行骨架静态标识 agent 角色");

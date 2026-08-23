@@ -777,23 +777,66 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 
 	return entries;
 }
-/** 判断活动条目是否为其直属母会话的最后一个可见子代理。 */
-function isLastChildEntry(entries, index) {
-	const entry = Array.isArray(entries) ? entries[index] : null;
-	if (entry?.parentId == null || (entry.kind !== "subagent" && entry.kind !== "parent")) return false;
-	for (let i = index + 1; i < entries.length; i += 1) {
-		const next = entries[i];
-		if ((next?.depth ?? 0) <= (entry.depth ?? 0)) {
-			return !(
-				next?.depth === entry.depth
-				&& String(next.parentId ?? "") === String(entry.parentId)
-			);
-		}
+/**
+ * 把活动条目压成母会话轨道运行（R-01-003/AC-04）：每个拥有可见直属子代理的
+ * 母会话一条，记录全部可见直属子代理 id（有序，末位即末级）与子级深度，供
+ * 渲染层测量后绘制整条连续轨道与接入横线。条目按 preorder 排列，同一直属
+ * 子代理组天然连续。直属性按「条目深度 = 母会话条目深度 + 1」判定（与条目
+ * 顺序无关）；无 id、无母会话条目或非直属的条目一律跳过。
+ */
+function trackRuns(entries) {
+	const list = Array.isArray(entries) ? entries : [];
+	const depthById = new Map();
+	for (const entry of list) {
+		if (entry?.id != null) depthById.set(String(entry.id), entry.depth ?? 0);
 	}
-	return true;
+	const runs = new Map();
+	for (const entry of list) {
+		if (entry?.id == null || entry?.parentId == null || (entry.depth ?? 0) < 1) continue;
+		if (entry.kind !== "subagent" && entry.kind !== "parent") continue;
+		const pid = String(entry.parentId);
+		const parentDepth = depthById.get(pid);
+		if (parentDepth === undefined || entry.depth !== parentDepth + 1) continue;
+		const run = runs.get(pid);
+		if (run === undefined) runs.set(pid, { parentId: pid, depth: entry.depth, childIds: [entry.id] });
+		else run.childIds.push(entry.id);
+	}
+	return [...runs.values()];
 }
 
-
+/**
+ * 由测量矩形求一条轨道的全部绘制盒：竖轨（母会话卡片底缘 → 末级子卡中心，
+ * 含收口行）+ 每个子卡一条接入横线（竖轨右缘 → 子卡左缘）。所有坐标取整到
+ * CSS 像素：卡片高度是流式小数，任何一条按小数坐标定位的 1px 线段都会被
+ * 抗锯齿随机摊薄（粗细不一、端点方头错位）；统一取整后全部线段同相位，
+ * 粗细一致且端点天然相接（T-033 东家验收发现）。rectOf(id) 返回浮点
+ * { top, height, left } 或 null；读数缺失或高度非正（折叠/隐藏态）返回 null。
+ */
+function trackBoxes(run, rectOf, indentPx) {
+	const parent = rectOf(run?.parentId);
+	if (parent == null) return null;
+	const childIds = Array.isArray(run?.childIds) ? run.childIds : [];
+	if (childIds.length === 0) return null;
+	const childRects = [];
+	for (const id of childIds) {
+		const rect = rectOf(id);
+		if (rect == null) return null;
+		childRects.push(rect);
+	}
+	const top = Math.round(parent.top + parent.height);
+	const left = Math.round(parent.left + indentPx / 2 + 1);
+	const lastRect = childRects[childRects.length - 1];
+	const bottom = Math.round(lastRect.top + lastRect.height / 2);
+	if (!(bottom > top)) return null;
+	// 竖轨延伸进收口横线所在行（+1），拐角像素由竖轨绘制，横线从其右缘起笔，互不重叠。
+	const track = { top, left, height: bottom - top + 1 };
+	const stubs = childRects.map((rect) => ({
+		top: Math.round(rect.top + rect.height / 2),
+		left: left + 1,
+		width: Math.round(rect.left) - (left + 1),
+	}));
+	return { track, stubs };
+}
 /**
  * 渲染去重签名：两份条目序列若产出字节一致的可见状态则签名相等，
  * 因此渲染可跳过全部 DOM 写入，打破 渲染→写 DOM→再次触发渲染 的循环。
@@ -1074,6 +1117,9 @@ const STYLE_ID = "dsh-activity-pane-style";
 const INSTANCE_KEY = "__dshActivityPaneCleanup";
 const DEFAULT_WIDTH = 280;
 const COLLAPSED_WIDTH = 34;
+// 缩进槽宽：与连接线 CSS 几何耦合（left:-8px = INDENT_PX/2 缩进槽中线，
+// top:-6px/bottom:-2px 对应 .dap-list 的 gap:6px），改任一数值须三处同步；
+// scripts/check.mjs 有钉住断言。
 const INDENT_PX = 16;
 const MOBILE_BREAKPOINT = "767px";
 /** 运行卡时钟：只要存在运行中会话，就以该周期刷新时长显示。 */
@@ -1176,6 +1222,8 @@ const CSS = `
   flex-direction: column;
   gap: 6px;
   padding: 0 8px;
+  /* 轨道层的定位包含块（轨道绝对定位在列表坐标系内） */
+  position: relative;
 }
 /* 最近历史区：同一滚动区内的块段；整段可隐藏。 */
 [data-dsh-activity-pane] .dap-recent {
@@ -1255,28 +1303,28 @@ const CSS = `
   gap: 4px;
   cursor: pointer;
 }
-/* 子代理层级连接线（R-01-003/AC-04）：线段放在缩进槽，不覆盖卡片内容；
-   非末级节点把轨道延伸到下一同级节点，末级在自身中心收口。 */
-[data-dsh-activity-pane] .dap-card[data-connector]::before {
-  content: "";
+/* 子代理层级连接线（R-01-003/AC-04）：竖轨与横线全部由轨道层整体绘制——
+   syncTracks 测量各卡片浮点矩形，trackBoxes 统一取整到 CSS 像素后写入：
+   每个母会话一条连续竖轨 .dap-conn-track（母会话底缘 → 末级子卡中心，
+   含收口行），每个子卡一条横线 .dap-conn-stub（竖轨右缘 → 子卡左缘）。
+   不分段拼接（接缝在随机亚像素相位下断口与重叠并存），也不让 CSS 按小数
+   坐标定位任何线段（抗锯齿随机摊薄导致粗细不一、端点方头错位）；统一取整
+   使所有线段同相位，且轨道层整体 transform 对齐设备像素网格（层原点随窗
+   口/滚动停在任意小数相位，不对齐则 1px 线段粗细不稳），滚动时经 rAF 重
+   对齐（T-033）。 */
+[data-dsh-activity-pane] .dap-tracks {
   position: absolute;
-  left: -8px;
-  top: -6px;
-  bottom: -2px;
+  inset: 0;
+  pointer-events: none;
+}
+[data-dsh-activity-pane] .dap-conn-track {
+  position: absolute;
   width: 1px;
   background: color-mix(in srgb, currentColor 24%, transparent);
   pointer-events: none;
 }
-[data-dsh-activity-pane] .dap-card[data-connector][data-last-child]::before {
-  bottom: auto;
-  height: calc(50% + 6px);
-}
-[data-dsh-activity-pane] .dap-card[data-connector]::after {
-  content: "";
+[data-dsh-activity-pane] .dap-conn-stub {
   position: absolute;
-  left: -8px;
-  top: 50%;
-  width: 8px;
   height: 1px;
   background: color-mix(in srgb, currentColor 24%, transparent);
   pointer-events: none;
@@ -2044,6 +2092,7 @@ function apply(ctx) {
 		// 滚动条仅滚动时显示（R-01-004/AC-03）：滚动即置位，停滚 600ms 后隐藏。
 		let scrollHideTimer = null;
 		const onScroll = () => {
+			queueTrackSync(); // 滚动停在小数相位后重对齐轨道层（rAF 合帧）
 			scroll.setAttribute("data-scrolling", "");
 			if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);
 			scrollHideTimer = setTimeout(() => {
@@ -2086,7 +2135,7 @@ function apply(ctx) {
 					<button class="dap-close" type="button" aria-label="收起抽屉">×</button>
 				</div>
 				<div class="dap-scroll">
-					<div class="dap-list" tabindex="-1"></div>
+					<div class="dap-list" tabindex="-1"><div class="dap-tracks" aria-hidden="true"></div></div>
 					<div class="dap-recent">
 						<div class="dap-recent-head"><span>最近历史 · 24h</span></div>
 					</div>
@@ -2776,9 +2825,124 @@ function apply(ctx) {
 		}
 	}
 
+	/** 层级轨道层（R-01-003/AC-04）：每个拥有可见直属子代理的母会话一条连续竖轨
+	 *  加每个子卡一条接入横线（拓扑与几何由 trackRuns/trackBoxes 纯函数给出），
+	 *  渲染提交后统一测量、取整到 CSS 像素后一次性写入。竖轨单元素整体绘制，
+	 *  不做分段拼接（接缝在随机亚像素相位下断口与重叠并存，T-033）；横线同样
+	 *  由测量值驱动——任何由 CSS 按小数坐标定位的 1px 线段都会被抗锯齿随机
+	 *  摊薄，粗细不一、端点方头错位。测量集中在全部卡片写入之后，一次强制
+	 *  布局完成全部读取再统一写入，避免读写交替抖动。 */
+	const trackEls = new Map();
+	let trackedLayer = null;
+	let observedTrackList = null;
+	let trackContext = null;
+	let layerShiftX = 0;
+	let layerShiftY = 0;
+	const trackResizeObserver = new ResizeObserver(() => {
+		if (trackContext !== null) syncTracks(trackContext.list, trackContext.entries, trackContext.cardsMap);
+	});
+	// 滚动停在任意小数相位上时重对齐轨道层（rAF 合帧，键值未变时只写 transform）。
+	let trackSyncHandle = null;
+	function queueTrackSync() {
+		if (trackSyncHandle !== null) return;
+		trackSyncHandle = requestAnimationFrame(() => {
+			trackSyncHandle = null;
+			if (trackContext !== null) syncTracks(trackContext.list, trackContext.entries, trackContext.cardsMap);
+		});
+	}
+
+	function syncTracks(list, entries, cardsMap) {
+		const layer = list.querySelector(".dap-tracks");
+		if (layer === null) return;
+		if (layer !== trackedLayer) {
+			// 窗格重挂载后旧轨道元素已随旧 pane 移除，记账一并重置。
+			trackEls.clear();
+			trackedLayer = layer;
+			layerShiftX = 0;
+			layerShiftY = 0;
+		}
+		if (list !== observedTrackList) {
+			if (observedTrackList !== null) trackResizeObserver.unobserve(observedTrackList);
+			trackResizeObserver.observe(list);
+			observedTrackList = list;
+		}
+		trackContext = { list, entries, cardsMap };
+		// id 统一按字符串查（buildEntries 的 parentId 已 String 化，而卡片表按原始 id 键控）。
+		const recById = new Map();
+		for (const entry of entries) {
+			const rec = cardsMap.get(entry.id);
+			if (rec !== undefined) recById.set(String(entry.id), rec);
+		}
+		// 必须用浮点矩形：offsetTop/offsetHeight 是整数舍入值，而卡片横线由 CSS 按
+		// 全精度小数高度定位（top:50%）——一边取整一边全精度，轨道端点会随机差
+		// 1~2px（东家验收发现）。getBoundingClientRect 与 CSS 同精度，端点恒等。
+		// 两个矩形同帧同参考系（相对轨道层未平移原点），滚动不影响差值。
+		const layerRect = layer.getBoundingClientRect();
+		const baseLeft = layerRect.left - layerShiftX;
+		const baseTop = layerRect.top - layerShiftY;
+		const rectOf = (id) => {
+			const rec = recById.get(id);
+			if (rec === undefined) return null;
+			const rect = rec.el.getBoundingClientRect();
+			return { top: rect.top - baseTop, height: rect.height, left: rect.left - baseLeft };
+		};
+		// 几何推导在纯函数 trackBoxes（可执行断言钉住）；此处只做测量与 DOM 写入。
+		const wanted = new Map();
+		for (const run of trackRuns(entries)) {
+			const boxes = trackBoxes(run, rectOf, INDENT_PX);
+			if (boxes === null) continue; // 卡片缺失或折叠/隐藏态零读数，展开后由 ResizeObserver 重算
+			wanted.set(run.parentId, boxes);
+		}
+		// 设备像素对齐：1px 线段只有落在设备像素边界上才粗细一致。层原点随窗口
+		// 布局/滚动停在任意小数相位（东家验收：竖轨 2px、横线 1px），整体平移层
+		// （≤0.5px，接头随层同步、不可见）使全部线段同相位清晰渲染。写入集中在
+		// 全部测量之后，不产生读写交替。
+		const dpr = window.devicePixelRatio || 1;
+		const nextShiftX = Math.round(baseLeft * dpr) / dpr - baseLeft;
+		const nextShiftY = Math.round(baseTop * dpr) / dpr - baseTop;
+		if (nextShiftX !== layerShiftX || nextShiftY !== layerShiftY) {
+			layerShiftX = nextShiftX;
+			layerShiftY = nextShiftY;
+			layer.style.transform = `translate(${nextShiftX}px, ${nextShiftY}px)`;
+		}
+		for (const [pid, rec] of trackEls) {
+			if (wanted.has(pid)) continue;
+			rec.trackEl.remove();
+			for (const el of rec.stubEls) el.remove();
+			trackEls.delete(pid);
+		}
+		for (const [pid, next] of wanted) {
+			const key = JSON.stringify(next);
+			let rec = trackEls.get(pid);
+			if (rec === undefined) {
+				const trackEl = document.createElement("i");
+				trackEl.className = "dap-conn-track";
+				layer.appendChild(trackEl);
+				rec = { trackEl, stubEls: [], key: null };
+				trackEls.set(pid, rec);
+			}
+			if (rec.key === key) continue;
+			rec.key = key;
+			rec.trackEl.style.top = `${next.track.top}px`;
+			rec.trackEl.style.height = `${next.track.height}px`;
+			rec.trackEl.style.left = `${next.track.left}px`;
+			for (const el of rec.stubEls) el.remove();
+			rec.stubEls = [];
+			for (const stub of next.stubs) {
+				const el = document.createElement("i");
+				el.className = "dap-conn-stub";
+				el.style.top = `${stub.top}px`;
+				el.style.left = `${stub.left}px`;
+				el.style.width = `${stub.width}px`;
+				layer.appendChild(el);
+				rec.stubEls.push(el);
+			}
+		}
+	}
+
 	/** 渲染某一张卡片进指定列表容器（活动/历史通用）。index 是条目在卡片序列中的
-	 * 序号，offset 是容器内首个卡片前的非卡片子节点数（历史区有段头）。 */
-	function renderCardIntoList(list, entry, reuseMap, index, offset = 0, lastChild = false) {
+	 * 序号，offset 是容器内首个卡片前的非卡片子节点数（活动区有轨道层、历史区有段头）。 */
+	function renderCardIntoList(list, entry, reuseMap, index, offset = 0) {
 		let rec = reuseMap.get(entry.id);
 		if (rec === undefined) {
 			const el = document.createElement("div");
@@ -2805,11 +2969,6 @@ function apply(ctx) {
 		rec.el.style.marginLeft = `${(entry.depth ?? 0) * INDENT_PX}px`;
 		rec.el.toggleAttribute("data-current", entry.isCurrent);
 		rec.el.toggleAttribute("data-awaiting", entry.kind === "awaiting");
-		rec.el.toggleAttribute(
-			"data-connector",
-			(entry.kind === "subagent" || entry.kind === "parent") && (entry.depth ?? 0) > 0 && entry.parentId != null,
-		);
-		rec.el.toggleAttribute("data-last-child", (entry.kind === "subagent" || entry.kind === "parent") && lastChild);
 		// 流式阶段标记：驱动进度条向右滚动的条纹动画（answer-pet 对齐，R-01-009）。
 		rec.el.toggleAttribute("data-streaming", entry.streaming === true);
 		rec.el.setAttribute(
@@ -2993,7 +3152,7 @@ function apply(ctx) {
 		const aliveActive = new Set();
 		for (const [index, entry] of active.entries()) {
 			try {
-				renderCardIntoList(activeList, entry, cardsById, index, 0, isLastChildEntry(active, index));
+				renderCardIntoList(activeList, entry, cardsById, index, 1);
 			} catch (error) {
 				renderOk = false;
 				logCardRenderError(entry.id, error);
@@ -3003,6 +3162,8 @@ function apply(ctx) {
 			aliveActive.add(entry.id);
 		}
 		pruneCards(cardsById, aliveActive);
+		// 全部卡片写入后统一测量绘制母会话轨道（单元素连续轨道，零拼接接缝）。
+		syncTracks(activeList, active, cardsById);
 		ensureListStatus(activeList, active.length === 0, listState === "loading" ? "加载中…" : listState === "error" ? "列表加载失败" : "暂无活动会话", { loading: listState === "loading" });
 		const aliveRecent = new Set();
 		// 历史区容器首个子节点是段头（.dap-recent-head），卡片从 offset 1 开始。
@@ -3260,6 +3421,14 @@ function apply(ctx) {
 		disconnectAncestorObservers();
 		centerObserver?.disconnect();
 		conversationObserver?.disconnect();
+		trackResizeObserver.disconnect();
+		observedTrackList = null;
+		// 卸载时取消未执行的滚动重对齐并清空轨道上下文，避免回调落到已移除列表。
+		if (trackSyncHandle !== null) cancelAnimationFrame(trackSyncHandle);
+		trackSyncHandle = null;
+		trackContext = null;
+		trackedLayer = null;
+		trackEls.clear();
 		observedCenter = null;
 		toggle.removeEventListener("click", onToggleClick);
 		unbindBackdrop();

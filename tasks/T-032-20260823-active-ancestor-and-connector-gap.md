@@ -6,7 +6,7 @@ id: T-032
 
 # T-032 活动祖先显示与连接线间隙均匀化
 
-状态: active
+状态: completed
 关联: R-01-003/AC-04、R-01-003/AC-05 / 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -59,4 +59,14 @@ id: T-032
 
 ## 终态与证据
 
-待实现与验证完成后填写。
+- 实现: `src/client.mjs` 将非末级连接线从 `bottom: -6px` 收敛为 `bottom: 0`，消除相邻卡片间隙中的重叠加亮；`src/core.mjs::activeSessionIds` 沿有效 `parentId` 链补齐活动祖先，`buildEntries` 以 `parent` 条目显示非活动母会话上下文，`buildRecent` 排除活动祖先，`shouldSubscribeToSession` 排除 parent 上下文订阅；同步 `parent` 卡片骨架/样式、PRD/DESIGN/DOMAIN、测试、验收清单与生成 bundle。
+- 测试: `pnpm build:client && pnpm check` 通过；`scripts/check.mjs` 执行断言覆盖多级祖先、历史区排除、无效 parentId、`parent`/运行子代理订阅判定和连接线几何契约；`python3 tools/agentmap_lint.py --report` 通过（18 需求 / 74 AC / 74 测试锚点）；`git diff --check` 通过；`node scripts/acceptance.mjs` 已加入 R-01-003/AC-05 人工 GUI 步骤。真实页面视觉与交互仍需按该人工步骤验收。
+- DESIGN 对照: PRD R-01-003 新增 AC-05；DESIGN 的 `parent` 活动卡片结构、活动祖先补齐、历史区互斥、连接线端点契约与非订阅语义已同步；DOMAIN 新增活动层级上下文术语、生命周期与祖先显示不变量；R-01-003 追溯行保持准确。
+- commit: 4083fdd
+- commit: d8088a3
+- review:
+  - 审核方: Standards 子代理 `7adda756-76dc-4d6d-8376-cea238e30ef2`；Spec 子代理 `0492b828-d993-4666-a2e7-1f631f0feeca`。
+  - 目的理解: T-032 修复相邻子会话连接线的间隙重叠，并实现“只要存在活动后代，所有有效母会话都显示在活动区”的 R-01-003/AC-05；非活动母会话只作层级上下文，不伪装运行/等待、不进入历史、不建立轮内订阅。
+  - 执行方式: `code-review` skill；固定基线 `a7e345a`，初审范围 `git diff a7e345a...4083fdd`，修复后同一审核方复审范围 `git diff a7e345a...d8088a3`；Standards/Spec 双轴审核。
+  - 问题与修复: Standards 初审指出 parent 不建立轮内订阅缺少可执行证据；新增 `shouldSubscribeToSession` 统一筛选逻辑，并在 `scripts/check.mjs` 执行断言 parent=false、运行子代理=true。Spec 初审无 finding；修复后 Standards 与 Spec 复审均无 finding。
+  - 复审结论: Standards 通过；Spec 通过，无遗留 finding。

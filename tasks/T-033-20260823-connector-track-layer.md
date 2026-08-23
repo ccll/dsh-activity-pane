@@ -6,7 +6,7 @@ id: T-033
 
 # T-033 连接线改为轨道层整体绘制
 
-状态: active
+状态: completed
 关联: R-01-003/AC-04 / 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -61,4 +61,13 @@ T-031/T-032 及其后两轮短路修复均采用「卡片伪元素/补画段分�
 
 ## 终态与证据
 
-（完成后填写）
+- 实现: `src/core.mjs` 以 `trackRuns`（直属性按母会话条目深度+1 判定、顺序无关）与 `trackBoxes`（竖轨+逐子卡横线绘制盒、统一取整 CSS 像素）取代拼接时代函数；`src/client.mjs` 列表内置 `.dap-tracks` 轨道层，`syncTracks` 浮点测量（getBoundingClientRect）后整体绘制 `.dap-conn-track`/`.dap-conn-stub`，层 transform 对齐设备像素网格，ResizeObserver + 滚动 rAF 重算，卸载清理 rAF/observer/上下文；卡片仅保留缩进与复用逻辑；同步 `.dsh-plugin/client.js`、DESIGN、check.mjs。
+- 测试: `pnpm build:client && pnpm check` 通过（trackRuns/trackBoxes 拓扑与几何断言含 P→A→G→B、非直属、无 id、零高度、缺卡；bundle 契约与禁回拼接/禁整数测量/禁类名撞名负向断言）；`python3 tools/agentmap_lint.py --report` 通过（18 需求 / 74 AC / 74 测试锚点）；`git diff --check` 通过；`node --check` bundle 通过；静态几何截图在 1x/1.25x/2.5x/3x 与含小数相位（fractional 窗格偏移）下验证连续性、粗细一致与端点相接；GUI 现场演示（3 子代理 + 3 孙代理各 1 分钟）经东家验收通过。
+- DESIGN 对照: DESIGN 的活动条目结构（trackRuns/trackBoxes）与窗格渲染器（轨道层整体绘制、统一取整、测量驱动）描述已与实现同步；PRD R-01-003/AC-04 不变；DOMAIN 不变。
+- commit: 9c92703
+- review:
+  - 审核方: Standards 子代理 `867734a5-20d7-4c76-a0f0-93d423602a4e`；Spec 子代理 `f719c820-ffff-406a-916e-249b6f0119a5`。
+  - 目的理解: T-033 将 R-01-003/AC-04 的连接线从分段拼接改为轨道层测量整体绘制，在不改变卡片 DOM 结构/复用/交互的前提下消除拼接接缝在亚像素相位下的断口与重叠，并保持多级层级连续与末级中心收口。
+  - 执行方式: `code-review` skill；基线 `git diff HEAD`（全部改动未提交时审核）；Standards/Spec 双轴初审 + 四轮增量复审（id 过滤与直属性、几何纯函数化、横线入层取整、设备像素对齐与生命周期）。
+  - 问题与修复: Standards 初审发现 `trackRuns` 未过滤无 id 条目（已修并补断言）；offset=1 脆弱耦合为判断性建议（断言钉住，接受）；增量 3 发现滚动重对齐 rAF 未在卸载取消、上下文未清空（已修：cancelAnimationFrame + 清空 trackContext/trackedLayer/trackEls + 断言）。Spec 初审发现几何无可执行证据（抽 trackBox/trackBoxes 纯函数 + 合成矩形断言）、scope creep（回归守卫已在收敛方案纳入范围）、直属性校验顺序相关（改为母会话深度+1 判定 + 顺序无关断言）；增量 2 发现横线宽度 1px 超程伸入卡片 border（改为 `Math.round(rect.left) - (left + 1)`，断言 width:6）。
+  - 复审结论: Standards 通过；Spec 通过；全部 finding 闭环，无遗留确定性问题。

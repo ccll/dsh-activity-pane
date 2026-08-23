@@ -865,7 +865,6 @@ function apply(ctx) {
 	function togglePane(open) {
 		const pane = document.querySelector(`[${PANE_ATTR}]`);
 		if (pane === null) return;
-		// 开合状态单点写入：同步抽屉滑入与透明遮罩显隐（R-01-008/AC-03）。
 		// 开合状态单点写入：同步抽屉滑入、透明遮罩显隐与浮动开关显隐
 		//（R-01-008/AC-03、AC-05）。
 		pane.setAttribute("data-open", open ? "true" : "false");

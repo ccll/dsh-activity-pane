@@ -7,7 +7,7 @@ mutation: lifecycle
 # T-039 二次激活当前卡片收起移动端抽屉
 
 风险等级: standard
-状态: active
+状态: completed
 
 ## 背景与目标
 
@@ -48,4 +48,17 @@ mutation: lifecycle
 
 ## 终态与证据
 
-（待关闭时填写）
+- 实现: `src/navigation.mjs` 新增纯函数 `shouldDismissDrawerOnActivation`（移动断点 + 抽屉打开 + 目标即当前会话才命中）；`src/client.mjs` 卡片激活回调先更新 `lastActivatedId` 并取消过期打开重试链（任何新激活意图单点作废挂起链条），命中分流则 `togglePane(false)` 收起抽屉直达会话、不发起切换，未命中走既有 `attemptOpen`；click 与 Enter/Space 同路径；活动区与历史区卡片共用同一回调天然覆盖；`.dsh-plugin/client.js` 已同步。
+- 测试: `pnpm build:client && pnpm check` 通过（全部断言，含 `scripts/check.mjs#R-01-008/AC-06` 六条：命中/非当前卡/桌面断点/抽屉未打开/无当前会话/空目标 id）；`python3 tools/agentmap_lint.py --report` 通过（19 需求 / 84 AC 全部设计覆盖，测试锚定 84/84）；`git diff --check` 通过；`scripts/acceptance.mjs` 增补 AC-06 人工步骤（点击与键盘收起、非当前卡仍切换、桌面不收起、慢列表先点未就绪卡再收抽屉不被拽走的回归场景；本环境无可用真机，人工步骤未执行）。
+- DESIGN 对照: DESIGN 窗格渲染器抽屉开合条目与实现一致——`shouldDismissDrawerOnActivation` 纯函数判定、命中转 `togglePane(false)`、分流前按最新激活意图取消过期重试链（R-01-005）、桌面/未打开/非当前卡维持既有行为；PRD R-01-008/AC-06 由纯函数、分流与测试锚点覆盖。
+- commit: 75865b7 dc052e6（实现与审核修复两提交）
+- review:
+  - 审核方: 独立 `code-review` Standards 子代理；独立 `code-review` Spec 子代理。
+  - 目的理解: 移动端抽屉打开时点击当前会话卡片原为无反馈死点击，本次将其转为收起抽屉直达原生会话页面（东家确认的交互设计，R-01-008/AC-06）；约束为桌面形态、抽屉未打开、非当前卡片与 R-01-005 跳转/重试链行为不得回归，行为变化须留可执行证据。
+  - 执行方式: `code-review` skill；固定基线 `84846c3`；评审范围 `git diff 84846c3...HEAD`（75865b7 实现、dc052e6 修复），Standards/Spec 两轴独立审核，修复后由同一审核方复审。
+  - 问题与修复: Spec 轴 2 项 finding 经 dc052e6 修复并由原审核方复审通过；Standards 轴两轮均无硬违例。逐项明细如下：
+    - [Spec/中] 分流分支在 `lastActivatedId` 更新与 `cancelStaleOpenRetries` 之前 return，先点未就绪卡再收抽屉时挂起重试链不取消、稍后会话被拽回旧目标（R-01-005 回归）→ 修复为把两行上提至分流之前单点表达，两路径共用（dc052e6）。
+    - [Spec/低] DESIGN 同句顺手改写与 AC-06 无关的 touch 事件文案 → 逐字还原基线原文（dc052e6）。
+    - [Standards/判断题] `shouldDismissDrawerOnActivation` 四原始参数的 Primitive Obsession → 刻意镜像既有 `shouldCancelOpenRetry` 形状且为纯函数测试边界，按「遵循现有约定 + KISS/YAGNI」抑制，不成立。
+    - [Standards/判断题] 装配时序无法被纯函数 harness 断言 → 由 acceptance.mjs AC-06 慢列表回归步骤承载，属已登记锚点路径，可接受。
+  - 复审结论: Spec 复审确认两项 finding 全部关闭、无新偏差；Standards 复审确认修复提交无硬违例、无新气味。双轴通过。

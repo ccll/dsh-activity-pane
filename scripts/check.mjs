@@ -545,6 +545,20 @@ const thinkStreaming = conversationTimeline({
 	chat: { order: ["th"], nodes: { get: () => ({ kind: "assistant-step", data: { status: "running", turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "第一段\n进行中段" }] } }) } },
 })[0];
 assert.equal(thinkStreaming.summary, "进行中段", "流式 Think 摘要镜像原生 latestLine");
+const contextItem = conversationTimeline({
+	chat: { order: ["cx"], nodes: { get: () => ({ kind: "context", data: { content: [{ type: "text", text: "<system_prompt>…</system_prompt>" }], source: { kind: "agent-instructions", changes: [{ path: "AGENTS.md" }] }, provenance: { role: "inject", label: "AGENTS.md" } } }) } },
+})[0];
+assert.equal(contextItem.label, "上下文注入", "context 工作项标题镜像原生 ContextInjectionRow（注入）");
+assert.equal(contextItem.summary, "AGENTS.md", "context 工作项摘要为来源标识而非注入内容原文");
+const contextRecall = conversationTimeline({
+	chat: { order: ["cx"], nodes: { get: () => ({ kind: "context", data: { content: [{ type: "text", text: "召回内容" }], provenance: { role: "recall", label: "旧会话" } } }) } },
+})[0];
+assert.equal(contextRecall.label, "跨会话召回", "context 工作项标题镜像原生召回文案");
+const contextNoProvenance = conversationTimeline({
+	chat: { order: ["cx"], nodes: { get: () => ({ kind: "context", data: { content: [{ type: "text", text: "<system_prompt>…</system_prompt>" }] } }) } },
+})[0];
+assert.equal(contextNoProvenance.label, "上下文注入", "provenance 缺失时回退注入标题（镜像原生 unreadable 兜底）");
+assert.equal(contextNoProvenance.summary, "", "无来源标识时摘要为空，注入内容原文不上卡");
 // R-01-012/AC-02
 const unlocatedPartial = conversationTimeline({
 	chat: {
@@ -1020,6 +1034,8 @@ assert.ok(bundle.includes("createGlobeIcon") && bundle.includes("M7.00018 0.3535
 assert.ok(bundle.includes("createBrowseIcon") && bundle.includes("M11.2426 4.80473"), "read/web_fetch fallback 使用 DSH IconBrowseOutline16 路径");
 assert.ok(bundle.includes("createEditIcon") && bundle.includes("M9.94076 1.34942"), "write/edit fallback 使用 DSH IconEditOutline16 路径");
 assert.ok(bundle.includes("createThinkIcon"), "Think fallback 使用 DSH IconThinkOutline14 图标");
+assert.ok(bundle.includes('item.kind === "context" ? "" : item.text'), "context 注入内容原文不作为摘要兜底上卡（R-01-012/AC-03）");
+assert.ok(bundle.includes("matchNativeContextRow"), "context 原生行多行按内容文本匹配不错配首行");
 assert.ok(bundle.includes('[class*="iconIdle"] svg'), "原生动作图标从 iconIdle 读取而非 disclosure 箭头");
 assert.ok(bundle.includes("nativeIconsByTraceKey"), "错误状态复用此前缓存的动作图标");
 assert.ok(bundle.includes("ancestorObservers"), "祖先链逐级观察保证视图级重挂载自愈");

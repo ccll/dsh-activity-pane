@@ -1326,7 +1326,8 @@ function apply(ctx) {
 				line.append(main);
 			}
 			const labelText = presentation?.label || item.label || "";
-			const summaryText = presentation?.summary || item.summary || item.detail || item.text || "";
+			// context 项的 text 是注入内容原文（仅供原生行匹配），不是摘要，禁止兜底上卡。
+			const summaryText = presentation?.summary || item.summary || item.detail || (item.kind === "context" ? "" : item.text) || "";
 			const structure = [
 				"dap-trace-icon",
 				labelText ? "dap-trace-label" : null,

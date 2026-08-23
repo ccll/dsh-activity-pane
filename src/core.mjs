@@ -323,12 +323,17 @@ function timelineItemFromChatNode(node, cwd = "") {
 	if (node.kind === "tool-call") return timelineToolItem(data.root ?? data, null, cwd);
 	if (node.kind === "context") {
 		const text = contentText(data.content);
+		// 镜像原生 ContextInjectionRow：标题按 provenance.role 取注入/召回文案，摘要为来源标识；
+		// 原始内容只供原生行匹配（matchNativeContextRow），不得作为摘要上卡。
+		const provenance = isRecord(data.provenance) ? data.provenance : null;
 		return text
 			? {
 					id: String(node.key ?? `context:${text}`),
 					kind: "context",
 					icon: "context",
+					label: provenance?.role === "recall" ? "跨会话召回" : "上下文注入",
 					text,
+					summary: typeof provenance?.label === "string" ? provenance.label : "",
 					detail: null,
 					status: "done",
 					durationMs: null,

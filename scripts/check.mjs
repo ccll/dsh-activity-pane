@@ -25,12 +25,14 @@ import {
 	isActiveRow,
 	shouldSubscribeToSession,
 	activeSessionIds,
+	updateCompletedHolds,
 	trackBoxes,
 	trackRuns,
 	isSubagentRow,
 	listLoadState,
 	mergeTraceStatus,
 	messagePreviews,
+	movedToRecentIds,
 	modelMetadata,
 	nativePresentationSessionId,
 	needsHistorySnapshot,
@@ -1055,6 +1057,76 @@ assert.deepEqual(
 	"历史区按最近活动时间倒序",
 );
 
+// ---- R-01-002/AC-05、R-01-010/AC-06 响应保持：打开的完成提醒会话仍为当前会话时，保持活动卡位置与"需要响应"呈现 ----
+const holdBase = { id: "sB", displayTitle: "旧B", running: false, updatedAt: NOW - 1_000 };
+// 帧间登记：上一帧完成提醒的会话成为当前会话（覆盖宿主同帧切换 current 并清除 completed 的原子时序）。
+let held = updateCompletedHolds(new Set(), { ids: ["sB"], byId: { sB: { ...holdBase, completed: true } }, current: "sA" }, []);
+assert.deepEqual([...held], [], "完成提醒会话未被打开时不登记保持");
+held = updateCompletedHolds(held, { ids: ["sB"], byId: { sB: { ...holdBase, completed: false } }, current: "sB" }, ["sB"]);
+assert.deepEqual([...held], ["sB"], "完成提醒会话被打开即登记保持（宿主原子帧时序）");
+// 同帧登记：宿主先切 current、completed 尚未清除的时序。
+assert.deepEqual(
+	[...updateCompletedHolds(new Set(), { ids: ["sB"], byId: { sB: { ...holdBase, completed: true } }, current: "sB" }, [])],
+	["sB"],
+	"completed 与 current 同帧命中同样登记保持",
+);
+// 保持期间：活动区以 awaiting「需要响应」呈现并高亮当前，历史区排除，分区不变量不破。
+const holdSnap = { ids: ["sB"], byId: { sB: { ...holdBase, completed: false } }, current: "sB" };
+const heldEntries = buildEntries(holdSnap, [], {}, held);
+assert.deepEqual(
+	heldEntries.map((e) => [e.id, e.kind, e.pendingText, e.isCurrent]),
+	[["sB", "awaiting", "需要响应", true]],
+	"保持中会话以 awaiting「需要响应」留在活动区且保持当前高亮",
+);
+assert.equal(buildRecent(holdSnap, [], NOW, undefined, {}, [], held).length, 0, "保持中会话不入历史区（分区不变量）");
+// 保持中发消息转 running：按运行中呈现。
+const holdRunning = buildEntries({ ids: ["sB"], byId: { sB: { ...holdBase, running: true } }, current: "sB" }, [], {}, held);
+assert.equal(holdRunning[0].kind, "running", "保持中会话开始运行时按运行中呈现");
+// 用户一直停留在该会话：保持不解除；current 暂缺（导航瞬时态）同样不解除。
+held = updateCompletedHolds(held, holdSnap, []);
+assert.deepEqual([...held], ["sB"], "当前会话不变时保持不解除");
+held = updateCompletedHolds(held, { ...holdSnap, current: null }, []);
+assert.deepEqual([...held], ["sB"], "current 暂缺时不解除保持");
+// 当前会话切走：解除保持，会话落入历史区。
+held = updateCompletedHolds(
+	held,
+	{ ids: ["sA", "sB"], byId: { sA: { id: "sA", displayTitle: "主A", running: true }, sB: { ...holdBase, completed: false } }, current: "sA" },
+	[],
+);
+assert.deepEqual([...held], [], "当前会话切走后解除保持");
+assert.deepEqual(
+	buildRecent(holdSnap, [], NOW, undefined, {}, [], held).map((e) => e.id),
+	["sB"],
+	"解除保持后会话进入历史区",
+);
+// 会话行消失：保持记账清理。
+assert.deepEqual([...updateCompletedHolds(new Set(["sB"]), { ids: [], byId: {}, current: null }, [])], [], "会话行消失时保持记账清理");
+// 列表快照在途/缺失（loading）时保持记账原样保留，不因瞬时 byId 缺失误解除。
+assert.deepEqual([...updateCompletedHolds(new Set(["sB"]), undefined, [])], ["sB"], "列表快照缺失时保持记账保留");
+assert.deepEqual([...updateCompletedHolds(new Set(["sB"]), { phase: "pending" }, [])], ["sB"], "列表快照在途时保持记账保留");
+// 子代理不进入保持（完成提醒语义仅主会话）。
+assert.deepEqual(
+	[
+		...updateCompletedHolds(
+			new Set(),
+			{ ids: ["m", "m-c1"], byId: { m: { id: "m", displayTitle: "主M", running: false }, "m-c1": { id: "m-c1", displayTitle: "子S", running: false, completed: true, parentId: "m" } }, current: "m-c1" },
+			[],
+		),
+	],
+	[],
+	"子代理 completed 同帧命中也不登记保持",
+);
+
+// ---- R-01-010/AC-07 活动区→历史区迁移判定 ----
+assert.deepEqual(
+	movedToRecentIds(new Set(["sA", "sB"]), [{ id: "sA" }], [{ id: "sB" }]),
+	["sB"],
+	"上一帧活动区 id 离开活动区且出现于历史区判定为迁移",
+);
+assert.deepEqual(movedToRecentIds(new Set(["sB"]), [], []), [], "彻底消失（归档/滑出历史窗口）不判定为迁移");
+assert.deepEqual(movedToRecentIds(new Set(), [{ id: "sB" }], []), [], "上一帧不在活动区不判定为迁移");
+assert.deepEqual(movedToRecentIds(new Set(["sB"]), [{ id: "sB" }], []), [], "仍在活动区不判定为迁移");
+
 // ---- R-01-003/AC-02、R-01-010/AC-01 已结束子代理不入最近历史 ----
 const recentSubSnap = {
 	ids: ["m", "m-c1"],
@@ -1189,7 +1261,7 @@ assert.ok(bundle.includes("pane !== renderedPane"), "新窗格实例必须重置
 // （此前渲染签名先于卡片循环提交且无异常隔离，故障卡及其后全部卡片永久滞留旧标题，
 //  历史卡因此停在首条消息形态的 fallback 标题，与左侧栏脱节）。
 assert.ok(
-	clientSource.includes("if (renderOk) lastSig = sig;") && !/if \(sig === lastSig\) return;\s*lastSig = sig;/.test(clientSource),
+	clientSource.includes("if (renderOk) {\n\t\t\tlastSig = sig;") && !/if \(sig === lastSig\) return;\s*lastSig = sig;/.test(clientSource),
 	"渲染签名仅在整轮卡片渲染成功后提交，不得在卡片循环前预先提交",
 );
 assert.equal(
@@ -1479,6 +1551,13 @@ assert.ok(bundle.includes('[data-dsh-activity-pane] .dap-count {\n  flex: none;\
 // 两区分隔线上下各保留 10px 留白；历史区无内容时整段隐藏、分隔线不占位。
 assert.ok(bundle.includes("border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent);\n  padding: 10px 8px 0;\n  margin-top: 10px;"), "分隔线上下各 10px 留白");
 assert.ok(bundle.includes(".dap-recent[hidden] { display: none; }"), "历史区无内容时整段隐藏（分隔线不占位）");
+
+// R-01-010/AC-07
+// 活动区→历史区迁移动画：旧卡克隆 ghost FLIP 平移淡降 + 真卡淡入，transitionend 收口，reduced-motion 降级。
+assert.ok(bundle.includes(".dap-move-ghost"), "迁移动画使用旧卡克隆 ghost 覆盖层");
+assert.ok(bundle.includes(".dap-move-in"), "目标最近卡迁移时淡入");
+assert.ok(bundle.includes('"transitionend"'), "ghost 生命周期由 transitionend 收口（不引入定时器）");
+assert.ok(bundle.includes('matchMedia?.("(prefers-reduced-motion: reduce)")'), "reduced-motion 时跳过迁移动画直接落位");
 
 // R-01-004/AC-03
 // 滚动条仅滚动时显示：thumb 默认透明、data-scrolling 时显示；Firefox 路径在 @supports 门内。

@@ -588,6 +588,20 @@ const CSS = `
   background: transparent;
   display: none;
 }
+/* 活动区→历史区迁移动画（R-01-010/AC-07）：旧卡克隆 ghost 以 fixed 覆盖层从原矩形
+   FLIP 平移淡降至目标最近卡位置，真卡同步淡入；ghost 生命周期由 transitionend 收口，
+   prefers-reduced-motion 时 JS 侧整体跳过（不创建 ghost、不加 dap-move-in）。 */
+.dap-move-ghost {
+  position: fixed;
+  margin: 0;
+  z-index: 2147482991;
+  pointer-events: none;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+[data-dsh-activity-pane] .dap-move-in {
+  animation: dap-move-in 0.3s ease;
+}
+@keyframes dap-move-in { from { opacity: 0; } }
 /* 窄屏：窗格变为固定抽屉 + 浮动开关按钮；抽屉默认隐藏在屏外。
    抽屉需不透明背景（否则透出下层会话内容）+ touch-action:none（把手/头部的
    触摸不滚动下层页面），桌面列则保持低透明分界。 */
@@ -756,7 +770,7 @@ function apply(ctx) {
 	const previousCleanup = document[INSTANCE_KEY] ?? globalThis[INSTANCE_KEY];
 	if (typeof previousCleanup === "function") previousCleanup();
 	for (const node of document.querySelectorAll(
-		`[${PANE_ATTR}], .dap-toggle, .dap-backdrop, #${STYLE_ID}`,
+		`[${PANE_ATTR}], .dap-toggle, .dap-backdrop, .dap-move-ghost, #${STYLE_ID}`,
 	))
 		node.remove();
 	let disposed = false;
@@ -775,6 +789,16 @@ function apply(ctx) {
 	let paneWidth = readStoredPaneWidth();
 	/** 用户最近一次激活的卡片 id；打开重试链被更新的激活意图取代即取消。 */
 	let lastActivatedId = null;
+	/** 响应保持（R-01-002/AC-05、R-01-010/AC-06）：完成提醒会话被打开后仍为当前会话期间，
+	 *  保持其活动卡位置与「需要响应」呈现；易失内存态，不写回宿主、不持久化。 */
+	let heldCompletedIds = new Set();
+	/** 上一帧派生中以「需要响应」呈现的活动条目 id：供保持登记覆盖宿主原子帧时序。 */
+	let prevCompletedAwaitingIds = [];
+	/** 上一帧已提交渲染的活动区 id 集合：活动区→历史区迁移检测（R-01-010/AC-07）。 */
+	let prevRenderedActiveIds = new Set();
+	/** 迁移中 ghost 元素集合（含 id 索引）：同一 id 再迁移时旧 ghost 移除，卸载时统一清理。 */
+	const moveGhosts = new Set();
+	const moveGhostsById = new Map();
 	/** 活动区卡片 id → { el, kind } 复用表。 */
 	const cardsById = new Map();
 	/** 历史区卡片 id → { el } 复用表。 */
@@ -1954,6 +1978,12 @@ function apply(ctx) {
 			const unbind = bindCardActivation(el, (sessionId) => {
 				if (typeof sessions?.open !== "function") return;
 				lastActivatedId = sessionId;
+				// 点击「需要响应」卡立即登记响应保持（R-01-002/AC-05）：宿主同帧切换 current
+				// 并清除 completed 的原子时序下，纯帧间观察登记可能错过。
+				const clickRows = getSnapshot(sessions, "list")?.byId ?? {};
+				const clickRow = clickRows[sessionId];
+				if (clickRow?.completed === true && !isSubagentRow(clickRow, clickRows))
+					heldCompletedIds.add(String(sessionId));
 				// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标。
 				cancelStaleOpenRetries({ activatedId: sessionId });
 				attemptOpen(sessionId, 0);
@@ -2000,6 +2030,80 @@ function apply(ctx) {
 		}
 	}
 
+	/** 降低动效偏好（R-01-010/AC-07）：命中时迁移直接落位，不播放动画。 */
+	function prefersReducedMotion() {
+		try {
+			return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+		} catch {
+			return false;
+		}
+	}
+
+	function removeMoveGhost(id, ghost) {
+		moveGhosts.delete(ghost);
+		if (moveGhostsById.get(id) === ghost) moveGhostsById.delete(id);
+		ghost.remove();
+	}
+
+	/** 迁移动画前半（DOM 写入前）：量取迁出活动卡矩形并克隆 fixed ghost 覆盖层。 */
+	function prepareMoveGhosts(movedIds) {
+		if (movedIds.length === 0 || disposed || prefersReducedMotion()) return [];
+		const plans = [];
+		for (const id of movedIds) {
+			const source = cardsById.get(id)?.el;
+			const rect = source?.getBoundingClientRect?.();
+			if (source == null || rect == null || rect.width <= 0 || rect.height <= 0) continue;
+			// 同一 id 再次迁移：先移除旧 ghost，按最新帧重新判定。
+			const oldGhost = moveGhostsById.get(id);
+			if (oldGhost !== undefined) removeMoveGhost(id, oldGhost);
+			const ghost = source.cloneNode(true);
+			ghost.classList.add("dap-move-ghost");
+			ghost.removeAttribute("data-session-id");
+			ghost.removeAttribute("id");
+			ghost.style.marginLeft = "0";
+			ghost.style.left = `${rect.left}px`;
+			ghost.style.top = `${rect.top}px`;
+			ghost.style.width = `${rect.width}px`;
+			ghost.style.height = `${rect.height}px`;
+			// 克隆在此不挂载：其后 DOM 写入若中途抛错，未挂载克隆随 plans 自然丢弃，
+			// fixed 覆盖层不会无 transition 残留（transitionend 收口的唯一兜底）。
+			plans.push({ id, ghost, rect });
+		}
+		return plans;
+	}
+
+	/** 迁移动画后半（DOM 写入后）：量取目标最近卡矩形，rAF 内启动 FLIP 过渡、真卡淡入；
+	 *  目标不可量取时直接落位（移除 ghost）。transitionend 收口，不引入定时器。 */
+	function runMoveGhosts(plans) {
+		for (const plan of plans) {
+			const target = recentCardsById.get(plan.id)?.el;
+			const rect = target?.getBoundingClientRect?.();
+			if (target == null || rect == null || rect.width <= 0 || rect.height <= 0) {
+				continue;
+			}
+			document.body.appendChild(plan.ghost);
+			moveGhosts.add(plan.ghost);
+			moveGhostsById.set(plan.id, plan.ghost);
+			target.classList.add("dap-move-in");
+			const dx = rect.left - plan.rect.left;
+			const dy = rect.top - plan.rect.top;
+			const ghost = plan.ghost;
+			requestAnimationFrame(() => {
+				if (!moveGhosts.has(ghost)) return;
+				ghost.style.transform = `translate(${dx}px, ${dy}px)`;
+				ghost.style.opacity = "0";
+			});
+			ghost.addEventListener(
+				"transitionend",
+				() => {
+					removeMoveGhost(plan.id, ghost);
+					target.classList.remove("dap-move-in");
+				},
+				{ once: true },
+			);
+		}
+	}
+
 	/** 卡片渲染异常上报（按会话+错误内容去重）：持续故障不刷屏，错误变化时再记。
 	 *  隔离是为让其余卡片继续更新，错误本身必须保持可见、不吞错。 */
 	let lastCardRenderErrorKey = "";
@@ -2018,6 +2122,7 @@ function apply(ctx) {
 		if (pane !== renderedPane) {
 			renderedPane = pane;
 			lastSig = "";
+			prevRenderedActiveIds = new Set();
 		}
 		applyLayout();
 		const activeList = pane.querySelector(`.${LIST_CLASS}`);
@@ -2031,7 +2136,10 @@ function apply(ctx) {
 		const archivedSessionIds = workspaceSnapshot?.archivedSessionIds ?? [];
 		const now = Date.now();
 
-		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById);
+		// 响应保持登记/解除先于派生（R-01-002/AC-05、R-01-010/AC-06）。
+		heldCompletedIds = updateCompletedHolds(heldCompletedIds, snapshot, prevCompletedAwaitingIds);
+		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById, heldCompletedIds);
+		prevCompletedAwaitingIds = active.filter((entry) => entry.pendingText === "需要响应").map((entry) => entry.id);
 		// 轮内订阅仅对"运行中"会话建立（主会话 + 运行中的子代理），保持在运行中的订阅
 		// 数量 == 运行中会话数量（R-02-004/AC-01）；暂停等待的子代理只显示标题。
 		const runLikeIds = new Set(
@@ -2119,7 +2227,7 @@ function apply(ctx) {
 		// 清理已不在运行/子代理集的进度下限，避免残留。
 		for (const id of progressFloor.keys())
 			if (!runLikeIds.has(id)) progressFloor.delete(id);
-		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds);
+		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds, heldCompletedIds);
 		// 预览只对 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
 		for (const entry of recent) {
 			const detail = sessionDetailsById.get(entry.id);
@@ -2147,6 +2255,8 @@ function apply(ctx) {
 
 		const sig = cardSignature([...active, ...recent]);
 		if (sig === lastSig) return;
+		// 活动区→历史区迁移：DOM 写入前量取旧卡矩形并克隆 ghost（R-01-010/AC-07）。
+		const movePlans = prepareMoveGhosts(movedToRecentIds(prevRenderedActiveIds, active, recent));
 
 		// 逐卡异常隔离：一张卡渲染抛错不得冻结其余卡片（此前签名先于循环提交，
 		// 故障卡及其后全部卡片永久滞留旧内容——历史卡因此停在过去的首条消息
@@ -2185,6 +2295,7 @@ function apply(ctx) {
 			recentSection.hidden = listState === "ready" && recent.length === 0;
 			ensureListStatus(recentSection, listState !== "ready" && recent.length === 0, listState === "loading" ? "加载中…" : "列表加载失败", { loading: listState === "loading" });
 		}
+		runMoveGhosts(movePlans);
 		// 区域已有条目但列表仍在途时，在区头部显示行内加载指示（R-01-014/AC-01）。
 		const headerEl = pane.querySelector(".dap-header");
 		const recentHeadEl = recentSection?.querySelector(".dap-recent-head") ?? null;
@@ -2232,7 +2343,10 @@ function apply(ctx) {
 
 		// 渲染签名在整轮 DOM 写入全部成功后提交：任何一步失败都保留下一轮
 		// 同步重试的机会，避免故障被签名吞掉后卡片永久滞留（R-01-013/AC-02）。
-		if (renderOk) lastSig = sig;
+		if (renderOk) {
+			lastSig = sig;
+			prevRenderedActiveIds = new Set(active.map((entry) => String(entry.id)));
+		}
 	}
 
 	// ---- 打开会话（让 sessions.open 自己校验列表，失败时 refresh + 重试） ----
@@ -2436,6 +2550,7 @@ function apply(ctx) {
 		trackContext = null;
 		trackedLayer = null;
 		trackEls.clear();
+		for (const [id, ghost] of [...moveGhostsById]) removeMoveGhost(id, ghost);
 		observedCenter = null;
 		toggle.removeEventListener("click", onToggleClick);
 		unbindBackdrop();

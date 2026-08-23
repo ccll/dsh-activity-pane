@@ -27,7 +27,7 @@ owner: agent 主笔，项目属主审批
 |---|---|---|
 | 边界与对外契约 | 适用：窗格与外壳 DOM、会话/工作区服务有明确契约 | DESIGN.md#边界与对外契约 |
 | 核心数据与不变量 | 适用：活动条目模型与显示过滤是核心不变量 | DESIGN.md#核心数据与不变量 |
-| 状态与生命周期 | 不适用：无独立持久状态，状态一律来自宿主快照 | — |
+| 状态与生命周期 | 适用：响应保持有明确生命周期（登记→保持→解除），其余状态一律来自宿主快照 | DESIGN.md#核心数据与不变量 |
 | 运行时、并发与失败语义 | 适用：渲染去重、打开重试与卸载清理有明确语义 | DESIGN.md#运行时、并发与失败语义 |
 | 外部集成 | 不适用：除 DSH 会话/工作区服务外无外部集成 | — |
 | 配置与可变点 | 适用：桌面列宽为用户可调（右缘拖拽 200–480px，localStorage 持久化）；移动断点仍为代码常量 | DESIGN.md#边界与对外契约 |
@@ -99,6 +99,7 @@ sequenceDiagram
   - 不依赖任何第三方宠物插件，也不向第三方数据路由发请求（R-02-001）。
   - 移动端抽屉不改变主会话布局，离开文档流（R-01-008）。
   - 双区结构：窗格内容区分为上「活动会话」下「最近历史」，两者都由同一快照派生；最近历史仅主会话（R-01-010）。
+  - 响应保持与迁移动画：完成提醒会话被打开后，渲染器将其登记为保持中（易失内存态），保持期间活动卡位置与「需要响应」呈现不变；当前会话切走后解除保持、卡片落入历史区。任一卡片由活动区转入历史区时，渲染器以相邻两帧活动区/历史区 id 集合差检测迁移，用旧卡克隆 ghost 从原矩形 FLIP 平移淡降至目标最近卡位置、真卡同步淡入，`transitionend` 收口移除 ghost；`prefers-reduced-motion` 或目标矩形不可量取时跳过动画直接落位（R-01-002/AC-05、R-01-010/AC-06、AC-07）。
   - 轮内状态通过 `sessions.binding(sessionId).session` 订阅运行中会话取得，随运行结束断开；token/速率统计取 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`，复用既有列表订阅，无新增轮询）；运行时长与进度在渲染期按回合开始时间实时计算（R-01-009、R-02-004）。
   - 工作项数据优先从原生 `ConversationSnapshot.chat` 的 `order` / `nodes` 读取，按主会话窗口显示顺序取尾部 4 项；冷会话使用 native `sessions.history` 读取补齐：尾页取不到最近用户/agent 消息时按 `beforeSeq` 向前有界深翻（最多 3 页，找到或翻尽即止），不克隆第三方 UI 路由。运行中当前项由原生 `session.subscribe` 推送刷新（R-01-012）。
   - 模型上下文从 native `sessions.models` 的当前选择与 catalog metadata 归一，模型名称与 reasoning level 缺失时保持空值；不使用 `agentPreset` 冒充模型（R-01-012）。
@@ -116,13 +117,15 @@ sequenceDiagram
 
 - 核心结构：`活动卡片条目 = { id, parentId?, depth, kind: running|awaiting|subagent|parent, title, workspaceTitle, model, reasoning, timeline, isCurrent, pendingText? }`；`parent` 表示自身非活动但因后代活动而显示的活动层级上下文；`最近卡片条目 = { id, kind: 'recent', title, workspaceTitle, model, reasoning, userPreview, agentPreview, isCurrent, updatedAt }`。
 - 显示过滤（核心不变量）：
-  - 主会话显示当自身 `running || pendingInteraction || completed`，或存在活动后代；自身不活动但存在活动后代时显示为 `parent` 活动层级上下文，否则显示为 running 或 awaiting。
+  - 主会话显示当自身 `running || pendingInteraction || completed`、处于响应保持，或存在活动后代；自身不活动但存在活动后代时显示为 `parent` 活动层级上下文，否则显示为 running 或 awaiting。
+  - 响应保持：完成提醒（`completed`）主会话被打开后宿主即清除 `completed`；渲染器观察到该 awaiting 条目变为当前会话且 `completed` 已清除时登记保持，保持中以 awaiting「需要响应」呈现；当前会话切换为其它会话即解除，`current` 暂缺（导航瞬时态）时保持不解除（R-01-002/AC-05、R-01-010/AC-06）。
   - 子代理显示当自身 `running || pendingInteraction`，或存在活动后代；自身不活动但存在活动后代时显示为 `parent` 上下文，既无自身活动也无活动后代时结束并消失（R-01-001、R-01-003）。
   - 等待优先：存在待确认/待审查/待回复时以对应文案呈现；否则完成态以"需要响应"呈现（R-01-002）。
-- 分区不变量：会话要么在活动区、要么在历史区，绝不同时出现；最近历史 = 当前非活动 && `updatedAt` 落在历史窗口（24h）内、**仅主会话（不含子代理）**，按最后活动时间倒序，最多 20 条（R-01-010）。
+- 分区不变量：会话要么在活动区、要么在历史区，绝不同时出现；最近历史 = 当前非活动 && `updatedAt` 落在历史窗口（24h）内、**仅主会话（不含子代理）**，按最后活动时间倒序，最多 20 条；响应保持中会话仍归属活动区，解除后经移动动画迁入历史区（R-01-010）。
 - 轮内状态输入：`runtimeStats({ elapsedMs, outputTokens, rateTokS })` 与 `conversationTimeline(snapshot)` 为纯函数，输入由渲染器从原生 `ConversationSnapshot`（`chat` / `runningCalls` / `partial` / `turnTimings` / `legacy.nodes`）与 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`）归一而来（R-01-009、R-01-012）。
 - 排序不变量：主会话按所在工作区侧栏顺序；未纳入任何工作区的排在全部工作区之后并保持出现顺序；活动层级上下文与子代理均跟随母会话并缩进（R-01-001、R-01-003）。
 - 稳定签名：`cardSignature` 对条目可见字段求签名（含 model/reasoning/timeline/userPreview/agentPreview、progress/streaming/tokenStats）；签名相同的重复渲染必须跳过全部 DOM 写入（R-02-003）。
+- 响应保持为渲染器易失内存态：不写回宿主、不持久化；页面刷新后保持自然失效，会话按当帧快照判定归属（R-01-010/AC-06）。
 - 运行卡渲染期字段：渲染器为 running 条目补充 `progress`（阶段百分比）、`timeline`（主会话窗口最近工作项）、`streaming`（流式阶段标记，驱动 `data-streaming` 属性与进度条条纹动画）与 `tokenStats`；不再派生独立 `status` 文案行；同一 `kind` 卡片的 DOM 骨架在 `streaming` 翻转时经签名重绘更新属性。
 
 ## 运行时、并发与失败语义
@@ -130,6 +133,7 @@ sequenceDiagram
 - 响应式渲染：订阅会话/工作区列表快照，任一变化即排队一次重绘；`cardSignature` 防止"渲染→写 DOM→再渲染"反馈循环（R-02-003）。工作项时间线与消息预览按快照/历史引用 memo（引用不变即命中缓存），`conversationTimeline`/`messagePreviews` 自尾部反向扫描、取够目标条数即停，长会话不做全序扫描；会话区 DOM 行索引每次渲染构建一次供当次全部工作项共用。
 - 宿主 DOM 观察：槽座迟到由 body `MutationObserver` 通知唤醒；绑定后 center → body 的祖先链逐级以 `childList` 观察，任一级断裂（含高于 parent 的视图级重挂载）即重装并恢复窗格；center 只观察直接子节点处理 seat/center 重挂载，conversation seat 子树只观察流式 `childList` 变化，插件 pane 子树不进入观察范围（R-02-002、R-02-003）。
 - 并发安全：重绘经 rAF/微任务合并，同一时刻至多进行一次；卡片按 id 复用，保证顺序稳定（R-01-004、R-02-003）。
+- 迁移动画并发语义：动画不阻塞渲染循环；ghost 为独立覆盖层元素，生命周期由 `transitionend` 收口、不引入定时器；动画期间新渲染照常进行，同一 id 再次迁移时旧 ghost 移除并按最新帧重新判定（R-01-010/AC-07）。
 - 轮内状态订阅：
   - 仅对运行中会话建立 `binding().session.subscribe`，随会话停止运行或插件卸载执行 `unsubscribe`，订阅数量与运行中会话一致（R-01-009、R-02-004）。
   - 订阅为推送式，各订阅在独立轻量回调中归一为 `{ runningTool, streaming, startTime }`；运行时长在渲染期按 `Date.now() - startTime` 实时计算（配合运行时钟逐秒刷新），不依赖推送事件更新（R-01-009/AC-03）。
@@ -151,7 +155,7 @@ sequenceDiagram
 | 需求 | 主责子系统 | 设计落点 | 实现位置 |
 |---|---|---|---|
 | R-01-001 | 活动状态模型 | 显示过滤与排序 | src/core.mjs |
-| R-01-002 | 活动状态模型 | 等待文案与样式判定 | src/core.mjs |
+| R-01-002 | 活动状态模型 | 等待文案、样式判定与响应保持呈现 | src/core.mjs、src/client.mjs |
 | R-01-003 | 活动状态模型 | 层级嵌套与工作区归属 | src/core.mjs |
 | R-01-004 | 窗格渲染器 | 可滚动列表 | src/client.mjs |
 | R-01-005 | 窗格渲染器 | 卡片激活与跳转重试 | src/client.mjs |
@@ -159,7 +163,7 @@ sequenceDiagram
 | R-01-007 | 窗格渲染器 | 桌面贴边列 | src/client.mjs |
 | R-01-008 | 窗格渲染器 | 移动端抽屉与开关 | src/client.mjs |
 | R-01-009 | 活动状态模型 | 轮内状态文案派生 | src/core.mjs、src/client.mjs |
-| R-01-010 | 活动状态模型 | 双区派生与 24h 历史窗口 | src/core.mjs、src/client.mjs |
+| R-01-010 | 活动状态模型 | 双区派生、响应保持与迁移动画 | src/core.mjs、src/client.mjs |
 | R-01-011 | 窗格渲染器 | 标题行整体折叠控件 | src/client.mjs |
 | R-01-015 | 窗格渲染器 | 桌面右缘拖拽调宽与持久化 | src/core.mjs、src/client.mjs |
 | R-01-012 | 活动状态模型 | 原生会话工作项、模型上下文与实时快照 | src/core.mjs、src/client.mjs |
@@ -172,8 +176,8 @@ sequenceDiagram
 
 ## 产品契约
 
-- 活动卡片集合：`活动状态模型#buildEntries(snapshot, workspaceItems)` 产出已排序的活动卡片条目数组（R-01-001）。
-- 最近历史集合：`活动状态模型#buildRecent(snapshot, workspaceItems, now)` 产出按最近活动时间倒序、容限 24h、上限 20 条的最近卡片（R-01-010）。
+- 活动卡片集合：`活动状态模型#buildEntries(snapshot, workspaceItems)` 产出已排序的活动卡片条目数组（R-01-001）；`heldIds` 入参使响应保持中会话以 awaiting「需要响应」条目保留在活动区（R-01-002/AC-05、R-01-010/AC-06）。
+- 最近历史集合：`活动状态模型#buildRecent(snapshot, workspaceItems, now)` 产出按最近活动时间倒序、容限 24h、上限 20 条的最近卡片（R-01-010）；`heldIds` 入参把保持中会话排除在历史区外（R-01-010/AC-06）。
 - 轮内状态数据：`活动状态模型#runtimeStats({ runningTool, streaming, elapsedMs, outputTokens, rateTokS })` 产出运行卡所需的时长、token 与速率字段；当前动作不再单独输出为卡片状态行，工具名、回复文本与详情进入 `工作项时间线`（R-01-009/AC-01、AC-02、AC-03、AC-05）。
 - 工作项时间线呈现：`活动状态模型#conversationTimeline` 产出的工作项含 label/summary/status；时间线不显示行级耗时，对齐主会话窗口工作项行（原生无行级耗时，C-012）；工具项详情经 `summarizeToolArguments` 镜像主会话窗口 `deriveSummary` 语义（R-01-009/AC-07、R-01-012）。
   - 渲染层以竖线串圆点的时间线呈现：轨道从卡片内容左边界起步，竖线与圆点严格同圆心（整数像素位，避免 1px 竖线分数位吸附偏移）；竖线穿过首个节点圆点并向上引出，终点没入最新动作圆点内部不外露。
@@ -186,6 +190,7 @@ sequenceDiagram
 - 阶段进度：`活动状态模型#progressOf({ phase, outputTokens, elapsedMs })` 产出 0–100 的估计百分比（tool 阶段冻结返回 null）；渲染层按回合叠加单调下限，保证同回合不倒退；首观测即 tool 阶段（中途接入）以思考基线兜底防 0（R-01-009/AC-06）。渲染层以 5px 圆角进度条呈现，流式阶段（`data-streaming`）填充为向右滚动条纹动画（R-01-009/AC-08）。
 - 最近卡消息预览行：第三行（最近用户消息首行）文本前常驻人物图标（与工作项时间线的用户语义一致）、第四行（最近 agent reply 首行）文本前常驻机器人图标；文本缺失时仅显示图标，文本与加载指示写入图标后的独立文本段（R-01-013/AC-03、AC-04、AC-07、AC-08）。
 - 等待文案：`pendingText(kind)` 将待确认/待审查/待回复归一为中文标识；完成态默认"需要响应"（R-01-002）。
+- 迁移动画：渲染器比较相邻两帧派生的活动区/历史区 id 集合，id 由活动区消失且出现于历史区即判定一次迁移（id 彻底消失不播放）；动画以旧卡克隆 ghost 经 FLIP 平移/淡出至目标最近卡矩形、真卡同步淡入，`transitionend` 移除 ghost，时长约 300ms，多次迁移各自独立播放；`prefers-reduced-motion` 或目标矩形不可量取时降级为直接落位（R-01-010/AC-07）。
 - 层级结构：子代理经 `parentId` 关联并以 `depth` 表达缩进；子代理标题优先取目录 label，其次显示标题；渲染层在缩进槽内绘制母会话到直属子代理的层级连接线（R-01-003/AC-01、AC-04）。
 - 窗口形态：桌面为左栏旁贴边列，可经「活动会话」标题行整体折叠为窄条（窄条竖排标题 + 计数，整条可点展开）；移动端（≤767px）为固定抽屉 + 左上角浮动开关（文案「活动」，抽屉打开时隐藏）（R-01-007、R-01-008、R-01-011）。桌面列宽可经右缘手柄拖拽在 200–480px 内调整，拖拽实时生效并令主会话弹性让位，结果存 localStorage 于启动时恢复（R-01-015）。
 - 交互面：点击或 Enter/Space 激活卡片 → 切换会话；当前会话卡片高亮（R-01-005、R-01-006）。
@@ -205,6 +210,7 @@ sequenceDiagram
   - 纯函数、无 DOM、可单测。
   - 显示过滤单点实现：`activeSessionIds` 沿活动会话的 `parentId` 链补齐所有活动祖先，`isActiveRow` 供 buildEntries/buildRecent 共用；`isSubagentRow` 判定直属子代理，`parent` 条目只承载层级上下文，不建立轮内订阅。
   - `buildRecent` 按 24h 历史窗口派生历史区（仅主会话、倒序、上限 20），并归一化 workspace/model/reasoning、最近用户首行与 agent 首行。
+  - `buildEntries`/`buildRecent` 接受 `heldIds` 入参：保持中主会话以 awaiting「需要响应」条目留在活动区，并从历史区排除（R-01-002/AC-05、R-01-010/AC-06）。
   - `conversationTimeline` 从原生 ChatSnapshot 的实际 order 提取最近 4 个工作项，保留图标语义、文字、详情与状态；运行中无 live 项时按 R-01-009/AC-10 将尾部非用户已定案项提升为 running；`firstPhysicalLine` 只取消息的第一个非空物理行。
   - `modelMetadata` 从 native models response 提取当前模型名称与 reasoning level；缺失值保持空白。
   - 富卡辅助：`fmtTokens`、`summarizeToolArguments`（镜像原生 `deriveSummary` 语义）、`progressOf`（阶段进度）、`runtimeStats`（时长/token/速率）为运行卡提供纯函数派生。
@@ -225,6 +231,7 @@ sequenceDiagram
   - `parent` 活动层级上下文卡片显示母会话本身，保持层级顺序但不显示自身运行时间线，也不建立轮内状态订阅（R-01-003/AC-05）。
   - 活动区子代理卡片沿 `depth` 缩进；母会话到直属子代理的连接线由列表内轨道层（`.dap-tracks`）按测量值整体绘制：每条竖轨一个连续元素、零拼接接缝，横线同为轨道层元素，全部坐标统一取整（同相位、粗细一致、端点相接）；连接线不覆盖卡片内容或点击区域（R-01-003/AC-04）。
   - 卡片按 id 复用，流程节点按稳定 id 复用 DOM；配合签名去重避免无谓 DOM 写入，并保持运行节点脉冲动画连续。
+  - 响应保持登记与迁移检测：比较相邻两帧派生，完成提醒 awaiting 条目变为当前会话且 `completed` 被宿主清除时登记 `heldCompletedIds`，当前会话切换为其它会话即解除（暂缺不解除）；活动区→历史区迁移以旧卡克隆 ghost FLIP 平移淡降 + 真卡淡入呈现，`transitionend` 收口，`prefers-reduced-motion` 降级为直接落位（R-01-002/AC-05、R-01-010/AC-06、AC-07）。
   - 最近卡两条消息预览行为「角色图标 + 文本」双段结构：用户消息行人物图标、agent 回复行机器人图标，图标常驻；文本与加载 spinner 只写入文本段，不覆盖图标（R-01-013/AC-07、AC-08）。
   - 对每个运行中会话经 `sessions.binding(id).session` 订阅轮内状态与 ChatSnapshot，归一为 `runtimeStats` 与工作项时间线；时长在渲染期按起始时间实时计算；停止运行或卸载即 `unsubscribe`。冷会话只通过 native history/model 的一次性读取补齐，不进行状态轮询。
   - 运行卡外观对齐 answer-pet。

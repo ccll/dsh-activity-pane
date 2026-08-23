@@ -688,8 +688,10 @@ export function mainTitle(byId, id) {
  *   - 主会话 pendingInteraction / completed → 'awaiting'（等待用户行动）
  *   - 自身不活动但存在活动后代的任意母会话 → 'parent'（活动层级上下文）
  *   - 子代理 running / pending → 'subagent'，自身与后代均不活动则不显示
+ * heldIds（响应保持，R-01-002/AC-05、R-01-010/AC-06）：集合内主会话按 awaiting
+ * 「需要响应」保留在活动区。
  */
-export function buildEntries(snapshot, workspaceItems, detailsById = {}) {
+export function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
@@ -716,10 +718,12 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 		const running = row.running === true;
 		const pending = row.pendingInteraction !== undefined;
 		const isSub = hasParent;
+		// 响应保持（R-01-002/AC-05、R-01-010/AC-06）：保持中主会话按自身活动计入。
+		const held = !isSub && heldIds instanceof Set && heldIds.has(String(id));
 		// 子代理完成且没有活动后代时消失；主会话完成后保留为"等待打开"，活动祖先显示为 parent 上下文。
-		const ownActive = isActiveRow(row, byId);
-		const show = isActiveRow(row, byId, activeIds);
-		meta.set(id, { row, running, pending, isSub, ownActive, show, depth: 0 });
+		const ownActive = isActiveRow(row, byId) || held;
+		const show = isActiveRow(row, byId, activeIds) || held;
+		meta.set(id, { row, running, pending, isSub, ownActive, show, held, depth: 0 });
 	}
 
 	// 主会话按 workspace 顺序排序；未归入任何工作区的主会话保持在 lineage 中靠后。
@@ -768,7 +772,7 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 				isCurrent: current !== null && String(current) === String(id),
 				pendingText: m.pending
 					? pendingText(m.row.pendingInteraction)
-					: m.row.completed === true && !m.running
+					: (m.row.completed === true || m.held) && !m.running
 						? "需要响应"
 						: undefined,
 			});
@@ -933,13 +937,57 @@ export function isActiveRow(row, byId = {}, activeIds = null) {
 }
 
 /**
+ * 响应保持记账（R-01-002/AC-05、R-01-010/AC-06）：完成提醒主会话被打开后宿主即清除
+ * `completed`，保持期间由本记账让会话仍以 awaiting 留在活动区。登记：上一帧完成提醒
+ * 的主会话成为当前会话（覆盖宿主同帧切换 current 并清除 completed 的原子时序），或同帧
+ * `completed && current` 命中；解除：当前会话非空且切走、或会话行消失。仅主会话参与；
+ * 返回新集合，不改入参。
+ */
+export function updateCompletedHolds(heldIds, snapshot, prevCompletedIds = []) {
+	const next = new Set(heldIds instanceof Set ? heldIds : []);
+	// 列表快照在途（缺失/无 byId）时原样保留保持记账：瞬时 loading 不得误解除。
+	if (!isRecord(snapshot) || !isRecord(snapshot.byId)) return next;
+	const byId = snapshot.byId;
+	const current = snapshot?.current ?? null;
+	const isCurrent = (id) => current !== null && String(current) === id;
+	for (const id of Array.isArray(prevCompletedIds) ? prevCompletedIds : []) {
+		const key = String(id);
+		if (isCurrent(key) && isRecord(byId[key]) && !isSubagentRow(byId[key], byId)) next.add(key);
+	}
+	for (const [id, row] of Object.entries(byId)) {
+		if (row?.completed === true && isCurrent(String(id)) && !isSubagentRow(row, byId)) next.add(String(id));
+	}
+	for (const id of next) {
+		if (!isRecord(byId[id])) next.delete(id);
+		else if (current !== null && String(current) !== id) next.delete(id);
+	}
+	return next;
+}
+
+/**
+ * 活动区→历史区迁移检测（R-01-010/AC-07）：上一帧活动区 id 在本帧离开活动区且出现于
+ * 历史区即判定为一次迁移；彻底消失（归档、滑出历史窗口）不判定。prevActiveIds 为上一帧
+ * 已渲染的活动区 id 集合，active/recent 为本帧派生条目。
+ */
+export function movedToRecentIds(prevActiveIds, active, recent) {
+	if (!(prevActiveIds instanceof Set)) return [];
+	const activeIds = new Set((Array.isArray(active) ? active : []).map((entry) => String(entry?.id)));
+	const recentIds = new Set((Array.isArray(recent) ? recent : []).map((entry) => String(entry?.id)));
+	const moved = [];
+	for (const id of prevActiveIds) {
+		if (!activeIds.has(id) && recentIds.has(id)) moved.push(id);
+	}
+	return moved;
+}
+
+/**
  * 构建最近历史区条目：当前非活动、且在历史窗口内最后一次活动过的**主会话**
  * （子代理是临时工作单元，不入最近历史；故需同时排除表白会话与已结束子代理），
  * 按最后活动时间从新到旧，最多 HISTORY_MAX 条。blank 会话不出现（从未用过）；
  * 归档会话不出现——原生 runtime 会立即清空对归档会话的选中，列出它只会得到
- * 一张点了回落到新会话界面的死卡。
+ * 一张点了回落到新会话界面的死卡。响应保持中的会话留在活动区，不入历史区。
  */
-export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS, detailsById = {}, archivedIds = []) {
+export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS, detailsById = {}, archivedIds = [], heldIds = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
@@ -953,6 +1001,7 @@ export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WI
 		if (!isRecord(row)) continue;
 		if (row.blank === true) continue;
 		if (archived.has(id)) continue; // 归档会话不可选中，不入最近历史
+		if (heldIds instanceof Set && heldIds.has(String(id))) continue; // 响应保持中，留在活动区
 		if (isSubagentRow(row, byId)) continue; // 子代理（含已结束）不入最近历史
 		if (isActiveRow(row, byId, activeIds)) continue;
 		const updatedAt = Number(row.updatedAt);

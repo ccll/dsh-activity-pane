@@ -6,7 +6,7 @@ id: T-038
 
 # T-038 响应保持扩展到当前焦点下运行结束的会话
 
-状态: active
+状态: completed
 关联: R-01-010 → 活动状态模型
 风险等级: standard
 
@@ -45,4 +45,13 @@ id: T-038
 
 ## 终态与证据
 
-（待关闭时填写）
+- 实现: `src/core.mjs`——`updateCompletedHolds` 第三参泛化为 `prevActiveIds`，登记规则统一为「上一帧自身活动（running/awaiting）的主会话在当前焦点下变为非活动即登记」，加 `!isOwnActiveRow` 守卫（仍在运行/等待不误登记），同帧 `completed && current` 兜底、快照在途保留与解除规则不变。 `src/client.mjs`——`prevCompletedAwaitingIds` 泛化为 `prevActiveMainIds`（kind ∈ running|awaiting），移除点击路径冗余即时登记（收敛纯函数单点），`heldCompletedIds` 注释与 DOMAIN 词条同步。`scripts/check.mjs` R-01-010/AC-06 锚点新增焦点下结束与等待解除系列断言；`scripts/acceptance.mjs` 补人工步骤。
+- 测试: 测试先行（新锚点先红——「仍在运行时不登记保持」即红，实现后转绿）；`pnpm build:client && pnpm check` 全部断言通过；`python3 tools/agentmap_lint.py --report` 通过（19 需求 / 83 AC 全追溯、全锚定）；`git diff --check` 干净。GUI 现场验收（当前焦点下完成一轮保持、切走动画迁移）由东家按 `scripts/acceptance.mjs` 清单执行。
+- DESIGN 对照: 与 DESIGN「显示过滤 → 响应保持」（两条进入路径 + 等待解除口径）、「关键机制 → 响应保持与迁移动画」（纯函数单点登记）、窗格渲染器模块「响应保持登记与迁移检测」逐条一致；PRD R-01-010/AC-06、DOMAIN 响应保持词条同步改写，无差异。
+- commit: 863a7c6a89ae1167a945ebec7fb9e24c00fd4a54
+- review:
+  - 审核方: 独立 reviewer 双轴（Standards 子代理 dca93bf8、Spec 子代理 321e4851，code-review skill 流程）
+  - 目的理解: T-038 把 T-037 响应保持从「完成提醒卡被打开」扩展到「当前焦点下运行结束」（宿主只在完成时未选中才置 completed），统一语义为主会话结束一轮后仍为当前会话即以「需要响应」留在活动区、切走解除；登记收敛纯函数单点并移除点击冗余登记；关联 PRD R-01-010/AC-06、DOMAIN 响应保持词条、DESIGN 同步条目；预期验证为 `pnpm build:client && pnpm check` 与 agentmap lint（两轴均在审核前记录目的理解）。
+  - 执行方式: `code-review` skill，评审基线为工作树 `git diff HEAD`（实现提交前，基线 d86ab2d），范围含 src/、scripts/、PRD/DESIGN/DOMAIN、tasks/T-038 与生成产物一致性。
+  - 问题与修复: Standards 轴——无硬违规，1 条建议采纳（heldCompletedIds 注释与 DOMAIN 词条同步）、1 条维持（prevActiveIds/prevActiveMainIds 命名差异，reviewer 自标注可不改）；Spec 轴——无缺失无实现错误，1 项 scope 口径（pendingInteraction 焦点下解除转空闲被登记保持）经确认为预期行为并显式锚定（新增两条断言 + DESIGN 口径说明），1 项注释漂移（同 Standards 轴，已修）；首轮重点核查 T-037 回退风险（原子帧时序、快照在途、子代理/母会话 parent 边界）逐项无回退。
+  - 复审结论: 双轴复审均通过，无未决 finding。

@@ -209,7 +209,7 @@ const CSS = `
   position: absolute;
   left: -8px;
   top: -6px;
-  bottom: -6px;
+  bottom: 0;
   width: 1px;
   background: color-mix(in srgb, currentColor 24%, transparent);
   pointer-events: none;
@@ -239,6 +239,11 @@ const CSS = `
   padding: 6px 10px;
   border-radius: 12px;
   background: rgba(25, 27, 32, 0.95);
+}
+[data-dsh-activity-pane] .dap-card[data-kind="parent"] .dap-dot {
+  background: #8a94a3;
+  box-shadow: none;
+  animation: none;
 }
 [data-dsh-activity-pane] .dap-card[data-kind="recent"] {
   padding: 6px 10px;
@@ -576,7 +581,8 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card:hover {
   border-color: var(--dsw-alias-border-l4, rgba(0, 0, 0, 0.16));
   filter: brightness(0.97);
 }
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="subagent"] {
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="subagent"],
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="parent"] {
   background: var(--dsw-specific-sidebar-fill, rgb(249, 250, 251));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="recent"] {
@@ -1055,6 +1061,11 @@ function apply(ctx) {
 	function cardChildren(kind) {
 		const head = makeEl("div", "dap-card-head");
 		head.append(makeEl("div", "dap-workspace"), makeEl("div", "dap-model"));
+		if (kind === "parent") {
+			const row = makeEl("div", "dap-row");
+			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
+			return [head, row];
+		}
 		if (kind === "subagent") {
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
@@ -1577,6 +1588,7 @@ function apply(ctx) {
 			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, nativeSessionId, { lastOnly: true });
 			return;
 		}
+		if (entry.kind === "parent") return;
 
 		if (entry.kind === "recent") {
 			const lines = el.querySelectorAll(".dap-history-line");
@@ -1742,9 +1754,9 @@ function apply(ctx) {
 		rec.el.toggleAttribute("data-awaiting", entry.kind === "awaiting");
 		rec.el.toggleAttribute(
 			"data-connector",
-			entry.kind === "subagent" && (entry.depth ?? 0) > 0 && entry.parentId != null,
+			(entry.kind === "subagent" || entry.kind === "parent") && (entry.depth ?? 0) > 0 && entry.parentId != null,
 		);
-		rec.el.toggleAttribute("data-last-child", entry.kind === "subagent" && lastChild);
+		rec.el.toggleAttribute("data-last-child", (entry.kind === "subagent" || entry.kind === "parent") && lastChild);
 		// 流式阶段标记：驱动进度条向右滚动的条纹动画（answer-pet 对齐，R-01-009）。
 		rec.el.toggleAttribute("data-streaming", entry.streaming === true);
 		rec.el.setAttribute(

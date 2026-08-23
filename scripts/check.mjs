@@ -22,6 +22,7 @@ import {
 	fmtElapsedMs,
 	fmtTokens,
 	isActiveRow,
+	activeSessionIds,
 	isLastChildEntry,
 	isSubagentRow,
 	listLoadState,
@@ -311,6 +312,27 @@ assert.equal(isLastChildEntry(hierarchyEntries, 0), false, "母会话连接轨�
 assert.equal(isLastChildEntry(hierarchyEntries, 1), true, "多级子代理的末级连接线收口");
 assert.equal(isLastChildEntry(hierarchyEntries, 2), true, "同级末个子代理连接线收口");
 assert.equal(entries[2].workspaceTitle, "", "无归属则无工作区徽标");
+// ---- R-01-003/AC-05 活动子代理补齐所有非活动母会话 ----
+const inheritedActivity = {
+	ids: ["root", "parent", "child"],
+	byId: {
+		root: { id: "root", displayTitle: "根母会话", running: false, completed: false, updatedAt: 1900 },
+		parent: { id: "parent", displayTitle: "中间母会话", running: false, completed: false, parentId: "root", updatedAt: 1900 },
+		child: { id: "child", displayTitle: "活动子会话", running: true, parentId: "parent" },
+	},
+	current: null,
+};
+assert.deepEqual(
+	[...activeSessionIds(inheritedActivity.byId)].sort(),
+	["child", "parent", "root"],
+	"活动子代理沿 parentId 链补齐所有有效母会话",
+);
+assert.deepEqual(
+	buildEntries(inheritedActivity, []).map((entry) => [entry.id, entry.kind, entry.depth]),
+	[["root", "parent", 0], ["parent", "parent", 1], ["child", "subagent", 2]],
+	"自身不活动的母会话作为 parent 上下文显示并保持层级深度",
+);
+assert.deepEqual(buildRecent(inheritedActivity, [], 2000), [], "活动祖先不进入最近历史区");
 
 // ---- R-01-001/AC-02 无活动会话时为空态 ｜ R-02-001/AC-01、R-02-001/AC-02 独立数据源 ----
 // 核心映射只消费 DSH 原生快照结构（无任何第三方数据源引用）。
@@ -1092,6 +1114,9 @@ assert.ok(bundle.includes("[data-dsh-activity-pane] .dap-card[data-connector]::b
 assert.ok(bundle.includes('"data-connector"'), "子代理连接线不进入卡片内容与点击区域");
 assert.ok(bundle.includes("left: -8px;\n  top: -6px;"), "竖向连接线位于缩进槽中部并跨越列表间距");
 assert.ok(bundle.includes("left: -8px;\n  top: 50%;\n  width: 8px;"), "横向连接线从缩进槽接入子代理卡片中心");
+// R-01-003/AC-05
+assert.ok(bundle.includes("function activeSessionIds(byId = {})"), "活动子代理沿 parentId 链补齐活动祖先");
+assert.ok(bundle.includes("top: -6px;\n  bottom: 0;"), "相邻卡片连接线端点相接且不在间隙重叠");
 // R-01-013/AC-07、R-01-013/AC-08
 assert.ok(bundle.includes('dataset.role = "user"'), "用户消息行骨架静态标识 user 角色");
 assert.ok(bundle.includes('dataset.role = "agent"'), "agent 回复行骨架静态标识 agent 角色");

@@ -678,12 +678,13 @@ function mainTitle(byId, id) {
 /**
  * 把 sessions/workspaces 快照构建成窗格条目列表（有序、已含层级与显示过滤）。
  * 返回数组的每一项：
- *   { id, depth, kind: 'running'|'awaiting'|'subagent', title, workspaceTitle,
+ *   { id, parentId?, depth, kind: 'running'|'awaiting'|'subagent'|'parent', title, workspaceTitle,
  *     isCurrent, pendingText? }
  * kind 规则：
  *   - 主会话 running（且无 pending）→ 'running'
  *   - 主会话 pendingInteraction / completed → 'awaiting'（等待用户行动）
- *   - 子代理 running / pending → 'subagent'，否则不显示
+ *   - 自身不活动但存在活动后代的任意母会话 → 'parent'（活动层级上下文）
+ *   - 子代理 running / pending → 'subagent'，自身与后代均不活动则不显示
  */
 function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
@@ -693,7 +694,7 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 		? snapshot.subagentsByParent
 		: {};
 	const rank = workspaceRank(workspaceItems ?? []);
-
+	const activeIds = activeSessionIds(byId);
 	// 第一遍：层级关系 + 显示判定（show 同 isActiveRow，单点实现避免漂移）。
 	const rootIds = [];
 	const childIds = new Map();
@@ -712,9 +713,10 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 		const running = row.running === true;
 		const pending = row.pendingInteraction !== undefined;
 		const isSub = hasParent;
-		// 子代理完成后即消失；主会话完成后保留为"等待打开"。
-		const show = isActiveRow(row, byId);
-		meta.set(id, { row, running, pending, isSub, show, depth: 0 });
+		// 子代理完成且没有活动后代时消失；主会话完成后保留为"等待打开"，活动祖先显示为 parent 上下文。
+		const ownActive = isActiveRow(row, byId);
+		const show = isActiveRow(row, byId, activeIds);
+		meta.set(id, { row, running, pending, isSub, ownActive, show, depth: 0 });
 	}
 
 	// 主会话按 workspace 顺序排序；未归入任何工作区的主会话保持在 lineage 中靠后。
@@ -746,7 +748,9 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 				id,
 				parentId: m.isSub ? String(parentId) : null,
 				depth,
-				kind: m.isSub ? "subagent" : m.pending ? "awaiting" : m.running ? "running" : "awaiting",
+				kind: m.ownActive
+					? m.isSub ? "subagent" : m.pending ? "awaiting" : m.running ? "running" : "awaiting"
+					: "parent",
 				title: m.isSub
 					? subagentTitle(parentId, id, byId, subagentsByParent)
 					: mainTitle(byId, id),
@@ -776,7 +780,7 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 /** 判断活动条目是否为其直属母会话的最后一个可见子代理。 */
 function isLastChildEntry(entries, index) {
 	const entry = Array.isArray(entries) ? entries[index] : null;
-	if (entry?.kind !== "subagent" || entry.parentId == null) return false;
+	if (entry?.parentId == null || (entry.kind !== "subagent" && entry.kind !== "parent")) return false;
 	for (let i = index + 1; i < entries.length; i += 1) {
 		const next = entries[i];
 		if ((next?.depth ?? 0) <= (entry.depth ?? 0)) {
@@ -843,16 +847,37 @@ function isSubagentRow(row, byId = {}) {
 	return id !== undefined && id !== null && isRecord(byId[id]);
 }
 
-/**
- * 会话行是否满足"活动区显示"判定（buildEntries 的 show 与此共用，单点实现）。
- * 主会话：running || pendingInteraction || completed；
- * 子代理：仅 running || pendingInteraction（结束后消失）。
- */
-function isActiveRow(row, byId = {}) {
+/** 会话行是否满足自身状态的活动判定，不含后代活动继承。 */
+function isOwnActiveRow(row, byId = {}) {
+	if (!isRecord(row)) return false;
 	const running = row.running === true;
 	const pending = row.pendingInteraction !== undefined;
 	if (isSubagentRow(row, byId)) return running || pending;
 	return running || pending || row.completed === true;
+}
+
+/** 沿活动会话的有效 parentId 链补齐活动祖先，供活动区与历史区共用。 */
+function activeSessionIds(byId = {}) {
+	const activeIds = new Set();
+	for (const [id, row] of Object.entries(byId)) {
+		if (!isOwnActiveRow(row, byId)) continue;
+		let currentId = String(id);
+		const seen = new Set();
+		while (currentId !== "" && !seen.has(currentId)) {
+			seen.add(currentId);
+			activeIds.add(currentId);
+			const parentId = byId[currentId]?.parentId;
+			if (parentId === undefined || parentId === null || !isRecord(byId[parentId])) break;
+			currentId = String(parentId);
+		}
+	}
+	return activeIds;
+}
+
+/** 会话行是否满足活动区显示判定（自身活动或存在活动后代）。 */
+function isActiveRow(row, byId = {}, activeIds = null) {
+	if (isOwnActiveRow(row, byId)) return true;
+	return activeIds instanceof Set && row?.id != null && activeIds.has(String(row.id));
 }
 
 /**
@@ -867,6 +892,7 @@ function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
 	const items = Array.isArray(workspaceItems) ? workspaceItems : [];
+	const activeIds = activeSessionIds(byId);
 	const archived = archivedIds instanceof Set ? archivedIds : new Set(archivedIds ?? []);
 	const entries = [];
 
@@ -876,7 +902,7 @@ function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS
 		if (row.blank === true) continue;
 		if (archived.has(id)) continue; // 归档会话不可选中，不入最近历史
 		if (isSubagentRow(row, byId)) continue; // 子代理（含已结束）不入最近历史
-		if (isActiveRow(row, byId)) continue;
+		if (isActiveRow(row, byId, activeIds)) continue;
 		const updatedAt = Number(row.updatedAt);
 		if (!Number.isFinite(updatedAt)) continue;
 		if (updatedAt > now || now - updatedAt > windowMs) continue;
@@ -1230,7 +1256,7 @@ const CSS = `
   position: absolute;
   left: -8px;
   top: -6px;
-  bottom: -6px;
+  bottom: 0;
   width: 1px;
   background: color-mix(in srgb, currentColor 24%, transparent);
   pointer-events: none;
@@ -1260,6 +1286,11 @@ const CSS = `
   padding: 6px 10px;
   border-radius: 12px;
   background: rgba(25, 27, 32, 0.95);
+}
+[data-dsh-activity-pane] .dap-card[data-kind="parent"] .dap-dot {
+  background: #8a94a3;
+  box-shadow: none;
+  animation: none;
 }
 [data-dsh-activity-pane] .dap-card[data-kind="recent"] {
   padding: 6px 10px;
@@ -1597,7 +1628,8 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card:hover {
   border-color: var(--dsw-alias-border-l4, rgba(0, 0, 0, 0.16));
   filter: brightness(0.97);
 }
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="subagent"] {
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="subagent"],
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="parent"] {
   background: var(--dsw-specific-sidebar-fill, rgb(249, 250, 251));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="recent"] {
@@ -2076,6 +2108,11 @@ function apply(ctx) {
 	function cardChildren(kind) {
 		const head = makeEl("div", "dap-card-head");
 		head.append(makeEl("div", "dap-workspace"), makeEl("div", "dap-model"));
+		if (kind === "parent") {
+			const row = makeEl("div", "dap-row");
+			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
+			return [head, row];
+		}
 		if (kind === "subagent") {
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
@@ -2598,6 +2635,7 @@ function apply(ctx) {
 			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, nativeSessionId, { lastOnly: true });
 			return;
 		}
+		if (entry.kind === "parent") return;
 
 		if (entry.kind === "recent") {
 			const lines = el.querySelectorAll(".dap-history-line");
@@ -2763,9 +2801,9 @@ function apply(ctx) {
 		rec.el.toggleAttribute("data-awaiting", entry.kind === "awaiting");
 		rec.el.toggleAttribute(
 			"data-connector",
-			entry.kind === "subagent" && (entry.depth ?? 0) > 0 && entry.parentId != null,
+			(entry.kind === "subagent" || entry.kind === "parent") && (entry.depth ?? 0) > 0 && entry.parentId != null,
 		);
-		rec.el.toggleAttribute("data-last-child", entry.kind === "subagent" && lastChild);
+		rec.el.toggleAttribute("data-last-child", (entry.kind === "subagent" || entry.kind === "parent") && lastChild);
 		// 流式阶段标记：驱动进度条向右滚动的条纹动画（answer-pet 对齐，R-01-009）。
 		rec.el.toggleAttribute("data-streaming", entry.streaming === true);
 		rec.el.setAttribute(

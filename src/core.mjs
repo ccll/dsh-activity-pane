@@ -672,12 +672,13 @@ export function mainTitle(byId, id) {
 /**
  * 把 sessions/workspaces 快照构建成窗格条目列表（有序、已含层级与显示过滤）。
  * 返回数组的每一项：
- *   { id, depth, kind: 'running'|'awaiting'|'subagent', title, workspaceTitle,
+ *   { id, parentId?, depth, kind: 'running'|'awaiting'|'subagent'|'parent', title, workspaceTitle,
  *     isCurrent, pendingText? }
  * kind 规则：
  *   - 主会话 running（且无 pending）→ 'running'
  *   - 主会话 pendingInteraction / completed → 'awaiting'（等待用户行动）
- *   - 子代理 running / pending → 'subagent'，否则不显示
+ *   - 自身不活动但存在活动后代的任意母会话 → 'parent'（活动层级上下文）
+ *   - 子代理 running / pending → 'subagent'，自身与后代均不活动则不显示
  */
 export function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
@@ -687,7 +688,7 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 		? snapshot.subagentsByParent
 		: {};
 	const rank = workspaceRank(workspaceItems ?? []);
-
+	const activeIds = activeSessionIds(byId);
 	// 第一遍：层级关系 + 显示判定（show 同 isActiveRow，单点实现避免漂移）。
 	const rootIds = [];
 	const childIds = new Map();
@@ -706,9 +707,10 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 		const running = row.running === true;
 		const pending = row.pendingInteraction !== undefined;
 		const isSub = hasParent;
-		// 子代理完成后即消失；主会话完成后保留为"等待打开"。
-		const show = isActiveRow(row, byId);
-		meta.set(id, { row, running, pending, isSub, show, depth: 0 });
+		// 子代理完成且没有活动后代时消失；主会话完成后保留为"等待打开"，活动祖先显示为 parent 上下文。
+		const ownActive = isActiveRow(row, byId);
+		const show = isActiveRow(row, byId, activeIds);
+		meta.set(id, { row, running, pending, isSub, ownActive, show, depth: 0 });
 	}
 
 	// 主会话按 workspace 顺序排序；未归入任何工作区的主会话保持在 lineage 中靠后。
@@ -740,7 +742,9 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 				id,
 				parentId: m.isSub ? String(parentId) : null,
 				depth,
-				kind: m.isSub ? "subagent" : m.pending ? "awaiting" : m.running ? "running" : "awaiting",
+				kind: m.ownActive
+					? m.isSub ? "subagent" : m.pending ? "awaiting" : m.running ? "running" : "awaiting"
+					: "parent",
 				title: m.isSub
 					? subagentTitle(parentId, id, byId, subagentsByParent)
 					: mainTitle(byId, id),
@@ -770,7 +774,7 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 /** 判断活动条目是否为其直属母会话的最后一个可见子代理。 */
 export function isLastChildEntry(entries, index) {
 	const entry = Array.isArray(entries) ? entries[index] : null;
-	if (entry?.kind !== "subagent" || entry.parentId == null) return false;
+	if (entry?.parentId == null || (entry.kind !== "subagent" && entry.kind !== "parent")) return false;
 	for (let i = index + 1; i < entries.length; i += 1) {
 		const next = entries[i];
 		if ((next?.depth ?? 0) <= (entry.depth ?? 0)) {
@@ -837,16 +841,37 @@ export function isSubagentRow(row, byId = {}) {
 	return id !== undefined && id !== null && isRecord(byId[id]);
 }
 
-/**
- * 会话行是否满足"活动区显示"判定（buildEntries 的 show 与此共用，单点实现）。
- * 主会话：running || pendingInteraction || completed；
- * 子代理：仅 running || pendingInteraction（结束后消失）。
- */
-export function isActiveRow(row, byId = {}) {
+/** 会话行是否满足自身状态的活动判定，不含后代活动继承。 */
+function isOwnActiveRow(row, byId = {}) {
+	if (!isRecord(row)) return false;
 	const running = row.running === true;
 	const pending = row.pendingInteraction !== undefined;
 	if (isSubagentRow(row, byId)) return running || pending;
 	return running || pending || row.completed === true;
+}
+
+/** 沿活动会话的有效 parentId 链补齐活动祖先，供活动区与历史区共用。 */
+export function activeSessionIds(byId = {}) {
+	const activeIds = new Set();
+	for (const [id, row] of Object.entries(byId)) {
+		if (!isOwnActiveRow(row, byId)) continue;
+		let currentId = String(id);
+		const seen = new Set();
+		while (currentId !== "" && !seen.has(currentId)) {
+			seen.add(currentId);
+			activeIds.add(currentId);
+			const parentId = byId[currentId]?.parentId;
+			if (parentId === undefined || parentId === null || !isRecord(byId[parentId])) break;
+			currentId = String(parentId);
+		}
+	}
+	return activeIds;
+}
+
+/** 会话行是否满足活动区显示判定（自身活动或存在活动后代）。 */
+export function isActiveRow(row, byId = {}, activeIds = null) {
+	if (isOwnActiveRow(row, byId)) return true;
+	return activeIds instanceof Set && row?.id != null && activeIds.has(String(row.id));
 }
 
 /**
@@ -861,6 +886,7 @@ export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WI
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
 	const items = Array.isArray(workspaceItems) ? workspaceItems : [];
+	const activeIds = activeSessionIds(byId);
 	const archived = archivedIds instanceof Set ? archivedIds : new Set(archivedIds ?? []);
 	const entries = [];
 
@@ -870,7 +896,7 @@ export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WI
 		if (row.blank === true) continue;
 		if (archived.has(id)) continue; // 归档会话不可选中，不入最近历史
 		if (isSubagentRow(row, byId)) continue; // 子代理（含已结束）不入最近历史
-		if (isActiveRow(row, byId)) continue;
+		if (isActiveRow(row, byId, activeIds)) continue;
 		const updatedAt = Number(row.updatedAt);
 		if (!Number.isFinite(updatedAt)) continue;
 		if (updatedAt > now || now - updatedAt > windowMs) continue;

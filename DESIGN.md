@@ -113,14 +113,14 @@ sequenceDiagram
 
 ## 核心数据与不变量
 
-- 核心结构：`活动卡片条目 = { id, parentId?, depth, kind: running|awaiting|subagent, title, workspaceTitle, model, reasoning, timeline, isCurrent, pendingText? }`；`最近卡片条目 = { id, kind: 'recent', title, workspaceTitle, model, reasoning, userPreview, agentPreview, isCurrent, updatedAt }`。
+- 核心结构：`活动卡片条目 = { id, parentId?, depth, kind: running|awaiting|subagent|parent, title, workspaceTitle, model, reasoning, timeline, isCurrent, pendingText? }`；`parent` 表示自身非活动但因后代活动而显示的活动层级上下文；`最近卡片条目 = { id, kind: 'recent', title, workspaceTitle, model, reasoning, userPreview, agentPreview, isCurrent, updatedAt }`。
 - 显示过滤（核心不变量）：
-  - 主会话显示当 `running || pendingInteraction || completed`；显示为 running 或 awaiting。
-  - 子代理仅显示当 `running || pendingInteraction`；结束后即消失（R-01-001、R-01-003）。
+  - 主会话显示当自身 `running || pendingInteraction || completed`，或存在活动后代；自身不活动但存在活动后代时显示为 `parent` 活动层级上下文，否则显示为 running 或 awaiting。
+  - 子代理显示当自身 `running || pendingInteraction`，或存在活动后代；自身不活动但存在活动后代时显示为 `parent` 上下文，既无自身活动也无活动后代时结束并消失（R-01-001、R-01-003）。
   - 等待优先：存在待确认/待审查/待回复时以对应文案呈现；否则完成态以"需要响应"呈现（R-01-002）。
 - 分区不变量：会话要么在活动区、要么在历史区，绝不同时出现；最近历史 = 当前非活动 && `updatedAt` 落在历史窗口（24h）内、**仅主会话（不含子代理）**，按最后活动时间倒序，最多 20 条（R-01-010）。
 - 轮内状态输入：`runtimeStats({ elapsedMs, outputTokens, rateTokS })` 与 `conversationTimeline(snapshot)` 为纯函数，输入由渲染器从原生 `ConversationSnapshot`（`chat` / `runningCalls` / `partial` / `turnTimings` / `legacy.nodes`）与 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`）归一而来（R-01-009、R-01-012）。
-- 排序不变量：主会话按所在工作区侧栏顺序；未纳入任何工作区的排在全部工作区之后并保持出现顺序；子代理跟随母会话并缩进（R-01-001、R-01-003）。
+- 排序不变量：主会话按所在工作区侧栏顺序；未纳入任何工作区的排在全部工作区之后并保持出现顺序；活动层级上下文与子代理均跟随母会话并缩进（R-01-001、R-01-003）。
 - 稳定签名：`cardSignature` 对条目可见字段求签名（含 model/reasoning/timeline/userPreview/agentPreview、progress/streaming/tokenStats）；签名相同的重复渲染必须跳过全部 DOM 写入（R-02-003）。
 - 运行卡渲染期字段：渲染器为 running 条目补充 `progress`（阶段百分比）、`timeline`（主会话窗口最近工作项）、`streaming`（流式阶段标记，驱动 `data-streaming` 属性与进度条条纹动画）与 `tokenStats`；不再派生独立 `status` 文案行；同一 `kind` 卡片的 DOM 骨架在 `streaming` 翻转时经签名重绘更新属性。
 
@@ -201,7 +201,7 @@ sequenceDiagram
 - 职责: 把宿主会话与工作区快照归一化为活动区/历史区条目、工作项时间线、模型上下文与消息预览（实现 R-01-001、R-01-002、R-01-003、R-01-009、R-01-010、R-01-012、R-01-013、R-02-001、R-02-003）
 - 关键内部结构:
   - 纯函数、无 DOM、可单测。
-  - 显示过滤单点实现：`isActiveRow`（buildEntries 的 show 与 buildRecent 共用），主会话/子代理分列，等待行动优先于运行态；`isSubagentRow` 判定直属子代理。
+  - 显示过滤单点实现：`activeSessionIds` 沿活动会话的 `parentId` 链补齐所有活动祖先，`isActiveRow` 供 buildEntries/buildRecent 共用；`isSubagentRow` 判定直属子代理，`parent` 条目只承载层级上下文，不建立轮内订阅。
   - `buildRecent` 按 24h 历史窗口派生历史区（仅主会话、倒序、上限 20），并归一化 workspace/model/reasoning、最近用户首行与 agent 首行。
   - `conversationTimeline` 从原生 ChatSnapshot 的实际 order 提取最近 4 个工作项，保留图标语义、文字、详情与状态；运行中无 live 项时按 R-01-009/AC-10 将尾部非用户已定案项提升为 running；`firstPhysicalLine` 只取消息的第一个非空物理行。
   - `modelMetadata` 从 native models response 提取当前模型名称与 reasoning level；缺失值保持空白。
@@ -218,6 +218,7 @@ sequenceDiagram
 - 关键内部结构:
   - 桌面下把中间列临时改为行方向，窗格作为真实 flex 行子项（先于会话座）占据左侧默认 280px；经祖先链（跳过 display:contents）找到会话根设 `flex:1 1 0%` 弹性填充，会话内容随之让位；折叠为窄条时让位同步恢复；仅桌面生效，移动端恢复外壳默认列布局。
   - 内容区为上「活动会话」下「最近历史」两段，各自带空态；由同一快照派生。
+  - `parent` 活动层级上下文卡片显示母会话本身，保持层级顺序但不显示自身运行时间线，也不建立轮内状态订阅（R-01-003/AC-05）。
   - 活动区子代理卡片沿 `depth` 缩进，并在缩进槽内绘制连接母会话与直属子代理的线段；连接线不覆盖卡片内容或点击区域（R-01-003/AC-04）。
   - 卡片按 id 复用，流程节点按稳定 id 复用 DOM；配合签名去重避免无谓 DOM 写入，并保持运行节点脉冲动画连续。
   - 最近卡两条消息预览行为「角色图标 + 文本」双段结构：用户消息行人物图标、agent 回复行机器人图标，图标常驻；文本与加载 spinner 只写入文本段，不覆盖图标（R-01-013/AC-07、AC-08）。

@@ -1151,7 +1151,17 @@ assert.doesNotThrow(
 assert.ok(!bundle.includes("sessionsListHas"), "点击不得以第二份 list 快照提前拦截");
 assert.ok(!bundle.includes('document.addEventListener("click"'), "不得在 document 上拦截点击");
 assert.ok(bundle.includes('close?.addEventListener("click", onCloseClick)'), "窗格关闭按钮绑定自身 click");
-assert.ok(bundle.includes('collapse?.addEventListener("click", onCollapseClick)'), "窗格折叠按钮绑定自身 click");
+// R-01-011/AC-03 标题行整体作为桌面收起控件（无独立按钮）
+assert.ok(bundle.includes('class="dap-header" role="button"'), "标题行整体作为可激活控件");
+assert.ok(bundle.includes('header?.addEventListener("click", onHeaderActivate)'), "标题行绑定 click 收起");
+assert.ok(bundle.includes('header?.addEventListener("keydown", onHeaderKeydown)'), "标题行支持 Enter/Space 键盘激活");
+assert.ok(!bundle.includes("onCollapseClick") && !bundle.includes('class="dap-collapse"'), "不再保留独立收起按钮：标题行整体承担折叠");
+// R-01-011/AC-04 折叠窄条竖排标题 + 计数、整体可点
+assert.ok(bundle.includes('class="dap-rail-title"'), "折叠窄条显示竖排标题");
+assert.ok(bundle.includes("writing-mode: vertical-rl"), "窄条标题竖排呈现");
+assert.ok(/\.dap-rail \{[^]*?flex: 1;/.test(bundle), "窄条撑满窗格高度，整面均为展开命中区");
+// R-01-011/AC-06 标题行收起仅桌面断点生效
+assert.ok(bundle.includes("matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`)"), "标题行收起经移动断点门控");
 assert.ok(bundle.includes('rail?.addEventListener("click", onRailClick)'), "折叠窄条绑定自身 click");
 assert.ok(bundle.includes('class="dap-rail" type="button"'), "折叠窄条使用原生 button 语义");
 // R-01-015/AC-01 拖拽手柄实时调宽、主会话弹性让位

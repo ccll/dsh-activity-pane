@@ -1174,6 +1174,13 @@ const CSS = `
   font-weight: 700;
   letter-spacing: 0.02em;
 }
+/* 方向符号：标题行的一部分而非独立按钮，仅桌面呈现（R-01-011/AC-03）。 */
+[data-dsh-activity-pane] .dap-collapse-hint {
+  display: none;
+  margin-left: auto;
+  color: color-mix(in srgb, currentColor 45%, transparent);
+  font-size: 13px;
+}
 [data-dsh-activity-pane] .dap-count {
   flex: none;
   font-size: 10px;
@@ -1190,7 +1197,6 @@ const CSS = `
   animation: dap-await-pulse 1.2s ease-in-out infinite;
 }
 @keyframes dap-await-pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
-[data-dsh-activity-pane] .dap-collapse,
 [data-dsh-activity-pane] .dap-close {
   flex: none;
   margin: 0;
@@ -1204,9 +1210,9 @@ const CSS = `
   background: color-mix(in srgb, currentColor 10%, transparent);
   color: currentColor;
   padding: 0 5px;
+  display: none;
+  font-size: 14px;
 }
-[data-dsh-activity-pane] .dap-collapse { display: none; font-size: 13px; }
-[data-dsh-activity-pane] .dap-close { display: none; font-size: 14px; }
 /* 单一滚动区：活动区与最近历史同一容器滚动；touch-action/overscroll 防止
    触屏滚动穿透到下层页面（移动端「滚的是下面的会话界面」即根因）。 */
 [data-dsh-activity-pane] .dap-scroll {
@@ -1264,9 +1270,11 @@ const CSS = `
   color: color-mix(in srgb, currentColor 52%, transparent);
   text-transform: uppercase;
 }
-/* 折叠：仅桌面生效；窄条 + 竖直计数。 */
+/* 折叠：仅桌面生效；窄条 + 竖排标题与计数（R-01-011/AC-04）。 */
 [data-dsh-activity-pane] .dap-rail {
   display: none;
+  /* 窄条整体（含下方空白）均为展开命中区（R-01-011/AC-04）：撑满窗格高度、内容顶对齐。 */
+  flex: 1;
   flex-direction: column;
   align-items: center;
   gap: 8px;
@@ -1289,6 +1297,13 @@ const CSS = `
   font-weight: 700;
   background: color-mix(in srgb, currentColor 16%, transparent);
 }
+[data-dsh-activity-pane] .dap-rail-title {
+  writing-mode: vertical-rl;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: color-mix(in srgb, currentColor 60%, transparent);
+}
 [data-dsh-activity-pane] .dap-rail-count[data-awaiting] {
   background: linear-gradient(180deg, #ffb4b4, #f06a72);
   color: #2a1012;
@@ -1310,11 +1325,17 @@ const CSS = `
 /* 桌面：窗格作为中间列内的真实 flex 行元素参与布局——中间列被置为行方向，
    窗格固定宽、会话区弹性收缩，整个会话内容被真实挤到右边；折叠时收窄为窄条。 */
 @media (min-width: 768px) {
-  [data-dsh-activity-pane] .dap-collapse { display: inline-block; }
+  /* 标题行整体即收起控件（R-01-011/AC-03）：指针与悬停/聚焦反馈仅桌面生效。 */
+  [data-dsh-activity-pane] .dap-header { cursor: pointer; }
+  [data-dsh-activity-pane] .dap-header:hover,
+  [data-dsh-activity-pane] .dap-header:focus-visible {
+    background: color-mix(in srgb, currentColor 8%, transparent);
+  }
+  [data-dsh-activity-pane] .dap-header:focus-visible { outline: none; }
+  [data-dsh-activity-pane] .dap-collapse-hint { display: inline; }
   [data-dsh-activity-pane][data-collapsed="true"] { flex-basis: ${COLLAPSED_WIDTH}px; }
-  [data-dsh-activity-pane][data-collapsed="true"] .dap-scroll,
-  [data-dsh-activity-pane][data-collapsed="true"] .dap-count,
-  [data-dsh-activity-pane][data-collapsed="true"] .dap-collapse { display: none; }
+  [data-dsh-activity-pane][data-collapsed="true"] .dap-header,
+  [data-dsh-activity-pane][data-collapsed="true"] .dap-scroll { display: none; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-resize { display: none; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-rail { display: flex; cursor: pointer; }
 }
@@ -2125,15 +2146,29 @@ function apply(ctx) {
 	}
 	function bindPaneControls(pane) {
 		const close = pane.querySelector(".dap-close");
-		const collapse = pane.querySelector(".dap-collapse");
+		const header = pane.querySelector(".dap-header");
 		const rail = pane.querySelector(".dap-rail");
 		const resize = pane.querySelector(".dap-resize");
 		const scroll = pane.querySelector(".dap-scroll");
-		const onCloseClick = () => togglePane(false);
-		const onCollapseClick = () => {
-			collapsed = !collapsed;
-			pane.setAttribute("data-collapsed", collapsed ? "true" : "false");
+		const onCloseClick = (event) => {
+			// × 位于标题行内：阻止冒泡，收起抽屉不触发桌面折叠（R-01-011/AC-06）。
+			event.stopPropagation();
+			togglePane(false);
+		};
+		// 标题行整体作为桌面折叠控件（R-01-011/AC-03）；移动端抽屉沿用 × 与遮罩（AC-06）。
+		const onHeaderActivate = () => {
+			if (window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`).matches) return;
+			collapsed = true;
+			pane.setAttribute("data-collapsed", "true");
 			notifyLayoutChange();
+		};
+		// Enter/Space 键盘激活与 click 同路径（R-01-011/AC-03）；仅拦截标题行自身，
+		// 焦点在行内 × 等子控件时保留其原生键盘激活（R-01-011/AC-06）。
+		const onHeaderKeydown = (event) => {
+			if (event.target !== header) return;
+			if (event.key !== "Enter" && event.key !== " ") return;
+			event.preventDefault();
+			onHeaderActivate();
 		};
 		const onRailClick = () => {
 			collapsed = false;
@@ -2186,13 +2221,15 @@ function apply(ctx) {
 			}, 600);
 		};
 		close?.addEventListener("click", onCloseClick);
-		collapse?.addEventListener("click", onCollapseClick);
+		header?.addEventListener("click", onHeaderActivate);
+		header?.addEventListener("keydown", onHeaderKeydown);
 		rail?.addEventListener("click", onRailClick);
 		scroll?.addEventListener("scroll", onScroll, { passive: true });
 		resize?.addEventListener("pointerdown", onResizeDown);
 		return () => {
 			close?.removeEventListener("click", onCloseClick);
-			collapse?.removeEventListener("click", onCollapseClick);
+			header?.removeEventListener("click", onHeaderActivate);
+			header?.removeEventListener("keydown", onHeaderKeydown);
 			rail?.removeEventListener("click", onRailClick);
 			scroll?.removeEventListener("scroll", onScroll);
 			if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);
@@ -2215,10 +2252,10 @@ function apply(ctx) {
 			pane.className = PANE_CLASS;
 			center.insertBefore(pane, seat);
 			pane.innerHTML = `
-				<div class="dap-header">
+				<div class="dap-header" role="button" tabindex="0" aria-expanded="true" aria-label="收起或展开活动会话窗格" title="收起 / 展开">
 					<span>活动会话</span>
 					<span class="dap-count" role="status" aria-live="polite"></span>
-					<button class="dap-collapse" type="button" aria-label="收起窗格" title="收起">«</button>
+					<span class="dap-collapse-hint" aria-hidden="true">«</span>
 					<button class="dap-close" type="button" aria-label="收起抽屉">×</button>
 				</div>
 				<div class="dap-scroll">
@@ -2228,6 +2265,7 @@ function apply(ctx) {
 					</div>
 				</div>
 				<button class="dap-rail" type="button" aria-label="展开活动会话窗格">
+					<span class="dap-rail-title" aria-hidden="true">活动会话</span>
 					<span class="dap-rail-count" role="status" aria-live="polite"></span>
 				</button>
 				<div class="dap-resize" aria-hidden="true"></div>
@@ -3300,6 +3338,9 @@ function apply(ctx) {
 			toggle.toggleAttribute("data-awaiting", hasAwaiting);
 		}
 		pane.toggleAttribute("data-collapsed", collapsed);
+		const headerExpanded = collapsed ? "false" : "true";
+		if (headerEl !== null && headerEl.getAttribute("aria-expanded") !== headerExpanded)
+			headerEl.setAttribute("aria-expanded", headerExpanded);
 
 		// 图标缓存修剪：只保留当前会话（缓存键为 [sessionId, itemKey]，非当前会话
 		// 永不命中），并按插入序限量，避免随工具调用终身增长（INV）。

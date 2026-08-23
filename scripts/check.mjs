@@ -1231,5 +1231,18 @@ assert.ok(!bundle.includes("@media (prefers-color-scheme"), "主题跟随外壳 
 // 覆盖块必须不接管 ::before 状态圆点基色：基色规则若被覆盖会以更高优先级
 // 压掉 running/done/error/stopped 状态色。
 assert.ok(!bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item::before"), "浅色覆盖不接管 ::before 圆点（保留状态色）");
+// R-01-006/AC-01 当前会话高亮在浅色下同样生效：浅色 .dap-card/:hover/[data-kind] 覆盖
+// 的优先级均高于基态 [data-current] 规则，浅色块必须在其后重声明描边/光晕。
+assert.ok(
+	bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current] {\n  border-color: color-mix(in srgb, #65a0ff 75%, transparent);\n  box-shadow: 0 0 0 1px color-mix(in srgb, #65a0ff 45%, transparent), 0 0 12px color-mix(in srgb, #65a0ff 30%, transparent);\n}"),
+	"浅色块重声明当前会话描边与光晕（与深色同值）",
+);
+const lightCurrentAt = bundle.indexOf("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current] {");
+assert.ok(
+	lightCurrentAt > bundle.indexOf("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card:hover {")
+		&& lightCurrentAt > bundle.indexOf('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="recent"] {'),
+	"浅色 [data-current] 重声明位于 :hover 与 [data-kind=recent] 覆盖之后（同优先级后定义者胜）",
+);
+
 
 console.log("check: all assertions passed");

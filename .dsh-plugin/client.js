@@ -1536,6 +1536,14 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="rec
   background: var(--dsw-specific-sidebar-fill, rgb(249, 250, 251));
   border-color: transparent;
 }
+/* 当前会话高亮（R-01-006/AC-01）：蓝色描边/光晕两主题同值，但浅色块必须在
+   [data-kind] 覆盖之后重声明——浅色 .dap-card/:hover/[data-kind] 规则的优先级均高于
+   基态 [data-current] 规则，不重声明则浅色下选中描边与光晕被顶掉。 */
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current] {
+  border-color: color-mix(in srgb, #65a0ff 75%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #65a0ff 45%, transparent), 0 0 12px color-mix(in srgb, #65a0ff 30%, transparent);
+}
+
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"] {
   background: var(--dsw-alias-state-warn-tertiary, rgb(254, 245, 231));
 }

@@ -76,6 +76,22 @@ const TOOL_LABELS = {
 /** think 阶段进度起点（%）：progressOf 与渲染层兜底共用的同源常量，防两处"5"漂移。 */
 export const PROGRESS_THINK_BASE = 5;
 
+/** 桌面窗格拖拽调宽边界（R-01-015）：拖拽实时夹取与 localStorage 恢复共用的同源常量。 */
+export const PANE_WIDTH_MIN = 200;
+export const PANE_WIDTH_MAX = 480;
+export const PANE_WIDTH_DEFAULT = 280;
+
+/**
+ * 把任意输入（拖拽像素值或 localStorage 字符串）归一为合法列宽：
+ * 非有限数值（含空串）回退默认宽；有限数值取整后夹取进 [PANE_WIDTH_MIN, PANE_WIDTH_MAX]。
+ */
+export function clampPaneWidth(raw) {
+	if (typeof raw === "string" && raw.trim() === "") return PANE_WIDTH_DEFAULT;
+	const value = typeof raw === "string" ? Number(raw) : raw;
+	if (typeof value !== "number" || !Number.isFinite(value)) return PANE_WIDTH_DEFAULT;
+	return Math.min(PANE_WIDTH_MAX, Math.max(PANE_WIDTH_MIN, Math.round(value)));
+}
+
 function isRecord(value) {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }

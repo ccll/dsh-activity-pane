@@ -82,6 +82,22 @@ const TOOL_LABELS = {
 /** think 阶段进度起点（%）：progressOf 与渲染层兜底共用的同源常量，防两处"5"漂移。 */
 const PROGRESS_THINK_BASE = 5;
 
+/** 桌面窗格拖拽调宽边界（R-01-015）：拖拽实时夹取与 localStorage 恢复共用的同源常量。 */
+const PANE_WIDTH_MIN = 200;
+const PANE_WIDTH_MAX = 480;
+const PANE_WIDTH_DEFAULT = 280;
+
+/**
+ * 把任意输入（拖拽像素值或 localStorage 字符串）归一为合法列宽：
+ * 非有限数值（含空串）回退默认宽；有限数值取整后夹取进 [PANE_WIDTH_MIN, PANE_WIDTH_MAX]。
+ */
+function clampPaneWidth(raw) {
+	if (typeof raw === "string" && raw.trim() === "") return PANE_WIDTH_DEFAULT;
+	const value = typeof raw === "string" ? Number(raw) : raw;
+	if (typeof value !== "number" || !Number.isFinite(value)) return PANE_WIDTH_DEFAULT;
+	return Math.min(PANE_WIDTH_MAX, Math.max(PANE_WIDTH_MIN, Math.round(value)));
+}
+
 function isRecord(value) {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -1115,7 +1131,8 @@ const RECENT_CLASS = "dap-recent";
 const CARD_CLASS = "dap-card";
 const STYLE_ID = "dsh-activity-pane-style";
 const INSTANCE_KEY = "__dshActivityPaneCleanup";
-const DEFAULT_WIDTH = 280;
+/** 拖拽调宽的 localStorage 持久化键（R-01-015/AC-04）。 */
+const WIDTH_STORAGE_KEY = "dsh-activity-pane:width";
 const COLLAPSED_WIDTH = 34;
 // 缩进槽宽：与连接线 CSS 几何耦合（left:-8px = INDENT_PX/2 缩进槽中线，
 // top:-6px/bottom:-2px 对应 .dap-list 的 gap:6px），改任一数值须三处同步；
@@ -1133,7 +1150,7 @@ const ICON_CACHE_MAX = 128;
 
 const CSS = `
 [data-dsh-activity-pane] {
-  --dap-width: ${DEFAULT_WIDTH}px;
+  --dap-width: ${PANE_WIDTH_DEFAULT}px;
   flex: 0 0 var(--dap-width);
   min-width: 0;
   min-height: 0;
@@ -1276,6 +1293,20 @@ const CSS = `
   background: linear-gradient(180deg, #ffb4b4, #f06a72);
   color: #2a1012;
 }
+/* 桌面拖拽调宽手柄（R-01-015）：右缘 6px 命中区，拖拽实时写入 --dap-width；
+   折叠窄条与移动端抽屉不提供拖拽（下方两处媒体查询隐藏）。 */
+[data-dsh-activity-pane] .dap-resize {
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 6;
+}
+[data-dsh-activity-pane] .dap-resize:hover,
+[data-dsh-activity-pane] .dap-resize[data-dragging] {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+}
 /* 桌面：窗格作为中间列内的真实 flex 行元素参与布局——中间列被置为行方向，
    窗格固定宽、会话区弹性收缩，整个会话内容被真实挤到右边；折叠时收窄为窄条。 */
 @media (min-width: 768px) {
@@ -1284,10 +1315,12 @@ const CSS = `
   [data-dsh-activity-pane][data-collapsed="true"] .dap-scroll,
   [data-dsh-activity-pane][data-collapsed="true"] .dap-count,
   [data-dsh-activity-pane][data-collapsed="true"] .dap-collapse { display: none; }
+  [data-dsh-activity-pane][data-collapsed="true"] .dap-resize { display: none; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-rail { display: flex; cursor: pointer; }
 }
 @media (max-width: ${MOBILE_BREAKPOINT}) {
   [data-dsh-activity-pane] .dap-close { display: inline-block; }
+  [data-dsh-activity-pane] .dap-resize { display: none; }
 }
 /* 卡片视觉沿用 answer-pet 的多会话卡片设计（MIT 参考，见 README）。 */
 [data-dsh-activity-pane] .dap-card {
@@ -1796,6 +1829,21 @@ function fmtRecentTime(ts) {
 	}
 }
 
+/** 读取持久化列宽：缺失/非法/越界值经 clampPaneWidth 归一；localStorage 不可用（隐私模式）静默回退默认（R-01-015/AC-04）。 */
+function readStoredPaneWidth() {
+	try {
+		return clampPaneWidth(window.localStorage.getItem(WIDTH_STORAGE_KEY));
+	} catch {
+		return PANE_WIDTH_DEFAULT;
+	}
+}
+/** 拖拽结束持久化列宽；localStorage 不可用时静默跳过（R-01-015/AC-04）。 */
+function writeStoredPaneWidth(width) {
+	try {
+		window.localStorage.setItem(WIDTH_STORAGE_KEY, String(width));
+	} catch {}
+}
+
 function apply(ctx) {
 	const previousCleanup = document[INSTANCE_KEY] ?? globalThis[INSTANCE_KEY];
 	if (typeof previousCleanup === "function") previousCleanup();
@@ -1815,6 +1863,8 @@ function apply(ctx) {
 	let boundPane = null;
 	let unbindPaneControls = null;
 	let collapsed = false;
+	/** 当前桌面列宽：启动时从 localStorage 恢复，拖拽实时更新，重挂载后保留（R-01-015）。 */
+	let paneWidth = readStoredPaneWidth();
 	/** 用户最近一次激活的卡片 id；打开重试链被更新的激活意图取代即取消。 */
 	let lastActivatedId = null;
 	/** 活动区卡片 id → { el, kind } 复用表。 */
@@ -2077,6 +2127,7 @@ function apply(ctx) {
 		const close = pane.querySelector(".dap-close");
 		const collapse = pane.querySelector(".dap-collapse");
 		const rail = pane.querySelector(".dap-rail");
+		const resize = pane.querySelector(".dap-resize");
 		const scroll = pane.querySelector(".dap-scroll");
 		const onCloseClick = () => togglePane(false);
 		const onCollapseClick = () => {
@@ -2088,6 +2139,40 @@ function apply(ctx) {
 			collapsed = false;
 			pane.setAttribute("data-collapsed", "false");
 			notifyLayoutChange();
+		};
+		// 桌面拖拽调宽（R-01-015）：pointer capture 跟踪 pointermove 实时夹取写入
+		// --dap-width（主会话经 flex 弹性同步让位），抬起/取消时持久化并通知布局。
+		const onResizeDown = (event) => {
+			if (event.button !== 0) return;
+			event.preventDefault();
+			const startX = event.clientX;
+			const startWidth = pane.getBoundingClientRect().width;
+			// 拖拽期间经 rAF 合帧派发 resize，依赖该事件的 sibling overlay 实时跟随让位。
+			let resizeNotifyHandle = null;
+			const onResizeMove = (move) => {
+				paneWidth = clampPaneWidth(startWidth + move.clientX - startX);
+				pane.style.setProperty("--dap-width", `${paneWidth}px`);
+				if (resizeNotifyHandle === null) {
+					resizeNotifyHandle = requestAnimationFrame(() => {
+						resizeNotifyHandle = null;
+						notifyLayoutChange();
+					});
+				}
+			};
+			const onResizeUp = () => {
+				resize.removeAttribute("data-dragging");
+				resize.removeEventListener("pointermove", onResizeMove);
+				resize.removeEventListener("pointerup", onResizeUp);
+				resize.removeEventListener("pointercancel", onResizeUp);
+				if (resizeNotifyHandle !== null) cancelAnimationFrame(resizeNotifyHandle);
+				writeStoredPaneWidth(paneWidth);
+				notifyLayoutChange();
+			};
+			resize.setAttribute("data-dragging", "");
+			resize.addEventListener("pointermove", onResizeMove);
+			resize.addEventListener("pointerup", onResizeUp);
+			resize.addEventListener("pointercancel", onResizeUp);
+			resize.setPointerCapture(event.pointerId);
 		};
 		// 滚动条仅滚动时显示（R-01-004/AC-03）：滚动即置位，停滚 600ms 后隐藏。
 		let scrollHideTimer = null;
@@ -2104,12 +2189,14 @@ function apply(ctx) {
 		collapse?.addEventListener("click", onCollapseClick);
 		rail?.addEventListener("click", onRailClick);
 		scroll?.addEventListener("scroll", onScroll, { passive: true });
+		resize?.addEventListener("pointerdown", onResizeDown);
 		return () => {
 			close?.removeEventListener("click", onCloseClick);
 			collapse?.removeEventListener("click", onCollapseClick);
 			rail?.removeEventListener("click", onRailClick);
 			scroll?.removeEventListener("scroll", onScroll);
 			if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);
+			resize?.removeEventListener("pointerdown", onResizeDown);
 		};
 	}
 
@@ -2143,7 +2230,9 @@ function apply(ctx) {
 				<button class="dap-rail" type="button" aria-label="展开活动会话窗格">
 					<span class="dap-rail-count" role="status" aria-live="polite"></span>
 				</button>
+				<div class="dap-resize" aria-hidden="true"></div>
 			`;
+			pane.style.setProperty("--dap-width", `${paneWidth}px`);
 		}
 		if (pane !== boundPane) {
 			unbindPaneControls?.();

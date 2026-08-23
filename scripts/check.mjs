@@ -13,6 +13,7 @@ import {
 	buildRecent,
 	cardSignature,
 	cleanPreview,
+	clampPaneWidth,
 	pagedHistoryEvents,
 	detailLoadPlan,
 	conversationTimeline,
@@ -1122,6 +1123,17 @@ assert.equal(listLoadState({ phase: "ready", error: { code: "x" } }), "error", "
 //  离开可见清理 → 重回可见允许重试。）
 assert.equal(detailLoadPlan({ detail: { model: { model: "", reasoning: "" } } }).model, false, "失败置空即降级为空字段");
 
+// ---- R-01-015/AC-02 拖拽宽度夹取 ｜ R-01-015/AC-04 持久化恢复归一 ----
+assert.equal(clampPaneWidth(280), 280, "范围内宽度原样保留");
+assert.equal(clampPaneWidth(199.6), 200, "拖拽越过下界夹取到最小 200px");
+assert.equal(clampPaneWidth(480.4), 480, "拖拽越过上界夹取到最大 480px");
+assert.equal(clampPaneWidth("360"), 360, "localStorage 字符串宽度解析恢复");
+assert.equal(clampPaneWidth(null), 280, "无持久化记录回退默认 280px");
+assert.equal(clampPaneWidth(""), 280, "空串回退默认 280px");
+assert.equal(clampPaneWidth("abc"), 280, "非法持久化值回退默认 280px");
+assert.equal(clampPaneWidth(999), 480, "越界持久化值夹取进允许范围");
+assert.equal(clampPaneWidth(-5), 200, "负值持久化值夹取到最小 200px");
+
 // ---- 重建 client bundle 并校验产物契约 ----
 await mkdir(join(root, ".dsh-plugin"), { recursive: true });
 execFileSync(process.execPath, [join(root, "scripts/build-client.mjs")], {
@@ -1142,6 +1154,22 @@ assert.ok(bundle.includes('close?.addEventListener("click", onCloseClick)'), "�
 assert.ok(bundle.includes('collapse?.addEventListener("click", onCollapseClick)'), "窗格折叠按钮绑定自身 click");
 assert.ok(bundle.includes('rail?.addEventListener("click", onRailClick)'), "折叠窄条绑定自身 click");
 assert.ok(bundle.includes('class="dap-rail" type="button"'), "折叠窄条使用原生 button 语义");
+// R-01-015/AC-01 拖拽手柄实时调宽、主会话弹性让位
+assert.ok(bundle.includes('class="dap-resize" aria-hidden="true"'), "窗格右缘提供拖拽调宽手柄");
+assert.ok(bundle.includes('resize?.addEventListener("pointerdown", onResizeDown)'), "拖拽手柄绑定 pointerdown");
+assert.ok(bundle.includes('resize.addEventListener("pointermove", onResizeMove)'), "拖拽经 pointermove 实时调宽");
+assert.ok(bundle.includes('pane.style.setProperty("--dap-width", `${paneWidth}px`)'), "拖拽实时写入 --dap-width 令主会话弹性让位");
+assert.ok(bundle.includes("resize.setPointerCapture(event.pointerId)"), "拖拽经 pointer capture 跟踪指针");
+assert.ok(bundle.includes("resizeNotifyHandle = requestAnimationFrame("), "拖拽期间经 rAF 合帧派发 resize 通知（overlay 实时跟随）");
+// R-01-015/AC-02 拖拽目标宽度经夹取
+assert.ok(bundle.includes("clampPaneWidth(startWidth + move.clientX - startX)"), "拖拽目标宽度经 clampPaneWidth 夹取 200–480px");
+// R-01-015/AC-03 折叠窄条与移动端抽屉不提供拖拽
+assert.ok(bundle.includes('[data-collapsed="true"] .dap-resize { display: none; }'), "折叠窄条不提供拖拽调宽");
+assert.ok(bundle.includes("[data-dsh-activity-pane] .dap-resize { display: none; }"), "移动端抽屉不提供拖拽调宽");
+// R-01-015/AC-04 调宽持久化与启动恢复
+assert.ok(bundle.includes("localStorage.getItem(WIDTH_STORAGE_KEY)"), "启动读取持久化宽度恢复");
+assert.ok(bundle.includes("writeStoredPaneWidth(paneWidth)"), "拖拽结束写入持久化宽度");
+assert.ok(bundle.includes('resize?.removeEventListener("pointerdown", onResizeDown)'), "unbind 移除拖拽监听（R-02-003/AC-02）");
 assert.ok(bundle.includes("unbindPaneControls"), "窗格控制监听可清理");
 assert.ok(bundle.includes("notifyLayoutChange"), "布局变化通知 sibling overlay 重测");
 assert.ok(bundle.includes('window.dispatchEvent(new Event("resize"))'), "布局变化派发标准 resize 通知");

@@ -22,6 +22,7 @@ import {
 	fmtElapsedMs,
 	fmtTokens,
 	isActiveRow,
+	isLastChildEntry,
 	isSubagentRow,
 	listLoadState,
 	mergeTraceStatus,
@@ -299,7 +300,16 @@ assert.deepEqual(
 	"运行/等待主会话出现、子代理嵌套缩进、完成的子代理消失",
 );
 assert.equal(entries[0].isCurrent, true, "当前会话高亮标记");
-assert.equal(entries[2].pendingText, "需要响应", "完成主会话=需要响应");
+assert.equal(entries[1].parentId, "sA", "子代理条目保留直属母会话 id");
+assert.equal(isLastChildEntry(entries, 1), true, "唯一可见子代理在母会话下收口连接线");
+const hierarchyEntries = [
+	{ kind: "subagent", parentId: "root", depth: 1 },
+	{ kind: "subagent", parentId: "child-1", depth: 2 },
+	{ kind: "subagent", parentId: "root", depth: 1 },
+];
+assert.equal(isLastChildEntry(hierarchyEntries, 0), false, "母会话连接轨道跨过孙级继续连接后续同级子代理");
+assert.equal(isLastChildEntry(hierarchyEntries, 1), true, "多级子代理的末级连接线收口");
+assert.equal(isLastChildEntry(hierarchyEntries, 2), true, "同级末个子代理连接线收口");
 assert.equal(entries[2].workspaceTitle, "", "无归属则无工作区徽标");
 
 // ---- R-01-001/AC-02 无活动会话时为空态 ｜ R-02-001/AC-01、R-02-001/AC-02 独立数据源 ----
@@ -1075,6 +1085,13 @@ assert.ok(bundle.includes("api.history"), "冷会话使用 native history 一次
 assert.ok(bundle.includes("api.models"), "模型/reasoning 使用 native models 数据");
 assert.ok(bundle.includes("dap-token-stats"), "token 统计 DOM 位于进度条之后");
 assert.ok(bundle.includes("dap-history-line"), "历史卡包含用户/agent 两条消息预览行");
+// R-01-003/AC-04
+assert.ok(bundle.includes("parentId: m.isSub ? String(parentId) : null"), "活动卡条目保留直属母会话 id");
+assert.ok(bundle.includes("function isLastChildEntry(entries, index)"), "渲染按直属母会话识别末级子代理");
+assert.ok(bundle.includes("[data-dsh-activity-pane] .dap-card[data-connector]::before"), "子代理卡片绘制层级竖向连接线");
+assert.ok(bundle.includes('"data-connector"'), "子代理连接线不进入卡片内容与点击区域");
+assert.ok(bundle.includes("left: -8px;\n  top: -6px;"), "竖向连接线位于缩进槽中部并跨越列表间距");
+assert.ok(bundle.includes("left: -8px;\n  top: 50%;\n  width: 8px;"), "横向连接线从缩进槽接入子代理卡片中心");
 // R-01-013/AC-07、R-01-013/AC-08
 assert.ok(bundle.includes('dataset.role = "user"'), "用户消息行骨架静态标识 user 角色");
 assert.ok(bundle.includes('dataset.role = "agent"'), "agent 回复行骨架静态标识 agent 角色");
@@ -1281,7 +1298,7 @@ assert.ok(bundle.includes("background: var(--dsw-alias-bg-layer-2, #ffffff);"), 
 assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item,\nbody:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-label {"), "浅色时间线文字取外壳 label-secondary 别名");
 assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-track {"), "浅色进度轨道底色有覆盖");
 assert.ok(bundle.includes("body:not([data-ds-dark-theme]) .dap-toggle {"), "浅色移动端浮动开关底色取外壳浮动按钮填充");
-assert.ok(bundle.includes(".dap-card {\n  flex: none;\n  min-width: 0;\n  padding: 9px 11px;\n  border-radius: 14px;\n  background: rgba(29, 31, 37, 0.94);"), "深色卡片底色保持原值（浅色仅经覆盖块生效）");
+assert.ok(bundle.includes(".dap-card {\n  position: relative;\n  flex: none;\n  min-width: 0;\n  padding: 9px 11px;\n  border-radius: 14px;\n  background: rgba(29, 31, 37, 0.94);"), "深色卡片底色保持原值（浅色仅经覆盖块生效）");
 assert.ok(bundle.includes("color: #c7ced9; font-size: 10px; line-height: 14px;"), "深色时间线文字保持原值");
 assert.ok(!bundle.includes("@media (prefers-color-scheme"), "主题跟随外壳 data-ds-dark-theme 标记，不另读系统媒体查询（避免与外壳手动主题设置脱节）");
 // 覆盖块必须不接管 ::before 状态圆点基色：基色规则若被覆盖会以更高优先级

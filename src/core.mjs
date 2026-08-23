@@ -738,6 +738,7 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 			const previews = details.previews ?? { userPreview: "", agentPreview: "" };
 			entries.push({
 				id,
+				parentId: m.isSub ? String(parentId) : null,
 				depth,
 				kind: m.isSub ? "subagent" : m.pending ? "awaiting" : m.running ? "running" : "awaiting",
 				title: m.isSub
@@ -766,6 +767,22 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 
 	return entries;
 }
+/** 判断活动条目是否为其直属母会话的最后一个可见子代理。 */
+export function isLastChildEntry(entries, index) {
+	const entry = Array.isArray(entries) ? entries[index] : null;
+	if (entry?.kind !== "subagent" || entry.parentId == null) return false;
+	for (let i = index + 1; i < entries.length; i += 1) {
+		const next = entries[i];
+		if ((next?.depth ?? 0) <= (entry.depth ?? 0)) {
+			return !(
+				next?.depth === entry.depth
+				&& String(next.parentId ?? "") === String(entry.parentId)
+			);
+		}
+	}
+	return true;
+}
+
 
 /**
  * 渲染去重签名：两份条目序列若产出字节一致的可见状态则签名相等，
@@ -775,6 +792,7 @@ export function cardSignature(entries) {
 	return JSON.stringify(
 		entries.map((entry) => [
 			entry.id,
+			entry.parentId ?? null,
 			entry.depth,
 			entry.kind,
 			entry.title,

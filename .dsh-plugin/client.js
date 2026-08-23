@@ -744,6 +744,7 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 			const previews = details.previews ?? { userPreview: "", agentPreview: "" };
 			entries.push({
 				id,
+				parentId: m.isSub ? String(parentId) : null,
 				depth,
 				kind: m.isSub ? "subagent" : m.pending ? "awaiting" : m.running ? "running" : "awaiting",
 				title: m.isSub
@@ -772,6 +773,22 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}) {
 
 	return entries;
 }
+/** 判断活动条目是否为其直属母会话的最后一个可见子代理。 */
+function isLastChildEntry(entries, index) {
+	const entry = Array.isArray(entries) ? entries[index] : null;
+	if (entry?.kind !== "subagent" || entry.parentId == null) return false;
+	for (let i = index + 1; i < entries.length; i += 1) {
+		const next = entries[i];
+		if ((next?.depth ?? 0) <= (entry.depth ?? 0)) {
+			return !(
+				next?.depth === entry.depth
+				&& String(next.parentId ?? "") === String(entry.parentId)
+			);
+		}
+	}
+	return true;
+}
+
 
 /**
  * 渲染去重签名：两份条目序列若产出字节一致的可见状态则签名相等，
@@ -781,6 +798,7 @@ function cardSignature(entries) {
 	return JSON.stringify(
 		entries.map((entry) => [
 			entry.id,
+			entry.parentId ?? null,
 			entry.depth,
 			entry.kind,
 			entry.title,
@@ -1193,6 +1211,7 @@ const CSS = `
 }
 /* 卡片视觉沿用 answer-pet 的多会话卡片设计（MIT 参考，见 README）。 */
 [data-dsh-activity-pane] .dap-card {
+  position: relative;
   flex: none;
   min-width: 0;
   padding: 9px 11px;
@@ -1203,6 +1222,32 @@ const CSS = `
   display: grid;
   gap: 4px;
   cursor: pointer;
+}
+/* 子代理层级连接线（R-01-003/AC-04）：线段放在缩进槽，不覆盖卡片内容；
+   非末级节点把轨道延伸到下一同级节点，末级在自身中心收口。 */
+[data-dsh-activity-pane] .dap-card[data-connector]::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: -6px;
+  bottom: -6px;
+  width: 1px;
+  background: color-mix(in srgb, currentColor 24%, transparent);
+  pointer-events: none;
+}
+[data-dsh-activity-pane] .dap-card[data-connector][data-last-child]::before {
+  bottom: auto;
+  height: calc(50% + 6px);
+}
+[data-dsh-activity-pane] .dap-card[data-connector]::after {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  width: 8px;
+  height: 1px;
+  background: color-mix(in srgb, currentColor 24%, transparent);
+  pointer-events: none;
 }
 [data-dsh-activity-pane] .dap-card:hover {
   border-color: rgba(255, 255, 255, 0.28);
@@ -2689,7 +2734,7 @@ function apply(ctx) {
 
 	/** 渲染某一张卡片进指定列表容器（活动/历史通用）。index 是条目在卡片序列中的
 	 * 序号，offset 是容器内首个卡片前的非卡片子节点数（历史区有段头）。 */
-	function renderCardIntoList(list, entry, reuseMap, index, offset = 0) {
+	function renderCardIntoList(list, entry, reuseMap, index, offset = 0, lastChild = false) {
 		let rec = reuseMap.get(entry.id);
 		if (rec === undefined) {
 			const el = document.createElement("div");
@@ -2716,6 +2761,11 @@ function apply(ctx) {
 		rec.el.style.marginLeft = `${(entry.depth ?? 0) * INDENT_PX}px`;
 		rec.el.toggleAttribute("data-current", entry.isCurrent);
 		rec.el.toggleAttribute("data-awaiting", entry.kind === "awaiting");
+		rec.el.toggleAttribute(
+			"data-connector",
+			entry.kind === "subagent" && (entry.depth ?? 0) > 0 && entry.parentId != null,
+		);
+		rec.el.toggleAttribute("data-last-child", entry.kind === "subagent" && lastChild);
 		// 流式阶段标记：驱动进度条向右滚动的条纹动画（answer-pet 对齐，R-01-009）。
 		rec.el.toggleAttribute("data-streaming", entry.streaming === true);
 		rec.el.setAttribute(
@@ -2906,7 +2956,7 @@ function apply(ctx) {
 		const aliveActive = new Set();
 		for (const [index, entry] of active.entries()) {
 			try {
-				renderCardIntoList(activeList, entry, cardsById, index);
+				renderCardIntoList(activeList, entry, cardsById, index, 0, isLastChildEntry(active, index));
 			} catch (error) {
 				renderOk = false;
 				logCardRenderError(entry.id, error);

@@ -1692,7 +1692,9 @@ function apply(ctx) {
 
 		const snapshot = getSnapshot(sessions, "list");
 		const listState = listLoadState(snapshot);
-		const workspaceItems = getSnapshot(workspaces, "list")?.items ?? [];
+		const workspaceSnapshot = getSnapshot(workspaces, "list");
+		const workspaceItems = workspaceSnapshot?.items ?? [];
+		const archivedSessionIds = workspaceSnapshot?.archivedSessionIds ?? [];
 		const now = Date.now();
 
 		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById);
@@ -1790,7 +1792,7 @@ function apply(ctx) {
 		// 清理已不在运行/子代理集的进度下限，避免残留。
 		for (const id of progressFloor.keys())
 			if (!runLikeIds.has(id)) progressFloor.delete(id);
-		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById);
+		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds);
 		// 预览只对 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
 		for (const entry of recent) {
 			const detail = sessionDetailsById.get(entry.id);

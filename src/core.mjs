@@ -811,19 +811,23 @@ export function isActiveRow(row, byId = {}) {
 /**
  * 构建最近历史区条目：当前非活动、且在历史窗口内最后一次活动过的**主会话**
  * （子代理是临时工作单元，不入最近历史；故需同时排除表白会话与已结束子代理），
- * 按最后活动时间从新到旧，最多 HISTORY_MAX 条。blank 会话不出现（从未用过）。
+ * 按最后活动时间从新到旧，最多 HISTORY_MAX 条。blank 会话不出现（从未用过）；
+ * 归档会话不出现——原生 runtime 会立即清空对归档会话的选中，列出它只会得到
+ * 一张点了回落到新会话界面的死卡。
  */
-export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS, detailsById = {}) {
+export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS, detailsById = {}, archivedIds = []) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
 	const items = Array.isArray(workspaceItems) ? workspaceItems : [];
+	const archived = archivedIds instanceof Set ? archivedIds : new Set(archivedIds ?? []);
 	const entries = [];
 
 	for (const id of ids) {
 		const row = byId[id];
 		if (!isRecord(row)) continue;
 		if (row.blank === true) continue;
+		if (archived.has(id)) continue; // 归档会话不可选中，不入最近历史
 		if (isSubagentRow(row, byId)) continue; // 子代理（含已结束）不入最近历史
 		if (isActiveRow(row, byId)) continue;
 		const updatedAt = Number(row.updatedAt);

@@ -868,6 +868,47 @@ assert.ok(
 	"最近历史仅主会话，已结束子代理不入历史区",
 );
 
+// ---- R-01-010/AC-01 归档会话不入最近历史（不可选中，列出即成死卡） ----
+const recentArchived = buildRecent(
+	{
+		ids: ["sKeep", "sGone"],
+		byId: {
+			sKeep: { id: "sKeep", displayTitle: "保留K", running: false, completed: false, updatedAt: NOW - 1_000 },
+			sGone: { id: "sGone", displayTitle: "归档G", running: false, completed: false, updatedAt: NOW - 500 },
+		},
+		current: null,
+	},
+	[],
+	NOW,
+	undefined,
+	{},
+	["sGone"],
+);
+assert.deepEqual(
+	recentArchived.map((e) => e.id),
+	["sKeep"],
+	"归档会话即使在 24h 窗口内也不入最近历史",
+);
+assert.deepEqual(
+	buildRecent(
+		{
+			ids: ["sKeep", "sGone"],
+			byId: {
+				sKeep: { id: "sKeep", displayTitle: "保留K", running: false, completed: false, updatedAt: NOW - 1_000 },
+				sGone: { id: "sGone", displayTitle: "归档G", running: false, completed: false, updatedAt: NOW - 500 },
+			},
+			current: null,
+		},
+		[],
+		NOW,
+		undefined,
+		{},
+		new Set(["sGone"]),
+	).map((e) => e.id),
+	["sKeep"],
+	"归档集同样接受 Set 形态",
+);
+
 // ---- R-01-014/AC-01 列表在途显示加载指示而非空态 ----
 assert.equal(listLoadState(null), "loading", "快照缺失视为列表在途");
 assert.equal(listLoadState({ phase: "pending" }), "loading", "phase 为 pending 视为列表在途");

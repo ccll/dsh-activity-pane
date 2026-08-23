@@ -817,19 +817,23 @@ function isActiveRow(row, byId = {}) {
 /**
  * 构建最近历史区条目：当前非活动、且在历史窗口内最后一次活动过的**主会话**
  * （子代理是临时工作单元，不入最近历史；故需同时排除表白会话与已结束子代理），
- * 按最后活动时间从新到旧，最多 HISTORY_MAX 条。blank 会话不出现（从未用过）。
+ * 按最后活动时间从新到旧，最多 HISTORY_MAX 条。blank 会话不出现（从未用过）；
+ * 归档会话不出现——原生 runtime 会立即清空对归档会话的选中，列出它只会得到
+ * 一张点了回落到新会话界面的死卡。
  */
-function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS, detailsById = {}) {
+function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS, detailsById = {}, archivedIds = []) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
 	const items = Array.isArray(workspaceItems) ? workspaceItems : [];
+	const archived = archivedIds instanceof Set ? archivedIds : new Set(archivedIds ?? []);
 	const entries = [];
 
 	for (const id of ids) {
 		const row = byId[id];
 		if (!isRecord(row)) continue;
 		if (row.blank === true) continue;
+		if (archived.has(id)) continue; // 归档会话不可选中，不入最近历史
 		if (isSubagentRow(row, byId)) continue; // 子代理（含已结束）不入最近历史
 		if (isActiveRow(row, byId)) continue;
 		const updatedAt = Number(row.updatedAt);
@@ -2647,7 +2651,9 @@ function apply(ctx) {
 
 		const snapshot = getSnapshot(sessions, "list");
 		const listState = listLoadState(snapshot);
-		const workspaceItems = getSnapshot(workspaces, "list")?.items ?? [];
+		const workspaceSnapshot = getSnapshot(workspaces, "list");
+		const workspaceItems = workspaceSnapshot?.items ?? [];
+		const archivedSessionIds = workspaceSnapshot?.archivedSessionIds ?? [];
 		const now = Date.now();
 
 		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById);
@@ -2745,7 +2751,7 @@ function apply(ctx) {
 		// 清理已不在运行/子代理集的进度下限，避免残留。
 		for (const id of progressFloor.keys())
 			if (!runLikeIds.has(id)) progressFloor.delete(id);
-		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById);
+		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds);
 		// 预览只对 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
 		for (const entry of recent) {
 			const detail = sessionDetailsById.get(entry.id);

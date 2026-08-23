@@ -6,7 +6,7 @@ id: T-030
 
 # T-030 运行中会话时间线尾项提升为执行中蓝闪标志
 
-状态: active
+状态: completed
 关联: R-01-009/AC-10 / 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -42,3 +42,15 @@ id: T-030
 | 副作用 | 适用：live 项存在时行为不变；原生行两态文字/图标匹配不回归 | `scripts/check.mjs#R-01-009/AC-07`、`scripts/check.mjs#R-01-012/AC-03`、`src/client.mjs::renderTrace` |
 
 ## 终态与证据
+
+- 实现: `src/core.mjs` `conversationTimeline` 新增提升闸口（快照 running 且无 pending、无 live 项、时间线无其他执行中项时，尾部 done 非用户项克隆提升为 running）；新增纯函数 `mergeTraceStatus` 承载渲染层状态合并（核心 running 优先于原生行 data-state，非 running 保持原生优先旧语义）；`src/client.mjs` `renderTrace` 改经 `mergeTraceStatus` 合并；`.dsh-plugin/client.js` 已重新生成。
+- 测试: `node scripts/check.mjs` 通过（R-01-009/AC-10 锚点：提升/非运行/pending/error/stopped/用户尾项/live 在场/中部已有执行中项反例/克隆引用不复用，及 mergeTraceStatus 六条语义断言 + bundle 契约）；`pnpm build:client && pnpm check` 通过；`python3 tools/agentmap_lint.py --report` 通过。`scripts/acceptance.mjs` 补 AC-10 人工验收步骤。
+- DESIGN 对照: PRD R-01-009 新增 AC-10；DESIGN 产品契约工作项时间线呈现与活动状态模型模块条目同步（提升闸口、克隆语义、mergeTraceStatus 合并优先级）；需求追溯索引既有 R-01-009 行保持准确。
+- commit: 4c1d6f1
+- commit: 4df1e48
+- review:
+  - 审核方: Standards 子代理 `481ce897-90b3-4acb-8d26-a591144028e0`；Spec 子代理 `a50c9af4-a548-4f44-b662-28626f02ccbd`。
+  - 目的理解: 实现 T-030——运行中会话时间线尾项恒为蓝闪工作标志（R-01-009/AC-10，东家确认语义：等待用户行动不闪、尾部用户输入项保持绿、error/stopped 标识优先、提升为克隆保 memo）；锚定 R-01-009/AC-10 与 DESIGN 产品契约对应条目。
+  - 执行方式: `code-review` skill；固定基线 `e85c95e`，范围 `git diff e85c95e...HEAD`；Standards/Spec 双轴并行，复审基线 4df1e48。
+  - 问题与修复: Standards 一项硬性（client.mjs 死赋值 + 误删 data-icon 行）与 Spec 三项（闸口未排除时间线中部已有执行中项、渲染层优先级改动无自动化锚点、status 缺省被强制 running 改变旧语义）均在 4df1e48 修复并加回归锚点；Spec 的 data-icon 移除 finding 与 Standards 同源，同次消解。
+  - 复审结论: Standards 复审通过；Spec 复审通过，无遗留 finding。

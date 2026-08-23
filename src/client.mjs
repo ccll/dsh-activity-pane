@@ -226,6 +226,12 @@ const CSS = `
   [data-dsh-activity-pane][data-collapsed="true"] .dap-scroll { display: none; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-resize { display: none; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-rail { display: flex; cursor: pointer; }
+  /* 与展开态标题行对等的可点反馈（R-01-011/AC-04）：悬停/聚焦高亮。 */
+  [data-dsh-activity-pane][data-collapsed="true"] .dap-rail:hover,
+  [data-dsh-activity-pane][data-collapsed="true"] .dap-rail:focus-visible {
+    background: color-mix(in srgb, currentColor 8%, transparent);
+  }
+  [data-dsh-activity-pane][data-collapsed="true"] .dap-rail:focus-visible { outline: none; }
 }
 @media (max-width: ${MOBILE_BREAKPOINT}) {
   [data-dsh-activity-pane] .dap-close { display: inline-block; }

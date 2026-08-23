@@ -1160,6 +1160,7 @@ assert.ok(!bundle.includes("onCollapseClick") && !bundle.includes('class="dap-co
 assert.ok(bundle.includes('class="dap-rail-title"'), "折叠窄条显示竖排标题");
 assert.ok(bundle.includes("writing-mode: vertical-rl"), "窄条标题竖排呈现");
 assert.ok(/\.dap-rail \{[^]*?flex: 1;/.test(bundle), "窄条撑满窗格高度，整面均为展开命中区");
+assert.ok(bundle.includes('[data-collapsed="true"] .dap-rail:hover,'), "折叠窄条悬停/聚焦高亮，与展开态标题行反馈对等");
 // R-01-011/AC-06 标题行收起仅桌面断点生效
 assert.ok(bundle.includes("matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`)"), "标题行收起经移动断点门控");
 assert.ok(bundle.includes('rail?.addEventListener("click", onRailClick)'), "折叠窄条绑定自身 click");

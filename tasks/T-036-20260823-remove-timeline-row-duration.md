@@ -6,7 +6,7 @@ id: T-036
 
 # T-036 工作项时间线移除行级耗时对齐主会话窗口
 
-状态: active
+状态: completed
 关联: R-01-009 → 活动状态模型
 风险等级: standard
 
@@ -48,4 +48,13 @@ id: T-036
 
 ## 终态与证据
 
-（待关闭时填写）
+- 实现: `src/core.mjs`——`timelineToolItem` 删除 `durationMs = time - callTime` 计算，user/assistant/context/partial 兜底项与 `timelineItemFromEvent` 均不再携带 `durationMs`，`tool/result` 分支同步删除不再被读取的 `time`/`callTime` 死字段；`src/client.mjs`——`renderTrace` 删除 `.dap-trace-time` 创建/赋值块与两处 CSS（含浅主题覆盖），卡片级 `fmtElapsedMs(entry.elapsedMs)` 保留。`scripts/check.mjs` R-01-009/AC-07 锚点改为状态/摘要断言 + 反向契约钉（item 无 `durationMs`、bundle 无 `dap-trace-time`）；`scripts/acceptance.mjs` AC-07 人工步骤同步为「行尾无耗时显示」。
+- 测试: `pnpm build:client && pnpm check` 全部断言通过（测试先行：改锚点后先红、实现后转绿）；`python3 tools/agentmap_lint.py --report` 通过（19 需求 / 80 AC 全追溯、全锚定）；`git diff --check` 干净。GUI 现场验收（时间线各行行尾无耗时，其余呈现不漂移）由东家按 `scripts/acceptance.mjs` 清单执行。
+- DESIGN 对照: 与 DESIGN「产品契约 → 工作项时间线呈现」（工作项含 label/summary/status、不显示行级耗时、C-012）及需求追溯索引（R-01-009 → 活动状态模型 → src/core.mjs、src/client.mjs）逐条一致，无差异。
+- commit: 461637d3f7cbe5d72e0a1f7f8c1cd31e37f38905
+- review:
+  - 审核方: 独立 reviewer 双轴（Standards 子代理 58e09826、Spec 子代理 a15c4678，code-review skill 流程）
+  - 目的理解: 工作项时间线移除行尾耗时显示，对齐主会话窗口（原生任何工作项行均无行级耗时）；关联 PRD R-01-009/AC-07、DESIGN 产品契约、DECISIONS C-012；卡片级 elapsedMs 不在范围；预期验证为 `pnpm build:client && pnpm check` 与 agentmap lint（两轴均在审核前记录目的理解）。
+  - 执行方式: `code-review` skill，评审基线为工作树 `git diff HEAD`（实现提交前），范围含 src/core.mjs、src/client.mjs、scripts/check.mjs、scripts/acceptance.mjs、PRD/DESIGN/DECISIONS、tasks/T-036 与构建产物一致性。
+  - 问题与修复: Standards 轴 1 条判断性建议——`timelineItemFromEvent` 仍向 `timelineToolItem` 传不再被读取的 `time`/`callTime` 死字段（已修，全仓 grep 确认唯一残留）；Spec 轴无发现（残留路径、elapsedMs 保留、锚点有效性、文档同步、无 scope creep 逐项核实）。
+  - 复审结论: Standards 轴复审通过、无遗留，双轴最终均通过。

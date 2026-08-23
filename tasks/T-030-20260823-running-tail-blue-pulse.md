@@ -22,8 +22,8 @@ id: T-030
 
 ## 收敛方案
 
-- core：`conversationTimeline` 在无 live 项、快照 `running === true` 且 `pending` 为空时，将尾部 `status === "done"` 且 `kind !== "user"` 的工作项克隆提升为 `running`（不改原引用，保 memo 语义）。
-- client：`renderTrace` 中核心派生的 `running` 状态优先于原生行 `data-state`。
+- core：`conversationTimeline` 在无 live 项、快照 `running === true`、`pending` 为空且时间线无其他执行中项时，将尾部 `status === "done"` 且 `kind !== "user"` 的工作项克隆提升为 `running`（不改原引用，保 memo 语义）；新增纯函数 `mergeTraceStatus` 承载渲染层状态合并。
+- client：`renderTrace` 经 `mergeTraceStatus` 合并状态，核心派生的 `running` 优先于原生行 `data-state`；核心非 running 时保持原生优先旧语义。
 - 测试先行：check.mjs 新增 R-01-009/AC-10 锚点（提升、pending 不提升、非运行不提升、error/stopped/用户尾项不提升、克隆不改原引用）。
 
 ## 测试计划

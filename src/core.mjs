@@ -394,12 +394,14 @@ export function conversationTimeline(snapshot, limit = 4, cwd = "") {
 	const timeline = liveItems.length > 0
 		? items.slice(-Math.max(0, max - liveItems.length)).concat(liveItems).slice(-max)
 		: items;
-	// R-01-009/AC-10：会话运行中（无 pending）且无 live 项时，尾部已定案非用户项克隆提升为
-	// running，作为 agent 工作中的持续标志；error/stopped 与用户输入项不提升。
+	// R-01-009/AC-10：会话运行中（无 pending）、无 live 项且时间线不存在其他执行中项时，
+	// 尾部已定案非用户项克隆提升为 running，作为 agent 工作中的持续标志；
+	// error/stopped 与用户输入项不提升。
 	if (
 		liveItems.length === 0 &&
 		snapshot?.running === true &&
-		!(Array.isArray(snapshot?.pending) && snapshot.pending.length > 0)
+		!(Array.isArray(snapshot?.pending) && snapshot.pending.length > 0) &&
+		!timeline.some((item) => item.status === "running")
 	) {
 		const tail = timeline[timeline.length - 1];
 		if (tail?.status === "done" && tail.kind !== "user") {
@@ -407,6 +409,14 @@ export function conversationTimeline(snapshot, limit = 4, cwd = "") {
 		}
 	}
 	return timeline;
+}
+
+/** 工作项行状态合并：核心派生的 running 优先于原生行 data-state（提升尾项与 live 项
+ *  在选中会话原生行已显示 ok，不允许覆盖回 done，R-01-009/AC-10）；coreStatus 非 running
+ *  时保持旧语义——原生 ok 归 done、其余原生值优先、双缺省兜底 running。 */
+export function mergeTraceStatus(coreStatus, nativeState) {
+	if (coreStatus === "running") return "running";
+	return (nativeState === "ok" ? "done" : nativeState) || (typeof coreStatus === "string" ? coreStatus : "running");
 }
 
 function timelineItemFromEvent(entry, cwd = "") {

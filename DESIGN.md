@@ -176,7 +176,7 @@ sequenceDiagram
 - 工作项时间线呈现：`活动状态模型#conversationTimeline` 产出的工作项含 label/summary/status/durationMs；工具项详情经 `summarizeToolArguments` 镜像主会话窗口 `deriveSummary` 语义（R-01-009/AC-07、R-01-012）。
   - 渲染层以竖线串圆点的时间线呈现：轨道从卡片内容左边界起步，竖线与圆点严格同圆心（整数像素位，避免 1px 竖线分数位吸附偏移）；竖线穿过首个节点圆点并向上引出，终点没入最新动作圆点内部不外露。
   - 圆点带半透明外环；正在执行节点使用蓝色外环并闪烁，已定案节点使用绿/红实心圆点；圆点位于内容区，不被容器裁切。
-  - 会话运行中（快照 `running === true` 且 `pending` 为空）且时间线无 live 工作项时，`conversationTimeline` 将尾部已定案的非用户工作项克隆提升为 `running`，作为 agent 工作中的持续标志；尾部为 error/stopped/用户输入项时不提升；渲染层以核心派生的 `running` 状态优先于原生行 `data-state`（R-01-009/AC-10）。
+  - 会话运行中（快照 `running === true` 且 `pending` 为空）、时间线无 live 工作项且无其他执行中项时，`conversationTimeline` 将尾部已定案的非用户工作项克隆提升为 `running`，作为 agent 工作中的持续标志；尾部为 error/stopped/用户输入项时不提升；渲染层经 `mergeTraceStatus` 合并工作项状态，核心派生的 `running` 优先于原生行 `data-state`，核心非 running 时保持原生优先旧语义（R-01-009/AC-10）。
   - 工作项渲染优先读取原生 `iconIdle` 中的动作图标，排除 hover/open disclosure 箭头与错误 `StateDot`；用户项使用人物 SVG。
   - 非当前会话或原生行缺失时，fallback 使用与主网页同一张 canonical 图标表（按 toolName 镜像原生 classifyTool 与行级覆盖，未知工具按 view.kind 语义兜底）与 canonical 动作标题，选中/非选中态不漂移（R-01-012/AC-03）。
   - fallback 文字镜像原生 keyed 行：`TOOL_LABELS` 含 todo_write「更新任务清单」与 ask_user_question「提问」；todo 摘要复刻「done/total 已完成 · 当前活动项」、ask 摘要复刻「等待回答 / 已答 x/y / 已取消 / 已中断」状态文案，错误态摘要取结果输出首行；Think/context 原生行按工作项身份匹配，不共用首个同类行（R-01-012/AC-03）。

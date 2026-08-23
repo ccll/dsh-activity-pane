@@ -24,6 +24,7 @@ import {
 	isActiveRow,
 	isSubagentRow,
 	listLoadState,
+	mergeTraceStatus,
 	messagePreviews,
 	modelMetadata,
 	nativePresentationSessionId,
@@ -562,6 +563,25 @@ const userTail = conversationTimeline({
 assert.equal(userTail[0].status, "done", "尾部用户输入项保持 done（提升不适用）");
 const liveTailUnchanged = conversationTimeline({ ...idleGapSnapshot, runningCalls: [{ callId: "rc9", name: "grep", argsRaw: '{"pattern":"x"}', turn: 1, step: 0 }] });
 assert.equal(liveTailUnchanged.map((item) => item.status).join(","), "done,running", "live 项存在时不额外提升已定案项");
+const midRunningTimeline = conversationTimeline({
+	chat: {
+		order: ["a", "t"],
+		nodes: {
+			get: (key) =>
+				key === "a"
+					? { key: "a", kind: "assistant-step", data: { status: "running", turn: 1, step: 0, blocks: [{ kind: "text", text: "输出中" }] } }
+					: { key: "t", kind: "tool-call", data: { root: { kind: "tool-result", callId: "c4", call: { name: "read", argsRaw: '{"path":"/tmp/b"}' }, isError: false } } },
+		},
+	},
+	running: true,
+});
+assert.deepEqual(midRunningTimeline.map((item) => item.status), ["running", "done"], "时间线已存在执行中项时尾部不再提升");
+assert.equal(mergeTraceStatus("running", "ok"), "running", "核心派生 running 优先于原生行 ok（R-01-009/AC-10）");
+assert.equal(mergeTraceStatus("done", "ok"), "done", "原生 ok 归 done 的旧语义保持");
+assert.equal(mergeTraceStatus("done", "running"), "running", "核心非 running 时原生 running 仍生效（旧语义）");
+assert.equal(mergeTraceStatus("error", "error"), "error", "核心 error 不被原生覆盖");
+assert.equal(mergeTraceStatus(undefined, "error"), "error", "核心状态缺省时退让原生态");
+assert.equal(mergeTraceStatus(undefined, ""), "running", "双缺省兜底 running 的旧语义保持");
 
 // ---- R-01-012/AC-03 fallback 文字镜像原生 keyed/通用行，选中/非选中态不漂移 ----
 const todoItem = conversationTimeline({
@@ -1049,6 +1069,8 @@ assert.ok(
 );
 // ---- R-01-009/AC-02、R-01-009/AC-05、R-01-012/AC-01..04、R-01-013/AC-01..06 ----
 assert.ok(bundle.includes("conversationTimeline"), "活动卡使用主会话 ChatSnapshot 工作项时间线");
+// R-01-009/AC-10
+assert.ok(bundle.includes("mergeTraceStatus"), "渲染层状态合并经核心纯函数 mergeTraceStatus");
 assert.ok(bundle.includes("api.history"), "冷会话使用 native history 一次性补齐");
 assert.ok(bundle.includes("api.models"), "模型/reasoning 使用 native models 数据");
 assert.ok(bundle.includes("dap-token-stats"), "token 统计 DOM 位于进度条之后");

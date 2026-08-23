@@ -1526,17 +1526,18 @@ assert.ok(bundle.includes('.dap-trace-summary[data-follow="end"] { text-overflow
 
 // R-01-009/AC-09
 // ---- 回归锚点：时间线几何/状态动画（R-01-009/AC-08、AC-09 呈现细节）----
-// 圆点与竖线从卡片内容左边起步：末项不画连接竖线、竖线 left 2px 与 5px 圆点
-//（圆心 x=2.5）同圆心，竖线贯穿首项圆点并向上引出，子代理容器不裁切圆点；
+// 轨道列从卡片内容左边起步：末项不画连接竖线、竖线 left 3px 与 5px 圆点 left 1px
+//（圆心 x=3.5）同圆心，并与 7px 标题圆点（圆心 x=3.5）竖直对齐，竖线贯穿首项圆点并向上引出，
 // reduced-motion 只关闭宽度 transition，不关闭 answer-pet 同款状态脉冲/流式条纹。
 assert.ok(bundle.includes(".dap-trace-item:last-child::after"), "时间线末项不画竖线（终点没入最末圆点）");
 assert.ok(bundle.includes("margin: 1px 0 2px;"), "时间线整体与卡片内容左边界对齐");
-assert.ok(bundle.includes("left: 2px; top: 0; bottom: -8px"), "1px 竖线（整数位）与 5px 圆点严格同圆心（不右偏）");
+assert.ok(bundle.includes("left: 3px; top: 0; bottom: -8px"), "1px 竖线（整数位）与 5px 圆点严格同圆心 x=3.5（对齐标题圆点）");
 assert.ok(bundle.includes("color: #c7ced9; font-size: 10px; line-height: 14px;"), "工作项文字恢复原有 10px/14px 尺度");
 assert.ok(bundle.includes("width: 12px; height: 12px; flex: none; display: inline-flex;"), "工作项图标容器保持 12px");
 assert.ok(bundle.includes("display: block; width: 12px; height: 12px;"), "工作项 SVG 保持 12px");
 assert.ok(bundle.includes('svg.setAttribute("width", "12")') && bundle.includes('svg.setAttribute("height", "12")'), "生成 SVG 强制写入 12px 尺寸");
-assert.ok(bundle.includes("left: 0; top: 4px;\n  width: 5px; height: 5px;"), "时间线圆点 5px 奇数宽（整数位圆心，与竖线同圆心）");
+assert.ok(bundle.includes("left: 1px; top: 4px;\n  width: 5px; height: 5px;"), "时间线圆点 5px 奇数宽（整数位圆心 x=3.5，与竖线及标题圆点同圆心）");
+assert.ok(bundle.includes(".dap-dot {\n  width: 7px; height: 7px;"), "标题圆点保持 7px（圆心 x=3.5，时间线圆点对齐基准）");
 assert.ok(bundle.includes("padding-left: 14px"), "时间线文字轨道保持 14px 内缩");
 assert.ok(bundle.includes(".dap-subtrace {\n  min-width: 0;"), "子代理容器不再 padding/border/overflow 包裹（不裁切圆点）");
 assert.ok(bundle.includes(".dap-fill { transition: none; }"), "降低动效设置不关闭状态动画（对齐 answer-pet）");

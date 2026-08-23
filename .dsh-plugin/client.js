@@ -1567,11 +1567,12 @@ const CSS = `
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* 动作时间线：纵向竖线串起圆点（对齐 answer-pet 的 .ap-session-trace，并修正几何细节——
-   圆点与竖线整体从卡片内容左边起步，和标题圆点/状态行/进度条共用左边界；轨道下放到每个
-   节点项自身：5px 奇数宽圆点 left:0（圆心 x=2.5），1px 竖线 left:2（圆心 x=2.5），
-   都在整数 CSS 像素位上，避免分数位栅格吸附导致右偏。每项一段竖线从项顶（容器顶）贯穿，
-   使线穿过首个节点圆点并向上引出（表示更早历史被省略）、末项不画竖线（终点没入最新
-   动作圆点内部不外露）；圆点高处盖线、位于内容区内不被子代理卡 overflow 裁切。 */
+   轨道列从卡片内容左边起步，和标题圆点/状态行/进度条共用左边界；轨道下放到每个
+   节点项自身：5px 奇数宽圆点 left:1px、1px 竖线 left:3px，圆心同在 x=3.5，与 7px
+   标题圆点（left:0，圆心 x=3.5）竖直对齐，且都在整数 CSS 像素位上，避免分数位
+   栅格吸附导致偏移。每项一段竖线从项顶（容器顶）贯穿，使线穿过首个节点圆点并向
+   上引出（表示更早历史被省略）、末项不画竖线（终点没入最新动作圆点内部不外露）；
+   圆点高处盖线、位于内容区内不被子代理卡 overflow 裁切。 */
 [data-dsh-activity-pane] .dap-trace {
   display: flex; flex-direction: column; gap: 3px;
   margin: 1px 0 2px;
@@ -1582,11 +1583,11 @@ const CSS = `
   position: relative; display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 7px; min-width: 0;
-  padding-left: 14px;   /* 左侧轨道：圆点（圆心 x=2.5）与竖线（x=2.5）共用 */
+  padding-left: 14px;   /* 左侧轨道：圆点与竖线共用圆心 x=3.5（对齐标题圆点） */
   color: #c7ced9; font-size: 10px; line-height: 14px;
 }
 [data-dsh-activity-pane] .dap-trace-item::before {
-  content: ""; position: absolute; left: 0; top: 4px;
+  content: ""; position: absolute; left: 1px; top: 4px;
   width: 5px; height: 5px; border-radius: 50%;
   z-index: 1;           /* 圆点盖在竖线上：竖线从圆点中穿过被其遮盖 */
   background: #778394;
@@ -1611,7 +1612,7 @@ const CSS = `
    最新动作圆点内部不外露。依赖 14px 行高 + 3px 间距；bottom 多 1px 让终点藏进
    下一颗圆点。 */
 [data-dsh-activity-pane] .dap-trace-item::after {
-  content: ""; position: absolute; left: 2px; top: 0; bottom: -8px;
+  content: ""; position: absolute; left: 3px; top: 0; bottom: -8px;
   width: 1px; z-index: 0;
   background: rgba(126, 147, 177, .3);
 }

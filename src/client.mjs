@@ -1819,14 +1819,7 @@ function apply(ctx) {
 		// 轮内订阅仅对"运行中"会话建立（主会话 + 运行中的子代理），保持在运行中的订阅
 		// 数量 == 运行中会话数量（R-02-004/AC-01）；暂停等待的子代理只显示标题。
 		const runLikeIds = new Set(
-			active
-				.filter((entry) => {
-					if (entry.kind === "running") return true;
-					if (entry.kind === "subagent")
-						return snapshot?.byId?.[entry.id]?.running === true;
-					return false;
-				})
-				.map((entry) => entry.id),
+			active.filter((entry) => shouldSubscribeToSession(entry, snapshot?.byId ?? {})).map((entry) => entry.id),
 		);
 		syncLiveness(runLikeIds);
 		for (const entry of active) {

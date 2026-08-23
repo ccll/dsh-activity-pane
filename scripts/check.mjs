@@ -22,6 +22,7 @@ import {
 	fmtElapsedMs,
 	fmtTokens,
 	isActiveRow,
+	shouldSubscribeToSession,
 	activeSessionIds,
 	isLastChildEntry,
 	isSubagentRow,
@@ -333,6 +334,16 @@ assert.deepEqual(
 	"自身不活动的母会话作为 parent 上下文显示并保持层级深度",
 );
 assert.deepEqual(buildRecent(inheritedActivity, [], 2000), [], "活动祖先不进入最近历史区");
+assert.equal(
+	shouldSubscribeToSession({ id: "parent", kind: "parent" }, inheritedActivity.byId),
+	false,
+	"parent 上下文不建立轮内状态订阅",
+);
+assert.equal(
+	shouldSubscribeToSession({ id: "child", kind: "subagent" }, inheritedActivity.byId),
+	true,
+	"运行中的子代理建立轮内状态订阅",
+);
 
 // ---- R-01-001/AC-02 无活动会话时为空态 ｜ R-02-001/AC-01、R-02-001/AC-02 独立数据源 ----
 // 核心映射只消费 DSH 原生快照结构（无任何第三方数据源引用）。

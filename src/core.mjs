@@ -868,6 +868,12 @@ export function activeSessionIds(byId = {}) {
 	return activeIds;
 }
 
+/** 判断活动条目是否需要建立轮内状态订阅；parent 上下文明确排除。 */
+export function shouldSubscribeToSession(entry, byId = {}) {
+	if (entry?.kind === "running") return true;
+	return entry?.kind === "subagent" && byId?.[entry.id]?.running === true;
+}
+
 /** 会话行是否满足活动区显示判定（自身活动或存在活动后代）。 */
 export function isActiveRow(row, byId = {}, activeIds = null) {
 	if (isOwnActiveRow(row, byId)) return true;

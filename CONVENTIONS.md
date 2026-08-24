@@ -39,3 +39,14 @@ owner: agent 主笔，项目属主审批
 - `.githooks/pre-push.d/20-agentmap-lint.sh`：校验待推送历史的 AgentMap 不可变契约。
 - 扫描来源：`.`
 
+## 构建与开发工作流
+
+- 本地开发安装（在 profile 中挂载；pnpm `link:` 使 profile 内为指向本仓库的符号链接）：`dsh plugin --profile web add ./dsh-activity-pane`。
+- `pnpm build:client` 生成 `.dsh-plugin/client.js`；`pnpm check` 做 core 单元检查 + bundle 校验；`pnpm dev:watch` 监视 `src/*.mjs`，变化即重建 bundle。
+- 热更开发：DSH 通过 `dsh-client-hmr` 监视已安装插件的 client bundle 文件，内容一变就推送 `rebuilt` 帧，浏览器单独热装该插件——不需要整页刷新，也不需要重启 `dsh web`（host 侧改动除外，本项目 host 侧为空）。
+- 本插件以 `link:` 依赖装入 profile（符号链接），且 `scripts/build-client.mjs` 采用原子写入（临时文件 + rename），流程是：
+  1. `dsh plugin --profile web add ./dsh-activity-pane`，然后重启一次 `dsh web`（新增 bundle 需重启才进入加载名单；之后的热更无需再重启）。
+  2. 在本仓库运行 `pnpm dev:watch`（或 `node scripts/watch.mjs`）。
+  3. 改 `src/core.mjs` / `src/client.mjs` → watch 自动重建 `.dsh-plugin/client.js` → profile 侧同一文件同步更新 → 浏览器热装生效。
+- 注意：`dsh-activity-pane` 会改动 profile 的 `package.json`（加 `file:` 依赖）并把插件加入 `dsh.profile.bundles`；离线快速实验可改用 DSH 会话内的 `cordis_define` / `cordis_run` 动态加载，不落盘。
+

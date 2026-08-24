@@ -1296,7 +1296,13 @@ assert.doesNotThrow(
 );
 assert.ok(!bundle.includes("sessionsListHas"), "点击不得以第二份 list 快照提前拦截");
 assert.ok(!bundle.includes('document.addEventListener("click"'), "不得在 document 上拦截点击");
-assert.ok(bundle.includes('close?.addEventListener("click", onCloseClick)'), "窗格关闭按钮绑定自身 click");
+// R-01-008/AC-02 移动端抽屉经标题行整体激活收起（与桌面同一控件，无独立 × 按钮）
+assert.ok(!bundle.includes("dap-close") && !bundle.includes("onCloseClick"), "不再保留独立关闭按钮：移动端与桌面同为标题行整体控件（R-01-008/AC-02）");
+assert.ok(
+	clientSource.includes("const onHeaderActivate = () => {\n\t\t\tif (window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`).matches) {\n\t\t\t\ttogglePane(false);"),
+	"移动端断点标题行激活即收起抽屉，而非折叠窄条（R-01-008/AC-02、R-01-011/AC-06）",
+);
+assert.ok(!/\.dap-collapse-hint \{\s*display: none/.test(bundle), "方向符号 « 两端断点一致呈现（R-01-008/AC-02）");
 // R-01-011/AC-03 标题行整体作为桌面收起控件（无独立按钮）
 assert.ok(bundle.includes('class="dap-header" role="button"'), "标题行整体作为可激活控件");
 assert.ok(bundle.includes('header?.addEventListener("click", onHeaderActivate)'), "标题行绑定 click 收起");
@@ -1307,7 +1313,7 @@ assert.ok(bundle.includes('class="dap-rail-title"'), "折叠窄条显示竖排�
 assert.ok(bundle.includes("writing-mode: vertical-rl"), "窄条标题竖排呈现");
 assert.ok(/\.dap-rail \{[^]*?flex: 1;/.test(bundle), "窄条撑满窗格高度，整面均为展开命中区");
 assert.ok(bundle.includes('[data-collapsed="true"] .dap-rail:hover,'), "折叠窄条悬停/聚焦高亮，与展开态标题行反馈对等");
-// R-01-011/AC-06 标题行收起仅桌面断点生效
+// R-01-011/AC-06 移动端标题行激活解释为收起抽屉
 assert.ok(bundle.includes("matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`)"), "标题行收起经移动断点门控");
 assert.ok(bundle.includes('rail?.addEventListener("click", onRailClick)'), "折叠窄条绑定自身 click");
 assert.ok(bundle.includes('class="dap-rail" type="button"'), "折叠窄条使用原生 button 语义");

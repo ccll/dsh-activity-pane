@@ -6,7 +6,7 @@ id: T-046
 
 # T-046 token 计数对齐主窗口 K/M 紧凑单位
 
-状态: active
+状态: completed
 关联: R-01-009 → 活动状态模型
 风险等级: standard
 
@@ -48,4 +48,13 @@ id: T-046
 
 ## 终态与证据
 
-（关闭时填写）
+- 实现: src/core.mjs::fmtTokens 重写为镜像原生 dsh-client-ui-conversation formatTokens 三档——n<1e3 原样字符串；n<1e6 scaled(n/1e3)+"K"；否则 scaled(n/1e6)+"M"；scaled(v) 百位以上取整、不足百位四舍五入留一位小数；单位大写；非法输入返回 null 既有守卫保留。DESIGN 富卡辅助补「K/M 紧凑缩写，镜像原生 formatTokens」措辞。渲染层复用 fmtTokens 自动生效，src/client.mjs 无改动。
+- 测试: pnpm build:client && pnpm check 通过（千级断言改大写 K，新增 51_700→51.7K、517_000→517K、2_800_000→2.8M、4_260_000→4.3M 用例，负数/非有限归 null 回归）；agentmap_lint passed；git diff --check 干净。GUI 现场验收由东家执行。
+- DESIGN 对照: 富卡辅助缩写口径说明与实现一致；PRD 未约束数字格式、map 其余不变，无差异。
+- commit: e5d0931
+- review:
+  - 审核方: 同 T-045 双轴子代理，本任务增量随 T-045 第二轮复审并入
+  - 目的理解: 活动卡 token 大数显示「2800.0k」不友好，要求对齐主窗口阅读友好单位；实现须逐字镜像原生三档规则而非自创格式
+  - 执行方式: 复审请求附原生源码位置（dsh-client-ui-conversation/lib/client.js L2755-2760），Spec 轴逐字比对三档规则/scaled 归一/大写单位
+  - 问题与修复: 无代码问题（task 文件验证矩阵边界行初版仅 fixture 引用被 agentmap lint 拦截，补 src/core.mjs::fmtTokens consumer 引用后通过，属文档格式修正）
+  - 复审结论: Spec 轴确认与原生源码逐字一致、Standards 轴确认纯函数留 core 且断言覆盖各档位，通过。

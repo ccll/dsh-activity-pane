@@ -6,7 +6,7 @@ id: T-045
 
 # T-045 会话卡统计行重排：左列输入/输出/速率/缓存命中，时长固定最右
 
-状态: active
+状态: completed
 关联: R-01-009 → 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -57,4 +57,13 @@ id: T-045
 
 ## 终态与证据
 
-（关闭时填写）
+- 实现: src/core.mjs 新增纯函数 usageSummary（计费输入=未缓存输入+缓存读+缓存写三桶求和且非法桶不计入；命中率=缓存读÷计费输入百分比四舍五入；全空归 null、无读桶命中率未知、零读显 0%），cardSignature 默认数组补 inputTokens/cacheHitPct；src/client.mjs 运行卡骨架 .dap-token-stats 改 .dap-token-main（左列省略截断）+ .dap-token-time（时长 flex:none 恒贴最右）双段并预置 hidden；renderCardInto 左列按主窗口同序写「N tok/s · 缓存 Z% · 输入 X · 输出 Y」（小圆点区隔、速率无约等于符号），右段 fmtElapsedMs，两段皆空整行 hidden，更新时双段缺失就地 replaceChildren 自愈（热装旧骨架兼容）；running 条目接入 usageSummary(projection?.tokenUsage)；样式容器 flex/baseline/space-between、[hidden] 替代 ：empty。
+- 测试: pnpm build:client && pnpm check 全部通过（usageSummary 五组派生断言、缓存命中率签名必变等长替换断言、双段结构与中文短标签 bundle 锚点、≈ 移除负向锚点、左列四字段 indexOf 链式顺序断言）；agentmap_lint --report 通过（20 需求 / 94 AC 全追溯全锚定）；node scripts/acceptance.mjs 可执行；git diff --check 干净。GUI 现场验收由东家按 scripts/acceptance.mjs 执行。
+- DESIGN 对照: 与「富卡统计」左列顺序/小圆点/时长最右条目、「轮内状态输入」「轮内状态数据」usageSummary 口径、「富卡辅助」及需求追溯索引 R-01-009 落点名逐条一致，无差异。
+- commit: e5d0931
+- review:
+  - 审核方: 独立 reviewer 双轴（Standards 子代理、Spec 子代理，code-review skill 流程；每轮修复后同轴复审，共三轮）
+  - 目的理解: 运行卡统计行由单段「输出 tok · 速率 · 时长」重排为左右双段——时长固定最右，左列按主窗口同序显示 tok/s/缓存命中率/输入/输出（小圆点区隔、无约等于符号）；关联 PRD R-01-009/AC-05 改写与 DESIGN 富卡统计条目；预期行为以 AC-05 与 scripts/check.mjs 锚点为准（两轴审核前均记录目的理解）。
+  - 执行方式: code-review skill 双轴并行子代理，评审基线为工作树 git diff HEAD（实现提交前，HEAD=0875769），范围含 src/scripts/PRD/DESIGN/task 文件。
+  - 问题与修复: Standards 第一轮发现注释截断硬违规（接入 usageSummary 时吞掉「流式阶段标记驱动 data-streaming…」首行注释）→ 已恢复原文；Spec 第一轮发现三项——签名断言用追加整条方式无法证明字段敏感 → 改等长替换；骨架创建到首帧更新间空窗 → 预置 statsRow.hidden=true；热装旧骨架双段缺失静默跳过残留旧文案 → 就地重建自愈。第二、三轮（含东家追授的左列顺序对齐主窗口增量）均无新发现。
+  - 复审结论: 两轴第三轮分别确认全部采纳项落实、无新问题引入，通过。

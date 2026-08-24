@@ -1477,6 +1477,16 @@ assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="parent"] .dap-fill {'),
 	"parent 进度条由 data-kind 纯 CSS 驱动、不新增状态字段（R-01-016/AC-03）",
 );
+assert.equal(
+	bundle.split('makeEl("span", "dap-pct")').length - 1,
+	1,
+	"百分比文本元素全 bundle 仅运行卡骨架一处创建（R-01-016/AC-03：parent 进度条无百分比文本）",
+);
+assert.equal(
+	bundle.split('querySelector(".dap-pct")').length - 1,
+	1,
+	"百分比文本写入全 bundle 仅运行卡渲染分支一处（R-01-016/AC-03：parent 分支不写百分比）",
+);
 // ---- R-01-016/AC-04 时间线数据在途时显示加载指示、返回就地填充 ----
 assert.ok(
 	bundle.includes("renderTimelineArea(traceContainer, entry, nativePresentationSessionId(entry))"),

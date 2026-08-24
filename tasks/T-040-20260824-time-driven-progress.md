@@ -6,7 +6,7 @@ id: T-040
 
 # T-040 运行卡进度改由本回合已耗时驱动（有理曲线）
 
-状态: active
+状态: completed
 关联: R-01-009 → 活动状态模型
 风险等级: standard
 
@@ -48,4 +48,14 @@ id: T-040
 
 ## 终态与证据
 
-（完成后填写）
+- 实现: `src/core.mjs`——`progressOf` 改为 `progressOf({ elapsedMs })`，纯时间映射 `100·t/(t+120)`（0.1 精度取整，非法输入归一为 0），删除 `PROGRESS_THINK_BASE`；`src/client.mjs`——删除 `progressFloor` Map 及其清理、按回合 token 基线差分、tool 冻结与思考基线兜底（净删约 30 行），`entry.progress = progressOf({ elapsedMs })` 单点赋值，百分比文本兜底改 0；复审修复追加删除 `livenessFromSnapshot` 死字段 `turn`（遍历改 `timings.values()`）。token 统计底行（AC-05）与流式条纹（AC-08）路径未触碰。
+- 测试: 测试先行——`scripts/check.mjs` R-01-009/AC-06 锚点先改写（过原点 0、120s→50、360s→75、86400s<100、单调递增、NaN/负数/缺省归 0），改锚点后旧实现下必红、实现后转绿；复审后新增 bundle 残留反向断言（无 `PROGRESS_THINK_BASE`/`progressFloor`）；`scripts/acceptance.mjs` AC-06 人工步骤同步为时间曲线口径。`pnpm build:client && pnpm check` 全绿；`python3 tools/agentmap_lint.py --report` 通过（19 需求 / 84 AC 全追溯、全锚定）；`git diff --check` 干净。GUI 现场验收（进度随时间平滑爬升、约 2 分钟到 50%、回合切换归零）由东家按 `scripts/acceptance.mjs` 清单执行。
+- DESIGN 对照: 与 DESIGN「活动状态模型 → 回合进度」条目（`progressOf({ elapsedMs })` 按 y = t/(t+120) 映射、不区分阶段、无单调下限、turnTimings 新起点归零、条纹动画不变）及需求追溯索引（R-01-009 → 活动状态模型 → src/core.mjs、src/client.mjs）逐条一致，无差异。
+- commit: 82f1b18
+- commit: a18d244
+- review:
+  - 审核方: 独立 reviewer 双轴（Standards 子代理 2d595d03、Spec 子代理 e51f693b，code-review skill 流程）
+  - 目的理解: 运行卡进度由「阶段 + token 累计饱和曲线」改为本回合已耗时按 y=t/(t+120) 驱动，消除 tokenUsage 投影批量落地的 10% 级跳变；关联 PRD R-01-009/AC-06 新口径、DESIGN 回合进度条目、DECISIONS C-014；AC-05/AC-08 不在范围且不得波及；预期验证为 `pnpm build:client && pnpm check` 与 agentmap lint（两轴均在审核前记录目的理解）。
+  - 执行方式: `code-review` skill，评审基线 `git diff dfa46ac...HEAD`（提交 82f1b18），范围含 src/core.mjs、src/client.mjs、scripts/check.mjs、scripts/acceptance.mjs、PRD/DESIGN/DECISIONS、tasks/T-040 与 .dsh-plugin/client.js 构建产物一致性。
+  - 问题与修复: Standards 轴 1 项判断性建议——`livenessFromSnapshot` 返回的 `turn` 字段随 progressFloor 删除后成死字段（已修：删除字段及计算，遍历改 `timings.values()`；另 1 项 PRD 内嵌公式提示，可辩护保留）；Spec 轴 1 项轻微证据缺口——「bundle 无残留」缺可执行断言（已修：check.mjs 新增 `PROGRESS_THINK_BASE`/`progressFloor` 残留反向断言）；另有 1 条非阻断边界注记（0.1 精度取整使 t≥约 66.6 小时显示 100.0，取舍已被 spec 覆盖，不处理）。
+  - 复审结论: 修复提交 a18d244 经同一双轴 reviewer 复审，Standards 轴与 Spec 轴均通过、无遗留 finding。

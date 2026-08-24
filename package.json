@@ -1,9 +1,12 @@
 {
   "name": "dsh-activity-pane",
-  "version": "0.1.0",
-  "private": true,
-  "description": "DeepSeek Harness Web 活动会话总览窗格：将正在运行与等待用户行动的会话集中到一个可贴边、可滚动的左侧窗格",
-  "type": "module",
+"version": "0.1.0",
+"description": "DeepSeek Harness Web 活动会话总览窗格：将正在运行与等待用户行动的会话集中到一个可贴边、可滚动的左侧窗格",
+"type": "module",
+"repository": {
+  "type": "git",
+  "url": "git+https://github.com/ccll/dsh-activity-pane.git"
+},
   "main": "./.dsh-plugin/index.mjs",
   "exports": {
     ".": "./.dsh-plugin/index.mjs",

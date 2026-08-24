@@ -346,14 +346,21 @@ const CSS = `
   background: color-mix(in srgb, currentColor 12%, transparent);
   border-radius: 999px; padding: 0 7px;
 }
+/* 工作区徽标「图标+文本」双段：文件夹图标与左边栏工作区条目同源（R-01-003/AC-06）；
+   名称字号不低于 10.5px（AC-07），行高保持 14px 以维持胶囊与卡片高度。 */
 [data-dsh-activity-pane] .dap-workspace {
-  width: fit-content; max-width: 100%; display: block;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 9.5px; line-height: 14px;
+  width: fit-content; max-width: 100%; display: flex; align-items: center; gap: 3px;
+  overflow: hidden;
+  font-size: 10.5px; line-height: 14px;
   color: color-mix(in srgb, currentColor 90%, transparent);
   background: color-mix(in srgb, currentColor 11%, transparent);
   border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
   border-radius: 999px; padding: 0 7px;
+}
+[data-dsh-activity-pane] .dap-workspace-icon { flex: none; display: inline-flex; }
+[data-dsh-activity-pane] .dap-workspace-icon svg { display: block; }
+[data-dsh-activity-pane] .dap-workspace-text {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 [data-dsh-activity-pane] .dap-workspace[hidden] { display: none; }
 [data-dsh-activity-pane] .dap-card-head {
@@ -1211,7 +1218,11 @@ function apply(ctx) {
 	/** 静态骨架卡片；动态文本一律走 textContent，规避 HTML 注入。 */
 	function cardChildren(kind) {
 		const head = makeEl("div", "dap-card-head");
-		head.append(makeEl("div", "dap-workspace"), makeEl("div", "dap-model"));
+		const workspace = makeEl("div", "dap-workspace");
+		const workspaceIcon = makeEl("span", "dap-workspace-icon");
+		workspaceIcon.append(createWorkspaceFolderIcon());
+		workspace.append(workspaceIcon, makeEl("span", "dap-workspace-text"));
+		head.append(workspace, makeEl("div", "dap-model"));
 		if (kind === "parent") {
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
@@ -1376,6 +1387,17 @@ function apply(ctx) {
 			parts: [
 				{ attrs: { d: "M11.0307 5.46369C11.0305 3.78995 9.6734 2.43357 7.99961 2.43357C6.32601 2.43379 4.96972 3.79009 4.96949 5.46369C4.96949 7.13748 6.32587 8.49455 7.99961 8.49477C9.67354 8.49477 11.0307 7.13762 11.0307 5.46369ZM12.3163 5.46369C12.3163 7.84777 10.3837 9.78042 7.99961 9.78042C5.61572 9.7802 3.68288 7.84763 3.68288 5.46369C3.6831 3.07993 5.61586 1.14718 7.99961 1.14695C10.3836 1.14695 12.3161 3.0798 12.3163 5.46369Z", fill: "currentColor" } },
 				{ attrs: { d: "M8.00002 10.3316C11.7343 10.3316 14.1864 11.8997 15.0387 14.4445L14.4292 14.6483L13.8197 14.8531C13.1955 12.9893 11.3673 11.6182 8.00002 11.6182C4.63277 11.6182 2.80455 12.9893 2.18031 14.8531L1.5708 14.6483L0.961304 14.4445C1.81368 11.8997 4.26579 10.3316 8.00002 10.3316Z", fill: "currentColor" } },
+			],
+		});
+	}
+
+	/** 左边栏工作区行同款 canonical 文件夹图标（dsh-client-ui-primitives 的 IconFolderClose16），
+	 *  置于工作区徽标文字前使归属一眼可辨（R-01-003/AC-06）。 */
+	function createWorkspaceFolderIcon() {
+		return createInlineIcon({
+			viewBox: "0 0 16 16",
+			parts: [
+				{ attrs: { transform: "translate(1.5 2.429)", d: "M5.05582 0.518756L4.50669 0.86654L5.05582 0.518756ZM13 9.4837L13.65 9.4837L13.65 3.53962L13 3.53962L12.35 3.53962L12.35 9.4837L13 9.4837ZM11.3264 1.86603L11.3264 1.21603L6.52313 1.21603L6.52313 1.86603L6.52313 2.51603L11.3264 2.51603L11.3264 1.86603ZM5.58054 1.34727L6.12968 0.999489L5.60495 0.170972L5.05582 0.518756L4.50669 0.86654L5.03141 1.69506L5.58054 1.34727ZM4.11323 1.23058e-13L4.11323 -0.65L1.67359 -0.65L1.67359 5.00699e-14L1.67359 0.65L4.11323 0.65L4.11323 1.23058e-13ZM0 1.67359L-0.65 1.67359L-0.65 9.4837L0 9.4837L0.65 9.4837L0.65 1.67359L0 1.67359ZM11.3264 11.1573L11.3264 10.5073L1.67359 10.5073L1.67359 11.1573L1.67359 11.8073L11.3264 11.8073L11.3264 11.1573ZM0 9.4837L-0.65 9.4837C-0.65 10.767 0.390308 11.8073 1.67359 11.8073L1.67359 11.1573L1.67359 10.5073C1.10828 10.5073 0.65 10.049 0.65 9.4837L0 9.4837ZM1.67359 5.00699e-14L1.67359 -0.65C0.390307 -0.65 -0.65 0.390309 -0.65 1.67359L0 1.67359L0.65 1.67359C0.65 1.10828 1.10828 0.65 1.67359 0.65L1.67359 5.00699e-14ZM5.05582 0.518756L5.60495 0.170972C5.28121 -0.340193 4.71829 -0.65 4.11323 -0.65L4.11323 1.23058e-13L4.11323 0.65C4.27282 0.65 4.4213 0.731715 4.50669 0.86654L5.05582 0.518756ZM6.52313 1.86603L6.52313 1.21603C6.36354 1.21603 6.21507 1.13431 6.12968 0.999489L5.58054 1.34727L5.03141 1.69506C5.35515 2.20622 5.91808 2.51603 6.52313 2.51603L6.52313 1.86603ZM13 3.53962L13.65 3.53962C13.65 2.25634 12.6097 1.21603 11.3264 1.21603L11.3264 1.86603L11.3264 2.51603C11.8917 2.51603 12.35 2.97431 12.35 3.53962L13 3.53962ZM13 9.4837L12.35 9.4837C12.35 10.049 11.8917 10.5073 11.3264 10.5073L11.3264 11.1573L11.3264 11.8073C12.6097 11.8073 13.65 10.767 13.65 9.4837L13 9.4837Z", fill: "currentColor" } },
 			],
 		});
 	}
@@ -1675,11 +1697,12 @@ function apply(ctx) {
 	function renderCardInto(el, entry) {
 		const workspaceLabel = el.querySelector(".dap-workspace");
 		if (workspaceLabel !== null) {
+			const workspaceText = workspaceLabel.querySelector(".dap-workspace-text");
 			if (entry.workspaceTitle !== "") {
-				workspaceLabel.textContent = entry.workspaceTitle;
+				if (workspaceText !== null) restoreTextField(workspaceText, entry.workspaceTitle);
 				workspaceLabel.removeAttribute("hidden");
 			} else {
-				workspaceLabel.textContent = "";
+				if (workspaceText !== null) restoreTextField(workspaceText, "");
 				workspaceLabel.setAttribute("hidden", "");
 			}
 		}

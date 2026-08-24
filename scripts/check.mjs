@@ -1741,7 +1741,7 @@ assert.ok(
 	"浅色主题数量徽标覆盖声明体完整：等待卡浅色背景别名 + 浅色描边 + 去外环（防空规则回归）",
 );
 assert.ok(bundle.includes("`${total} 个活动会话，${waiting} 个等待响应`"), "数量徽标 aria-label 携带语义化计数说明");
-assert.ok(bundle.includes("border-radius: 999px; padding: 0 7px;\n}\n[data-dsh-activity-pane] .dap-workspace {"), "等待标识徽标规则正确闭合，后续 .dap-workspace 保持顶层规则（R-01-002/AC-04 结构回归防护）");
+assert.ok(bundle.includes("border-radius: 999px; padding: 0 7px;\n}\n/* 工作区徽标"), "等待标识徽标规则正确闭合，后续为工作区徽标注释与顶层规则（R-01-002/AC-04、R-01-003/AC-06 结构回归防护）");
 assert.ok(
 	bundle.includes("border: 1px solid transparent;\n  padding: 0 7px;\n}\n[data-dsh-activity-pane] .dap-count[data-awaiting] {"),
 	"数量徽标基态规则正确闭合，紧随其后为等待态变体（R-01-001/AC-04 结构回归防护）",
@@ -1756,6 +1756,17 @@ assert.equal(
 // R-01-001/AC-04
 // 数量徽标紧跟标题文字（去掉 margin-left: auto），配色同样柔和化。
 assert.ok(bundle.includes('[data-dsh-activity-pane] .dap-count {\n  flex: none;\n  font-size: 10px;'), "数量徽标紧跟标题文字（不再 margin-left: auto）");
+
+// R-01-003/AC-06、AC-07
+// 工作区徽标「文件夹图标+名称文本」双段：图标与左边栏工作区条目同源，字号不低于 10.5px。
+assert.ok(bundle.includes("createWorkspaceFolderIcon"), "工作区徽标使用与左边栏同源的 canonical 文件夹图标工厂（R-01-003/AC-06）");
+assert.ok(bundle.includes("M5.05582 0.518756L4.50669 0.86654"), "文件夹图标 path 与 dsh-client-ui-primitives IconFolderClose16 同源（R-01-003/AC-06）");
+assert.ok(bundle.includes('[data-dsh-activity-pane] .dap-workspace {\n  width: fit-content; max-width: 100%; display: flex; align-items: center; gap: 3px;\n  overflow: hidden;\n  font-size: 10.5px; line-height: 14px;'), "工作区名称字号提升为 10.5px 且胶囊改「图标+文本」双段布局（R-01-003/AC-07）");
+assert.ok(bundle.includes("[data-dsh-activity-pane] .dap-workspace-icon { flex: none; display: inline-flex; }"), "工作区图标 flex:none 不被挤压截断（R-01-003/AC-06 结构回归防护）");
+assert.ok(bundle.includes(".dap-workspace-text {\n  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"), "省略号截断只作用于工作区名称文本段（R-01-003/AC-06 结构回归防护）");
+assert.ok(bundle.includes("restoreTextField(workspaceText, entry.workspaceTitle)"), "工作区名称只写入文本段，不覆盖图标（R-01-003/AC-06）");
+assert.ok(bundle.includes('workspace.append(workspaceIcon, makeEl("span", "dap-workspace-text"))'), "文件夹图标先于名称文本段加入胶囊（R-01-003/AC-06 顺序锚点）");
+assert.ok(bundle.includes("if (workspaceText !== null) restoreTextField(workspaceText, entry.workspaceTitle)"), "热装旧骨架无文本段时容空跳过，不中断渲染（R-01-003/AC-06 健壮性）");
 
 // R-01-010/AC-01、R-01-010/AC-05
 // 两区分隔线上下各保留 10px 留白；历史区无内容时整段隐藏、分隔线不占位。

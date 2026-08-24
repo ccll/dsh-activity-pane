@@ -1914,12 +1914,11 @@ const CSS = `
   min-width: 0;
 }
 [data-dsh-activity-pane] .dap-trace:empty { display: none; }
-/* 指令槽位（R-01-018）：与用户消息行同款排版，底部分隔线与时间线竖线同色系。 */
+/* 指令槽位（R-01-018）：与用户消息行同款排版，左对齐卡片左缘、无缩进。 */
 [data-dsh-activity-pane] .dap-slot {
   display: flex; align-items: center; column-gap: 7px;
-  min-width: 0; padding: 1px 14px 4px;
+  min-width: 0; padding: 1px 14px 4px 0;   /* 左缘贴卡片无缩进；右侧留白与其他行一致 */
   color: #c7ced9; font-size: 10px; line-height: 14px;
-  border-bottom: 1px solid rgba(126, 147, 177, .3);
 }
 [data-dsh-activity-pane] .dap-slot[hidden] { display: none; }
 [data-dsh-activity-pane] .dap-slot-icon { width: 12px; height: 12px; flex: none; display: inline-flex; }
@@ -2201,9 +2200,6 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-label {
   color: var(--dsw-alias-label-secondary, rgb(97, 102, 107));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-separator {
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-slot {
-  border-bottom-color: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.12));
-}
   background: var(--dsw-alias-label-caption, rgb(173, 178, 184));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item::after {

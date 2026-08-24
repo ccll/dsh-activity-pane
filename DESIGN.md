@@ -202,7 +202,7 @@ sequenceDiagram
 - 交互面：点击或 Enter/Space 激活卡片 → 切换会话；当前会话卡片高亮（R-01-005、R-01-006）。
 - 折叠时间线：`活动状态模型#foldedConversationTimeline(snapshot, limit)` 在检测到 dsh-auto-collapse 生效（`#dshcf-style[data-dshcf-state="active"]`）时替代 `conversationTimeline` 成为渲染层时间线来源：先按指数扩窗收集尾部原始工作项并合并 live 项，再经 `#foldWorkGroups` 分组——用户输入项与含正文的 assistant 项为硬边界（其 reasoning 先并入当前分组，等价 splitThinkByBody 前置语义），连续 context 单独成组；组标题镜像 auto-collapse chip 优先级（正在运行→正在思考→运行了命令/编辑了文件/上下文注入→已思考），组摘要携带推理文本内容；状态聚合 running > error > stopped > done，尾部提升沿用 R-01-009/AC-10。冷会话 history 时间线经同一 `#foldWorkGroups` 分组。分组语义改编自 MIT 许可的 dsh-auto-collapse@0.1.3 `src/fold.ts`（数据层移植，不读其 DOM、无运行时依赖，C-016）（R-01-017）。
 - 折叠呈现细节：tool 组行图标统一为 DSH canonical IconApiOutline14 命令图标（与 auto-collapse 工具 chip 同源）；含正文 assistant 边界的推理文本只归组摘要，其正文行剥离推理展示并跳过原生行匹配（stripNative），避免同一推理文本双行重复（R-01-017/AC-02、AC-04）。
-- 指令槽位：折叠与逐项镜像共用的常驻呈现（R-01-018）——当时间线窗口（最近 4 行）外存在用户指令时，卡片在时间线区顶部插入一行与用户消息行同款样式（user 图标 + 指令文本，底部分隔线区分）的槽位行，显示窗口外最近一条指令；窗口内已含该指令或窗口外无指令时隐藏；槽位行不计入 4 行窗口。数据由 `活动状态模型#foldedTimelineWithSlot / #conversationTimelineWithSlot（含 history 冷路径包装）` 连同窗口行一并派生：折叠路径以扩窗全量行的槽位确定为停（窗口内含指令或已找到窗口外指令即止，否则继续扩窗直至全序兜底）；逐项路径以 limit+SLOT_SCAN_BUDGET 起步、未确定时同档扩窗；冷会话 history 路径在页内有界全量上派生；运行卡（ChatSnapshot 窗口不含旧指令）以轻量 1 页 history 提取最近用户指令（lastUserFromEvents）作槽位兜底源，窗口内出现指令行时顺带刷新该记录，指令被挤出后槽位跟随最新指令；两模式槽位语义一致。
+- 指令槽位：折叠与逐项镜像共用的常驻呈现（R-01-018）——当时间线窗口（最近 4 行）外存在用户指令时，卡片在时间线区顶部插入一行与用户消息行同款样式（user 图标 + 指令文本，左对齐卡片左缘、无分隔线）的槽位行，显示窗口外最近一条指令；窗口内已含该指令或窗口外无指令时隐藏；槽位行不计入 4 行窗口。数据由 `活动状态模型#foldedTimelineWithSlot / #conversationTimelineWithSlot（含 history 冷路径包装）` 连同窗口行一并派生：折叠路径以扩窗全量行的槽位确定为停（窗口内含指令或已找到窗口外指令即止，否则继续扩窗直至全序兜底）；逐项路径以 limit+SLOT_SCAN_BUDGET 起步、未确定时同档扩窗；冷会话 history 路径在页内有界全量上派生；运行卡（ChatSnapshot 窗口不含旧指令）以轻量 1 页 history 提取最近用户指令（lastUserFromEvents）作槽位兜底源，窗口内出现指令行时顺带刷新该记录，指令被挤出后槽位跟随最新指令；两模式槽位语义一致。
 
 ## 横切约束
 
@@ -246,7 +246,7 @@ sequenceDiagram
   - 工作区徽标为「文件夹图标 + 名称文本」双段结构：胶囊内常驻与左边栏工作区条目同源的 canonical 文件夹图标（dsh-client-ui-primitives IconFolderClose16 同款 path，经 `createInlineIcon` 工厂复刻），置于名称文字之前使归属一眼可辨；名称字号 10.5px（AC-07 下限）、行高 14px 不变以维持胶囊与卡片高度；无归属时整枚隐藏；文本写入独立文本段，省略号截断不波及图标（R-01-003/AC-03、AC-06、AC-07）。
   - 最近卡两条消息预览行为「角色图标 + 文本」双段结构：用户消息行人物图标、agent 回复行机器人图标，图标常驻；文本与加载 spinner 只写入文本段，不覆盖图标（R-01-013/AC-07、AC-08）。
   - 对每个运行中会话经 `sessions.binding(id).session` 订阅轮内状态与 ChatSnapshot，归一为 `runtimeStats` 与工作项时间线；时长在渲染期按起始时间实时计算；停止运行或卸载即 `unsubscribe`。冷会话只通过 native history/model 的一次性读取补齐，不进行状态轮询。
-  - 指令槽位行（R-01-018）：`.dap-slot` 插于 `.dap-trace` 之前（卡片根内），与用户消息行同款（user 图标 + 单行省略指令文本 + 底部分隔线）；无槽位时隐藏不占位；文本经 textContent 写入；随卡片生命周期创建与移除。
+  - 指令槽位行（R-01-018）：`.dap-slot` 插于 `.dap-trace` 之前（卡片根内），与用户消息行同款（user 图标 + 单行省略指令文本），左对齐卡片左缘、无缩进、无分隔线；无槽位时隐藏不占位；文本经 textContent 写入；随卡片生命周期创建与移除。
   - 运行卡外观对齐 answer-pet。
     - CSS 实现动作时间线（从卡片内容左边界起步、竖线 + 圆点半透明外环 + 运行节点闪烁）与进度条（5px、流式 `data-streaming` 条纹动画）。
     - 工作项标题与摘要之间渲染小圆点；错误项通过 `data-status="error"` 将保留的动作 SVG、标题和摘要染红。

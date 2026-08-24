@@ -79,8 +79,6 @@ const TOOL_LABELS = {
 	todo_write: "更新任务清单",
 	ask_user_question: "提问",
 };
-/** think 阶段进度起点（%）：progressOf 与渲染层兜底共用的同源常量，防两处"5"漂移。 */
-const PROGRESS_THINK_BASE = 5;
 
 /** 桌面窗格拖拽调宽边界（R-01-015）：拖拽实时夹取与 localStorage 恢复共用的同源常量。 */
 const PANE_WIDTH_MIN = 200;
@@ -1054,23 +1052,18 @@ function fmtTokens(n) {
 }
 
 /**
- * 轮内进度估计（0–100）：阶段权重 + 输出 token 累计填充（无 maxTokens 时用饱和
- * 曲线）。纯函数给出阶段式估计；tool 阶段冻结返回 null（由渲染层保持上一进度）；
- * 渲染层再按回合叠加单调下限，保证同回合不倒退（R-01-009/AC-06）。
+ * 回合进度估计（0–100）：纯时间驱动，y = t/(t+120)（t 为本回合已耗秒数，半衰期
+ * 120s）。过原点、先快后慢、渐近 100 永不到达；不区分 think/stream/tool 阶段，
+ * 单调性由函数本身保证；回合切换由渲染层 turnTimings 新回合起点自然归零重计
+ * （R-01-009/AC-06，C-014）。非法/缺失已耗时归一为 0。
  */
-function progressOf({ phase = "think", outputTokens = 0, elapsedMs = 0 } = {}) {
-	const out = Number.isFinite(outputTokens) && outputTokens >= 0 ? outputTokens : 0;
+function progressOf({ elapsedMs = 0 } = {}) {
 	const sec =
 		Math.max(
 			0,
 			(Number.isFinite(elapsedMs) && elapsedMs >= 0 ? elapsedMs : 0) / 1000,
 		);
-	if (phase === "tool") return null;
-	if (phase === "stream") {
-		const fill = Math.min(1, 1 - Math.exp(-out / 600));
-		return Math.round((10 + 80 * fill) * 10) / 10;
-	}
-	return Math.round(Math.min(10, PROGRESS_THINK_BASE + sec * 0.5) * 10) / 10;
+	return Math.round((100 * sec) / (sec + 120) * 10) / 10;
 }
 
 /**
@@ -1980,8 +1973,6 @@ function apply(ctx) {
 	const livenessById = new Map();
 	/** 订阅停止后保留最近快照，供 awaiting/recent 卡继续显示上下文。 */
 	const sessionDetailsById = new Map();
-	/** 运行卡进度单调下限：id → { turn, floor }；随运行集清理、卸载清空。 */
-	const progressFloor = new Map();
 	/** 工作项动作图标缓存：状态切换为 error 时继续复用原动作图标。 */
 	const nativeIconsByTraceKey = new Map();
 	/** 会话跳转的单一重试链；避免重复点击叠加 refresh/timer。 */
@@ -2865,7 +2856,7 @@ function apply(ctx) {
 		if (entry.kind === "running") {
 			const pct = el.querySelector(".dap-pct");
 			if (pct !== null)
-				pct.textContent = `${Math.round(entry.progress ?? PROGRESS_THINK_BASE)}%`;
+				pct.textContent = `${Math.round(entry.progress ?? 0)}%`;
 			const traceContainer = el.querySelector(".dap-trace");
 			const nativeSessionId = nativePresentationSessionId(entry);
 			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, nativeSessionId);
@@ -3382,42 +3373,11 @@ function apply(ctx) {
 				// 流式阶段标记驱动 data-streaming（进度条条纹动画）；工具调用期间视作
 				// 非流式，与 answer-pet 的 phase==='stream' 判定一致。
 				entry.streaming = !live?.runningTool && live?.streaming === true;
-				// 阶段进度：progressOf 估计 + 按回合单调下限（tool 阶段冻结、回合切换重置）。
-				// tokenUsage 是跨回合累计口径，因此进度填充用「本回合增量」——
-				// 回合切换时记录 token 基线，新回合从基线差分，进度才会真正回落重置
-				// （R-01-009/AC-06）。
-				const prev = progressFloor.get(entry.id);
-				const turn = live?.turn ?? null;
-				const sameTurn = prev !== undefined && prev.turn === turn;
-				// 累计口径必须先经 Number.isFinite 净化：NaN 会污染 tokensBase、把
-				// 本回合进度锁死于 ~10%（progressOf 内部虽兜底，但基线会被固化）。
-				const cumulative =
-					Number.isFinite(outputTokens) && outputTokens >= 0 ? outputTokens : 0;
-				const tokensBase = sameTurn ? prev.tokensBase : cumulative;
-				const turnTokens =
-					Math.max(0, cumulative - Math.min(tokensBase, cumulative));
-				const floor = sameTurn ? prev.floor : 0;
-				let progress = progressOf({
-					phase: live?.runningTool ? "tool" : live?.streaming ? "stream" : "think",
-					outputTokens: turnTokens,
-					elapsedMs: elapsedMs ?? 0,
-				});
-				if (progress !== null) {
-					progress = Math.max(floor, progress);
-					progressFloor.set(entry.id, { turn, floor: progress, tokensBase });
-				} else {
-					// tool 阶段冻结（progressOf 返回 null）：有历史下限则沿用；首观测即
-					// 工具阶段（中途接入、无从回放思考爬升）以思考基线兜底防 0，与
-					// answer-pet 的冻结语义一致（其 tool 冻结值 ≥ 本回合思考基线）。
-					progress = sameTurn ? prev.floor : PROGRESS_THINK_BASE;
-					progressFloor.set(entry.id, { turn, floor: progress, tokensBase });
-				}
-				entry.progress = progress;
+				// 回合进度：纯时间驱动 y = t/(t+120)，单调性由函数本身保证；回合切换由
+				// turnTimings 新回合起点（elapsedMs 归零）自然重置（R-01-009/AC-06，C-014）。
+				entry.progress = progressOf({ elapsedMs: elapsedMs ?? 0 });
 			}
 		}
-		// 清理已不在运行/子代理集的进度下限，避免残留。
-		for (const id of progressFloor.keys())
-			if (!runLikeIds.has(id)) progressFloor.delete(id);
 		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds, heldCompletedIds);
 		// 预览只对 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
 		for (const entry of recent) {
@@ -3717,7 +3677,6 @@ function apply(ctx) {
 		sessionOpenLoads.clear();
 		loadQueue.length = 0;
 		loadInflight = 0;
-		progressFloor.clear();
 		nativeIconsByTraceKey.clear();
 		for (const rec of cardsById.values()) rec.unbind?.();
 		for (const rec of recentCardsById.values()) rec.unbind?.();

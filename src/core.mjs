@@ -73,8 +73,6 @@ const TOOL_LABELS = {
 	todo_write: "更新任务清单",
 	ask_user_question: "提问",
 };
-/** think 阶段进度起点（%）：progressOf 与渲染层兜底共用的同源常量，防两处"5"漂移。 */
-export const PROGRESS_THINK_BASE = 5;
 
 /** 桌面窗格拖拽调宽边界（R-01-015）：拖拽实时夹取与 localStorage 恢复共用的同源常量。 */
 export const PANE_WIDTH_MIN = 200;
@@ -1048,21 +1046,16 @@ export function fmtTokens(n) {
 }
 
 /**
- * 轮内进度估计（0–100）：阶段权重 + 输出 token 累计填充（无 maxTokens 时用饱和
- * 曲线）。纯函数给出阶段式估计；tool 阶段冻结返回 null（由渲染层保持上一进度）；
- * 渲染层再按回合叠加单调下限，保证同回合不倒退（R-01-009/AC-06）。
+ * 回合进度估计（0–100）：纯时间驱动，y = t/(t+120)（t 为本回合已耗秒数，半衰期
+ * 120s）。过原点、先快后慢、渐近 100 永不到达；不区分 think/stream/tool 阶段，
+ * 单调性由函数本身保证；回合切换由渲染层 turnTimings 新回合起点自然归零重计
+ * （R-01-009/AC-06，C-014）。非法/缺失已耗时归一为 0。
  */
-export function progressOf({ phase = "think", outputTokens = 0, elapsedMs = 0 } = {}) {
-	const out = Number.isFinite(outputTokens) && outputTokens >= 0 ? outputTokens : 0;
+export function progressOf({ elapsedMs = 0 } = {}) {
 	const sec =
 		Math.max(
 			0,
 			(Number.isFinite(elapsedMs) && elapsedMs >= 0 ? elapsedMs : 0) / 1000,
 		);
-	if (phase === "tool") return null;
-	if (phase === "stream") {
-		const fill = Math.min(1, 1 - Math.exp(-out / 600));
-		return Math.round((10 + 80 * fill) * 10) / 10;
-	}
-	return Math.round(Math.min(10, PROGRESS_THINK_BASE + sec * 0.5) * 10) / 10;
+	return Math.round((100 * sec) / (sec + 120) * 10) / 10;
 }

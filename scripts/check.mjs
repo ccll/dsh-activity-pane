@@ -37,7 +37,6 @@ import {
 	nativePresentationSessionId,
 	needsHistorySnapshot,
 	pendingText,
-	PROGRESS_THINK_BASE,
 	progressOf,
 	pruneInvisibleEntries,
 	runtimeStats,
@@ -633,17 +632,17 @@ assert.deepEqual(
 	"零速率归一为空，token 统计仍可放在进度条下方",
 );
 
-// ---- R-01-009/AC-06 阶段进度（tool 冻结由渲染层按回合单调下限保持）----
-assert.equal(progressOf({ phase: "stream", outputTokens: 0, elapsedMs: 0 }), 10, "流式起始 10%");
-const pStream = progressOf({ phase: "stream", outputTokens: 5000, elapsedMs: 0 });
-assert.ok(pStream > 10 && pStream <= 90, "流式 token 越多进度越高且在 90 内");
-const pThinkEarly = progressOf({ phase: "think", outputTokens: 0, elapsedMs: 0 });
-const pThinkLate = progressOf({ phase: "think", outputTokens: 0, elapsedMs: 10_000 });
-assert.ok(pThinkLate >= pThinkEarly, "think 阶段随时长爬升不倒退");
-assert.equal(pThinkEarly, PROGRESS_THINK_BASE, "think 起点与渲染兜底共用 PROGRESS_THINK_BASE，防两处漂移");
-assert.equal(progressOf({ phase: "tool", outputTokens: 100, elapsedMs: 1000 }), null, "tool 阶段冻结返回 null（渲染层保持上一进度）");
-assert.ok(progressOf({ phase: "stream", outputTokens: 1_000_000 }) <= 90, "进度有上界");
-// 注：R-01-009/AC-06 的"同回合不倒退/回合重置"为渲染层单调下限，属 GUI 验收项（scripts/acceptance.mjs）。
+// ---- R-01-009/AC-06 回合进度：y = t/(t+120)（t 为本回合已耗秒数，C-014）----
+assert.equal(progressOf({ elapsedMs: 0 }), 0, "回合起点过原点 0%");
+assert.equal(progressOf({ elapsedMs: 120_000 }), 50, "半衰期 120s 显示 50%");
+assert.equal(progressOf({ elapsedMs: 360_000 }), 75, "6 分钟显示 75%");
+assert.ok(progressOf({ elapsedMs: 86_400_000 }) < 100, "超长回合渐近 100% 永不到达");
+const pEarly = progressOf({ elapsedMs: 30_000 });
+const pLate = progressOf({ elapsedMs: 300_000 });
+assert.ok(pLate > pEarly && pEarly > 0, "随已耗时单调递增且先快后慢");
+assert.ok(progressOf({ elapsedMs: Number.NaN }) === 0 && progressOf({ elapsedMs: -1 }) === 0, "非法已耗时归一为 0");
+assert.ok(progressOf({}) === 0, "缺省入参归一为 0");
+// 注：R-01-009/AC-06 的"回合切换归零重计"由渲染层 turnTimings 新回合起点保证，属 GUI 验收项（scripts/acceptance.mjs）。
 
 // ---- R-01-009/AC-07 工作项时间线的状态与主会话窗口语义摘要（无行级耗时，C-012）----
 const statusTimeline = conversationTimeline({

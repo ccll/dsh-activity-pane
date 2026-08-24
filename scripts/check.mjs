@@ -1710,9 +1710,22 @@ assert.ok(
 	"计数与脉冲周期由核心纯函数单点派生",
 );
 assert.ok(
-	bundle.includes("[data-dsh-activity-pane] .dap-count[data-awaiting] {\n  /* 底色与等待卡背景同色") &&
+	bundle.includes("[data-dsh-activity-pane] .dap-count[data-awaiting] {\n  /* 底色/透明度/边框与等待卡完全一致") &&
 		bundle.includes("[data-dsh-activity-pane] .dap-rail-count[data-awaiting] {\n  background: rgba(35, 31, 25, 0.97);"),
-	"数量徽标等待态底色与等待卡背景同色（R-01-002/AC-06）",
+	"数量徽标等待态底色/透明度与等待卡完全一致（R-01-002/AC-06）",
+);
+assert.equal(
+	(bundle.match(/background: rgba\(35, 31, 25, 0\.97\);\n  border-color: color-mix\(in srgb, #e8a33d 55%, transparent\)/g) ?? []).length,
+	3,
+);
+assert.equal(
+	(bundle.match(/box-shadow: 0 0 0 1px color-mix\(in srgb, #e8a33d 35%, transparent\);\n  animation: dap-await-pulse/g) ?? []).length,
+	3,
+	"三处镜像面等待态均带与等待卡相同的 1px 外环（R-01-002/AC-06）",
+);
+assert.ok(
+	bundle.includes("@keyframes dap-await-pulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }"),
+	"脉冲为亮度呼吸而非整体不透明度：底色全程可见不透底（R-01-002/AC-06 东家视觉反馈）",
 );
 assert.ok(!bundle.includes("linear-gradient(180deg, #ffb4b4, #f06a72)") && !bundle.includes("#2a1012"), "数量徽标不再使用红色渐变旧配色（时间线错误态红色不受影响）");
 assert.equal(
@@ -1722,13 +1735,16 @@ assert.equal(
 );
 assert.ok(bundle.includes('el.style.setProperty("--dap-await-period", next)'), "渲染层按等待占比写入脉冲周期自定义属性");
 assert.ok(
-	bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting],"),
-	"浅色主题数量徽标覆盖为等待卡浅色背景别名",
+	bundle.includes(
+		"body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting],\nbody:not([data-ds-dark-theme]) .dap-toggle[data-awaiting] .dap-toggle-count {\n  background: var(--dsw-alias-state-warn-tertiary, rgb(254, 245, 231));\n  border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));\n  box-shadow: none;\n}",
+	),
+	"浅色主题数量徽标覆盖声明体完整：等待卡浅色背景别名 + 浅色描边 + 去外环（防空规则回归）",
 );
 assert.ok(bundle.includes("`${total} 个活动会话，${waiting} 个等待响应`"), "数量徽标 aria-label 携带语义化计数说明");
+assert.ok(bundle.includes("border-radius: 999px; padding: 0 7px;\n}\n[data-dsh-activity-pane] .dap-workspace {"), "等待标识徽标规则正确闭合，后续 .dap-workspace 保持顶层规则（R-01-002/AC-04 结构回归防护）");
 assert.ok(
-	bundle.includes("border-radius: 999px; padding: 0 7px;\n}\n[data-dsh-activity-pane] .dap-workspace {"),
-	"徽标规则正确闭合，后续 .dap-workspace 保持顶层规则（R-01-002/AC-04 结构回归防护）",
+	bundle.includes("border: 1px solid transparent;\n  padding: 0 7px;\n}\n[data-dsh-activity-pane] .dap-count[data-awaiting] {"),
+	"数量徽标基态规则正确闭合，紧随其后为等待态变体（R-01-001/AC-04 结构回归防护）",
 );
 // CSS 模板结构完整：花括号配平，不错位吞并后续规则（R-01-002/AC-04 结构回归防护）。
 assert.equal(

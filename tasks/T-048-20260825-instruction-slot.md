@@ -6,7 +6,7 @@ id: T-048
 
 # T-048 指令槽位：窗口外最近用户指令常驻时间线顶部
 
-状态: active
+状态: completed
 关联: R-01-018 → 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -62,4 +62,13 @@ id: T-048
 
 ## 终态与证据
 
-（关闭时填写：实现 / 测试 / DESIGN 对照 / commit / review）
+- 实现: src/core.mjs 新增 windowHasUser/slotOf/fallbackSlot（行内窗口外最近用户指令查找与 lastUser 兜底）、lastUserFromEvents（history 最近用户指令提取）与 timelineWithSlot 家族——foldedTimelineWithSlot/conversationTimelineWithSlot/foldWorkGroupsWithSlot/historyTimelineWithSlot 返回 { rows, slot }（折叠/逐项/冷 history 四路径语义一致；扩窗停止条件并入槽位确定性：窗口含指令或已找到窗口外指令即止，否则 ×8/全序兜底，保证存在即找到）；conversationTimeline/foldedConversationTimeline 委托 .rows 语义不变；src/client.mjs 新增 renderSlot（.dap-slot 插于 .dap-trace 前、用户行同款+底部分隔线、hidden 不占位、文本 textContent 写入）、热路径 memo 键扩展 memoTimelineUser + 行内刷新 lastUser（值相等不换引用防抖动）、冷路径全量页内事件派生（timeline/timelineSlot/lastUser）、运行卡一次性轻量 history 拉取（lastUserLoad 记账、失败静默降级）、深浅主题 CSS 覆盖；scripts/check.mjs 新增 R-01-018 全 AC 锚定用例（停靠/隐藏/替换/委托等价/预算外扩窗档/兜底/提取）+ bundle TDZ 防回归断言；PRD/DESIGN/DOMAIN 同次演进（R-01-018、指令槽位术语、契约与追溯索引）。
+- 测试: pnpm build:client && pnpm check 全绿（103 验收点全量锚定，requirements=22）；python3 tools/agentmap_lint.py --report 通过；git diff --check 干净；提交时 pre-commit 钩子（20-agentmap-lint、30-dsh-activity-pane-check）重放通过。GUI 现场验收受 dsh web 服务端客户端加载异常（Failed to load plugins，非本插件代码问题）影响未能完成 headless 复验，向東家报告后以东家浏览器为准。
+- DESIGN 对照: 指令槽位契约（两模式统一、槽位不计 4 行窗口、扩窗停止条件、lastUser 轻量 history 兜底源、渲染层 .dap-slot 结构）与需求追溯索引 R-01-018、活动状态模型槽位派生条目、窗格渲染器槽位行条目均与实现一致。
+- commit: 035a9ff
+- review:
+  - 审核方: 独立子代理（subagent_fork 双轴并行审核）。
+  - 目的理解: 东家要求在折叠与逐项镜像呈现下，被挤出 4 行窗口的最近一条用户指令常驻时间线顶部（被更新指令挤出时替换，窗口内已见不重复）；运行卡 ChatSnapshot 窗口裁剪后旧指令不可得，需轻量数据面补齐。
+  - 执行方式: code-review skill 双轴（Standards + Spec）审核 git diff e928c10..工作区；standards 对照 AGENTS/CONVENTIONS 与既有代码风格 + Fowler 味道基线；spec 对照 PRD R-01-018 三 AC 与 T-048 方案。
+  - 问题与修复: Standards——硬性 1) memo 块 const derivedTimeline 声明晚于引用（TDZ，运行卡渲染每帧抛错）→ 重排声明顺序并加 bundle 防回归断言；硬性 2) SLOT_SCAN_BUDGET JSDoc 声称「预算内未找到即无槽位」与扩窗实现矛盾 → 注释修正；判断性（性能物化量 J5、farBig 用例缺口 J8 等）→ 补预算外扩窗档用例，其余有据保留。Spec——硬性 1) 同 TDZ（P0，槽位与时间线整体崩溃）；硬性 2) api.history 响应为 {events,hasMore,projections} 对象而按数组解析 → 改 value.events 解构；硬性 3) 浅色主题 CSS 把 .dap-slot 塞进 background 选择器组（整行盖背景）→ 改 border-bottom-color 覆盖并独立声明；判断性（PRD 条目间空行 J9）→ 补空行。
+  - 复审结论: 全部硬性 finding 修复并以 build/check/lint 全绿 + bundle 语法校验复核；运行卡现场复验因 dsh web 服务端客户端加载异常未能完成（环境问题），故未做 reviewer 二次独立复审，此点如实记录。

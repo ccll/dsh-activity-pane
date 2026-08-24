@@ -427,10 +427,7 @@ const CSS = `
   min-width: 0;
 }
 [data-dsh-activity-pane] .dap-trace:empty { display: none; }
-/* 指令槽位（R-01-018）：与用户消息行同款排版，左对齐卡片左缘、无缩进。 */
-[data-dsh-activity-pane] .dap-slot {
-  display: flex; align-items: center; column-gap: 7px;
-  min-width: 0; padding: 1px 14px 4px 0;   /* 左缘贴卡片无缩进；右侧留白与其他行一致 */
+/* 指令槽位（R-01-018）：与用户消息行同款排版，左对齐卡片左缘、无缩进；\n *  底部 padding 2px + .dap-trace 顶部 margin 1px = 3px，与时间线行间 gap 一致。 */\n[data-dsh-activity-pane] .dap-slot {\n  display: flex; align-items: center; column-gap: 7px;\n  min-width: 0; padding: 1px 14px 2px 0;   /* 左缘贴卡片无缩进；底部空隙与行间一致 */
   color: #c7ced9; font-size: 10px; line-height: 14px;
 }
 [data-dsh-activity-pane] .dap-slot[hidden] { display: none; }

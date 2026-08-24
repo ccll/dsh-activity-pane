@@ -427,8 +427,19 @@ const CSS = `
   min-width: 0;
 }
 [data-dsh-activity-pane] .dap-trace:empty { display: none; }
-/* 指令槽位（R-01-018）：与用户消息行同款排版，左对齐卡片左缘、无缩进；\n *  底部 padding 2px + .dap-trace 顶部 margin 1px = 3px，与时间线行间 gap 一致。 */\n[data-dsh-activity-pane] .dap-slot {\n  display: flex; align-items: center; column-gap: 7px;\n  min-width: 0; padding: 1px 14px 2px 0;   /* 左缘贴卡片无缩进；底部空隙与行间一致 */
+/* 指令槽位（R-01-018）：与用户消息行同款排版，左对齐卡片左缘、无缩进；
+ *  底部 padding 2px + .dap-trace 顶部 margin 1px = 3px，与时间线行间 gap 一致。 */
+[data-dsh-activity-pane] .dap-slot {
+  display: flex; align-items: center; column-gap: 7px;
+  min-width: 0; padding: 1px 14px 2px 0;   /* 左缘贴卡片无缩进；底部空隙与行间一致 */
   color: #c7ced9; font-size: 10px; line-height: 14px;
+}
+/* 用户指令消息虚线框（R-01-018 验收）：槽位与时间线内用户行同款；
+ *  outline 不占布局，行间空隙保持 3px 一致。 */
+[data-dsh-activity-pane] .dap-slot,
+[data-dsh-activity-pane] .dap-trace-item[data-icon="user"] {
+  outline: 1px dashed rgba(126, 147, 177, .5);
+  outline-offset: -1px;
 }
 [data-dsh-activity-pane] .dap-slot[hidden] { display: none; }
 [data-dsh-activity-pane] .dap-slot-icon { width: 12px; height: 12px; flex: none; display: inline-flex; }
@@ -714,6 +725,10 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-separator {
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item::after {
   background: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.12));
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-slot,
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item[data-icon="user"] {
+  outline-color: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.22));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-track {
   background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.08));

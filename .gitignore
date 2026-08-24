@@ -1,1 +1,4 @@
 node_modules/
+.chrome-debug*/
+.staging/
+.dsh_better_edit/

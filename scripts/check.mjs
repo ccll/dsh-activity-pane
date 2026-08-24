@@ -1368,6 +1368,7 @@ assert.ok(
 // ---- R-01-009/AC-02、R-01-009/AC-05、R-01-012/AC-01..04、R-01-013/AC-01..06 ----
 assert.ok(bundle.includes("conversationTimeline"), "活动卡使用主会话 ChatSnapshot 工作项时间线");
 assert.ok(!bundle.includes("dap-trace-time"), "工作项时间线不渲染行级耗时元素，对齐主会话窗口（R-01-009/AC-07、C-012）");
+assert.ok(!bundle.includes("PROGRESS_THINK_BASE") && !bundle.includes("progressFloor"), "回合进度纯时间驱动，无思考基线/单调下限残留（R-01-009/AC-06、C-014）");
 // R-01-009/AC-10
 assert.ok(bundle.includes("mergeTraceStatus"), "渲染层状态合并经核心纯函数 mergeTraceStatus");
 assert.ok(bundle.includes("api.history"), "冷会话使用 native history 一次性补齐");

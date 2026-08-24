@@ -1881,17 +1881,15 @@ function livenessFromSnapshot(snap) {
 	const streaming = live && blocks.some((b) => b?.kind === "text");
 	const reasoning = live && blocks.some((b) => b?.kind === "reasoning");
 	let startTime = null;
-	let turn = null;
 	const timings = snap?.turnTimings;
 	if (timings instanceof Map) {
-		for (const [key, timing] of timings) {
+		for (const timing of timings.values()) {
 			if (
 				timing &&
 				Number.isFinite(timing.startTime) &&
 				timing.endTime === undefined
 			) {
 				startTime = timing.startTime;
-				turn = key;
 				break;
 			}
 		}
@@ -1902,7 +1900,6 @@ function livenessFromSnapshot(snap) {
 		streaming,
 		reasoning,
 		startTime,
-		turn,
 	};
 }
 

@@ -47,6 +47,7 @@ import {
 	shouldCancelOpenRetry,
 	subagentTitle,
 	summarizeToolArguments,
+	usageSummary,
 	workspaceTitleForSession,
 } from "../src/core.mjs";
 import {
@@ -656,13 +657,38 @@ assert.equal(cleanPreview("x".repeat(100), 88)?.length, 88, "超长摘要在 88 
 
 // ---- R-01-009/AC-05 输出 token 计数与速率 ----
 assert.equal(fmtTokens(847), "847", "千以下原样计数");
-assert.equal(fmtTokens(1200), "1.2k", "千以上缩写");
+assert.equal(fmtTokens(1200), "1.2K", "千级一位小数（大写，镜像原生）");
+assert.equal(fmtTokens(51_700), "51.7K", "万级缩写");
+assert.equal(fmtTokens(517_000), "517K", "缩写值百位以上取整");
+assert.equal(fmtTokens(2_800_000), "2.8M", "百万级转 M（对齐主窗口统计行）");
+assert.equal(fmtTokens(4_260_000), "4.3M", "M 级四舍五入");
 assert.equal(fmtTokens(-1), null, "负数不展示");
 assert.equal(fmtTokens(NaN), null, "非有限数不展示");
 assert.deepEqual(
 	runtimeStats({ outputTokens: 0, rateTokS: 0, elapsedMs: 47_000 }),
 	{ elapsedMs: 47_000, outputTokens: 0, rateTokS: null },
 	"零速率归一为空，token 统计仍可放在进度条下方",
+);
+assert.deepEqual(
+	usageSummary({ uncachedInputTokens: 100, cacheReadTokens: 700, cacheWriteTokens: 200 }),
+	{ inputTokens: 1_000, cacheHitPct: 70 },
+	"计费输入=未缓存+读+写，命中率=读÷计费输入四舍五入（R-01-009/AC-05）",
+);
+assert.deepEqual(
+	usageSummary({ uncachedInputTokens: 50 }),
+	{ inputTokens: 50, cacheHitPct: null },
+	"无缓存读桶时命中率未知不展示",
+);
+assert.deepEqual(
+	usageSummary({ uncachedInputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 }),
+	{ inputTokens: 10, cacheHitPct: 0 },
+	"零命中显示 0% 而非隐藏",
+);
+assert.deepEqual(usageSummary({}), { inputTokens: null, cacheHitPct: null }, "空 usage 归一为空");
+assert.deepEqual(
+	usageSummary({ uncachedInputTokens: -1, cacheReadTokens: Number.NaN }),
+	{ inputTokens: null, cacheHitPct: null },
+	"非法桶不计入，全非法归一为空",
 );
 
 // ---- R-01-009/AC-06 回合进度：y = t/(t+120)（t 为本回合已耗秒数，C-014）----
@@ -1012,7 +1038,11 @@ assert.notEqual(
 	cardSignature(entries),
 	"token 统计变化签名必变",
 );
-
+assert.notEqual(
+	cardSignature([{ ...entries[0], cacheHitPct: 88 }, ...entries.slice(1)]),
+	cardSignature(entries),
+	"缓存命中率变化签名必变",
+);
 // ---- R-01-010/AC-01 非活动且 24h 内→最近历史区 ----
 const NOW = 2_000_000_000_000; // 固定时钟便于确定性断言
 // 注意：completed:true 的主会话是"待打开"的活动卡（在活动区），不属历史区；
@@ -1432,6 +1462,21 @@ assert.ok(bundle.includes("mergeTraceStatus"), "渲染层状态合并经核心�
 assert.ok(bundle.includes("api.history"), "冷会话使用 native history 一次性补齐");
 assert.ok(bundle.includes("api.models"), "模型/reasoning 使用 native models 数据");
 assert.ok(bundle.includes("dap-token-stats"), "token 统计 DOM 位于进度条之后");
+assert.ok(
+	bundle.includes('makeEl("span", "dap-token-main")') && bundle.includes('makeEl("span", "dap-token-time")'),
+	"统计行双段结构：左列文本 + 右置时长（R-01-009/AC-05）",
+);
+assert.ok(bundle.includes("`输入 ${fmtTokens("), "统计行含输入/输出中文短标签（R-01-009/AC-05）");
+assert.ok(
+	bundle.indexOf("parts.push(`${Math.round(entry.rateTokS)} tok/s`") <
+		bundle.indexOf("parts.push(`缓存 ${entry.cacheHitPct}%`)") &&
+		bundle.indexOf("parts.push(`缓存 ${entry.cacheHitPct}%`)") <
+			bundle.indexOf("parts.push(`输入 ${fmtTokens(entry.inputTokens) ?? entry.inputTokens}`)") &&
+		bundle.indexOf("parts.push(`输入 ${fmtTokens(entry.inputTokens) ?? entry.inputTokens}`)") <
+			bundle.indexOf("parts.push(`输出 ${fmtTokens(entry.outputTokens) ?? entry.outputTokens}`)"),
+	"左列顺序对齐主窗口：tok/s、缓存命中、输入、输出（R-01-009/AC-05）",
+);
+assert.ok(!bundle.includes("≈"), "速率不再携带约等于符号（R-01-009/AC-05）");
 assert.ok(bundle.includes("dap-history-line"), "历史卡包含用户/agent 两条消息预览行");
 // R-01-003/AC-04
 assert.ok(bundle.includes("parentId: m.isSub ? String(parentId) : null"), "活动卡条目保留直属母会话 id");
@@ -1570,6 +1615,10 @@ assert.ok(!bundle.includes("events.mux"), "不常驻全局 mux，当前会话使
 assert.ok(
 	bundle.indexOf('makeEl("div", "dap-track")') < bundle.indexOf('makeEl("div", "dap-token-stats")'),
 	"token 统计骨架位于进度条骨架之后",
+);
+assert.ok(
+	bundle.indexOf('statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"))') > -1,
+	"统计行先左列后时长，时长段恒在行尾（R-01-009/AC-05）",
 );
 assert.ok(!bundle.includes("思考中"), "活动卡 bundle 不再渲染独立思考中动作行");
 assert.ok(!bundle.includes("dap-status"), "活动卡 bundle 不再保留独立状态行骨架");

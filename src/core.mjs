@@ -552,6 +552,19 @@ export function runtimeStats({ elapsedMs = null, outputTokens = null, rateTokS =
 		rateTokS: Number.isFinite(rateTokS) && rateTokS > 0 ? rateTokS : null,
 	};
 }
+
+/** 计费输入与缓存命中率：口径对齐原生统计行——计费输入=未缓存输入+缓存读+缓存写，
+ *  命中率=缓存读÷计费输入（百分比四舍五入）；全空归 null，有输入无读桶时命中率未知。 */
+export function usageSummary({ uncachedInputTokens = null, cacheReadTokens = null, cacheWriteTokens = null } = {}) {
+	const bucket = (v) => (Number.isFinite(v) && v >= 0 ? v : null);
+	const uncached = bucket(uncachedInputTokens);
+	const read = bucket(cacheReadTokens);
+	const write = bucket(cacheWriteTokens);
+	if (uncached === null && read === null && write === null) return { inputTokens: null, cacheHitPct: null };
+	const inputTokens = (uncached ?? 0) + (read ?? 0) + (write ?? 0);
+	const cacheHitPct = read !== null && inputTokens > 0 ? Math.round((read / inputTokens) * 100) : null;
+	return { inputTokens, cacheHitPct };
+}
 /** 只有当前会话卡片允许读取主窗口 DOM；其它卡片必须使用自身快照，避免跨会话串线。 */
 export function nativePresentationSessionId(entry) {
 	return entry?.isCurrent === true && entry?.id !== undefined && entry?.id !== null ? String(entry.id) : null;
@@ -895,7 +908,7 @@ export function cardSignature(entries) {
 			entry.loadingModel ?? null,
 			entry.loadingTimeline ?? null,
 			entry.loadingPreviews ?? null,
-			entry.tokenStats ?? [entry.outputTokens ?? null, entry.rateTokS ?? null, entry.elapsedMs ?? null],
+			entry.tokenStats ?? [entry.outputTokens ?? null, entry.inputTokens ?? null, entry.cacheHitPct ?? null, entry.rateTokS ?? null, entry.elapsedMs ?? null],
 		]),
 	);
 }
@@ -1067,9 +1080,14 @@ export function fmtElapsedMs(ms) {
 }
 
 /** token 计数的人性化短格式，例如 "847"、"1.2k"；非有限非负时返回 null。 */
+/** token 计数紧凑缩写，镜像原生统计行 formatTokens：847 / 12.2K / 517K / 2.8M——
+ *  千以下原样；K/M 档缩写值百位以上取整、不足百位保留一位小数；非法输入返回 null 不展示。 */
 export function fmtTokens(n) {
 	if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return null;
-	return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n));
+	const scaled = (v) => (v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10));
+	if (n < 1e3) return String(n);
+	if (n < 1e6) return `${scaled(n / 1e3)}K`;
+	return `${scaled(n / 1e6)}M`;
 }
 
 /**

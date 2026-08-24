@@ -558,6 +558,19 @@ function runtimeStats({ elapsedMs = null, outputTokens = null, rateTokS = null }
 		rateTokS: Number.isFinite(rateTokS) && rateTokS > 0 ? rateTokS : null,
 	};
 }
+
+/** 计费输入与缓存命中率：口径对齐原生统计行——计费输入=未缓存输入+缓存读+缓存写，
+ *  命中率=缓存读÷计费输入（百分比四舍五入）；全空归 null，有输入无读桶时命中率未知。 */
+function usageSummary({ uncachedInputTokens = null, cacheReadTokens = null, cacheWriteTokens = null } = {}) {
+	const bucket = (v) => (Number.isFinite(v) && v >= 0 ? v : null);
+	const uncached = bucket(uncachedInputTokens);
+	const read = bucket(cacheReadTokens);
+	const write = bucket(cacheWriteTokens);
+	if (uncached === null && read === null && write === null) return { inputTokens: null, cacheHitPct: null };
+	const inputTokens = (uncached ?? 0) + (read ?? 0) + (write ?? 0);
+	const cacheHitPct = read !== null && inputTokens > 0 ? Math.round((read / inputTokens) * 100) : null;
+	return { inputTokens, cacheHitPct };
+}
 /** 只有当前会话卡片允许读取主窗口 DOM；其它卡片必须使用自身快照，避免跨会话串线。 */
 function nativePresentationSessionId(entry) {
 	return entry?.isCurrent === true && entry?.id !== undefined && entry?.id !== null ? String(entry.id) : null;
@@ -901,7 +914,7 @@ function cardSignature(entries) {
 			entry.loadingModel ?? null,
 			entry.loadingTimeline ?? null,
 			entry.loadingPreviews ?? null,
-			entry.tokenStats ?? [entry.outputTokens ?? null, entry.rateTokS ?? null, entry.elapsedMs ?? null],
+			entry.tokenStats ?? [entry.outputTokens ?? null, entry.inputTokens ?? null, entry.cacheHitPct ?? null, entry.rateTokS ?? null, entry.elapsedMs ?? null],
 		]),
 	);
 }
@@ -1073,9 +1086,14 @@ function fmtElapsedMs(ms) {
 }
 
 /** token 计数的人性化短格式，例如 "847"、"1.2k"；非有限非负时返回 null。 */
+/** token 计数紧凑缩写，镜像原生统计行 formatTokens：847 / 12.2K / 517K / 2.8M——
+ *  千以下原样；K/M 档缩写值百位以上取整、不足百位保留一位小数；非法输入返回 null 不展示。 */
 function fmtTokens(n) {
 	if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return null;
-	return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n));
+	const scaled = (v) => (v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10));
+	if (n < 1e3) return String(n);
+	if (n < 1e6) return `${scaled(n / 1e3)}K`;
+	return `${scaled(n / 1e6)}M`;
 }
 
 /**
@@ -1574,10 +1592,16 @@ const CSS = `
   color: #9fe8c4; font-variant-numeric: tabular-nums;
 }
 [data-dsh-activity-pane] .dap-token-stats {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  min-width: 0;
   font-size: 10px; line-height: 14px; color: #8f9aaa; font-variant-numeric: tabular-nums;
 }
-[data-dsh-activity-pane] .dap-token-stats:empty { display: none; }
+/* 左列超长时省略号截断；时长 flex:none 恒贴最右（R-01-009/AC-05）。 */
+[data-dsh-activity-pane] .dap-token-main {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+[data-dsh-activity-pane] .dap-token-time { flex: none; }
+[data-dsh-activity-pane] .dap-token-stats[hidden] { display: none; }
 [data-dsh-activity-pane] .dap-history-line {
   display: flex; align-items: center; gap: 4px; height: 15px;
   min-width: 0; overflow: hidden; white-space: nowrap;
@@ -2451,7 +2475,11 @@ function apply(ctx) {
 		row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-pct"));
 		const track = makeEl("div", "dap-track");
 		track.append(makeEl("div", "dap-fill"));
-		return [head, row, makeEl("div", "dap-trace"), track, makeEl("div", "dap-token-stats")];
+		// 统计行双段结构：左列 token/速率/命中率（超长省略号截断），时长固定最右（R-01-009/AC-05）。
+		const statsRow = makeEl("div", "dap-token-stats");
+		statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"));
+		statsRow.hidden = true;
+		return [head, row, makeEl("div", "dap-trace"), track, statsRow];
 	}
 
 	/** 会话区 DOM 行索引：每次渲染构建一次（renderStamp 变化时），供当次全部
@@ -2927,10 +2955,24 @@ function apply(ctx) {
 			const stats = el.querySelector(".dap-token-stats");
 			if (stats !== null) {
 				const parts = [];
-				if (Number.isFinite(entry.outputTokens) && entry.outputTokens >= 0) parts.push(`${fmtTokens(entry.outputTokens) ?? entry.outputTokens} tok`);
-				if (Number.isFinite(entry.rateTokS) && entry.rateTokS > 0) parts.push(`≈${Math.round(entry.rateTokS)} tok/s`);
-				if (Number.isFinite(entry.elapsedMs) && entry.elapsedMs >= 0) parts.push(fmtElapsedMs(entry.elapsedMs));
-				stats.textContent = parts.join(" · ");
+				if (Number.isFinite(entry.rateTokS) && entry.rateTokS > 0) parts.push(`${Math.round(entry.rateTokS)} tok/s`);
+				if (Number.isFinite(entry.cacheHitPct)) parts.push(`缓存 ${entry.cacheHitPct}%`);
+				if (Number.isFinite(entry.inputTokens) && entry.inputTokens >= 0) parts.push(`输入 ${fmtTokens(entry.inputTokens) ?? entry.inputTokens}`);
+				if (Number.isFinite(entry.outputTokens) && entry.outputTokens >= 0) parts.push(`输出 ${fmtTokens(entry.outputTokens) ?? entry.outputTokens}`);
+				const mainText = parts.join(" · ");
+				const timeText = Number.isFinite(entry.elapsedMs) && entry.elapsedMs >= 0 ? fmtElapsedMs(entry.elapsedMs) : "";
+				let mainTextEl = stats.querySelector(".dap-token-main");
+				let timeEl = stats.querySelector(".dap-token-time");
+				if (mainTextEl === null || timeEl === null) {
+					// 热装残留的旧版单文本段骨架：就地重建双段结构再写值。
+					mainTextEl = makeEl("span", "dap-token-main");
+					timeEl = makeEl("span", "dap-token-time");
+					stats.replaceChildren(mainTextEl, timeEl);
+				}
+				if (mainTextEl.textContent !== mainText) mainTextEl.textContent = mainText;
+				if (timeEl.textContent !== timeText) timeEl.textContent = timeText;
+				const statsHidden = mainText === "" && timeText === "";
+				if (stats.hidden !== statsHidden) stats.hidden = statsHidden;
 			}
 			return;
 		}
@@ -3438,6 +3480,7 @@ function apply(ctx) {
 						? stats.decodeTokens / (stats.decodeMs / 1000)
 						: null;
 				Object.assign(entry, runtimeStats({ elapsedMs, outputTokens, rateTokS }));
+				Object.assign(entry, usageSummary(projection?.tokenUsage ?? {}));
 				// 流式阶段标记驱动 data-streaming（进度条条纹动画）；工具调用期间视作
 				// 非流式，与 answer-pet 的 phase==='stream' 判定一致。
 				entry.streaming = !live?.runningTool && live?.streaming === true;

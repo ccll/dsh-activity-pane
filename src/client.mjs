@@ -387,10 +387,16 @@ const CSS = `
   color: #9fe8c4; font-variant-numeric: tabular-nums;
 }
 [data-dsh-activity-pane] .dap-token-stats {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  min-width: 0;
   font-size: 10px; line-height: 14px; color: #8f9aaa; font-variant-numeric: tabular-nums;
 }
-[data-dsh-activity-pane] .dap-token-stats:empty { display: none; }
+/* 左列超长时省略号截断；时长 flex:none 恒贴最右（R-01-009/AC-05）。 */
+[data-dsh-activity-pane] .dap-token-main {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+[data-dsh-activity-pane] .dap-token-time { flex: none; }
+[data-dsh-activity-pane] .dap-token-stats[hidden] { display: none; }
 [data-dsh-activity-pane] .dap-history-line {
   display: flex; align-items: center; gap: 4px; height: 15px;
   min-width: 0; overflow: hidden; white-space: nowrap;
@@ -1264,7 +1270,11 @@ function apply(ctx) {
 		row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-pct"));
 		const track = makeEl("div", "dap-track");
 		track.append(makeEl("div", "dap-fill"));
-		return [head, row, makeEl("div", "dap-trace"), track, makeEl("div", "dap-token-stats")];
+		// 统计行双段结构：左列 token/速率/命中率（超长省略号截断），时长固定最右（R-01-009/AC-05）。
+		const statsRow = makeEl("div", "dap-token-stats");
+		statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"));
+		statsRow.hidden = true;
+		return [head, row, makeEl("div", "dap-trace"), track, statsRow];
 	}
 
 	/** 会话区 DOM 行索引：每次渲染构建一次（renderStamp 变化时），供当次全部
@@ -1740,10 +1750,24 @@ function apply(ctx) {
 			const stats = el.querySelector(".dap-token-stats");
 			if (stats !== null) {
 				const parts = [];
-				if (Number.isFinite(entry.outputTokens) && entry.outputTokens >= 0) parts.push(`${fmtTokens(entry.outputTokens) ?? entry.outputTokens} tok`);
-				if (Number.isFinite(entry.rateTokS) && entry.rateTokS > 0) parts.push(`≈${Math.round(entry.rateTokS)} tok/s`);
-				if (Number.isFinite(entry.elapsedMs) && entry.elapsedMs >= 0) parts.push(fmtElapsedMs(entry.elapsedMs));
-				stats.textContent = parts.join(" · ");
+				if (Number.isFinite(entry.rateTokS) && entry.rateTokS > 0) parts.push(`${Math.round(entry.rateTokS)} tok/s`);
+				if (Number.isFinite(entry.cacheHitPct)) parts.push(`缓存 ${entry.cacheHitPct}%`);
+				if (Number.isFinite(entry.inputTokens) && entry.inputTokens >= 0) parts.push(`输入 ${fmtTokens(entry.inputTokens) ?? entry.inputTokens}`);
+				if (Number.isFinite(entry.outputTokens) && entry.outputTokens >= 0) parts.push(`输出 ${fmtTokens(entry.outputTokens) ?? entry.outputTokens}`);
+				const mainText = parts.join(" · ");
+				const timeText = Number.isFinite(entry.elapsedMs) && entry.elapsedMs >= 0 ? fmtElapsedMs(entry.elapsedMs) : "";
+				let mainTextEl = stats.querySelector(".dap-token-main");
+				let timeEl = stats.querySelector(".dap-token-time");
+				if (mainTextEl === null || timeEl === null) {
+					// 热装残留的旧版单文本段骨架：就地重建双段结构再写值。
+					mainTextEl = makeEl("span", "dap-token-main");
+					timeEl = makeEl("span", "dap-token-time");
+					stats.replaceChildren(mainTextEl, timeEl);
+				}
+				if (mainTextEl.textContent !== mainText) mainTextEl.textContent = mainText;
+				if (timeEl.textContent !== timeText) timeEl.textContent = timeText;
+				const statsHidden = mainText === "" && timeText === "";
+				if (stats.hidden !== statsHidden) stats.hidden = statsHidden;
 			}
 			return;
 		}
@@ -2251,6 +2275,7 @@ function apply(ctx) {
 						? stats.decodeTokens / (stats.decodeMs / 1000)
 						: null;
 				Object.assign(entry, runtimeStats({ elapsedMs, outputTokens, rateTokS }));
+				Object.assign(entry, usageSummary(projection?.tokenUsage ?? {}));
 				// 流式阶段标记驱动 data-streaming（进度条条纹动画）；工具调用期间视作
 				// 非流式，与 answer-pet 的 phase==='stream' 判定一致。
 				entry.streaming = !live?.runningTool && live?.streaming === true;

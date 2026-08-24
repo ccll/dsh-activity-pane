@@ -350,15 +350,17 @@ function timelineItemFromChatNode(node, cwd = "") {
 	return null;
 }
 
-/** 从主会话 ChatSnapshot 的真实 order 提取最近工作项，保留当前 live 项。 */
-export function conversationTimeline(snapshot, limit = 4, cwd = "") {
+/** dsh-auto-collapse 生效样式标记 id：其 client 注入的 <style> 元素以 data-dshcf-state 表达运行态，
+ *  是该插件唯一公开的生效信号；本插件只做只读探测（R-01-017、C-016）。 */
+export const AUTO_COLLAPSE_STYLE_ID = "dshcf-style";
+
+/** 尾部反向收集原始工作项（不含 live 合并），取够 want 个可转换项或耗尽 order 即停。 */
+function rawTailItems(snapshot, want, cwd = "") {
 	const chat = snapshot?.chat;
 	const order = Array.isArray(chat?.order) ? chat.order : [];
 	const nodes = chat?.nodes;
-	const max = Math.max(0, limit);
+	const max = Math.max(0, want);
 	if (max === 0) return [];
-	// 尾部反向收集：工作项只取尾部 max 个，长会话不再全序扫描；
-	// live 合并只作用于尾部子集（partial/runningCalls 的对应已定案项必在最近窗口内）。
 	const items = [];
 	for (let i = order.length - 1; i >= 0 && items.length < max; i -= 1) {
 		let node;
@@ -370,6 +372,12 @@ export function conversationTimeline(snapshot, limit = 4, cwd = "") {
 		const item = timelineItemFromChatNode(node, cwd);
 		if (item) items.unshift(item);
 	}
+	return items;
+}
+
+/** live 合并：partial 流式项与 runningCalls 摘除匹配项后并入尾部窗口；
+ *  max 仅约束返回长度（折叠路径传大值以保留全部分组成员）。 */
+function mergeLiveItems(items, snapshot, max, cwd = "") {
 	const liveItems = [];
 	const partialText = assistantBlockText(snapshot?.partial?.blocks, "text");
 	const partialReasoning = assistantBlockText(snapshot?.partial?.blocks, "reasoning");
@@ -398,14 +406,15 @@ export function conversationTimeline(snapshot, limit = 4, cwd = "") {
 		if (existingIndex >= 0) liveItems.push({ ...items.splice(existingIndex, 1)[0], ...item });
 		else liveItems.push(item);
 	}
-	const timeline = liveItems.length > 0
+	return liveItems.length > 0
 		? items.slice(-Math.max(0, max - liveItems.length)).concat(liveItems).slice(-max)
 		: items;
-	// R-01-009/AC-10：会话运行中（无 pending）、无 live 项且时间线不存在其他执行中项时，
-	// 尾部已定案非用户项克隆提升为 running，作为 agent 工作中的持续标志；
-	// error/stopped 与用户输入项不提升。
+}
+
+/** R-01-009/AC-10：会话运行中（无 pending）、无执行中项且尾部为已定案非用户项时，
+ *  克隆提升为 running 作为 agent 工作中的持续标志；error/stopped 与用户输入项不提升。 */
+function promoteRunningTail(timeline, snapshot) {
 	if (
-		liveItems.length === 0 &&
 		snapshot?.running === true &&
 		!(Array.isArray(snapshot?.pending) && snapshot.pending.length > 0) &&
 		!timeline.some((item) => item.status === "running")
@@ -416,6 +425,167 @@ export function conversationTimeline(snapshot, limit = 4, cwd = "") {
 		}
 	}
 	return timeline;
+}
+
+/** 从主会话 ChatSnapshot 的真实 order 提取最近工作项，保留当前 live 项。 */
+export function conversationTimeline(snapshot, limit = 4, cwd = "") {
+	const max = Math.max(0, limit);
+	if (max === 0) return [];
+	// 尾部反向收集：工作项只取尾部 max 个，长会话不再全序扫描；
+	// live 合并只作用于尾部子集（partial/runningCalls 的对应已定案项必在最近窗口内）。
+	return promoteRunningTail(mergeLiveItems(rawTailItems(snapshot, max, cwd), snapshot, max, cwd), snapshot);
+}
+
+/** 折叠分组硬边界：用户输入项与含正文输出的 assistant 项（R-01-017/AC-02）。 */
+function isFoldBoundary(item) {
+	if (item.kind === "user") return true;
+	return item.kind === "assistant" && typeof item.text === "string" && item.text.trim() !== "";
+}
+
+/** 分组成员归一：tool/context 直接映射，assistant 取其 reasoning（detail）为思考成员。 */
+function foldMemberOf(item) {
+	if (item.kind === "context") {
+		return { cat: "context", label: "上下文注入", summary: "", text: "", icon: "context", status: item.status };
+	}
+	if (item.kind === "tool") {
+		return {
+			cat: "tool",
+			label: TOOL_LABELS[item.toolName] ?? item.label ?? "Tool",
+			summary: typeof item.summary === "string" ? item.summary : "",
+			text: "",
+			icon: typeof item.icon === "string" ? item.icon : undefined,
+			status: item.status,
+		};
+	}
+	return {
+		cat: "think",
+		label: "Think",
+		summary: typeof item.summary === "string" ? item.summary : "",
+		text: typeof item.detail === "string" ? item.detail : "",
+		icon: "assistant",
+		status: item.status,
+	};
+}
+
+/** 组行派生：镜像 dsh-auto-collapse updateChip 标题/状态优先级（vendor 移植，C-016）——
+ *  running tool > running think > 运行了命令/编辑了文件 > 已思考，context 连续段独立成组；
+ *  含思考的完成组组摘要携带推理文本内容（R-01-017/AC-03、AC-04），纯工具完成组回退末位工具摘要。 */
+function buildFoldRow(run) {
+	const members = run.members;
+	const runningTool = run.cat === "work" ? members.find((m) => m.cat === "tool" && m.status === "running") ?? null : null;
+	const runningThink = run.cat === "work" ? members.find((m) => m.cat === "think" && m.status === "running") ?? null : null;
+	const toolMembers = run.cat === "work" ? members.filter((m) => m.cat === "tool") : [];
+	const thinkMembers = run.cat === "work" ? members.filter((m) => m.cat === "think") : [];
+	const tools = [...new Set(toolMembers.map((m) => m.label))];
+	const hasError = members.some((m) => m.status === "error");
+	const hasStopped = members.some((m) => m.status === "stopped");
+	const status =
+		runningTool !== null || runningThink !== null ? "running" : hasError ? "error" : hasStopped ? "stopped" : "done";
+	let label;
+	let kind;
+	let icon;
+	if (run.cat === "context") {
+		label = "上下文注入";
+		kind = "context";
+		icon = "context";
+	} else if (runningTool !== null) {
+		label = "正在运行";
+		kind = "tool";
+		icon = typeof runningTool.icon === "string" ? runningTool.icon : "bash";
+	} else if (runningThink !== null) {
+		label = "正在思考";
+		kind = "assistant";
+		icon = "assistant";
+	} else if (tools.length > 0) {
+		label = tools.some((t) => t === "Edit" || t === "Write") ? "编辑了文件" : "运行了命令";
+		kind = "tool";
+		icon = typeof toolMembers[toolMembers.length - 1].icon === "string" ? toolMembers[toolMembers.length - 1].icon : "other";
+	} else {
+		label = "已思考";
+		kind = "assistant";
+		icon = "assistant";
+	}
+	let summary = runningTool?.summary ?? runningThink?.summary ?? "";
+	if (status !== "running" && run.cat === "work") {
+		if (summary === "") {
+			// AC-04：含思考分组从最后一条思考向前取首个非空推理文本摘录。
+			for (let i = thinkMembers.length - 1; i >= 0 && summary === ""; i -= 1) {
+				summary = cleanPreview(thinkMembers[i].text, 88) ?? "";
+			}
+		}
+		if (summary === "" && toolMembers.length > 0) summary = toolMembers[toolMembers.length - 1].summary;
+	}
+	return {
+		// 组 id 只含首成员键：流式期间成员并入不改变 id，渲染层 DOM 复用与脉冲动画保持连续（评审修正）。
+		id: `fold:${run.cat}:${run.keys[0] ?? ""}`,
+		kind,
+		fold: true,
+		label,
+		text: "",
+		summary,
+		detail: null,
+		status,
+		icon,
+	};
+}
+
+/** 把扁平工作项序列折叠成分组行（R-01-017）：硬边界为用户输入与含正文 assistant 项，
+ *  含正文 assistant 的 reasoning 先并入当前分组再闭组（splitThinkByBody 前置语义）；
+ *  连续 context 独立成组；其余未知项原样透传。最多返回最近 limit 个显示行。 */
+export function foldWorkGroups(items, limit = 4) {
+	const max = Math.max(0, limit);
+	if (max === 0) return [];
+	const rows = [];
+	let run = null;
+	const flush = () => {
+		if (run !== null && run.members.length > 0) rows.push(buildFoldRow(run));
+		run = null;
+	};
+	for (const item of Array.isArray(items) ? items : []) {
+		if (!item || typeof item !== "object") continue;
+		if (isFoldBoundary(item)) {
+			if (item.kind === "assistant" && typeof item.detail === "string" && item.detail.trim() !== "") {
+				if (run === null || run.cat !== "work") {
+					flush();
+					run = { cat: "work", members: [], keys: [] };
+				}
+				run.members.push(foldMemberOf(item));
+				run.keys.push(String(item.id ?? ""));
+			}
+			flush();
+			rows.push({ ...item });
+			continue;
+		}
+		const cat = item.kind === "context" ? "context" : item.kind === "tool" || item.kind === "assistant" ? "work" : null;
+		if (cat === null) {
+			flush();
+			rows.push({ ...item });
+			continue;
+		}
+		if (run === null || run.cat !== cat) {
+			flush();
+			run = { cat, members: [], keys: [] };
+		}
+		run.members.push(foldMemberOf(item));
+		run.keys.push(String(item.id ?? ""));
+	}
+	flush();
+	return rows.slice(-max);
+}
+
+/** 折叠分组时间线（R-01-017）：检测生效时渲染层以此替代 conversationTimeline。
+ *  指数扩窗收集尾部原始项（分组数不足 limit 时 ×3 → ×8 → 全序）+ live 合并 + 分组 +
+ *  尾部提升，长会话典型情况不触碰全序扫描。 */
+export function foldedConversationTimeline(snapshot, limit = 4, cwd = "") {
+	const max = Math.max(0, limit);
+	if (max === 0) return [];
+	let groups = [];
+	for (const want of [max * 3, max * 8, Number.MAX_SAFE_INTEGER]) {
+		const items = rawTailItems(snapshot, want, cwd);
+		groups = foldWorkGroups(mergeLiveItems(items, snapshot, Number.MAX_SAFE_INTEGER, cwd), max);
+		if (groups.length >= max || want === Number.MAX_SAFE_INTEGER) break;
+	}
+	return promoteRunningTail(groups, snapshot);
 }
 
 /** 工作项行状态合并：核心派生的 running 优先于原生行 data-state（提升尾项与 live 项

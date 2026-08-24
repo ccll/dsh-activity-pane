@@ -22,6 +22,8 @@ import {
 	detailLoadPlan,
 	conversationTimeline,
 	conversationTimelineFromHistory,
+	foldWorkGroups,
+	foldedConversationTimeline,
 	escapeCssString,
 	firstPhysicalLine,
 	fmtElapsedMs,
@@ -607,6 +609,113 @@ assert.deepEqual(
 	"冷会话 history 按原始事件顺序降级",
 );
 
+// ---- R-01-017 折叠时间线（检测 dsh-auto-collapse 生效时分组呈现）----
+// R-01-017/AC-02 硬边界：用户输入与正文打断分组；工具+思考混排并入同组
+const foldNodes = new Map([
+	["u1", { key: "u1", kind: "user", anchorSeq: 1, data: { content: [{ type: "text", text: "查一下" }] } }],
+	["g1", { key: "g1", kind: "tool-call", anchorSeq: 2, data: { root: { kind: "tool-result", callId: "g1", call: { name: "grep", argsRaw: '{"pattern":"foo"}' }, isError: false } } }],
+	["th1", { key: "th1", kind: "assistant-step", anchorSeq: 3, data: { status: "settled", turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "思考一\n思考二" }] } }],
+	["b1", { key: "b1", kind: "assistant-step", anchorSeq: 4, data: { status: "settled", turn: 1, step: 1, blocks: [{ kind: "text", text: "结论正文" }] } }],
+	["b2", { key: "b2", kind: "tool-call", anchorSeq: 5, data: { root: { kind: "tool-result", callId: "b2", call: { name: "bash", argsRaw: '{"command":"ls -la"}' }, isError: false } } }],
+]);
+const foldSnapshot = { chat: { order: ["u1", "g1", "th1", "b1", "b2"], nodes: { get: (key) => foldNodes.get(key) } } };
+const folded = foldedConversationTimeline(foldSnapshot);
+assert.equal(folded.length, 4, "用户输入、混排组、正文、尾部工具各占一行（R-01-017/AC-02）");
+assert.equal(folded[0].kind, "user", "用户输入项原样保留");
+assert.equal(folded[1].fold, true, "混排工作项合并为分组行");
+assert.equal(folded[1].label, "运行了命令", "完成态工具+思考组标题取工具去向（R-01-017/AC-03）");
+assert.match(folded[1].summary, /^思考一/, "组摘要携带推理文本内容（R-01-017/AC-04）");
+assert.equal(folded[2].kind, "assistant", "正文为独立行（硬边界不并入分组）");
+assert.equal(folded[2].text, "结论正文", "正文内容保留");
+assert.equal(folded[3].fold, true, "正文后的工具独立成组，不跨正文合并（R-01-017/AC-02）");
+// R-01-017/AC-02 reasoning+正文同一节点：前置推理并入前组、正文为硬边界（splitThinkByBody 前置语义）
+const splitNodes = new Map([
+	["k", { key: "k", kind: "assistant-step", anchorSeq: 1, data: { status: "settled", turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "推理前置" }, { kind: "text", text: "正文输出" }] } }],
+	["q", { key: "q", kind: "tool-call", anchorSeq: 2, data: { root: { kind: "tool-result", callId: "q", call: { name: "grep", argsRaw: "{}" } } } }],
+]);
+const split = foldWorkGroups(
+	[{ id: "k", kind: "assistant", label: "Think", text: "", summary: "推理前置", detail: "推理前置", icon: "assistant", status: "done" },
+	 { id: "b", kind: "assistant", label: "Assistant", text: "正文输出", summary: "正文输出", icon: "assistant", status: "done" },
+	 { id: "q", kind: "tool", toolName: "grep", label: "Grep", summary: "a", icon: "search", status: "done" }],
+	4);
+assert.equal(split[0].fold, true, "reasoning 先行独立成思考组");
+assert.equal(split[0].label, "已思考", "纯思考完成组标题为已思考（R-01-017/AC-03）");
+assert.equal(split[0].summary, "推理前置", "思考组摘要为该推理文本（R-01-017/AC-04）");
+assert.equal(split[1].text, "正文输出", "正文为独立行");
+assert.equal(split[2].fold, true, "正文后的工具独立成组");
+// R-01-017/AC-03 运行中工具/思考标题与摘要
+const runTool = foldedConversationTimeline({
+	chat: { order: ["r1", "r2"], nodes: { get: (key) => new Map([
+		["r1", { key: "r1", kind: "tool-call", data: { root: { kind: "tool-call", callId: "r1", call: { name: "bash", argsRaw: '{"command":"npm run build"}' } } } }],
+		["r2", { key: "r2", kind: "tool-call", data: { root: { kind: "tool-call", callId: "r2", call: { name: "grep", argsRaw: '{"pattern":"x"}' } } } }],
+	]).get(key) } },
+});
+assert.equal(runTool[0].label, "正在运行", "运行中工具组标题为正在运行");
+assert.equal(runTool[0].status, "running", "运行中状态聚合");
+assert.equal(runTool[0].summary, "npm run build", "运行中组摘要取执行中成员");
+// R-01-017/AC-03 双运行成员的优先序：running tool 标题/摘要优先于 running think（评审对齐 vendor updateChip）。
+const bothRunning = foldedConversationTimeline({
+	chat: { order: ["br1", "br2"], nodes: { get: (key) => new Map([
+		["br1", { key: "br1", kind: "tool-call", data: { root: { kind: "tool-call", callId: "br1", call: { name: "bash", argsRaw: '{"command":"make"}' } } } }],
+		["br2", { key: "br2", kind: "assistant-step", data: { status: "running", turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "思考中\n最新想法" }] } }],
+	]).get(key) } },
+});
+assert.equal(bothRunning[0].label, "正在运行", "tool 与 think 同时运行时标题取正在运行");
+assert.equal(bothRunning[0].summary, "make", "同时运行时的组摘要取执行中工具摘要（AC-04 限定于无执行中工具的分组）");
+const runThink = foldedConversationTimeline({
+	chat: { order: ["rt"], nodes: { get: () => ({ kind: "assistant-step", data: { status: "running", turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "第一行\n最新行" }] } }) } },
+});
+assert.equal(runThink[0].label, "正在思考", "运行中思考组标题为正在思考（R-01-017/AC-03）");
+assert.equal(runThink[0].summary, "最新行", "流式思考摘要取最新行（R-01-017/AC-04）");
+// R-01-017/AC-03 编辑了文件 / 上下文注入 标题判定
+const editGroup = foldedConversationTimeline({
+	chat: { order: ["e1"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "e1", call: { name: "edit", argsRaw: "{}" } } } }) } },
+});
+assert.equal(editGroup[0].label, "编辑了文件", "含 Edit/Write 成员显示编辑了文件");
+const ctxGroup = foldedConversationTimeline({
+	chat: { order: ["c1", "c2"], nodes: { get: (key) => new Map([
+		["c1", { key: "c1", kind: "context", data: { content: [{ type: "text", text: "注入一" }], provenance: { role: "inject", label: "文件 /a.txt" } } }],
+		["c2", { key: "c2", kind: "context", data: { content: [{ type: "text", text: "注入二" }], provenance: { role: "inject", label: "文件 /b.txt" } } }],
+	]).get(key) } },
+});
+assert.equal(ctxGroup.length, 1, "连续 context 合并为一组（R-01-017/AC-02）");
+assert.equal(ctxGroup[0].label, "上下文注入", "全 context 组标题为上下文注入（R-01-017/AC-03）");
+assert.equal(ctxGroup[0].kind, "context", "context 组行 kind 复用 context 语义");
+// R-01-017/AC-05 状态聚合：error > stopped > done，running 优先
+const errGroup = foldedConversationTimeline({
+	chat: { order: ["x1", "x2"], nodes: { get: (key) => new Map([
+		["x1", { key: "x1", kind: "tool-call", data: { root: { kind: "tool-result", callId: "x1", call: { name: "edit", argsRaw: "{}" }, isError: true } } }],
+		["x2", { key: "x2", kind: "tool-call", data: { root: { kind: "tool-result", callId: "x2", call: { name: "bash", argsRaw: "{}" }, isError: false } } }],
+	]).get(key) } },
+});
+assert.equal(errGroup[0].status, "error", "任一成员错误聚合为 error");
+assert.equal(errGroup[0].label, "编辑了文件", "错误组标题仍按成员构成判定");
+const stopGroup = foldedConversationTimeline({
+	chat: { order: ["s1"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "s1", call: { name: "bash", argsRaw: "{}" }, error: { code: "interrupted" } } } }) } },
+});
+assert.equal(stopGroup[0].status, "stopped", "中断成员聚合为 stopped");
+const promoteFold = foldedConversationTimeline({
+	chat: { order: ["p1"], nodes: { get: () => ({ key: "p1", kind: "tool-call", data: { root: { kind: "tool-result", callId: "p1", call: { name: "bash", argsRaw: '{"command":"x"}' } } } }) } },
+	running: true,
+});
+assert.equal(promoteFold[0].status, "running", "R-01-009/AC-10 尾部提升作用于折叠分组行（R-01-017/AC-05）");
+// R-01-017/AC-06 limit 截断与顺序
+const manyFlat = [
+	{ id: "u1", kind: "user", icon: "user", text: "hi", detail: null, status: "done" },
+	{ id: "t1", kind: "tool", toolName: "bash", label: "Bash", summary: "a", icon: "bash", status: "done" },
+	{ id: "b1", kind: "assistant", label: "Assistant", text: "正文一", summary: "正文一", icon: "assistant", status: "done" },
+	{ id: "t2", kind: "tool", toolName: "bash", label: "Bash", summary: "b", icon: "bash", status: "done" },
+	{ id: "b2", kind: "assistant", label: "Assistant", text: "正文二", summary: "正文二", icon: "assistant", status: "done" },
+	{ id: "t3", kind: "tool", toolName: "grep", label: "Grep", summary: "c", icon: "search", status: "done" },
+];
+const manyGroups = foldWorkGroups(manyFlat, 4);
+assert.equal(manyGroups.length, 4, "折叠呈现下最多显示最近 4 个分组行（R-01-017/AC-06）");
+assert.equal(manyGroups[3].id, "fold:work:t3", "顺序与主窗口一致，末位为最新工作项所在组");
+assert.equal(manyGroups[0].kind, "assistant", "窗口内首行为最近正文（更早的用户项与 t1 组被挤出）");
+assert.equal(manyGroups[0].text, "正文一", "正文行内容保留");
+const groupIdStable = foldWorkGroups(manyFlat, 4)[3];
+assert.equal(groupIdStable.id, manyGroups[3].id, "分组 id 稳定供渲染层 DOM 复用");
+
 // ---- R-01-009/AC-04 工具动作摘要镜像主会话窗口 deriveSummary 语义（可含原始命令）----
 assert.equal(
 	summarizeToolArguments("bash", '{"command":"rm -rf /","description":"清理目录"}'),
@@ -727,6 +836,16 @@ const runningTimeline = conversationTimeline({
 });
 assert.equal(runningTimeline[0].status, "running", "进行中工具调用状态为 running");
 assert.equal(runningTimeline[0].detail, "dsh", "进行中工具参数摘要按 search variant 参数键取 query");
+// R-01-009/AC-10 重构等价性钉住（评审）：live 项存在时不提升尾部 done 项——
+// 旧守卫 liveItems.length===0 与现守卫 !some(running) 在可达语义上等价
+// （live 项恒为 running：partial 硬编码 running，runningCalls 无 result kind）。
+const livePlusTail = conversationTimeline({
+	chat: { order: ["tail"], nodes: { get: () => ({ key: "tail", kind: "tool-call", data: { root: { kind: "tool-result", callId: "tail", call: { name: "bash", argsRaw: "{}" } } } }) } },
+	runningCalls: [{ callId: "rc2", name: "grep", argsRaw: "{}" }],
+});
+assert.equal(livePlusTail.length, 2, "live 项并入窗口尾部");
+assert.equal(livePlusTail[1].id, "rc2", "尾项为 live 工具项");
+assert.equal(livePlusTail[1].status, "running", "live 存在时不克隆提升尾部已定案项（等价性回归）");
 
 // ---- R-01-009/AC-10 运行中无 live 项时尾部非用户已定案项提升为 running（agent 工作标志）----
 const idleGapSnapshot = {

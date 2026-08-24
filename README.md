@@ -18,6 +18,7 @@ DSH (DeepSeek Harness) 一大痛点是缺少活动会话与历史会话的管理
 ## 感谢与声明
 
 - 本项目灵感来自 [`dsh-answer-pet`](https://github.com/Nanki-nn/dsh-answer-pet) 插件，借鉴了其中会话卡片的设计思路，并按自己的使用习惯与喜好做了调整与重新实现，感谢原作者的创意！
+- 折叠时间线的分组语义改编自 MIT 许可的 [`dsh-auto-collapse`](https://github.com/a179-sanae/dsh-auto-collapse) 插件（数据层移植，无运行时依赖），感谢原作者。
 - 本项目代码与文档 99.99% 由 AI 编写与审核，大概率存在 bug 与文档/代码不同步等问题，使用中如遇到问题请提交 issue。
 
 ## 相比 dsh-answer-pet 的调整

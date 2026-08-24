@@ -113,6 +113,7 @@ sequenceDiagram
   - 徽标计数与脉冲紧迫度：列头/窄条/移动端开关的数量徽标由 buildEntries 条目单点派生——分子为 awaiting 主会话数、分母为其加 running 主会话之和（`awaitBadgeStats`），子代理与 parent 不计入；空态同样以「0/0」呈现。存在等待响应时徽标以与等待卡完全一致的背景色、透明度与边框（含 1px 外环）呈现，并以亮度呼吸脉冲提示——不改整体不透明度，避免半透明底透进列头背景；周期由占比 n/m 线性映射到 [0.5s, 1.6s] 封闭区间、随占比单调加快（`awaitPulsePeriod`），渲染层仅写文本、data-awaiting 与 --dap-await-period 三个呈现值（R-01-001/AC-04～AC-06、R-01-002/AC-06、AC-07）。
 
   - 桌面列右缘叠加拖拽手柄：拖拽实时写入 `--dap-width` 并夹取在 200–480px；调宽结果存 localStorage，启动时读取恢复，缺失/非法值回退默认 280px、越界值夹取进范围；折叠窄条与移动端抽屉不显示手柄（R-01-015）。
+  - 折叠时间线检测为只读探测：每次渲染遍读取一次 dsh-auto-collapse 的生效样式标记（getElementById，不注入、不监听、不依赖其存在）；检测结果并入时间线 memo 键，插件热装/卸载后随下一次重绘同步切换；未检测到即回退 R-01-012 逐项镜像（R-01-017、R-02-001）。
 
 ## 核心数据与不变量
 
@@ -176,6 +177,7 @@ sequenceDiagram
 | R-02-004 | 窗格渲染器 | 轮内状态订阅生命周期 | src/client.mjs |
 | R-01-014 | 窗格渲染器 | 加载状态模型与渐进呈现 | src/core.mjs、src/client.mjs |
 | R-01-016 | 活动状态模型 | 非运行活动卡时间线与不确定态进度条 | src/client.mjs |
+| R-01-017 | 活动状态模型 | 折叠分组派生与检测切换 | src/core.mjs、src/client.mjs |
 ## 产品契约
 
 - 活动卡片集合：`活动状态模型#buildEntries(snapshot, workspaceItems)` 产出已排序的活动卡片条目数组（R-01-001）；`heldIds` 入参使响应保持中会话以 awaiting「需要响应」条目保留在活动区（R-01-002/AC-05、R-01-010/AC-06）。
@@ -197,24 +199,26 @@ sequenceDiagram
 - 层级结构：子代理经 `parentId` 关联并以 `depth` 表达缩进；子代理标题优先取目录 label，其次显示标题；渲染层在缩进槽内绘制母会话到直属子代理的层级连接线（R-01-003/AC-01、AC-04）。
 - 窗口形态：桌面为左栏旁贴边列，可经「活动会话」标题行整体折叠为窄条（窄条竖排标题 + 计数，整条可点展开）；移动端（≤767px）为固定抽屉 + 左上角浮动开关（文案「活动」，抽屉打开时隐藏）（R-01-007、R-01-008、R-01-011）。桌面列宽可经右缘手柄拖拽在 200–480px 内调整，拖拽实时生效并令主会话弹性让位，结果存 localStorage 于启动时恢复（R-01-015）。
 - 交互面：点击或 Enter/Space 激活卡片 → 切换会话；当前会话卡片高亮（R-01-005、R-01-006）。
+- 折叠时间线：`活动状态模型#foldedConversationTimeline(snapshot, limit)` 在检测到 dsh-auto-collapse 生效（`#dshcf-style[data-dshcf-state="active"]`）时替代 `conversationTimeline` 成为渲染层时间线来源：先按指数扩窗收集尾部原始工作项并合并 live 项，再经 `#foldWorkGroups` 分组——用户输入项与含正文的 assistant 项为硬边界（其 reasoning 先并入当前分组，等价 splitThinkByBody 前置语义），连续 context 单独成组；组标题镜像 auto-collapse chip 优先级（正在运行→正在思考→运行了命令/编辑了文件/上下文注入→已思考），组摘要携带推理文本内容；状态聚合 running > error > stopped > done，尾部提升沿用 R-01-009/AC-10。冷会话 history 时间线经同一 `#foldWorkGroups` 分组。分组语义改编自 MIT 许可的 dsh-auto-collapse@0.1.3 `src/fold.ts`（数据层移植，不读其 DOM、无运行时依赖，C-016）（R-01-017）。
 
 ## 横切约束
 
 - 安全呈现：任何会话标题/文本只经 `textContent` 写入，不走 HTML 拼接（防注入）。
 - 角色纪律：窗格只读，不写回宿主；活动数据方向恒为 服务 → 卡片。
 - 依赖边界：`src/core.mjs` 为纯函数（可 Node 单测），`src/client.mjs` 为浏览器 DOM 层。
-- 归属约束：卡片视觉布局借鉴自 MIT 许可证的 dsh-answer-pet，保留来源声明（见 LICENSE 与 README）。
+- 归属约束：卡片视觉布局借鉴自 MIT 许可证的 dsh-answer-pet，保留来源声明（见 LICENSE 与 README）；折叠分组语义改编自 MIT 许可证的 dsh-auto-collapse@0.1.3（src/fold.ts），同留来源声明（C-016）。
 
 ## 子系统与模块
 
 ### 活动状态模型
-- 职责: 把宿主会话与工作区快照归一化为活动区/历史区条目、工作项时间线、模型上下文与消息预览（实现 R-01-001、R-01-002、R-01-003、R-01-009、R-01-010、R-01-012、R-01-013、R-01-016、R-02-001、R-02-003）
+- 职责: 把宿主会话与工作区快照归一化为活动区/历史区条目、工作项时间线、折叠分组时间线、模型上下文与消息预览（实现 R-01-001、R-01-002、R-01-003、R-01-009、R-01-010、R-01-012、R-01-013、R-01-016、R-01-017、R-02-001、R-02-003）
 - 关键内部结构:
   - 纯函数、无 DOM、可单测。
   - 显示过滤单点实现：`activeSessionIds` 沿活动会话的 `parentId` 链补齐所有活动祖先，`isActiveRow` 供 buildEntries/buildRecent 共用；`isSubagentRow` 判定直属子代理，`parent` 条目只承载层级上下文，不建立轮内订阅。
   - `buildRecent` 按 24h 历史窗口派生历史区（仅主会话、倒序、上限 20），并归一化 workspace/model/reasoning、最近用户首行与 agent 首行。
   - `buildEntries`/`buildRecent` 接受 `heldIds` 入参：保持中主会话以 awaiting「需要响应」条目留在活动区，并从历史区排除（R-01-002/AC-05、R-01-010/AC-06）。
   - `conversationTimeline` 从原生 ChatSnapshot 的实际 order 提取最近 4 个工作项，保留图标语义、文字、详情与状态；运行中无 live 项时按 R-01-009/AC-10 将尾部非用户已定案项提升为 running；`firstPhysicalLine` 只取消息的第一个非空物理行。
+  - `rawTailItems`/`mergeLiveItems` 为 `conversationTimeline` 与 `foldedConversationTimeline` 共用的收集与 live 合并内核（指数扩窗：分组数不足 limit 时依次加倍窗口，避免长会话全序扫描）；`foldWorkGroups` 把扁平工作项序列折叠成分组行——硬边界为用户输入与含正文 assistant 项（其 reasoning 并入当前分组）、context 连续段独立成组；组行含 label/summary/detail/status/fold 标记，不携带 callId 与原生行匹配键，渲染层跳过原生行合并、仅用核心聚合状态与 fallback 图标（R-01-017）。
   - `modelMetadata` 从 native models response 提取当前模型名称与 reasoning level；缺失值保持空白。
   - 富卡辅助：`fmtTokens`（token 计数 K/M 紧凑缩写，镜像原生统计行 formatTokens）、`summarizeToolArguments`（镜像原生 `deriveSummary` 语义）、`progressOf`（回合进度）、`runtimeStats`（时长/token/速率）与 `usageSummary`（计费输入/缓存命中率）为运行卡提供纯函数派生。
   - 排序由工作区索引 + lineage 稳定序共同决定。

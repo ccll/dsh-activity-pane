@@ -1030,7 +1030,13 @@ function apply(ctx) {
 						});
 						if (error) detail.historyError = error instanceof Error ? error.message : String(error);
 						detail.history = events;
-						detail.timeline = conversationTimelineFromHistory(events, 4, byId[id]?.cwd ?? "");
+						// R-01-017：检测生效时冷路径同样折叠分组（先取 16 项再折成最多 4 组）；
+						// timelineFold 记录加载时探测结果，供渲染期翻转重算（评审补冷卡热装切换）。
+						const historyFold = autoCollapseActive();
+						detail.timelineFold = historyFold;
+						detail.timeline = historyFold
+							? foldWorkGroups(conversationTimelineFromHistory(events, 16, byId[id]?.cwd ?? ""), 4)
+							: conversationTimelineFromHistory(events, 4, byId[id]?.cwd ?? "");
 						detail.previews = messagePreviews({ history: events });
 					}))
 				historyLoads.set(id, promise);
@@ -1328,6 +1334,9 @@ function apply(ctx) {
 		return rows.find((row) => row.textContent.replace(/\s+/g, " ").trim() === expected) ?? null;
 	}
 	function nativeWorkItemRow(item) {
+		// 折叠组行不设原生行匹配键（无 callId/toolName、label 非 Think），此处显式短路：
+		// 分组聚合自核心快照，状态与文字一律以聚合结果为准（R-01-017）。
+		if (item.fold === true) return null;
 		const index = nativeRowIndex();
 		if (index.conversation === null) return null;
 		if (item.id) {
@@ -1539,10 +1548,22 @@ function apply(ctx) {
 		code: createCodeIcon,
 	};
 	function fallbackTraceIcon(item) {
+		// 折叠组行（R-01-017）：think 组用思考图标、context 组用浏览图标；tool 组按末位工具成员 icon 兜底。
+		if (item.fold === true) {
+			if (item.kind === "assistant") return createThinkIcon();
+			if (item.kind === "context") return createBrowseIcon();
+		}
+
 		if (item.kind === "user") return createUserIcon();
 		if (item.kind === "assistant") return item.label === "Think" ? createThinkIcon() : createSparkleIcon();
 		if (item.kind === "context") return createBrowseIcon();
 		return (TOOL_ICON_FACTORIES[item.toolName] ?? KIND_ICON_FACTORIES[item.icon] ?? createSparkleIcon)();
+	}
+
+	/** dsh-auto-collapse 生效探测：只读其注入样式标记的 data-dshcf-state，不注入、不监听（R-01-017、C-016）。 */
+	function autoCollapseActive() {
+		const style = document.getElementById(AUTO_COLLAPSE_STYLE_ID);
+		return style !== null && style.getAttribute("data-dshcf-state") === "active";
 	}
 
 	function nativeIdleIcon(row) {
@@ -2242,13 +2263,29 @@ function apply(ctx) {
 				// 按快照引用 memo：引用不变（时钟 tick、无关推送）时命中缓存，
 				// 长会话不再每次渲染全序扫描。
 				const entryCwd = snapshot?.byId?.[entry.id]?.cwd ?? "";
-				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd) {
+				// R-01-017：只读探测 dsh-auto-collapse 生效标记，检测结果并入时间线 memo 键——
+				// 插件热装/卸载后随下一次重绘同步切换折叠分组呈现，不依赖该插件存在。
+				const foldActive = autoCollapseActive();
+				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineFold !== foldActive) {
 					detail.memoTimelineOf = detailSnapshot;
 					detail.memoTimelineCwd = entryCwd;
-					detail.memoTimeline = conversationTimeline(detailSnapshot, 4, entryCwd);
+					detail.memoTimelineFold = foldActive;
+					detail.memoTimeline = foldActive
+						? foldedConversationTimeline(detailSnapshot, 4, entryCwd)
+						: conversationTimeline(detailSnapshot, 4, entryCwd);
 				}
 				entry.timeline = detail.memoTimeline.length > 0 ? detail.memoTimeline : detail.timeline ?? [];
 			} else {
+				// R-01-017/AC-06 冷卡（无 live 快照的等待/上下文卡）：插件热装/卸载后检测结果翻转时，
+				// 用已取历史按当前探测重算时间线，避免停留在加载时的形态（评审补）。
+				const foldToggle = autoCollapseActive();
+				const detailCwd = snapshot?.byId?.[entry.id]?.cwd ?? "";
+				if (detail?.history && detail.timelineFold !== foldToggle) {
+					detail.timelineFold = foldToggle;
+					detail.timeline = foldToggle
+						? foldWorkGroups(conversationTimelineFromHistory(detail.history, 16, detailCwd), 4)
+						: conversationTimelineFromHistory(detail.history, 4, detailCwd);
+				}
 				entry.timeline = detail?.timeline ?? entry.timeline ?? [];
 			}
 			if (detail?.model) {

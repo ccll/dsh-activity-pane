@@ -429,11 +429,59 @@ function promoteRunningTail(timeline, snapshot) {
 
 /** 从主会话 ChatSnapshot 的真实 order 提取最近工作项，保留当前 live 项。 */
 export function conversationTimeline(snapshot, limit = 4, cwd = "") {
+	return conversationTimelineWithSlot(snapshot, limit, cwd).rows;
+}
+
+/** 指令槽位窗口外扫描预算：逐项路径的有界窗口外收集起步上限（R-01-018）。
+ *  窗口外最近一条用户指令通常距窗口在一轮（用户指令 + 其工具/思考项）之内，
+ *  该预算起步；未命中时逐档 ×8 扩窗直至全序宽底，保持长会话不盲目全序扫描。 */
+export const SLOT_SCAN_BUDGET = 64;
+
+/** 窗口（最后 keep 行）内是否已含用户指令（R-01-018/AC-02）：
+ *  更新的指令仍在可见窗口内时槽位隐藏，且无需继续向更早处收集。 */
+function windowHasUser(rows, keep) {
+	if (!Array.isArray(rows) || keep <= 0) return false;
+	for (let i = rows.length - 1; i >= rows.length - keep && i >= 0; i -= 1) {
+		if (rows[i]?.kind === "user") return true;
+	}
+	return false;
+}
+
+/** 窗口外最近一条用户指令（R-01-018/AC-01、AC-02、AC-03）：rows 按时间正序，
+ *  窗口保留最后 keep 行。窗口内已含用户指令（更新的指令仍可见）时返回 null；
+ *  否则在前段逆向取最近 kind=user 行的副本（slot 标记）。 */
+function slotOf(rows, keep) {
+	if (!Array.isArray(rows) || keep <= 0) return null;
+	// R-01-018/AC-02：窗口内已含用户指令时隐藏槽位（不重复展示更旧指令）。
+	if (windowHasUser(rows, keep)) return null;
+	for (let i = rows.length - keep - 1; i >= 0; i -= 1) {
+		const row = rows[i];
+		if (row !== null && typeof row === "object" && row.kind === "user") {
+			return { id: row.id, kind: "user", icon: "user", text: typeof row.text === "string" ? row.text : "", status: "done", slot: true };
+		}
+	}
+	return null;
+}
+
+/** 逐项镜像 + 指令槽位（R-01-018）：窗口外有界收集（limit + SLOT_SCAN_BUDGET）起步，
+ *  rows 窗口行语义与 conversationTimeline 一致（尾部提升、live 合并）；
+ *  槽位未确定（窗口内无指令且窗口外尚未见指令）时逐档扩窗直至找到或全序兜底。
+ *  lastUser 为运行卡轻量 history 提供的最近用户指令（行内窗口外无指令时兜底）。 */
+export function conversationTimelineWithSlot(snapshot, limit = 4, cwd = "", lastUser = null) {
 	const max = Math.max(0, limit);
-	if (max === 0) return [];
-	// 尾部反向收集：工作项只取尾部 max 个，长会话不再全序扫描；
-	// live 合并只作用于尾部子集（partial/runningCalls 的对应已定案项必在最近窗口内）。
-	return promoteRunningTail(mergeLiveItems(rawTailItems(snapshot, max, cwd), snapshot, max, cwd), snapshot);
+	if (max === 0) return { rows: [], slot: null };
+	let budget = max + SLOT_SCAN_BUDGET;
+	for (;;) {
+		// 尾部反向收集：工作项只取尾部 budget 个，长会话不再全序扫描；
+		// live 合并只作用于尾部子集（partial/runningCalls 的对应已定案项必在最近窗口内）。
+		const full = mergeLiveItems(rawTailItems(snapshot, budget, cwd), snapshot, budget, cwd);
+		const rows = promoteRunningTail(full.slice(-max), snapshot);
+		const slot = slotOf(full, max) ?? fallbackSlot(full, max, lastUser);
+		if (windowHasUser(full, max) || slot !== null || budget >= Number.MAX_SAFE_INTEGER / 2) {
+			return { rows, slot };
+		}
+		budget *= 8;
+	}
 }
 
 /** 折叠分组硬边界：用户输入项与含正文输出的 assistant 项（R-01-017/AC-02）。 */
@@ -584,15 +632,38 @@ export function foldWorkGroups(items, limit = 4) {
  *  指数扩窗收集尾部原始项（分组数不足 limit 时 ×3 → ×8 → 全序）+ live 合并 + 分组 +
  *  尾部提升，长会话典型情况不触碰全序扫描。 */
 export function foldedConversationTimeline(snapshot, limit = 4, cwd = "") {
+	return foldedTimelineWithSlot(snapshot, limit, cwd).rows;
+}
+
+/** 折叠分组时间线 + 指令槽位（R-01-018）：分组全量行上截窗口；
+ *  槽位未确定（窗口内无指令且窗口外尚未见指令）时继续扩窗直至全序兜底，
+ *  保证窗口外最近用户指令只要存在就能被找到。
+ *  lastUser 为运行卡轻量 history 提供的最近用户指令（行内窗口外无指令时兜底）。 */
+export function foldedTimelineWithSlot(snapshot, limit = 4, cwd = "", lastUser = null) {
 	const max = Math.max(0, limit);
-	if (max === 0) return [];
-	let groups = [];
+	if (max === 0) return { rows: [], slot: null };
 	for (const want of [max * 3, max * 8, Number.MAX_SAFE_INTEGER]) {
 		const items = rawTailItems(snapshot, want, cwd);
-		groups = foldWorkGroups(mergeLiveItems(items, snapshot, Number.MAX_SAFE_INTEGER, cwd), max);
-		if (groups.length >= max || want === Number.MAX_SAFE_INTEGER) break;
+		const full = foldWorkGroups(mergeLiveItems(items, snapshot, Number.MAX_SAFE_INTEGER, cwd), Number.MAX_SAFE_INTEGER);
+		const rows = full.slice(-max);
+		const slot = slotOf(full, max) ?? fallbackSlot(full, max, lastUser);
+		if (rows.length >= max || want === Number.MAX_SAFE_INTEGER) {
+			if (windowHasUser(full, max) || slot !== null || want === Number.MAX_SAFE_INTEGER) {
+				return { rows: promoteRunningTail(rows, snapshot), slot };
+			}
+		}
 	}
-	return promoteRunningTail(groups, snapshot);
+	return { rows: [], slot: null };
+}
+
+/** lastUser 兜底（R-01-018）：窗口内无用户指令行时，最近用户指令必位于窗口外，可作槽位。 */
+function fallbackSlot(rows, keep, lastUser) {
+	if (lastUser === null || lastUser === undefined) return null;
+	if (!windowHasUser(rows, keep)) {
+		const text = typeof lastUser.text === "string" ? lastUser.text : "";
+		if (text !== "") return { id: typeof lastUser.id === "string" ? lastUser.id : "", kind: "user", icon: "user", text, status: "done", slot: true };
+	}
+	return null;
 }
 
 /** 工作项行状态合并：核心派生的 running 优先于原生行 data-state（提升尾项与 live 项
@@ -619,6 +690,20 @@ function timelineItemFromEvent(entry, cwd = "") {
 	}
 	if (event.type === "tool/result") {
 		return timelineToolItem({ kind: "tool-result", callId: data.callId, call: data.name ? { name: data.name, argsRaw: data.arguments ?? "" } : null, isError: data.isError, resultView: entry?.view?.for === "result" ? entry.view.view : null }, null, cwd);
+	}
+	return null;
+}
+
+/** 从 history 事件序列提取最近一条用户指令（R-01-018 运行卡槽位源）；无则 null。 */
+export function lastUserFromEvents(events) {
+	if (!Array.isArray(events)) return null;
+	for (let i = events.length - 1; i >= 0; i -= 1) {
+		const event = isRecord(events[i]?.event) ? events[i].event : events[i];
+		const data = isRecord(event?.data) ? event.data : {};
+		if (event?.type === "user/message" && data.source?.kind === "user") {
+			const text = contentText(data.content);
+			if (text !== "") return { id: `user:${event.seq}`, text };
+		}
 	}
 	return null;
 }
@@ -669,6 +754,26 @@ export function conversationTimelineFromHistory(history, limit = 4, cwd = "") {
 	}
 	const max = Math.max(0, limit);
 	return max === 0 ? [] : items.slice(-max);
+}
+
+/** 冷会话 history 折叠路径 + 指令槽位（R-01-018）：分组全量行上截窗口。 */
+export function foldWorkGroupsWithSlot(items, limit = 4) {
+	const max = Math.max(0, limit);
+	if (max === 0) return { rows: [], slot: null };
+	const full = foldWorkGroups(items, Number.MAX_SAFE_INTEGER);
+	return { rows: full.slice(-max), slot: slotOf(full, max) };
+}
+
+/** 冷会话 history 逐项路径 + 指令槽位（R-01-018）：items 全量映射后截窗口。 */
+export function historyTimelineWithSlot(history, limit = 4, cwd = "") {
+	const items = [];
+	for (const entry of Array.isArray(history) ? history : []) {
+		const item = timelineItemFromEvent(entry, cwd);
+		if (item) items.push(item);
+	}
+	const max = Math.max(0, limit);
+	if (max === 0) return { rows: [], slot: null };
+	return { rows: items.slice(-max), slot: slotOf(items, max) };
 }
 /** 从 ChatSnapshot/history 取最近用户与 agent reply 的物理首行。
  *  尾部反向扫描：找到最近的用户项与 assistant 项即停，长会话不再全序物化时间线。 */

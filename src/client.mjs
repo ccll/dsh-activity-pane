@@ -427,6 +427,20 @@ const CSS = `
   min-width: 0;
 }
 [data-dsh-activity-pane] .dap-trace:empty { display: none; }
+/* 指令槽位（R-01-018）：与用户消息行同款排版，底部分隔线与时间线竖线同色系。 */
+[data-dsh-activity-pane] .dap-slot {
+  display: flex; align-items: center; column-gap: 7px;
+  min-width: 0; padding: 1px 14px 4px;
+  color: #c7ced9; font-size: 10px; line-height: 14px;
+  border-bottom: 1px solid rgba(126, 147, 177, .3);
+}
+[data-dsh-activity-pane] .dap-slot[hidden] { display: none; }
+[data-dsh-activity-pane] .dap-slot-icon { width: 12px; height: 12px; flex: none; display: inline-flex; }
+[data-dsh-activity-pane] .dap-slot-icon svg { display: block; width: 100%; height: 100%; }
+[data-dsh-activity-pane] .dap-slot-text {
+  flex: 1 1 auto; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
 [data-dsh-activity-pane] .dap-trace-item {
   position: relative; display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -694,11 +708,15 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-detail,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-icon {
   color: var(--dsw-alias-label-tertiary, rgb(129, 133, 140));
 }
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-slot,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-label {
   color: var(--dsw-alias-label-secondary, rgb(97, 102, 107));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-separator {
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-slot {
+  border-bottom-color: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.12));
+}
   background: var(--dsw-alias-label-caption, rgb(173, 178, 184));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item::after {
@@ -1030,13 +1048,17 @@ function apply(ctx) {
 						});
 						if (error) detail.historyError = error instanceof Error ? error.message : String(error);
 						detail.history = events;
-						// R-01-017：检测生效时冷路径同样折叠分组（先取 16 项再折成最多 4 组）；
+						// R-01-018：冷卡槽位源——history 内最近用户指令全文（全量行内可寻，供行内查找未命中时兜底）。
+						detail.lastUser = lastUserFromEvents(events);
+						// R-01-017：检测生效时冷路径同样折叠分组（取全量页内事件再折成最多 4 组）；
 						// timelineFold 记录加载时探测结果，供渲染期翻转重算（评审补冷卡热装切换）。
 						const historyFold = autoCollapseActive();
 						detail.timelineFold = historyFold;
-						detail.timeline = historyFold
-							? foldWorkGroups(conversationTimelineFromHistory(events, 16, byId[id]?.cwd ?? ""), 4)
-							: conversationTimelineFromHistory(events, 4, byId[id]?.cwd ?? "");
+						const derivedHistory = historyFold
+							? foldWorkGroupsWithSlot(conversationTimelineFromHistory(events, Number.MAX_SAFE_INTEGER, byId[id]?.cwd ?? ""), 4)
+							: historyTimelineWithSlot(events, 4, byId[id]?.cwd ?? "");
+						detail.timeline = derivedHistory.rows;
+						detail.timelineSlot = derivedHistory.slot;
 						detail.previews = messagePreviews({ history: events });
 					}))
 				historyLoads.set(id, promise);
@@ -1044,6 +1066,20 @@ function apply(ctx) {
 					if (historyLoads.get(id) === promise) historyLoads.delete(id);
 				});
 				historyPromises.push(promise);
+			} else if (detail.lastUserLoad !== true && typeof api.history === "function" && !plan.history && detail.snapshot) {
+				// R-01-018 运行卡槽位源：轻量拉取最近一页事件，提取最近用户指令全文（不作为时间线主体）；
+				// 失败静默降级（槽位隐藏），不再重试，避免每轮渲染重复 RPC。
+				detail.lastUserLoad = true;
+				const promise = enqueueDetailLoad(() => Promise.resolve()
+					.then(() => api.history({ sessionId: id, maxMessages: 50 }))
+					.then((response) => {
+						const value = apiValue(response);
+					const events = Array.isArray(value?.events) ? value.events : [];
+					if (events.length > 0) detail.lastUser = lastUserFromEvents(events);
+					})
+					.catch(() => {
+						// 静默：槽位源缺失时槽位降级隐藏
+					}));
 			}
 		}
 		const pending = modelPromises.concat(historyPromises);
@@ -1714,8 +1750,33 @@ function apply(ctx) {
 		container.replaceChildren(row);
 	}
 
+	/** 指令槽位（R-01-018）：窗口外最近用户指令常驻 `.dap-trace` 顶部；
+	 *  宿主为卡片根（trace 容器的直接父级），不参与 renderTrace 的 children 管理，
+	 *  不破坏时间线行的稳定 key 复用。 */
+	function renderSlot(container, slot) {
+		const host = container.parentElement;
+		if (host === null) return;
+		const text = slot !== null && typeof slot.text === "string" ? slot.text : "";
+		let slotEl = host.querySelector(".dap-slot");
+		if (text === "") {
+			if (slotEl !== null && slotEl.hidden !== true) slotEl.hidden = true;
+			return;
+		}
+		if (slotEl === null) {
+			slotEl = makeEl("div", "dap-slot");
+			slotEl.append(makeEl("span", "dap-slot-icon"), makeEl("span", "dap-slot-text"));
+			host.insertBefore(slotEl, container);
+		}
+		const icon = slotEl.querySelector(".dap-slot-icon");
+		if (icon !== null && icon.childElementCount === 0) icon.append(createUserIcon());
+		const textEl = slotEl.querySelector(".dap-slot-text");
+		if (textEl !== null && textEl.textContent !== text) textEl.textContent = text;
+		if (slotEl.hidden === true) slotEl.hidden = false;
+	}
+
 	/** 时间线区统一渲染：在途且无工作项时显示加载行，否则渲染工作项时间线。 */
 	function renderTimelineArea(container, entry, nativeSessionId, { lastOnly = false } = {}) {
+		renderSlot(container, entry.slot ?? null);
 		if (entry.loadingTimeline === true && entry.timeline.length === 0) {
 			renderTraceLoading(container);
 			return;
@@ -2269,15 +2330,26 @@ function apply(ctx) {
 				// R-01-017：只读探测 dsh-auto-collapse 生效标记，检测结果并入时间线 memo 键——
 				// 插件热装/卸载后随下一次重绘同步切换折叠分组呈现，不依赖该插件存在。
 				const foldActive = autoCollapseActive();
-				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineFold !== foldActive) {
+				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineFold !== foldActive || detail.memoTimelineUser !== detail.lastUser) {
 					detail.memoTimelineOf = detailSnapshot;
 					detail.memoTimelineCwd = entryCwd;
 					detail.memoTimelineFold = foldActive;
-					detail.memoTimeline = foldActive
-						? foldedConversationTimeline(detailSnapshot, 4, entryCwd)
-						: conversationTimeline(detailSnapshot, 4, entryCwd);
+					detail.memoTimelineUser = detail.lastUser;
+					// R-01-018：运行卡槽位源——轻量 history 的最近用户指令（窗口内无指令行时兜底）；
+					// 窗口内出现用户指令行时顺带刷新该记录，指令被挤出后槽位跟随最新指令。
+					const derivedTimeline = foldActive
+						? foldedTimelineWithSlot(detailSnapshot, 4, entryCwd, detail.lastUser ?? null)
+						: conversationTimelineWithSlot(detailSnapshot, 4, entryCwd, detail.lastUser ?? null);
+					// 行内更新收敛：值相等不换引用，避免 lastUser 引用变化引发 memo 键抖动重算。
+					const windowUser = derivedTimeline.rows.findLast((row) => row.kind === "user") ?? null;
+					if (windowUser !== null && (detail.lastUser?.text !== windowUser.text || detail.lastUser?.id !== windowUser.id)) {
+						detail.lastUser = { id: windowUser.id, text: windowUser.text };
+					}
+					detail.memoTimeline = derivedTimeline.rows;
+					detail.memoSlot = derivedTimeline.slot;
 				}
 				entry.timeline = detail.memoTimeline.length > 0 ? detail.memoTimeline : detail.timeline ?? [];
+				entry.slot = detail.memoSlot ?? detail.timelineSlot ?? null;
 			} else {
 				// R-01-017/AC-06 冷卡（无 live 快照的等待/上下文卡）：插件热装/卸载后检测结果翻转时，
 				// 用已取历史按当前探测重算时间线，避免停留在加载时的形态（评审补）。
@@ -2285,11 +2357,14 @@ function apply(ctx) {
 				const detailCwd = snapshot?.byId?.[entry.id]?.cwd ?? "";
 				if (detail?.history && detail.timelineFold !== foldToggle) {
 					detail.timelineFold = foldToggle;
-					detail.timeline = foldToggle
-						? foldWorkGroups(conversationTimelineFromHistory(detail.history, 16, detailCwd), 4)
-						: conversationTimelineFromHistory(detail.history, 4, detailCwd);
+					const derivedHistory = foldToggle
+						? foldWorkGroupsWithSlot(conversationTimelineFromHistory(detail.history, Number.MAX_SAFE_INTEGER, detailCwd), 4)
+						: historyTimelineWithSlot(detail.history, 4, detailCwd);
+					detail.timeline = derivedHistory.rows;
+					detail.timelineSlot = derivedHistory.slot;
 				}
 				entry.timeline = detail?.timeline ?? entry.timeline ?? [];
+				entry.slot = detail?.timelineSlot ?? entry.slot ?? null;
 			}
 			if (detail?.model) {
 				entry.model = detail.model.model;

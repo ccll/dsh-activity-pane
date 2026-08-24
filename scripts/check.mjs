@@ -21,9 +21,14 @@ import {
 	pagedHistoryEvents,
 	detailLoadPlan,
 	conversationTimeline,
+	conversationTimelineWithSlot,
 	conversationTimelineFromHistory,
+	historyTimelineWithSlot,
+	lastUserFromEvents,
 	foldWorkGroups,
+	foldWorkGroupsWithSlot,
 	foldedConversationTimeline,
+	foldedTimelineWithSlot,
 	escapeCssString,
 	firstPhysicalLine,
 	fmtElapsedMs,
@@ -735,6 +740,138 @@ assert.equal(manyGroups[0].kind, "assistant", "窗口内首行为最近正文（
 assert.equal(manyGroups[0].text, "正文一", "正文行内容保留");
 const groupIdStable = foldWorkGroups(manyFlat, 4)[3];
 assert.equal(groupIdStable.id, manyGroups[3].id, "分组 id 稳定供渲染层 DOM 复用");
+
+// ---- R-01-018 指令槽位（窗口外最近用户指令常驻）----
+// R-01-018/AC-01、AC-02 折叠路径：窗口外最近指令停靠槽位；窗口内已含最近指令或窗口外无指令时隐藏
+const slotItems = [
+	{ id: "u1", kind: "user", icon: "user", text: "指令一", detail: null, status: "done" },
+	{ id: "t1", kind: "tool", toolName: "bash", label: "Bash", summary: "a", icon: "bash", status: "done" },
+	{ id: "b1", kind: "assistant", label: "Assistant", text: "正文一", summary: "正文一", icon: "assistant", status: "done" },
+	{ id: "u2", kind: "user", icon: "user", text: "指令二", detail: null, status: "done" },
+	{ id: "t2", kind: "tool", toolName: "bash", label: "Bash", summary: "b", icon: "bash", status: "done" },
+	{ id: "b2", kind: "assistant", label: "Assistant", text: "正文二", summary: "正文二", icon: "assistant", status: "done" },
+	{ id: "t3", kind: "tool", toolName: "bash", label: "Bash", summary: "c", icon: "bash", status: "done" },
+	{ id: "b3", kind: "assistant", label: "Assistant", text: "正文三", summary: "正文三", icon: "assistant", status: "done" },
+	{ id: "t4", kind: "tool", toolName: "bash", label: "Bash", summary: "d", icon: "bash", status: "done" },
+];
+const slotMirror = foldWorkGroupsWithSlot(slotItems, 4);
+assert.equal(slotMirror.rows.length, 4, "折叠窗口行数保持 4（R-01-018/AC-02）");
+assert.equal(slotMirror.rows[0].text, "正文二", "槽位不计入窗口、窗口行以最近正文/组为准（R-01-018/AC-02）");
+assert.equal(slotMirror.slot?.text, "指令二", "窗口外最近一条用户指令停靠槽位（R-01-018/AC-01）");
+assert.equal(slotMirror.slot?.kind, "user", "槽位行为用户指令副本");
+assert.equal(slotMirror.slot?.slot, true, "槽位行带 slot 标记");
+// R-01-018/AC-02 窗口内已含最近指令 → 隐藏
+const slotInWindow = foldWorkGroupsWithSlot(slotItems.slice(0, 6), 4);
+assert.equal(slotInWindow.slot, null, "窗口内已含最近指令时槽位隐藏（R-01-018/AC-02）");
+// R-01-018/AC-02 无用户指令 → 隐藏
+const slotNoUser = foldWorkGroupsWithSlot(slotItems.filter((item) => item.kind !== "user"), 4);
+assert.equal(slotNoUser.slot, null, "窗口外不存在用户指令时槽位隐藏（R-01-018/AC-02）");
+// R-01-018/AC-03 更新的指令挤出后槽位替换，窗口行数不变
+const slotReplaced = foldWorkGroupsWithSlot(
+	[
+		...slotItems,
+		{ id: "u3", kind: "user", icon: "user", text: "指令三", detail: null, status: "done" },
+		{ id: "t5", kind: "tool", toolName: "bash", label: "Bash", summary: "e", icon: "bash", status: "done" },
+		{ id: "b4", kind: "assistant", label: "Assistant", text: "正文四", summary: "正文四", icon: "assistant", status: "done" },
+		{ id: "t6", kind: "tool", toolName: "bash", label: "Bash", summary: "f", icon: "bash", status: "done" },
+		{ id: "b5", kind: "assistant", label: "Assistant", text: "正文五", summary: "正文五", icon: "assistant", status: "done" },
+		{ id: "t7", kind: "tool", toolName: "bash", label: "Bash", summary: "g", icon: "bash", status: "done" },
+	],
+	4,
+);
+assert.equal(slotReplaced.slot?.text, "指令三", "更新的指令挤出后槽位替换（R-01-018/AC-03）");
+assert.equal(slotReplaced.rows.length, 4, "替换期间窗口行数保持 4（R-01-018/AC-03）");
+// R-01-018/AC-01、AC-03 逐项与折叠快照路径：槽位语义一致 + 委托等价（回归）
+const slotMirrorNodes = new Map([
+	["u1", { key: "u1", kind: "user", anchorSeq: 1, data: { content: [{ type: "text", text: "指令一" }] } }],
+	["u2", { key: "u2", kind: "user", anchorSeq: 2, data: { content: [{ type: "text", text: "指令二" }] } }],
+	["g1", { key: "g1", kind: "tool-call", anchorSeq: 3, data: { root: { kind: "tool-result", callId: "g1", call: { name: "bash", argsRaw: "{}" }, isError: false } } }],
+	["b1", { key: "b1", kind: "assistant-step", anchorSeq: 4, data: { status: "settled", turn: 1, step: 0, blocks: [{ kind: "text", text: "正文一" }] } }],
+	["g2", { key: "g2", kind: "tool-call", anchorSeq: 5, data: { root: { kind: "tool-result", callId: "g2", call: { name: "bash", argsRaw: "{}" }, isError: false } } }],
+	["b2", { key: "b2", kind: "assistant-step", anchorSeq: 6, data: { status: "settled", turn: 1, step: 1, blocks: [{ kind: "text", text: "正文二" }] } }],
+	["g3", { key: "g3", kind: "tool-call", anchorSeq: 7, data: { root: { kind: "tool-result", callId: "g3", call: { name: "bash", argsRaw: "{}" }, isError: false } } }],
+]);
+const slotMirrorSnapshot = { chat: { order: ["u1", "u2", "g1", "b1", "g2", "b2", "g3"], nodes: { get: (key) => slotMirrorNodes.get(key) } } };
+const slotMirrorFlat = conversationTimelineWithSlot(slotMirrorSnapshot, 4);
+assert.equal(slotMirrorFlat.rows.length, 4, "逐项窗口行数保持 4（R-01-018/AC-02）");
+assert.equal(slotMirrorFlat.slot?.text, "指令二", "逐项镜像窗口外最近指令停靠槽位（R-01-018/AC-01）");
+assert.deepEqual(slotMirrorFlat.rows, conversationTimeline(slotMirrorSnapshot, 4), "conversationTimeline 委托等价（回归）");
+const slotMirrorFold = foldedTimelineWithSlot(slotMirrorSnapshot, 4);
+assert.equal(slotMirrorFold.rows.length, 4, "折叠窗口行数保持 4（R-01-018/AC-02）");
+assert.equal(slotMirrorFold.slot?.text, "指令二", "折叠呈现窗口外最近指令停靠槽位（R-01-018/AC-01）");
+assert.deepEqual(slotMirrorFold.rows, foldedConversationTimeline(slotMirrorSnapshot, 4), "foldedConversationTimeline 委托等价（回归）");
+// R-01-018/AC-01 history 冷路径：窗口外指令停靠 + 委托等价
+const slotEvents = [
+	{ event: { type: "user/message", seq: 1, data: { source: { kind: "user" }, content: [{ type: "text", text: "指令一" }] } } },
+	{ event: { type: "assistant/message", seq: 2, data: { message: { content: [{ type: "text", text: "回复一" }] } } } },
+	{ event: { type: "user/message", seq: 3, data: { source: { kind: "user" }, content: [{ type: "text", text: "指令二" }] } } },
+	{ event: { type: "assistant/message", seq: 4, data: { message: { content: [{ type: "text", text: "回复二" }] } } } },
+	{ event: { type: "assistant/message", seq: 5, data: { message: { content: [{ type: "text", text: "回复三" }] } } } },
+	{ event: { type: "assistant/message", seq: 6, data: { message: { content: [{ type: "text", text: "回复四" }] } } } },
+	{ event: { type: "assistant/message", seq: 7, data: { message: { content: [{ type: "text", text: "回复五" }] } } } },
+];
+const slotHistory = historyTimelineWithSlot(slotEvents, 4);
+assert.equal(slotHistory.rows.length, 4, "history 逐项窗口行数保持 4（R-01-018/AC-02）");
+assert.equal(slotHistory.slot?.text, "指令二", "history 冷路径窗口外指令停靠槽位（R-01-018/AC-01）");
+assert.deepEqual(slotHistory.rows, conversationTimelineFromHistory(slotEvents, 4), "history 时间线委托等价（回归）");
+// R-01-018/AC-01 窗口外指令距窗口较远时继续扩窗直至找到（折叠与逐项一致）
+const farNodes = new Map([
+	["u0", { key: "u0", kind: "user", anchorSeq: 1, data: { content: [{ type: "text", text: "远指令" }] } }],
+]);
+const farOrder = ["u0"];
+for (let i = 0; i < 30; i += 1) {
+	const gKey = `g${i}`;
+	farOrder.push(gKey);
+	farNodes.set(gKey, { key: gKey, kind: "tool-call", anchorSeq: 2 + i * 2, data: { root: { kind: "tool-result", callId: gKey, call: { name: "bash", argsRaw: "{}" }, isError: false } } });
+	const bKey = `b${i}`;
+	farOrder.push(bKey);
+	farNodes.set(bKey, { key: bKey, kind: "assistant-step", anchorSeq: 3 + i * 2, data: { status: "settled", turn: 1, step: i, blocks: [{ kind: "text", text: `正文${i}` }] } });
+}
+const farSnap = { chat: { order: farOrder, nodes: { get: (key) => farNodes.get(key) } } };
+const farFold = foldedTimelineWithSlot(farSnap, 4);
+assert.equal(farFold.slot?.text, "远指令", "折叠路径窗口外指令较远时继续扩窗直至找到（R-01-018/AC-01）");
+assert.equal(farFold.rows.length, 4, "扩窗收集不改变窗口行数（R-01-018/AC-02）");
+const farFlat = conversationTimelineWithSlot(farSnap, 4);
+assert.equal(farFlat.slot?.text, "远指令", "逐项路径窗口外指令较远时有界扩窗直至找到（R-01-018/AC-01）");
+assert.equal(farFlat.rows.length, 4, "逐项扩窗收集不改变窗口行数（R-01-018/AC-02）");
+// R-01-018/AC-01 运行卡槽位兜底：窗口内无指令行时用最近用户指令（轻量 history 源）
+const noUserSnap = { chat: { order: ["t1"], nodes: { get: () => ({ key: "t1", kind: "tool-call", data: { root: { kind: "tool-result", callId: "t1", call: { name: "bash", argsRaw: "{}" }, isError: false } } }) } } };
+const lastUser = { id: "user:9", text: "最近指令" };
+const foldFallback = foldedTimelineWithSlot(noUserSnap, 4, "", lastUser);
+assert.equal(foldFallback.slot?.text, "最近指令", "窗口内无指令行时槽位用最近用户指令兜底（R-01-018/AC-01）");
+const flatFallback = conversationTimelineWithSlot(noUserSnap, 4, "", lastUser);
+assert.equal(flatFallback.slot?.text, "最近指令", "逐项路径同样兜底（R-01-018/AC-01）");
+// R-01-018/AC-02 窗口内已有指令行时忽略兜底
+const withUserWindow = foldedTimelineWithSlot(
+	{ chat: { order: ["u1"], nodes: { get: () => ({ key: "u1", kind: "user", data: { content: [{ type: "text", text: "窗口内指令" }] } }) } } },
+	4,
+	"",
+	lastUser,
+);
+assert.equal(withUserWindow.slot, null, "窗口内含指令行时兜底忽略（R-01-018/AC-02）");
+// R-01-018 最近用户指令提取（history 槽位源）
+const lastUserEvents = [
+	{ event: { type: "user/message", seq: 1, data: { source: { kind: "user" }, content: [{ type: "text", text: "旧指令" }] } } },
+	{ event: { type: "tool/call", seq: 2, data: { callId: "c1", name: "bash", arguments: "{}" } } },
+	{ event: { type: "user/message", seq: 3, data: { source: { kind: "user" }, content: [{ type: "text", text: "新指令" }] } } },
+];
+assert.equal(lastUserFromEvents(lastUserEvents)?.text, "新指令", "提取最近一条用户指令全文（R-01-018）");
+assert.equal(lastUserFromEvents([{ event: { type: "tool/call", seq: 2, data: {} } }]), null, "无用户指令返回 null（R-01-018）");
+// R-01-018/AC-01 逐项路径预算外扩窗档（窗口外指令在 SLOT_SCAN_BUDGET 之外仍能找到）
+const bigFarOrder = ["u0"];
+const bigFarNodes = new Map([
+	["u0", { key: "u0", kind: "user", anchorSeq: 1, data: { content: [{ type: "text", text: "远指令" }] } }],
+]);
+for (let i = 0; i < 150; i += 1) {
+	const gKey = `g${i}`;
+	bigFarOrder.push(gKey);
+	bigFarNodes.set(gKey, { key: gKey, kind: "tool-call", anchorSeq: 2 + i, data: { root: { kind: "tool-result", callId: gKey, call: { name: "bash", argsRaw: "{}" }, isError: false } } });
+}
+const bigFarFlat = conversationTimelineWithSlot(
+	{ chat: { order: bigFarOrder, nodes: { get: (key) => bigFarNodes.get(key) } } },
+	4,
+);
+assert.equal(bigFarFlat.slot?.text, "远指令", "逐项路径预算外扩窗档仍能找到窗口外指令（R-01-018/AC-01）");
 
 // ---- R-01-009/AC-04 工具动作摘要镜像主会话窗口 deriveSummary 语义（可含原始命令）----
 assert.equal(
@@ -1516,6 +1653,17 @@ assert.doesNotThrow(
 	"bundle 必须是合法 JS（可被 loader 导入注册）",
 );
 assert.ok(!bundle.includes("sessionsListHas"), "点击不得以第二份 list 快照提前拦截");
+// R-01-018 槽位派生与渲染进入 bundle
+assert.ok(
+	bundle.includes("foldedTimelineWithSlot") && bundle.includes("conversationTimelineWithSlot") && bundle.includes("historyTimelineWithSlot"),
+	"槽位派生函数进入 bundle（R-01-018）",
+);
+assert.ok(bundle.includes('"dap-slot"') && bundle.includes("renderSlot"), "槽位行骨架与渲染进入 bundle（R-01-018）");
+// 防 TDZ 回归：memo 块 const derivedTimeline 声明必须先于对 derivedTimeline.rows 的引用（曾致运行卡渲染崩溃）
+assert.ok(
+	bundle.indexOf("const derivedTimeline") !== -1 && bundle.indexOf("const derivedTimeline") < bundle.indexOf("derivedTimeline.rows"),
+	"memo 块 derivedTimeline 声明先于使用（防 TDZ 回归）",
+);
 assert.ok(!bundle.includes('document.addEventListener("click"'), "不得在 document 上拦截点击");
 // R-01-008/AC-02 移动端抽屉经标题行整体激活收起（与桌面同一控件，无独立 × 按钮）
 assert.ok(!bundle.includes("dap-close") && !bundle.includes("onCloseClick"), "不再保留独立关闭按钮：移动端与桌面同为标题行整体控件（R-01-008/AC-02）");

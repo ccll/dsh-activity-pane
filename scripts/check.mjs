@@ -1148,6 +1148,21 @@ assert.deepEqual(
 	"子代理 completed 同帧命中也不登记保持",
 );
 
+// ---- R-01-016/AC-01、AC-02 非运行活动卡条目承载会话最后已知工作项时间线（数据路径）----
+const settledTrace = [{ id: "w1", kind: "tool", label: "Bash", summary: "pnpm check", status: "done" }];
+const awaitingTraceEntries = buildEntries(holdSnap, [], { sB: { timeline: settledTrace } }, new Set(["sB"]));
+assert.equal(awaitingTraceEntries[0].kind, "awaiting", "响应保持中会话以 awaiting 卡呈现");
+assert.deepEqual(awaitingTraceEntries[0].timeline, settledTrace, "awaiting 条目承载会话最近工作项时间线（R-01-016/AC-01）");
+const pendingTraceEntries = buildEntries(pendingSnap, [], { sP: { timeline: settledTrace } });
+assert.equal(pendingTraceEntries[0].kind, "awaiting", "待确认会话以 awaiting 卡呈现");
+assert.deepEqual(pendingTraceEntries[0].timeline, settledTrace, "待确认 awaiting 条目同样承载时间线（R-01-016/AC-01）");
+const parentTraceEntries = buildEntries(inheritedActivity, [], { root: { timeline: settledTrace }, parent: { timeline: settledTrace } });
+assert.deepEqual(
+	parentTraceEntries.filter((entry) => entry.kind === "parent").map((entry) => entry.timeline),
+	[settledTrace, settledTrace],
+	"parent 条目承载母会话最近工作项时间线（R-01-016/AC-02）",
+);
+
 // ---- R-01-010/AC-06 响应保持扩展：当前焦点下运行结束（宿主不置 completed）同样保持 ----
 const focusRun = { ids: ["sB"], byId: { sB: { ...holdBase, running: true, completed: false } }, current: "sB" };
 let heldFocus = updateCompletedHolds(new Set(), focusRun, ["sB"]);
@@ -1443,6 +1458,30 @@ assert.ok(
 );
 // R-01-003/AC-05
 assert.ok(bundle.includes("function activeSessionIds(byId = {})"), "活动子代理沿 parentId 链补齐活动祖先");
+// ---- R-01-016/AC-01 等待卡保留最近工作项时间线 ----
+assert.ok(
+	bundle.includes('return [head, row, makeEl("div", "dap-trace"), makeEl("div", "dap-note")];'),
+	"awaiting 骨架在标题行与 note 之间含时间线容器（R-01-016/AC-01）",
+);
+// ---- R-01-016/AC-02 parent 卡显示母会话最近工作项时间线 ----
+assert.ok(
+	bundle.includes('return [head, row, makeEl("div", "dap-trace"), track];'),
+	"parent 骨架含时间线容器与进度条轨道（R-01-016/AC-02、AC-03）",
+);
+assert.ok(
+	bundle.includes('if (entry.kind === "parent") {\n\t\t\tconst traceContainer = el.querySelector(".dap-trace");'),
+	"parent 分支渲染自身时间线而非直接 return（R-01-016/AC-02）",
+);
+// ---- R-01-016/AC-03 parent 不确定态进度条（无百分比、条纹滚动动画） ----
+assert.ok(
+	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="parent"] .dap-fill {'),
+	"parent 进度条由 data-kind 纯 CSS 驱动、不新增状态字段（R-01-016/AC-03）",
+);
+// ---- R-01-016/AC-04 时间线数据在途时显示加载指示、返回就地填充 ----
+assert.ok(
+	bundle.includes("renderTimelineArea(traceContainer, entry, nativePresentationSessionId(entry))"),
+	"等待卡与 parent 卡复用 renderTimelineArea：在途显示加载行、返回就地填充（R-01-016/AC-04）",
+);
 // R-01-013/AC-07、R-01-013/AC-08
 assert.ok(bundle.includes('dataset.role = "user"'), "用户消息行骨架静态标识 user 角色");
 assert.ok(bundle.includes('dataset.role = "agent"'), "agent 回复行骨架静态标识 agent 角色");

@@ -1673,6 +1673,14 @@ const CSS = `
   from { background-position: 0 0; }
   to { background-position: 40px 0; }
 }
+/* 活动层级上下文卡（parent）：不确定态进度条——满宽轨道内条纹滚动动画、
+   无百分比文本，表示仍有活动后代在工作（R-01-016/AC-03）。 */
+[data-dsh-activity-pane] .dap-card[data-kind="parent"] .dap-fill {
+  width: 100%;
+  background: repeating-linear-gradient(90deg, #58c98f 0 10px, #3fbf86 10px 20px);
+  background-size: 200% 100%;
+  animation: dap-stripes 0.8s linear infinite;
+}
 @media (prefers-reduced-motion: reduce) {
   /* answer-pet 保留状态脉冲/流式条纹；仅关闭宽度过渡，避免状态反馈消失。 */
   [data-dsh-activity-pane] .dap-fill { transition: none; }
@@ -2339,7 +2347,9 @@ function apply(ctx) {
 		if (kind === "parent") {
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
-			return [head, row];
+			const track = makeEl("div", "dap-track");
+			track.append(makeEl("div", "dap-fill"));
+			return [head, row, makeEl("div", "dap-trace"), track];
 		}
 		if (kind === "subagent") {
 			const row = makeEl("div", "dap-row");
@@ -2368,7 +2378,7 @@ function apply(ctx) {
 				makeEl("span", "dap-title"),
 				makeEl("span", "dap-badge"),
 			);
-			return [head, row, makeEl("div", "dap-note")];
+			return [head, row, makeEl("div", "dap-trace"), makeEl("div", "dap-note")];
 		}
 		// 运行卡：上下文 + 标题 + 最近工作项 + 进度条 + token 底行。
 		const row = makeEl("div", "dap-row");
@@ -2853,7 +2863,11 @@ function apply(ctx) {
 			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, nativeSessionId, { lastOnly: true });
 			return;
 		}
-		if (entry.kind === "parent") return;
+		if (entry.kind === "parent") {
+			const traceContainer = el.querySelector(".dap-trace");
+			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, nativePresentationSessionId(entry));
+			return;
+		}
 
 		if (entry.kind === "recent") {
 			const lines = el.querySelectorAll(".dap-history-line");
@@ -2872,6 +2886,11 @@ function apply(ctx) {
 					restoreTextField(text, previews[i]);
 				}
 			}
+		}
+
+		if (entry.kind === "awaiting") {
+			const traceContainer = el.querySelector(".dap-trace");
+			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, nativePresentationSessionId(entry));
 		}
 
 		const note = el.querySelector(".dap-note");

@@ -1334,9 +1334,9 @@ function apply(ctx) {
 		return rows.find((row) => row.textContent.replace(/\s+/g, " ").trim() === expected) ?? null;
 	}
 	function nativeWorkItemRow(item) {
-		// 折叠组行不设原生行匹配键（无 callId/toolName、label 非 Think），此处显式短路：
+		// 折叠组行与剥离正文行（stripNative）不设原生行匹配键（无 callId/toolName、label 非 Think），此处显式短路：
 		// 分组聚合自核心快照，状态与文字一律以聚合结果为准（R-01-017）。
-		if (item.fold === true) return null;
+		if (item.fold === true || item.stripNative === true) return null;
 		const index = nativeRowIndex();
 		if (index.conversation === null) return null;
 		if (item.id) {
@@ -1549,9 +1549,12 @@ function apply(ctx) {
 	};
 	function fallbackTraceIcon(item) {
 		// 折叠组行（R-01-017）：think 组用思考图标、context 组用浏览图标；tool 组按末位工具成员 icon 兜底。
+		// 折叠组行（R-01-017）：think 组用思考图标、context 组用浏览图标；
+		// tool 组统一 DSH canonical IconApiOutline14（createBashIcon），与 auto-collapse 工具 chip 同源（C-016）。
 		if (item.fold === true) {
 			if (item.kind === "assistant") return createThinkIcon();
 			if (item.kind === "context") return createBrowseIcon();
+			return createBashIcon();
 		}
 
 		if (item.kind === "user") return createUserIcon();

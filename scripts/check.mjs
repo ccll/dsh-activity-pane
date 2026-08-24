@@ -625,6 +625,7 @@ assert.equal(folded[0].kind, "user", "用户输入项原样保留");
 assert.equal(folded[1].fold, true, "混排工作项合并为分组行");
 assert.equal(folded[1].label, "运行了命令", "完成态工具+思考组标题取工具去向（R-01-017/AC-03）");
 assert.match(folded[1].summary, /^思考一/, "组摘要携带推理文本内容（R-01-017/AC-04）");
+assert.equal(folded[1].icon, "bash", "tool 组行图标为命令图标（IconApiOutline14）");
 assert.equal(folded[2].kind, "assistant", "正文为独立行（硬边界不并入分组）");
 assert.equal(folded[2].text, "结论正文", "正文内容保留");
 assert.equal(folded[3].fold, true, "正文后的工具独立成组，不跨正文合并（R-01-017/AC-02）");
@@ -634,15 +635,32 @@ const splitNodes = new Map([
 	["q", { key: "q", kind: "tool-call", anchorSeq: 2, data: { root: { kind: "tool-result", callId: "q", call: { name: "grep", argsRaw: "{}" } } } }],
 ]);
 const split = foldWorkGroups(
-	[{ id: "k", kind: "assistant", label: "Think", text: "", summary: "推理前置", detail: "推理前置", icon: "assistant", status: "done" },
-	 { id: "b", kind: "assistant", label: "Assistant", text: "正文输出", summary: "正文输出", icon: "assistant", status: "done" },
+	[{ id: "k", kind: "assistant", label: "Think", text: "正文输出", summary: "推理前置", detail: "推理前置", icon: "assistant", status: "done" },
 	 { id: "q", kind: "tool", toolName: "grep", label: "Grep", summary: "a", icon: "search", status: "done" }],
 	4);
 assert.equal(split[0].fold, true, "reasoning 先行独立成思考组");
 assert.equal(split[0].label, "已思考", "纯思考完成组标题为已思考（R-01-017/AC-03）");
 assert.equal(split[0].summary, "推理前置", "思考组摘要为该推理文本（R-01-017/AC-04）");
-assert.equal(split[1].text, "正文输出", "正文为独立行");
+assert.equal(split[0].icon, "assistant", "思考组行图标为思考图标");
+// R-01-017/AC-02 reasoning+正文同节点剥离：推理只归组摘要，正文行不得重复显示推理文本（验收修正）
+assert.equal(split[1].label, "Assistant", "正文行不再复用 Think 标签");
+assert.equal(split[1].text, "正文输出", "正文为独立行且内容保留");
+assert.equal(split[1].summary, "正文输出", "正文行摘要为正文而非推理文本");
+assert.equal(split[1].detail, null, "正文行剥离推理文本");
+assert.equal(split[1].stripNative, true, "正文行跳过原生行匹配，避免原生 ReasoningRow 复现推理文本");
+assert.ok(!String(split[1].summary).includes("推理"), "正文行不与组摘要重复");
 assert.equal(split[2].fold, true, "正文后的工具独立成组");
+// R-01-017/AC-02 验收反馈：工具组行后紧跟的同节点正文行不得与组摘要重复推理文本（东家现场场景）
+const dedup = foldWorkGroups(
+	[{ id: "t1", kind: "tool", toolName: "bash", label: "Bash", summary: "ls -la", icon: "bash", status: "done" },
+	 { id: "k1", kind: "assistant", label: "Think", text: "这是正文", summary: "推理文本", detail: "推理文本", icon: "assistant", status: "done" }],
+	4);
+assert.equal(dedup[0].label, "运行了命令", "前组标题为运行了命令（R-01-017/AC-03）");
+assert.equal(dedup[0].summary, "推理文本", "推理文本归组摘要（R-01-017/AC-04）");
+assert.equal(dedup[0].icon, "bash", "tool 组行图标为命令图标（IconApiOutline14，与 auto-collapse chip 同源）");
+assert.equal(dedup[1].label, "Assistant", "下一行为正文行而非 Think 行");
+assert.equal(dedup[1].summary, "这是正文", "正文行内容不与组摘要重复");
+assert.equal(dedup[1].detail, null, "正文行不携带推理文本");
 // R-01-017/AC-03 运行中工具/思考标题与摘要
 const runTool = foldedConversationTimeline({
 	chat: { order: ["r1", "r2"], nodes: { get: (key) => new Map([
@@ -652,7 +670,7 @@ const runTool = foldedConversationTimeline({
 });
 assert.equal(runTool[0].label, "正在运行", "运行中工具组标题为正在运行");
 assert.equal(runTool[0].status, "running", "运行中状态聚合");
-assert.equal(runTool[0].summary, "npm run build", "运行中组摘要取执行中成员");
+assert.equal(runTool[0].icon, "bash", "运行中 tool 组行图标同为命令图标");
 // R-01-017/AC-03 双运行成员的优先序：running tool 标题/摘要优先于 running think（评审对齐 vendor updateChip）。
 const bothRunning = foldedConversationTimeline({
 	chat: { order: ["br1", "br2"], nodes: { get: (key) => new Map([
@@ -672,6 +690,7 @@ const editGroup = foldedConversationTimeline({
 	chat: { order: ["e1"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "e1", call: { name: "edit", argsRaw: "{}" } } } }) } },
 });
 assert.equal(editGroup[0].label, "编辑了文件", "含 Edit/Write 成员显示编辑了文件");
+assert.equal(editGroup[0].icon, "bash", "编辑了文件组行图标同为命令图标");
 const ctxGroup = foldedConversationTimeline({
 	chat: { order: ["c1", "c2"], nodes: { get: (key) => new Map([
 		["c1", { key: "c1", kind: "context", data: { content: [{ type: "text", text: "注入一" }], provenance: { role: "inject", label: "文件 /a.txt" } } }],
@@ -681,6 +700,7 @@ const ctxGroup = foldedConversationTimeline({
 assert.equal(ctxGroup.length, 1, "连续 context 合并为一组（R-01-017/AC-02）");
 assert.equal(ctxGroup[0].label, "上下文注入", "全 context 组标题为上下文注入（R-01-017/AC-03）");
 assert.equal(ctxGroup[0].kind, "context", "context 组行 kind 复用 context 语义");
+assert.equal(ctxGroup[0].icon, "context", "context 组行图标为上下文图标");
 // R-01-017/AC-05 状态聚合：error > stopped > done，running 优先
 const errGroup = foldedConversationTimeline({
 	chat: { order: ["x1", "x2"], nodes: { get: (key) => new Map([

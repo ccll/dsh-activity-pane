@@ -469,7 +469,8 @@ function foldMemberOf(item) {
 
 /** 组行派生：镜像 dsh-auto-collapse updateChip 标题/状态优先级（vendor 移植，C-016）——
  *  running tool > running think > 运行了命令/编辑了文件 > 已思考，context 连续段独立成组；
- *  含思考的完成组组摘要携带推理文本内容（R-01-017/AC-03、AC-04），纯工具完成组回退末位工具摘要。 */
+ *  含思考的完成组组摘要携带推理文本内容（R-01-017/AC-03、AC-04），纯工具完成组回退末位工具摘要；
+ *  tool 组行图标统一命令图标 IconApiOutline14（与 auto-collapse 工具 chip 同源，C-016）。 */
 function buildFoldRow(run) {
 	const members = run.members;
 	const runningTool = run.cat === "work" ? members.find((m) => m.cat === "tool" && m.status === "running") ?? null : null;
@@ -489,9 +490,9 @@ function buildFoldRow(run) {
 		kind = "context";
 		icon = "context";
 	} else if (runningTool !== null) {
-		label = "正在运行";
+label = "正在运行";
 		kind = "tool";
-		icon = typeof runningTool.icon === "string" ? runningTool.icon : "bash";
+icon = "bash";
 	} else if (runningThink !== null) {
 		label = "正在思考";
 		kind = "assistant";
@@ -499,7 +500,7 @@ function buildFoldRow(run) {
 	} else if (tools.length > 0) {
 		label = tools.some((t) => t === "Edit" || t === "Write") ? "编辑了文件" : "运行了命令";
 		kind = "tool";
-		icon = typeof toolMembers[toolMembers.length - 1].icon === "string" ? toolMembers[toolMembers.length - 1].icon : "other";
+		icon = "bash";
 	} else {
 		label = "已思考";
 		kind = "assistant";
@@ -544,17 +545,23 @@ export function foldWorkGroups(items, limit = 4) {
 	for (const item of Array.isArray(items) ? items : []) {
 		if (!item || typeof item !== "object") continue;
 		if (isFoldBoundary(item)) {
-			if (item.kind === "assistant" && typeof item.detail === "string" && item.detail.trim() !== "") {
-				if (run === null || run.cat !== "work") {
-					flush();
-					run = { cat: "work", members: [], keys: [] };
-				}
-				run.members.push(foldMemberOf(item));
-				run.keys.push(String(item.id ?? ""));
+		if (item.kind === "assistant" && typeof item.detail === "string" && item.detail.trim() !== "") {
+			if (run === null || run.cat !== "work") {
+				flush();
+				run = { cat: "work", members: [], keys: [] };
 			}
+			run.members.push(foldMemberOf(item));
+			run.keys.push(String(item.id ?? ""));
+			// 推理文本已并入当前组（组摘要承载，AC-04）；正文行剥离推理展示并跳过原生行匹配，
+			// 避免同一推理文本在组行与下一行重复呈现（R-01-017/AC-02 验收修正）。
+			const body = { ...item, label: "Assistant", summary: item.text, detail: null, stripNative: true };
 			flush();
-			rows.push({ ...item });
+			rows.push(body);
 			continue;
+		}
+		flush();
+		rows.push({ ...item });
+		continue;
 		}
 		const cat = item.kind === "context" ? "context" : item.kind === "tool" || item.kind === "assistant" ? "work" : null;
 		if (cat === null) {

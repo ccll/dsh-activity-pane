@@ -6,7 +6,7 @@ id: T-041
 
 # T-041 移动端抽屉标题栏对齐桌面最新迭代
 
-状态: active
+状态: completed
 关联: R-01-008、R-01-011 → 窗格渲染器
 风险等级: standard
 
@@ -53,4 +53,13 @@ id: T-041
 
 ## 终态与证据
 
-（待关闭时填写）
+- 实现: `src/client.mjs`——模板移除独立 `.dap-close` × 按钮；`.dap-collapse-hint`（«）与 header 的 cursor/hover/focus 反馈移出桌面媒体查询，两端断点一致呈现；`onHeaderActivate` 移动端分支改为 `togglePane(false)` 收起抽屉、桌面分支折叠窄条不变；`onCloseClick`/`close` 查询及其绑定解绑成对移除；`onHeaderKeydown` 移除为 × 而设的 target 死守卫；标题行 aria-label/title 改为「收起活动会话窗格」/「收起」（两端均只收不展）。`scripts/check.mjs` 契约断言锚定 R-01-008/AC-02、R-01-011/AC-06 新语义（无 dap-close/onCloseClick 残留、移动端分支 togglePane(false)、« 两端呈现）；`scripts/acceptance.mjs` 三条验收步骤改写为新语义。
+- 测试: `pnpm build:client && pnpm check` 全部断言通过；`python3 tools/agentmap_lint.py --report` 通过（19 需求 / 84 AC 全追溯、全锚定）；`node --check scripts/acceptance.mjs` 通过；`git diff --check` 干净。GUI 现场验收（移动端标题行整行点击/键盘收起抽屉、行尾 « 与桌面一致、无 × 按钮、桌面折叠不回归）由东家按 scripts/acceptance.mjs 清单执行。
+- DESIGN 对照: 与 DESIGN「边界与对外契约 → 关键机制（桌面列折叠…移动端断点下标题行整体为抽屉收起控件）」「产品契约 → 窗口形态」「窗格渲染器 → 关键内部结构（标题行整体控件，两端断点一致）」及需求追溯索引（R-01-008 → 移动端抽屉与开关、R-01-011 → 标题行整体折叠控件 → src/client.mjs）逐条一致，无差异。
+- commit: 93000107d4d906962a556282d68c03cc82ced93a
+- review:
+  - 审核方: 独立 reviewer 双轴（Standards 子代理 7445de1d、Spec 子代理 a3625656，code-review skill 流程）
+  - 目的理解: 移动端抽屉标题栏对齐桌面最新迭代——移除独立 × 按钮，标题行整行激活即收起抽屉（togglePane(false)），« 方向符号与 hover/cursor 反馈两端断点一致，桌面折叠窄条行为不变；关联 PRD R-01-008/AC-02、R-01-011/AC-06 与 DESIGN 窗格渲染器「标题行整体控件」条目；预期行为与验证方式以 PRD 验收点 + check/acceptance 锚点为准（两轴均在审核前记录目的理解）。
+  - 执行方式: `code-review` skill，评审基线为工作树 `git diff HEAD`（实现提交前），范围含 src/client.mjs、scripts/check.mjs、scripts/acceptance.mjs、PRD/DESIGN 演进与 task 文件；修复后由同一审核方对同一基线复审。
+  - 问题与修复: Standards 轴 1 项硬违规——acceptance.mjs 行尾残留 `},{` 致语法错误（修复前快照，已删并复核 `node --check` 通过）；2 项判断性建议——aria-label/title「收起或展开」失真（已采纳，改为「收起活动会话窗格」/「收起」，两端均只收不展）、精确空白断言脆弱（经取舍保留，沿用 check.mjs 既有先例，复审认可）。Spec 轴 2 条 minor——acceptance.mjs R-01-011/AC-06 锚点注释残留旧语义（已改「移动端标题行即收起抽屉」）、aria-label/title 误述控件行为（同上一并修复）。
+  - 复审结论: 两轴复审均确认全部 finding 消除、无新增 finding，通过。

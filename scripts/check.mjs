@@ -9,6 +9,10 @@ import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+	AWAIT_PERIOD_FAST_S,
+	AWAIT_PERIOD_SLOW_S,
+	awaitBadgeStats,
+	awaitPulsePeriod,
 	buildEntries,
 	buildRecent,
 	cardSignature,
@@ -53,6 +57,11 @@ import {
 	shouldDismissDrawerOnActivation,
 	suppressComposerAutofocus,
 } from "../src/navigation.mjs";
+
+// R-01-002/AC-07 周期端点耦合钉：AWAIT_PERIOD_SLOW_S 与 CSS var(--dap-await-period, 1.6s)
+// 缺省值必须同步（JS 未写入时回落 CSS 缺省），改动任一侧须同次变更另一侧。
+assert.equal(AWAIT_PERIOD_SLOW_S, 1.6, "慢端周期常量与 CSS 缺省值耦合，改任一处必须同步");
+assert.equal(AWAIT_PERIOD_FAST_S, 0.5, "快端上限常量与 DESIGN/单测文档值耦合");
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -458,6 +467,30 @@ const pendingEntries = buildEntries(pendingSnap, []);
 assert.equal(pendingEntries[0].kind, "awaiting", "pending 覆盖 running");
 assert.equal(pendingEntries[0].pendingText, "待确认");
 
+// ---- R-01-001/AC-05 徽标计数口径：只统计主会话，子代理与 parent 不计入 ----
+assert.deepEqual(awaitBadgeStats([]), { waiting: 0, total: 0 }, "空列表为 0/0（R-01-001/AC-06）");
+assert.deepEqual(
+	awaitBadgeStats([
+		{ id: "a", kind: "running" },
+		{ id: "b", kind: "awaiting" },
+		{ id: "c", kind: "awaiting" },
+		{ id: "d", kind: "subagent" },
+		{ id: "e", kind: "parent" },
+	]),
+	{ waiting: 2, total: 3 },
+	"分子=awaiting 主会话数，分母=running+awaiting 主会话数",
+);
+// ---- R-01-002/AC-07 脉冲周期：随占比单调加快、两端封闭、非法输入不脉冲 ----
+assert.equal(awaitPulsePeriod(0, 3), null, "无等待返回 null：不脉冲");
+assert.equal(awaitPulsePeriod(-1, 3), null, "负分子归一为不脉冲");
+assert.equal(awaitPulsePeriod(2, 1), null, "分子大于分母视为非法输入");
+assert.equal(awaitPulsePeriod(2, undefined), null, "非法分母归一为不脉冲");
+assert.equal(awaitPulsePeriod(1, 1), 0.5, "全部等待达到频率上限（最短周期）");
+const periodQuarter = awaitPulsePeriod(1, 4);
+const periodHalf = awaitPulsePeriod(2, 4);
+const periodThreeQuarters = awaitPulsePeriod(3, 4);
+assert.ok(periodHalf < periodQuarter && periodThreeQuarters < periodHalf, "占比越高周期越短（频率单调加快）");
+assert.ok(periodThreeQuarters > 0.5 && periodQuarter < 1.6, "部分等待的周期落在封闭区间内");
 // ---- R-01-001/AC-01 可重复的确定性渲染（见下） ｜ R-02-003/AC-01 渲染签名去重 ----
 const e1 = buildEntries(snapshot, workspaces);
 const e2 = buildEntries(snapshot, workspaces);
@@ -1109,7 +1142,11 @@ assert.deepEqual(
 	[["sB", "awaiting", "需要响应", true]],
 	"保持中会话以 awaiting「需要响应」留在活动区且保持当前高亮",
 );
-assert.equal(buildRecent(holdSnap, [], NOW, undefined, {}, [], held).length, 0, "保持中会话不入历史区（分区不变量）");
+assert.deepEqual(
+	awaitBadgeStats(heldEntries),
+	{ waiting: 1, total: 1 },
+	"响应保持中会话计入徽标等待分子（n 统计口径含响应保持）",
+);
 // 保持中发消息转 running：按运行中呈现。
 const holdRunning = buildEntries({ ids: ["sB"], byId: { sB: { ...holdBase, running: true } }, current: "sB" }, [], {}, held);
 assert.equal(holdRunning[0].kind, "running", "保持中会话开始运行时按运行中呈现");
@@ -1666,7 +1703,29 @@ assert.ok(bundle.includes('toggle.toggleAttribute("data-drawer-open", open)'), "
 // 等待标识徽标改用主题协调的柔和底，不再使用突兀的橙金渐变。
 assert.ok(bundle.includes('.dap-badge {\n  flex: none; font-size: 10px; line-height: 14px; font-weight: 600;\n  color: color-mix(in srgb, currentColor 88%, transparent);\n  background: color-mix(in srgb, currentColor 12%, transparent);'), "等待标识徽标使用主题协调的柔和底色");
 assert.ok(!bundle.includes('color: #221a10; background: linear-gradient(180deg, #ffd488, #e8a33d);'), "等待标识徽标不再使用橙金渐变");
-assert.ok(bundle.includes('.dap-count[data-awaiting]') && bundle.includes('animation: dap-await-pulse 1.2s ease-in-out infinite'), "数量徽标等待态保留醒目红色与脉冲");
+// R-01-001/AC-04、AC-05、AC-06 徽标 n/m 计数；R-01-002/AC-06、AC-07 同色占比脉冲
+assert.ok(bundle.includes("const countText = `${waiting}/${total}`;"), "数量徽标以 n/m 分数形式呈现");
+assert.ok(
+	bundle.includes("awaitBadgeStats(active)") && bundle.includes("awaitPulsePeriod(waiting, total)"),
+	"计数与脉冲周期由核心纯函数单点派生",
+);
+assert.ok(
+	bundle.includes("[data-dsh-activity-pane] .dap-count[data-awaiting] {\n  /* 底色与等待卡背景同色") &&
+		bundle.includes("[data-dsh-activity-pane] .dap-rail-count[data-awaiting] {\n  background: rgba(35, 31, 25, 0.97);"),
+	"数量徽标等待态底色与等待卡背景同色（R-01-002/AC-06）",
+);
+assert.ok(!bundle.includes("linear-gradient(180deg, #ffb4b4, #f06a72)") && !bundle.includes("#2a1012"), "数量徽标不再使用红色渐变旧配色（时间线错误态红色不受影响）");
+assert.equal(
+	(bundle.match(/animation: dap-await-pulse var\(--dap-await-period/g) ?? []).length,
+	3,
+	"列头/窄条/移动开关三处镜像面统一接入占比驱动脉冲（R-01-002/AC-07）",
+);
+assert.ok(bundle.includes('el.style.setProperty("--dap-await-period", next)'), "渲染层按等待占比写入脉冲周期自定义属性");
+assert.ok(
+	bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting],"),
+	"浅色主题数量徽标覆盖为等待卡浅色背景别名",
+);
+assert.ok(bundle.includes("`${total} 个活动会话，${waiting} 个等待响应`"), "数量徽标 aria-label 携带语义化计数说明");
 assert.ok(
 	bundle.includes("border-radius: 999px; padding: 0 7px;\n}\n[data-dsh-activity-pane] .dap-workspace {"),
 	"徽标规则正确闭合，后续 .dap-workspace 保持顶层规则（R-01-002/AC-04 结构回归防护）",

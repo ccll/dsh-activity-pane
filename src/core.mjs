@@ -562,6 +562,33 @@ export function pendingText(kind) {
 	return PENDING_LABELS[kind] ?? "需要响应";
 }
 
+/** 数量徽标统计：只统计主会话——分子为等待响应（awaiting，含响应保持）的主会话数，
+ *  分母为其加运行中（running）主会话之和；子代理与 parent 层级上下文不计入
+ *  （R-01-001/AC-05）。空列表返回 { waiting: 0, total: 0 }，徽标恒以 n/m 呈现。 */
+export function awaitBadgeStats(entries) {
+	let waiting = 0;
+	let total = 0;
+	for (const entry of Array.isArray(entries) ? entries : []) {
+		if (entry?.kind !== "running" && entry?.kind !== "awaiting") continue;
+		total += 1;
+		if (entry.kind === "awaiting") waiting += 1;
+	}
+	return { waiting, total };
+}
+
+// 脉冲周期端点：全部等待时达到最快上限（R-01-002/AC-07）；单个等待起步时最慢。
+export const AWAIT_PERIOD_FAST_S = 0.5;
+export const AWAIT_PERIOD_SLOW_S = 1.6;
+
+/** 等待占比 → 徽标脉冲周期（秒）：随 r=n/m 单调加快、两端封闭——全部等待取
+ *  AWAIT_PERIOD_FAST_S 上限频率；无等待或非法输入返回 null 表示不脉冲。 */
+export function awaitPulsePeriod(waiting, total) {
+	const n = Number.isFinite(waiting) ? Math.max(0, Math.floor(waiting)) : 0;
+	const m = Number.isFinite(total) ? Math.max(0, Math.floor(total)) : 0;
+	if (n <= 0 || m <= 0 || n > m) return null;
+	return AWAIT_PERIOD_SLOW_S - (AWAIT_PERIOD_SLOW_S - AWAIT_PERIOD_FAST_S) * (n / m);
+}
+
 /** CSS 字符串字面量转义（用于属性选择器的加引号形式）：先反斜杠后引号，再处理 CSS 字符串
  *  不允许的换行/回车/换页（码位转义）与 NUL（替换字符），顺序不可颠倒。 */
 export function escapeCssString(value) {

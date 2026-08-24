@@ -86,9 +86,9 @@ const CSS = `
   padding: 0 7px;
 }
 [data-dsh-activity-pane] .dap-count[data-awaiting] {
-  background: linear-gradient(180deg, #ffb4b4, #f06a72);
-  color: #2a1012;
-  animation: dap-await-pulse 1.2s ease-in-out infinite;
+  /* 底色与等待卡背景同色（R-01-002/AC-06）；周期由 --dap-await-period 按等待占比驱动（AC-07）。 */
+  background: rgba(35, 31, 25, 0.97);
+  animation: dap-await-pulse var(--dap-await-period, 1.6s) ease-in-out infinite;
 }
 @keyframes dap-await-pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
 /* 单一滚动区：活动区与最近历史同一容器滚动；touch-action/overscroll 防止
@@ -183,8 +183,8 @@ const CSS = `
   color: color-mix(in srgb, currentColor 60%, transparent);
 }
 [data-dsh-activity-pane] .dap-rail-count[data-awaiting] {
-  background: linear-gradient(180deg, #ffb4b4, #f06a72);
-  color: #2a1012;
+  background: rgba(35, 31, 25, 0.97);
+  animation: dap-await-pulse var(--dap-await-period, 1.6s) ease-in-out infinite;
 }
 /* 桌面拖拽调宽手柄（R-01-015）：右缘 6px 命中区，拖拽实时写入 --dap-width；
    折叠窄条与移动端抽屉不提供拖拽（下方两处媒体查询隐藏）。 */
@@ -567,9 +567,8 @@ const CSS = `
   padding: 0 5px; font-size: 10px; font-weight: 700;
 }
 .dap-toggle[data-awaiting] .dap-toggle-count {
-  background: linear-gradient(180deg, #ffb4b4, #f06a72);
-  color: #2a1012;
-  animation: dap-await-pulse 1.2s ease-in-out infinite;
+  background: rgba(35, 31, 25, 0.97);
+  animation: dap-await-pulse var(--dap-await-period, 1.6s) ease-in-out infinite;
 }
 /* 移动端抽屉透明遮罩：抽屉打开时铺满视口、点击收起抽屉（R-01-008/AC-03）。
    完全透明不占布局；z-index 介于主会话与抽屉（2147482990）之间；抽屉打开期间
@@ -653,6 +652,11 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current] 
 
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"] {
   background: var(--dsw-alias-state-warn-tertiary, rgb(254, 245, 231));
+}
+/* 数量徽标等待态浅色主题覆盖：底色取等待卡浅色背景别名（R-01-002/AC-06）。 */
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting],
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting],
+body:not([data-ds-dark-theme]) .dap-toggle[data-awaiting] .dap-toggle-count {
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-pct {
   color: var(--dsw-alias-state-success-primary, #22c55e);
@@ -931,6 +935,16 @@ function apply(ctx) {
 
 	function apiValue(response) {
 		return response?.result?.ok === true ? response.result.value : null;
+	}
+
+	/** 徽标等待脉冲周期写入：period 为 null 时移除自定义属性（回落 CSS 缺省）；值未变不写。 */
+	function setAwaitPulsePeriod(el, period) {
+		if (period === null) {
+			if (el.style.getPropertyValue("--dap-await-period") !== "") el.style.removeProperty("--dap-await-period");
+			return;
+		}
+		const next = `${period.toFixed(3)}s`;
+		if (el.style.getPropertyValue("--dap-await-period") !== next) el.style.setProperty("--dap-await-period", next);
 	}
 
 	function loadNativeDetails(ids) {
@@ -2290,21 +2304,28 @@ function apply(ctx) {
 			}
 		}
 
-		// 计数与折叠
+		// 计数与折叠：n/m 只统计主会话——分子为等待响应数、分母为其加运行中主会话之和
+		// （R-01-001/AC-04、AC-05）；空态同样显示 0/0（AC-06）。
 		const count = pane.querySelector(".dap-count");
 		const railCount = pane.querySelector(".dap-rail-count");
-		const hasAwaiting = active.some((entry) => entry.kind === "awaiting");
-		const countText = String(active.length);
+		const { waiting, total } = awaitBadgeStats(active);
+		const hasAwaiting = waiting > 0;
+		const countText = `${waiting}/${total}`;
+		const ariaText = hasAwaiting ? `${total} 个活动会话，${waiting} 个等待响应` : `${total} 个活动会话`;
+		const awaitPeriod = awaitPulsePeriod(waiting, total);
 		for (const el of [count, railCount])
 			if (el !== null) {
-				// 值未变不写文本节点：aria-live 下相同赋值也会触发替换与重复播报。
+				// 值未变不写文本节点/属性：aria-live 下相同赋值也会触发替换与重复播报。
 				if (el.textContent !== countText) el.textContent = countText;
 				el.toggleAttribute("data-awaiting", hasAwaiting);
+				if (el.getAttribute("aria-label") !== ariaText) el.setAttribute("aria-label", ariaText);
+				setAwaitPulsePeriod(el, awaitPeriod);
 			}
 		const toggleCount = toggle.querySelector(".dap-toggle-count");
 		if (toggleCount !== null) {
 			if (toggleCount.textContent !== countText) toggleCount.textContent = countText;
 			toggle.toggleAttribute("data-awaiting", hasAwaiting);
+			setAwaitPulsePeriod(toggleCount, awaitPeriod);
 		}
 		pane.toggleAttribute("data-collapsed", collapsed);
 		const headerExpanded = collapsed ? "false" : "true";

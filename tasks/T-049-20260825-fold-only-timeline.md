@@ -6,7 +6,7 @@ id: T-049
 
 # T-049 时间线只保留折叠分组呈现，移除逐项镜像与检测切换
 
-状态: active
+状态: completed
 关联: R-01-017 → 活动状态模型、窗格渲染器；R-01-009、R-01-012（AC 语义同次改写）
 风险等级: standard
 
@@ -56,4 +56,13 @@ id: T-049
 
 ## 终态与证据
 
-（实现完成后填写）
+- 实现: PRD（R-01-009 AC-01/02/07/09/10、R-01-012 正文与 AC-02/03/06/07/08、R-01-016 AC-01/02、R-01-017 标题/正文/AC-01 反转、R-01-018 AC-03）、DESIGN（检测探测契约删除、折叠时间线改为唯一来源、指令槽位单路径、模块条目与追溯索引）、DOMAIN（四词条唯一化与不变量改写）、DECISIONS C-017 同次演进；src/core.mjs 删除逐项家族（conversationTimeline/conversationTimelineWithSlot/historyTimelineWithSlot/SLOT_SCAN_BUDGET）与 AUTO_COLLAPSE_STYLE_ID/mergeTraceStatus/nativePresentationSessionId，新增 conversationWorkItems 扁平内核（1388→1341 行）；src/client.mjs 删除 autoCollapseActive 探测、memo fold 维度、冷卡翻转重算与原生行匹配/图标克隆/图标缓存机器，renderTrace 直用核心状态（2767→2569 行）；scripts/check.mjs 37 处用例迁移至 conversationWorkItems/折叠家族，新增负向 bundle 守卫与 4 调用点计数断言；bench/acceptance 同步；.dsh-plugin/client.js 重新生成（200,142→186,808 字节）；评审修复收口（DOMAIN 词条唯一性、R-01-012/AC-03 措辞、探针清理、bench 注释）。
+- 测试: pnpm build:client && pnpm check 全绿（R-01-017/R-01-018 折叠路径全量锚定 + 负向守卫）；python3 tools/agentmap_lint.py --report 通过（requirements=22 / acceptance-criteria=103 / design-covered=22 / test-anchored=103）；git diff --check 干净；node scripts/bench.mjs 可运行（steady 0.134ms / push 0.191ms / legacy 4.091ms）；profile 符号链接确认新 bundle 经 HMR 已在浏览器实际运行；两次提交时 pre-commit 钩子（20-agentmap-lint、30-dsh-activity-pane-check）重放通过。GUI 现场验收（多工具+思考回合折叠呈现、未装 dsh-auto-collapse 同样折叠）由东家按 scripts/acceptance.mjs 人工核验。
+- DESIGN 对照: 折叠时间线契约（foldedTimelineWithSlot 唯一来源、指数扩窗、组标题/摘要优先级、状态聚合、尾部提升）、指令槽位单路径派生、conversationWorkItems 内核、模块条目与需求追溯索引（R-01-017 → 折叠分组派生（唯一时间线形态））均与实现一致；PRD R-01-012/AC-03 经 Spec 轴复审收敛后与设计同源。
+- commit: 11916c2 a2843fb（前者实现、后者双轴评审修复）
+- review:
+  - 审核方: 独立子代理双轴并行（Standards：76c2d63b-8a26-4a38-999b-21a7cb8fa9fa；Spec：90e6fb4e-fc09-4839-9265-ef9a450fedf5）。
+  - 目的理解: 时间线移除逐项镜像、只保留折叠分组呈现（无条件、不依赖 dsh-auto-collapse），同次清除失去消费者的原生行呈现死代码；关联 R-01-017（唯一形态）与 R-01-009/R-01-012/R-01-016/R-01-018 的分组行口径改写；预期行为与验证以 PRD AC + check/acceptance 锚点为准。
+  - 执行方式: code-review skill 双轴（Standards + Spec）审核 git diff 7a0a84c...HEAD（提交 11916c2）与工作区微修；Standards 对照 AGENTS/CONVENTIONS/DESIGN 横切约束 + Fowler 味道基线；Spec 对照 tasks/T-049 方案、PRD 改写后需求、DECISIONS C-017 与 DESIGN 契约。
+  - 问题与修复: Standards——硬性 1) DOMAIN.md「工作项时间线」重复定义 → 旧行替换为新定义；硬性 2) DOMAIN.md「工作项分组」词条被误覆盖致 L80 不变量悬空 → 恢复词条；硬性 3) check.mjs 遗留 PROBE 调试探针与 __traceCallCount → 删除入库；判断性——split 计数断言脆弱（维持现状：计数即契约意图、邻旁风格一致）、item.status ?? "running" 内联兜底（KISS 保留）、bench.mjs 历史注释失真（恢复历史函数名并标注已随 T-049 移除）。Spec——(a) R-01-012/AC-03 措辞近乎自指、可判定性弱 → 改为「应当符合 R-01-017 的分组派生规则」；(b) 范围蔓延：无；(c) 实现错误：无。
+  - 复审结论: 双轴复审均通过（Standards：三条硬违规全部修复属实、无遗留 finding；Spec：AC-03 修复确认、维持无发现）。

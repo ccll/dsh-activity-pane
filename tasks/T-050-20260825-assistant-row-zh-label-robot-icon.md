@@ -6,7 +6,7 @@ id: T-050
 
 # T-050 时间线 assistant 行中文「助手/思考」标签与机器人图标
 
-状态: active
+状态: completed
 关联: R-01-012（AC-09、AC-10）→ 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -47,4 +47,13 @@ id: T-050
 
 ## 终态与证据
 
-（完成后填写）
+- 实现: PRD R-01-012 追加 AC-09/AC-10（两闸口东家确认）；DESIGN 产品契约「工作项时间线呈现」补 label 中文归一与图标分流约束；src/core.mjs 三处 label 中文化（正文「助手」、思考「思考」）与两处注释英文清理；src/client.mjs 正文行图标改 createRobotIcon（与最近卡 agent 角色标识同源）、图标分流改 detail truthy 谓词（评审收口，与 core label 判定同源）；scripts/check.mjs 断言与 fixtures 同步并新增 AC-09/AC-10 锚点与 bundle 守卫；scripts/acceptance.mjs 措辞同步并新增 AC-09/AC-10 人工验收步骤；.dsh-plugin/client.js 重新生成。
+- 测试: pnpm build:client && pnpm check 全绿（测试先行：新锚点先红后绿）；python3 tools/agentmap_lint.py --report 通过（requirements=22 / acceptance-criteria=105 / design-covered=22 / test-anchored=105）；git diff --check 干净；两次提交 pre-commit 钩子（20-agentmap-lint、30-dsh-activity-pane-check）重放通过。GUI 现场验收（正文行机器人图标 +「助手」标签、思考行「思考」标签）由东家按 scripts/acceptance.mjs 人工核验。
+- DESIGN 对照: 产品契约「显示行 label 中文归一」「正文行机器人 SVG、思考行思考图标、图标分流按 reasoning/detail 有无而不比较 label 文案」与实现一致；需求追溯索引无需变动（无新 R-ID）。
+- commit: 43256cb e77c13c（前者实现、后者双轴评审收口）
+- review:
+  - 审核方: 独立子代理双轴并行（Standards：224daacd-0aae-4268-a197-701152c5c983；Spec：85330b58-fb19-4916-8094-fd1fda863a54）。
+  - 目的理解: 时间线 agent 正文行标签中文化（助手/思考）、正文行图标改为与最近卡 agent 角色标识同源的机器人图标、图标分流从 label 字符串比较改为按 reasoning/detail 有无判定；关联 R-01-012/AC-09、AC-10；预期行为与验证以 PRD AC 与 check/acceptance 锚点为准。
+  - 执行方式: code-review skill 双轴（Standards + Spec）审核 git diff HEAD~1...HEAD（提交 43256cb）；Standards 对照 AGENTS/CONVENTIONS/DESIGN 横切约束 + Fowler 味道基线；Spec 对照 tasks/T-050 方案、PRD R-01-012/R-01-013 与 DESIGN 契约。
+  - 问题与修复: Standards——无硬违规；判断性 1) client detail.trim() 谓词与 core truthy 判定对纯空白 reasoning 不一致 → e77c13c 改 truthy 同源谓词；2) label 字面量三处重复 → 被仓库内联惯例压制，维持现状。Spec——无缺失/范围蔓延/实现错误；nit：core 两处注释残留英文「Think」→ e77c13c 改「思考」。
+  - 复审结论: 双轴复审均通过（finding 全部消除，无新增问题）。

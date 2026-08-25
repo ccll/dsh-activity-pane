@@ -434,10 +434,10 @@ const CSS = `
   min-width: 0; padding: 1px 14px 2px 0;   /* 左缘贴卡片无缩进；底部空隙与行间一致 */
   color: #c7ced9; font-size: 10px; line-height: 14px;
 }
-/* 用户指令消息虚线框（R-01-018 验收）：槽位与时间线内用户行同款；
- *  outline 不占布局，行间空隙保持 3px 一致。 */
+/* 用户指令消息虚线框（R-01-018 验收）：槽位整体；时间线用户行框其内容
+ *  main（不含左侧轨道圆点）；outline 不占布局，行间空隙保持 3px 一致。 */
 [data-dsh-activity-pane] .dap-slot,
-[data-dsh-activity-pane] .dap-trace-item[data-icon="user"] {
+[data-dsh-activity-pane] .dap-trace-item[data-icon="user"] .dap-trace-main {
   outline: 1px dashed rgba(126, 147, 177, .5);
   outline-offset: -1px;
 }
@@ -727,7 +727,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item::after {
   background: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.12));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-slot,
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item[data-icon="user"] {
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item[data-icon="user"] .dap-trace-main {
   outline-color: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.22));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-track {

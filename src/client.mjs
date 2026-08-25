@@ -33,8 +33,6 @@ const CLOCK_MS = 1000;
 const HISTORY_MAX_PAGES = 3;
 /** 冷数据读取并发池上限：慢网下避免几十张卡片的 models/history 一次性挤占通道。 */
 const LOAD_CONCURRENCY = 3;
-/** 原生动作图标缓存上限（按插入序修剪；只保留当前会话条目）。 */
-const ICON_CACHE_MAX = 128;
 
 const CSS = `
 [data-dsh-activity-pane] {
@@ -856,8 +854,6 @@ function apply(ctx) {
 	const livenessById = new Map();
 	/** 订阅停止后保留最近快照，供 awaiting/recent 卡继续显示上下文。 */
 	const sessionDetailsById = new Map();
-	/** 工作项动作图标缓存：状态切换为 error 时继续复用原动作图标。 */
-	const nativeIconsByTraceKey = new Map();
 	/** 会话跳转的单一重试链；避免重复点击叠加 refresh/timer。 */
 	const openRetryStates = new Map();
 	/** native cold-session model/history reads, one promise per session and no polling. */
@@ -1058,13 +1054,8 @@ function apply(ctx) {
 						detail.history = events;
 						// R-01-018：冷卡槽位源——history 内最近用户指令全文（全量行内可寻，供行内查找未命中时兜底）。
 						detail.lastUser = lastUserFromEvents(events);
-						// R-01-017：检测生效时冷路径同样折叠分组（取全量页内事件再折成最多 4 组）；
-						// timelineFold 记录加载时探测结果，供渲染期翻转重算（评审补冷卡热装切换）。
-						const historyFold = autoCollapseActive();
-						detail.timelineFold = historyFold;
-						const derivedHistory = historyFold
-							? foldWorkGroupsWithSlot(conversationTimelineFromHistory(events, Number.MAX_SAFE_INTEGER, byId[id]?.cwd ?? ""), 4)
-							: historyTimelineWithSlot(events, 4, byId[id]?.cwd ?? "");
+						// R-01-017：冷路径同样折叠分组（取全量页内事件再折成最多 4 组）。
+						const derivedHistory = foldWorkGroupsWithSlot(conversationTimelineFromHistory(events, Number.MAX_SAFE_INTEGER, byId[id]?.cwd ?? ""), 4);
 						detail.timeline = derivedHistory.rows;
 						detail.timelineSlot = derivedHistory.slot;
 						detail.previews = messagePreviews({ history: events });
@@ -1327,108 +1318,6 @@ function apply(ctx) {
 		return [head, row, makeEl("div", "dap-trace"), track, statsRow];
 	}
 
-	/** 会话区 DOM 行索引：每次渲染构建一次（renderStamp 变化时），供当次全部
-	 *  工作项共用，替代逐项 querySelectorAll 全量物化扫描。 */
-	let renderStamp = 0;
-	let domIndexStamp = -1;
-	let domIndex = null;
-	function nativeRowIndex() {
-		if (domIndex !== null && domIndexStamp === renderStamp) return domIndex;
-		const conversation = document.querySelector(CONVERSATION_SELECTOR);
-		const index = { conversation, byKey: new Map(), byCallId: new Map(), byTool: new Map(), thinks: [], contexts: [] };
-		if (conversation !== null) {
-			for (const row of conversation.querySelectorAll("[data-chat-flow-key], [data-chat-anchor-key]")) {
-				const flowKey = row.getAttribute("data-chat-flow-key");
-				const anchorKey = row.getAttribute("data-chat-anchor-key");
-				if (flowKey !== null && !index.byKey.has(flowKey)) index.byKey.set(flowKey, row);
-				if (anchorKey !== null && !index.byKey.has(anchorKey)) index.byKey.set(anchorKey, row);
-			}
-			for (const row of conversation.querySelectorAll("[data-chat-call-id]")) {
-				const callId = row.getAttribute("data-chat-call-id");
-				if (callId !== null && !index.byCallId.has(callId)) index.byCallId.set(callId, row);
-				const tool = row.getAttribute("data-tool") ?? row.querySelector("[data-tool]")?.getAttribute("data-tool");
-				if (tool && !index.byTool.has(tool)) index.byTool.set(tool, row);
-			}
-			index.thinks = [...conversation.querySelectorAll('[data-variant="think"]:not([data-tool])')];
-			index.contexts = [...conversation.querySelectorAll('[data-chat-flow-kind="context"]')];
-		}
-		domIndexStamp = renderStamp;
-		domIndex = index;
-		return index;
-	}
-	/** 原生行摘要文本：disclosure 标题后的首个非空节点，与 nativeWorkItemPresentation 同口径。 */
-	function disclosureRowSummary(row) {
-		const disclosure = row.querySelector("[data-disclosure-row]");
-		if (disclosure === null) return "";
-		const children = [...disclosure.children];
-		return children.slice(2).map((child) => child.textContent.trim()).find(Boolean)
-			?? row.querySelector("[data-follow-end]")?.textContent?.trim()
-			?? "";
-	}
-	/** 多个 Think 行时按摘要文本精确匹配（fallback 摘要已镜像原生 firstLine/latestLine）；单行直取，无匹配走 fallback。 */
-	function matchNativeThinkRow(rows, item) {
-		if (rows.length === 1) return rows[0];
-		const expected = typeof item.summary === "string" ? item.summary.trim() : "";
-		return rows.find((row) => disclosureRowSummary(row) === expected) ?? null;
-	}
-	/** 多个 context 行时按内容文本匹配（空白归一）；单行直取，无匹配走 fallback，避免错配首行。 */
-	function matchNativeContextRow(rows, item) {
-		if (rows.length === 1) return rows[0];
-		const expected = typeof item.text === "string" ? item.text.replace(/\s+/g, " ").trim() : "";
-		return rows.find((row) => row.textContent.replace(/\s+/g, " ").trim() === expected) ?? null;
-	}
-	function nativeWorkItemRow(item) {
-		// 折叠组行与剥离正文行（stripNative）不设原生行匹配键（无 callId/toolName、label 非 Think），此处显式短路：
-		// 分组聚合自核心快照，状态与文字一律以聚合结果为准（R-01-017）。
-		if (item.fold === true || item.stripNative === true) return null;
-		const index = nativeRowIndex();
-		if (index.conversation === null) return null;
-		if (item.id) {
-			const keyed = index.byKey.get(String(item.id));
-			if (keyed !== undefined) return keyed;
-		}
-		if (item.label === "Think") return matchNativeThinkRow(index.thinks, item);
-		if (item.callId) {
-			const byCallId = index.byCallId.get(item.callId);
-			if (byCallId !== undefined) return byCallId;
-		}
-		if (item.toolName) {
-			const byTool = index.byTool.get(item.toolName);
-			if (byTool !== undefined) return byTool;
-		}
-		if (item.icon === "context") return matchNativeContextRow(index.contexts, item);
-		return null;
-	}
-
-	function cloneNativeIcon(source) {
-		if (source === null) return null;
-		const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-		const rootAttrs = ["viewBox", "width", "height", "fill", "stroke", "stroke-width", "fill-rule", "clip-rule"];
-		for (const name of rootAttrs) {
-			const value = source.getAttribute(name);
-			if (value !== null) svg.setAttribute(name, value);
-		}
-		svg.setAttribute("width", "12");
-		svg.setAttribute("height", "12");
-		svg.setAttribute("aria-hidden", "true");
-		const graphicTags = new Set(["path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "g"]);
-		const graphicAttrs = new Set(["d", "fill", "fill-rule", "clip-rule", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "x", "y", "x1", "x2", "y1", "y2", "width", "height", "rx", "ry", "points", "transform", "opacity", "fill-opacity", "stroke-opacity"]);
-		const copy = (sourceNode, target) => {
-			for (const child of sourceNode.children) {
-				const tag = child.tagName.toLowerCase();
-				if (!graphicTags.has(tag)) continue;
-				const next = document.createElementNS("http://www.w3.org/2000/svg", tag);
-				for (const attr of child.attributes) {
-					if (graphicAttrs.has(attr.name)) next.setAttribute(attr.name, attr.value);
-				}
-				if (tag === "g") copy(child, next);
-				target.append(next);
-			}
-		};
-		copy(source, svg);
-		return svg;
-	}
-
 	function createInlineIcon({ viewBox, width = 12, height = 12, parts }) {
 		const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
 		svg.setAttribute("viewBox", viewBox);
@@ -1607,51 +1496,12 @@ function apply(ctx) {
 		return (TOOL_ICON_FACTORIES[item.toolName] ?? KIND_ICON_FACTORIES[item.icon] ?? createSparkleIcon)();
 	}
 
-	/** dsh-auto-collapse 生效探测：只读其注入样式标记的 data-dshcf-state，不注入、不监听（R-01-017、C-016）。 */
-	function autoCollapseActive() {
-		const style = document.getElementById(AUTO_COLLAPSE_STYLE_ID);
-		return style !== null && style.getAttribute("data-dshcf-state") === "active";
-	}
-
-	function nativeIdleIcon(row) {
-		return row?.querySelector('[class*="iconIdle"] svg') ?? null;
-	}
-
-	function findNativeActionIcon(row) {
-		return nativeIdleIcon(row);
-	}
-
-	function tintSvgCurrentColor(svg) {
-		for (const node of svg.querySelectorAll("[fill], [stroke]")) {
-			if (node.getAttribute("fill") !== "none") node.setAttribute("fill", "currentColor");
-			if (node.getAttribute("stroke") !== "none") node.setAttribute("stroke", "currentColor");
-		}
-	}
-
-	function nativeWorkItemPresentation(item, cacheKey) {
-		const row = nativeWorkItemRow(item);
-		if (row === null) {
-			return item.toolName === "bash"
-				? { label: item.label ?? "Bash", summary: item.summary ?? item.detail ?? item.text ?? "", state: item.status ?? "running", icon: createBashIcon() }
-				: null;
-		}
-		const disclosure = row.querySelector("[data-disclosure-row]");
-		const children = disclosure === null ? [] : [...disclosure.children];
-		const label = children[1]?.textContent?.trim() ?? "";
-		const summary = disclosureRowSummary(row);
-		const state = row.getAttribute("data-state") ?? row.querySelector("[data-state]")?.getAttribute("data-state") ?? "";
-		const icon = cloneNativeIcon(findNativeActionIcon(row))
-			?? nativeIconsByTraceKey.get(cacheKey)?.cloneNode(true)
-			?? (item.toolName === "bash" ? createBashIcon() : null);
-		if (icon instanceof SVGElement && cacheKey) nativeIconsByTraceKey.set(cacheKey, icon.cloneNode(true));
-		return { label, summary, state, icon };
-	}
 
 	/**
 	 * 更新 trace 容器。运行中的同一节点只更新文字，复用 DOM 保持脉冲动画连续；
 	 * 节点身份或数量变化时才重建（R-02-003/AC-01）。
 	 */
-	function renderTrace(container, items, { lastOnly = false, allowNativePresentation = false, nativeSessionId = "" } = {}) {
+	function renderTrace(container, items, { lastOnly = false } = {}) {
 		const list = Array.isArray(items) ? items : [];
 		const sources = lastOnly ? (list.length === 0 ? [] : [list[list.length - 1]]) : list;
 		const valid = sources.filter((item) => item !== null && typeof item === "object");
@@ -1664,16 +1514,10 @@ function apply(ctx) {
 		for (let index = 0; index < valid.length; index += 1) {
 			const item = valid[index];
 			const key = String(item.id ?? index);
-			const nativeCacheKey = JSON.stringify([nativeSessionId, key]);
 			const line = lines[index] ?? makeEl("div", "dap-trace-item");
 			line.dataset.traceKey = key;
-			const presentation = item.kind === "user"
-				? { label: "", summary: "", state: "done", icon: createUserIcon() }
-				: allowNativePresentation ? nativeWorkItemPresentation(item, nativeCacheKey) : null;
-			const nativeState = presentation?.state;
-			// 核心派生的 running 优先于原生行 data-state：提升的尾项（R-01-009/AC-10）与
-			// live 项在选中会话原生行已显示 ok，不允许覆盖回 done；合并语义由 core 单测锚定。
-			line.dataset.status = mergeTraceStatus(item.status, nativeState);
+			// 核心派生状态直接上卡：显示行全部由核心折叠派生，无原生 data-state 合并维度。
+			line.dataset.status = item.status ?? "running";
 			line.dataset.icon = typeof item.icon === "string" ? item.icon : "other";
 			// 活动流式更新只改文本，保留命中节点；按下/抬起之间替换子节点会让浏览器取消 click。
 			let main = line.querySelector(".dap-trace-main");
@@ -1681,9 +1525,9 @@ function apply(ctx) {
 				main = makeEl("span", "dap-trace-main");
 				line.append(main);
 			}
-			const labelText = presentation?.label || item.label || "";
-			// context 项的 text 是注入内容原文（仅供原生行匹配），不是摘要，禁止兜底上卡。
-			const summaryText = presentation?.summary || item.summary || item.detail || (item.kind === "context" ? "" : item.text) || "";
+			const labelText = item.label || "";
+			// context 项的 text 是注入内容原文，不是摘要，禁止兜底上卡。
+			const summaryText = item.summary || item.detail || (item.kind === "context" ? "" : item.text) || "";
 			const structure = [
 				"dap-trace-icon",
 				labelText ? "dap-trace-label" : null,
@@ -1691,15 +1535,10 @@ function apply(ctx) {
 				summaryText ? "dap-trace-summary" : null,
 			].filter(Boolean);
 			const currentStructure = [...main.children].map((child) => child.className);
-			const iconKey = JSON.stringify([nativeCacheKey, item.kind ?? "", item.icon ?? "", item.toolName ?? "", item.label ?? "", presentation?.state ?? "", line.dataset.status]);
+			const iconKey = JSON.stringify([item.kind ?? "", item.icon ?? "", item.toolName ?? "", item.label ?? "", line.dataset.status]);
 			const paintIcon = (host) => {
 				host.replaceChildren();
-				if (presentation?.icon instanceof SVGElement) {
-					if (line.dataset.status === "error") tintSvgCurrentColor(presentation.icon);
-					host.append(presentation.icon);
-				} else {
-					host.append(fallbackTraceIcon(item));
-				}
+				host.append(fallbackTraceIcon(item));
 				host.dataset.iconKey = iconKey;
 			};
 			let iconHost = main.querySelector(".dap-trace-icon");
@@ -1783,18 +1622,14 @@ function apply(ctx) {
 	}
 
 	/** 时间线区统一渲染：在途且无工作项时显示加载行，否则渲染工作项时间线。 */
-	function renderTimelineArea(container, entry, nativeSessionId, { lastOnly = false } = {}) {
+	function renderTimelineArea(container, entry, { lastOnly = false } = {}) {
 		renderSlot(container, entry.slot ?? null);
 		if (entry.loadingTimeline === true && entry.timeline.length === 0) {
 			renderTraceLoading(container);
 			return;
 		}
 		if (container.dataset.loading === "true") delete container.dataset.loading;
-		renderTrace(container, entry.timeline, {
-			lastOnly,
-			nativeSessionId: nativeSessionId ?? "",
-			allowNativePresentation: nativeSessionId !== null,
-		});
+		renderTrace(container, entry.timeline, { lastOnly });
 	}
 
 	function renderCardInto(el, entry) {
@@ -1833,8 +1668,7 @@ function apply(ctx) {
 			if (pct !== null)
 				pct.textContent = `${Math.round(entry.progress ?? 0)}%`;
 			const traceContainer = el.querySelector(".dap-trace");
-			const nativeSessionId = nativePresentationSessionId(entry);
-			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, nativeSessionId);
+			if (traceContainer !== null) renderTimelineArea(traceContainer, entry);
 			const fill = el.querySelector(".dap-fill");
 			if (fill !== null) {
 				const width = `${Math.min(100, Math.max(0, entry.progress ?? 0))}%`;
@@ -1867,13 +1701,12 @@ function apply(ctx) {
 
 		if (entry.kind === "subagent") {
 			const traceContainer = el.querySelector(".dap-subtrace");
-			const nativeSessionId = nativePresentationSessionId(entry);
-			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, nativeSessionId, { lastOnly: true });
+			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, { lastOnly: true });
 			return;
 		}
 		if (entry.kind === "parent") {
 			const traceContainer = el.querySelector(".dap-trace");
-			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, nativePresentationSessionId(entry));
+			if (traceContainer !== null) renderTimelineArea(traceContainer, entry);
 			return;
 		}
 
@@ -1898,7 +1731,7 @@ function apply(ctx) {
 
 		if (entry.kind === "awaiting") {
 			const traceContainer = el.querySelector(".dap-trace");
-			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, nativePresentationSessionId(entry));
+			if (traceContainer !== null) renderTimelineArea(traceContainer, entry);
 		}
 
 		const note = el.querySelector(".dap-note");
@@ -2295,7 +2128,6 @@ function apply(ctx) {
 	}
 
 	function render() {
-		renderStamp += 1;
 		installFrameObserver();
 		const pane = ensurePane();
 		if (pane === null) return;
@@ -2335,19 +2167,13 @@ function apply(ctx) {
 				// 按快照引用 memo：引用不变（时钟 tick、无关推送）时命中缓存，
 				// 长会话不再每次渲染全序扫描。
 				const entryCwd = snapshot?.byId?.[entry.id]?.cwd ?? "";
-				// R-01-017：只读探测 dsh-auto-collapse 生效标记，检测结果并入时间线 memo 键——
-				// 插件热装/卸载后随下一次重绘同步切换折叠分组呈现，不依赖该插件存在。
-				const foldActive = autoCollapseActive();
-				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineFold !== foldActive || detail.memoTimelineUser !== detail.lastUser) {
+				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineUser !== detail.lastUser) {
 					detail.memoTimelineOf = detailSnapshot;
 					detail.memoTimelineCwd = entryCwd;
-					detail.memoTimelineFold = foldActive;
 					detail.memoTimelineUser = detail.lastUser;
 					// R-01-018：运行卡槽位源——轻量 history 的最近用户指令（窗口内无指令行时兜底）；
 					// 窗口内出现用户指令行时顺带刷新该记录，指令被挤出后槽位跟随最新指令。
-					const derivedTimeline = foldActive
-						? foldedTimelineWithSlot(detailSnapshot, 4, entryCwd, detail.lastUser ?? null)
-						: conversationTimelineWithSlot(detailSnapshot, 4, entryCwd, detail.lastUser ?? null);
+					const derivedTimeline = foldedTimelineWithSlot(detailSnapshot, 4, entryCwd, detail.lastUser ?? null);
 					// 行内更新收敛：值相等不换引用，避免 lastUser 引用变化引发 memo 键抖动重算。
 					const windowUser = derivedTimeline.rows.findLast((row) => row.kind === "user") ?? null;
 					if (windowUser !== null && (detail.lastUser?.text !== windowUser.text || detail.lastUser?.id !== windowUser.id)) {
@@ -2359,18 +2185,6 @@ function apply(ctx) {
 				entry.timeline = detail.memoTimeline.length > 0 ? detail.memoTimeline : detail.timeline ?? [];
 				entry.slot = detail.memoSlot ?? detail.timelineSlot ?? null;
 			} else {
-				// R-01-017/AC-06 冷卡（无 live 快照的等待/上下文卡）：插件热装/卸载后检测结果翻转时，
-				// 用已取历史按当前探测重算时间线，避免停留在加载时的形态（评审补）。
-				const foldToggle = autoCollapseActive();
-				const detailCwd = snapshot?.byId?.[entry.id]?.cwd ?? "";
-				if (detail?.history && detail.timelineFold !== foldToggle) {
-					detail.timelineFold = foldToggle;
-					const derivedHistory = foldToggle
-						? foldWorkGroupsWithSlot(conversationTimelineFromHistory(detail.history, Number.MAX_SAFE_INTEGER, detailCwd), 4)
-						: historyTimelineWithSlot(detail.history, 4, detailCwd);
-					detail.timeline = derivedHistory.rows;
-					detail.timelineSlot = derivedHistory.slot;
-				}
 				entry.timeline = detail?.timeline ?? entry.timeline ?? [];
 				entry.slot = detail?.timelineSlot ?? entry.slot ?? null;
 			}
@@ -2516,17 +2330,6 @@ function apply(ctx) {
 		const headerExpanded = collapsed ? "false" : "true";
 		if (headerEl !== null && headerEl.getAttribute("aria-expanded") !== headerExpanded)
 			headerEl.setAttribute("aria-expanded", headerExpanded);
-
-		// 图标缓存修剪：只保留当前会话（缓存键为 [sessionId, itemKey]，非当前会话
-		// 永不命中），并按插入序限量，避免随工具调用终身增长（INV）。
-		const iconCacheSessionPrefix = JSON.stringify([snapshot?.current != null ? String(snapshot.current) : ""]).slice(0, -1);
-		for (const key of nativeIconsByTraceKey.keys())
-			if (!key.startsWith(iconCacheSessionPrefix)) nativeIconsByTraceKey.delete(key);
-		while (nativeIconsByTraceKey.size > ICON_CACHE_MAX) {
-			const oldest = nativeIconsByTraceKey.keys().next().value;
-			if (oldest === undefined) break;
-			nativeIconsByTraceKey.delete(oldest);
-		}
 
 		// 渲染签名在整轮 DOM 写入全部成功后提交：任何一步失败都保留下一轮
 		// 同步重试的机会，避免故障被签名吞掉后卡片永久滞留（R-01-013/AC-02）。
@@ -2713,7 +2516,6 @@ function apply(ctx) {
 		sessionOpenLoads.clear();
 		loadQueue.length = 0;
 		loadInflight = 0;
-		nativeIconsByTraceKey.clear();
 		for (const rec of cardsById.values()) rec.unbind?.();
 		for (const rec of recentCardsById.values()) rec.unbind?.();
 		cardsById.clear();

@@ -101,7 +101,7 @@ sequenceDiagram
   - 双区结构：窗格内容区分为上「活动会话」下「最近历史」，两者都由同一快照派生；最近历史仅主会话（R-01-010）。
   - 响应保持与迁移动画：主会话在当前焦点下结束一轮（含完成提醒卡被激活、当前焦点下运行结束）后，渲染器经纯函数单点登记保持（易失内存态），保持期间活动卡位置与「需要响应」呈现不变；当前会话切走后解除保持、卡片落入历史区。任一卡片由活动区转入历史区时，渲染器以相邻两帧活动区/历史区 id 集合差检测迁移，用旧卡克隆 ghost（挂于窗格内、继承卡片样式作用域）从原矩形 FLIP 平移并形变至目标最近卡矩形，到位后淡出、真卡同步淡入，`transitionend` 收口移除 ghost；`prefers-reduced-motion` 或目标矩形不可量取时跳过动画直接落位（R-01-002/AC-05、R-01-010/AC-06、AC-07）。
   - 轮内状态通过 `sessions.binding(sessionId).session` 订阅运行中会话取得，随运行结束断开；token 统计（计费输入/输出/缓存命中率）与速率取 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`，复用既有列表订阅，无新增轮询）；运行时长与进度在渲染期按回合开始时间实时计算（R-01-009、R-02-004）。
-  - 工作项数据优先从原生 `ConversationSnapshot.chat` 的 `order` / `nodes` 读取，按主会话窗口显示顺序取尾部 4 项；冷会话使用 native `sessions.history` 读取补齐：尾页取不到最近用户/agent 消息时按 `beforeSeq` 向前有界深翻（最多 3 页，找到或翻尽即止），不克隆第三方 UI 路由。运行中当前项由原生 `session.subscribe` 推送刷新（R-01-012）。
+  - 工作项数据优先从原生 `ConversationSnapshot.chat` 的 `order` / `nodes` 读取，按主会话窗口实际显示顺序派生并折叠为分组呈现；冷会话使用 native `sessions.history` 读取补齐：尾页取不到最近用户/agent 消息时按 `beforeSeq` 向前有界深翻（最多 3 页，找到或翻尽即止），不克隆第三方 UI 路由。运行中当前项由原生 `session.subscribe` 推送刷新（R-01-012）。
   - 模型上下文从 native `sessions.models` 的当前选择与 catalog metadata 归一，模型名称与 reasoning level 缺失时保持空值；不使用 `agentPreset` 冒充模型（R-01-012）。
   - 富卡统计：运行卡展示工具动作摘要、底部统计行与阶段进度——统计行左列依次为 tok/s 输出速率（不带近似符号）、缓存命中率、计费输入 token、输出 token，与会话主窗口统计行同序，字段间以小圆点区隔，本回合时长固定显示于该行最右（R-01-009）；动作摘要由 `summarizeToolArguments` 按主会话窗口同一语义派生（分工具类型参数键、bash 含 command、无命中取首个字符串参数值、剥离工作区前缀、取首行）后上卡（R-01-009）。
   - 运行卡外观沿用 answer-pet 的卡片质感。
@@ -109,11 +109,11 @@ sequenceDiagram
     - 进度条为 5px 圆角；流式阶段内部显示经 `data-streaming` 驱动的向右滚动条纹。
     - 卡片不渲染独立当前动作状态行。
     - 工作项标题与摘要之间显示小圆点；用户项使用人物图标。
-    - 错误项保留动作图标并将图标、动作文字与摘要染为错误红色；Bash 使用稳定的原生 API 图标，不读取展开态下的 disclosure 箭头（R-01-009/AC-02、AC-08、AC-09；R-01-012/AC-03～AC-08）。
+    - 错误所在分组行整体染为错误红色；含 Bash 的分组行使用稳定的命令图标，不读取展开态下的 disclosure 箭头（R-01-009/AC-02、AC-08、AC-09；R-01-012/AC-03～AC-08）。
   - 徽标计数与脉冲紧迫度：列头/窄条/移动端开关的数量徽标由 buildEntries 条目单点派生——分子为 awaiting 主会话数、分母为其加 running 主会话之和（`awaitBadgeStats`），子代理与 parent 不计入；空态同样以「0/0」呈现。存在等待响应时徽标以与等待卡完全一致的背景色、透明度与边框（含 1px 外环）呈现，并以亮度呼吸脉冲提示——不改整体不透明度，避免半透明底透进列头背景；周期由占比 n/m 线性映射到 [0.5s, 1.6s] 封闭区间、随占比单调加快（`awaitPulsePeriod`），渲染层仅写文本、data-awaiting 与 --dap-await-period 三个呈现值（R-01-001/AC-04～AC-06、R-01-002/AC-06、AC-07）。
 
   - 桌面列右缘叠加拖拽手柄：拖拽实时写入 `--dap-width` 并夹取在 200–480px；调宽结果存 localStorage，启动时读取恢复，缺失/非法值回退默认 280px、越界值夹取进范围；折叠窄条与移动端抽屉不显示手柄（R-01-015）。
-  - 折叠时间线检测为只读探测：每次渲染遍读取一次 dsh-auto-collapse 的生效样式标记（getElementById，不注入、不监听、不依赖其存在）；检测结果并入时间线 memo 键，插件热装/卸载后随下一次重绘同步切换；未检测到即回退 R-01-012 逐项镜像（R-01-017、R-02-001）。
+  - 时间线只有折叠分组一种形态：渲染层不做任何 dsh-auto-collapse 探测或条件切换，时间线 memo 键由快照引用、cwd 与 lastUser 组成；该插件热装/卸载对窗格无可观察影响（R-01-017、R-02-001）。
 
 ## 核心数据与不变量
 
@@ -177,21 +177,20 @@ sequenceDiagram
 | R-02-004 | 窗格渲染器 | 轮内状态订阅生命周期 | src/client.mjs |
 | R-01-014 | 窗格渲染器 | 加载状态模型与渐进呈现 | src/core.mjs、src/client.mjs |
 | R-01-016 | 活动状态模型 | 非运行活动卡时间线与不确定态进度条 | src/client.mjs |
-| R-01-017 | 活动状态模型 | 折叠分组派生与检测切换 | src/core.mjs、src/client.mjs |
+| R-01-017 | 活动状态模型 | 折叠分组派生（唯一时间线形态） | src/core.mjs、src/client.mjs |
 | R-01-018 | 活动状态模型 | 指令槽位派生与呈现 | src/core.mjs、src/client.mjs |
 ## 产品契约
 
 - 活动卡片集合：`活动状态模型#buildEntries(snapshot, workspaceItems)` 产出已排序的活动卡片条目数组（R-01-001）；`heldIds` 入参使响应保持中会话以 awaiting「需要响应」条目保留在活动区（R-01-002/AC-05、R-01-010/AC-06）。
 - 最近历史集合：`活动状态模型#buildRecent(snapshot, workspaceItems, now)` 产出按最近活动时间倒序、容限 24h、上限 20 条的最近卡片（R-01-010）；`heldIds` 入参把保持中会话排除在历史区外（R-01-010/AC-06）。
 - 轮内状态数据：`活动状态模型#runtimeStats({ elapsedMs, outputTokens, rateTokS })` 产出运行卡所需的时长、token 与速率字段，`#usageSummary(tokenUsage)` 产出计费输入与缓存命中率；当前动作不再单独输出为卡片状态行，工具名、回复文本与详情进入 `工作项时间线`（R-01-009/AC-01、AC-02、AC-03、AC-05）。
-- 工作项时间线呈现：`活动状态模型#conversationTimeline` 产出的工作项含 label/summary/status；时间线不显示行级耗时，对齐主会话窗口工作项行（原生无行级耗时，C-012）；工具项详情经 `summarizeToolArguments` 镜像主会话窗口 `deriveSummary` 语义（R-01-009/AC-07、R-01-012）。
+- 工作项时间线呈现：`活动状态模型#foldedTimelineWithSlot` 产出的显示行为折叠分组行与用户输入行，含 label/summary/status；时间线不显示行级耗时，对齐主会话窗口工作项行（原生无行级耗时，C-012）；工具成员摘要经 `summarizeToolArguments` 镜像主会话窗口 `deriveSummary` 语义（R-01-009/AC-07、R-01-012）。
   - 渲染层以竖线串圆点的时间线呈现：轨道从卡片内容左边界起步，竖线与圆点严格同圆心（整数像素位，避免 1px 竖线分数位吸附偏移）；竖线穿过首个节点圆点并向上引出，终点没入最新动作圆点内部不外露。
   - 圆点带半透明外环；正在执行节点使用蓝色外环并闪烁，已定案节点使用绿/红实心圆点；圆点位于内容区，不被容器裁切。
-  - 会话运行中（快照 `running === true` 且 `pending` 为空）、时间线无 live 工作项且无其他执行中项时，`conversationTimeline` 将尾部已定案的非用户工作项克隆提升为 `running`，作为 agent 工作中的持续标志；尾部为 error/stopped/用户输入项时不提升；渲染层经 `mergeTraceStatus` 合并工作项状态，核心派生的 `running` 优先于原生行 `data-state`，核心非 running 时保持原生优先旧语义（R-01-009/AC-10）。
-  - 工作项渲染优先读取原生 `iconIdle` 中的动作图标，排除 hover/open disclosure 箭头与错误 `StateDot`；用户项使用人物 SVG。
-  - 非当前会话或原生行缺失时，fallback 使用与主网页同一张 canonical 图标表（按 toolName 镜像原生 classifyTool 与行级覆盖，未知工具按 view.kind 语义兜底）与 canonical 动作标题，选中/非选中态不漂移（R-01-012/AC-03）。
-  - fallback 文字镜像原生 keyed 行：`TOOL_LABELS` 含 todo_write「更新任务清单」与 ask_user_question「提问」；todo 摘要复刻「done/total 已完成 · 当前活动项」、ask 摘要复刻「等待回答 / 已答 x/y / 已取消 / 已中断」状态文案，错误态摘要取结果输出首行；Think/context 原生行按工作项身份匹配，不共用首个同类行（R-01-012/AC-03）。
-  - Bash 无论状态/展开态均使用稳定的原生 API 图标；错误项只改变图标与标题/摘要颜色，不替换图标；标题和摘要之间插入 2px 圆形分隔符（R-01-009/AC-09、R-01-012/AC-03～AC-08）。
+  - 会话运行中（快照 `running === true` 且 `pending` 为空）、时间线无执行中显示行且无其他执行中项时，核心将尾部已定案的非用户显示行克隆提升为 `running`，作为 agent 工作中的持续标志；尾部为 error/stopped/用户输入行时不提升；渲染层直接采用核心派生状态绘制（R-01-009/AC-10）。
+  - 显示行图标一律由渲染层自绘的 canonical 图标表产出（按 toolName 镜像原生 classifyTool 与行级覆盖，未知工具按 view.kind 语义兜底），不读取宿主 DOM、无克隆图标；用户项使用人物 SVG，选中/非选中态不漂移（R-01-012/AC-03）。
+  - 文字语义镜像原生 keyed 行：`TOOL_LABELS` 含 todo_write「更新任务清单」与 ask_user_question「提问」；todo 摘要复刻「done/total 已完成 · 当前活动项」、ask 摘要复刻「等待回答 / 已答 x/y / 已取消 / 已中断」状态文案，错误态摘要取结果输出首行；上述语义经折叠分组的工作成员派生上卡（R-01-012/AC-03）。
+  - 含 Bash 的分组无论成员状态均使用稳定的命令图标，不替换为 disclosure 箭头；错误分组行整体染色而不替换图标；组标题和组摘要之间插入 2px 圆形分隔符（R-01-009/AC-09、R-01-012/AC-03～AC-08）。
 - 回合进度：`活动状态模型#progressOf({ elapsedMs })` 产出 0–100 的进度百分比，由本回合已耗时按有理曲线 y = t/(t+120)（t 为已耗秒数）映射，过原点、先快后慢、渐近 100% 永不到达，不区分 think/stream/tool 阶段；单调性由函数本身保证，无渲染层单调下限；回合切换由 `turnTimings` 新回合起点自然归零重计（R-01-009/AC-06，C-014）。渲染层以 5px 圆角进度条呈现，流式阶段（`data-streaming`）填充为向右滚动条纹动画（R-01-009/AC-08）。
 - 非运行活动卡时间线与不确定态进度条：等待卡（需要响应/待确认/待审查/待回复）与活动层级上下文卡（parent）显示会话最近工作项时间线（最多 4 项，图标/文字/状态语义同运行卡时间线；数据在途时时间线区域显示加载指示，就地填充）；parent 卡另显示不确定态进度条（R-01-016）。
 - 最近卡消息预览行：第三行（最近用户消息首行）文本前常驻人物图标（与工作项时间线的用户语义一致）、第四行（最近 agent reply 首行）文本前常驻机器人图标；文本缺失时仅显示图标，文本与加载指示写入图标后的独立文本段（R-01-013/AC-03、AC-04、AC-07、AC-08）。
@@ -200,9 +199,9 @@ sequenceDiagram
 - 层级结构：子代理经 `parentId` 关联并以 `depth` 表达缩进；子代理标题优先取目录 label，其次显示标题；渲染层在缩进槽内绘制母会话到直属子代理的层级连接线（R-01-003/AC-01、AC-04）。
 - 窗口形态：桌面为左栏旁贴边列，可经「活动会话」标题行整体折叠为窄条（窄条竖排标题 + 计数，整条可点展开）；移动端（≤767px）为固定抽屉 + 左上角浮动开关（文案「活动」，抽屉打开时隐藏）（R-01-007、R-01-008、R-01-011）。桌面列宽可经右缘手柄拖拽在 200–480px 内调整，拖拽实时生效并令主会话弹性让位，结果存 localStorage 于启动时恢复（R-01-015）。
 - 交互面：点击或 Enter/Space 激活卡片 → 切换会话；当前会话卡片高亮（R-01-005、R-01-006）。
-- 折叠时间线：`活动状态模型#foldedConversationTimeline(snapshot, limit)` 在检测到 dsh-auto-collapse 生效（`#dshcf-style[data-dshcf-state="active"]`）时替代 `conversationTimeline` 成为渲染层时间线来源：先按指数扩窗收集尾部原始工作项并合并 live 项，再经 `#foldWorkGroups` 分组——用户输入项与含正文的 assistant 项为硬边界（其 reasoning 先并入当前分组，等价 splitThinkByBody 前置语义），连续 context 单独成组；组标题镜像 auto-collapse chip 优先级（正在运行→正在思考→运行了命令/编辑了文件/上下文注入→已思考），组摘要携带推理文本内容；状态聚合 running > error > stopped > done，尾部提升沿用 R-01-009/AC-10。冷会话 history 时间线经同一 `#foldWorkGroups` 分组。分组语义改编自 MIT 许可的 dsh-auto-collapse@0.1.3 `src/fold.ts`（数据层移植，不读其 DOM、无运行时依赖，C-016）（R-01-017）。
-- 折叠呈现细节：tool 组行图标统一为 DSH canonical IconApiOutline14 命令图标（与 auto-collapse 工具 chip 同源）；含正文 assistant 边界的推理文本只归组摘要，其正文行剥离推理展示并跳过原生行匹配（stripNative），避免同一推理文本双行重复（R-01-017/AC-02、AC-04）。
-- 指令槽位：折叠与逐项镜像共用的常驻呈现（R-01-018）——当时间线窗口（最近 4 行）外存在用户指令时，卡片在时间线区顶部插入一行与用户消息行同款样式（user 图标 + 指令文本，左对齐卡片左缘、无分隔线）的槽位行，显示窗口外最近一条指令；窗口内已含该指令或窗口外无指令时隐藏；槽位行不计入 4 行窗口。数据由 `活动状态模型#foldedTimelineWithSlot / #conversationTimelineWithSlot（含 history 冷路径包装）` 连同窗口行一并派生：折叠路径以扩窗全量行的槽位确定为停（窗口内含指令或已找到窗口外指令即止，否则继续扩窗直至全序兜底）；逐项路径以 limit+SLOT_SCAN_BUDGET 起步、未确定时同档扩窗；冷会话 history 路径在页内有界全量上派生；运行卡（ChatSnapshot 窗口不含旧指令）以轻量 1 页 history 提取最近用户指令（lastUserFromEvents）作槽位兜底源，窗口内出现指令行时顺带刷新该记录，指令被挤出后槽位跟随最新指令；两模式槽位语义一致。
+- 折叠时间线：`活动状态模型#foldedTimelineWithSlot(snapshot, limit)` 是渲染层时间线的唯一来源（无条件折叠，不做任何探测切换）：先按指数扩窗收集尾部原始工作项并合并 live 项，再经 `#foldWorkGroups` 分组——用户输入项与含正文的 assistant 项为硬边界（其 reasoning 先并入当前分组，等价 splitThinkByBody 前置语义），连续 context 单独成组；组标题镜像 auto-collapse chip 优先级（正在运行→正在思考→运行了命令/编辑了文件/上下文注入→已思考），组摘要携带推理文本内容；状态聚合 running > error > stopped > done，尾部提升沿用 R-01-009/AC-10。冷会话 history 时间线经同一 `#foldWorkGroups` 分组。该派生不依赖 dsh-auto-collapse 存在；分组语义改编自 MIT 许可的 dsh-auto-collapse@0.1.3 `src/fold.ts`（数据层移植，不读其 DOM、无运行时依赖，C-016）（R-01-017）。
+- 折叠呈现细节：tool 组行图标统一为 DSH canonical IconApiOutline14 命令图标（与 auto-collapse 工具 chip 同源）；含正文 assistant 边界的推理文本只归组摘要，其正文行以 stripNative 标记剥离推理展示，避免同一推理文本双行重复（R-01-017/AC-02、AC-04）。
+- 指令槽位：时间线的常驻呈现（R-01-018）——当时间线窗口（最近 4 行）外存在用户指令时，卡片在时间线区顶部插入一行与用户消息行同款样式（user 图标 + 指令文本，左对齐卡片左缘、无分隔线）的槽位行，显示窗口外最近一条指令；窗口内已含该指令或窗口外无指令时隐藏；槽位行不计入 4 行窗口。数据由 `活动状态模型#foldedTimelineWithSlot / #foldWorkGroupsWithSlot（history 冷路径）` 连同窗口行一并派生：以扩窗全量行的槽位确定为停（窗口内含指令或已找到窗口外指令即止，否则继续扩窗直至全序兜底）；冷会话 history 路径在页内有界全量上派生；运行卡（ChatSnapshot 窗口不含旧指令）以轻量 1 页 history 提取最近用户指令（lastUserFromEvents）作槽位兜底源，窗口内出现指令行时顺带刷新该记录，指令被挤出后槽位跟随最新指令。
 
 ## 横切约束
 
@@ -220,9 +219,9 @@ sequenceDiagram
   - 显示过滤单点实现：`activeSessionIds` 沿活动会话的 `parentId` 链补齐所有活动祖先，`isActiveRow` 供 buildEntries/buildRecent 共用；`isSubagentRow` 判定直属子代理，`parent` 条目只承载层级上下文，不建立轮内订阅。
   - `buildRecent` 按 24h 历史窗口派生历史区（仅主会话、倒序、上限 20），并归一化 workspace/model/reasoning、最近用户首行与 agent 首行。
   - `buildEntries`/`buildRecent` 接受 `heldIds` 入参：保持中主会话以 awaiting「需要响应」条目留在活动区，并从历史区排除（R-01-002/AC-05、R-01-010/AC-06）。
-  - `conversationTimeline` 从原生 ChatSnapshot 的实际 order 提取最近 4 个工作项，保留图标语义、文字、详情与状态；运行中无 live 项时按 R-01-009/AC-10 将尾部非用户已定案项提升为 running；`firstPhysicalLine` 只取消息的第一个非空物理行。
-  - `rawTailItems`/`mergeLiveItems` 为 `conversationTimeline` 与 `foldedConversationTimeline` 共用的收集与 live 合并内核（指数扩窗：分组数不足 limit 时依次加倍窗口，避免长会话全序扫描）；`foldWorkGroups` 把扁平工作项序列折叠成分组行——硬边界为用户输入与含正文 assistant 项（其 reasoning 并入当前分组）、context 连续段独立成组；组行含 label/summary/detail/status/fold 标记，不携带 callId 与原生行匹配键，渲染层跳过原生行合并、仅用核心聚合状态与 fallback 图标；tool 组行图标统一命令图标，正文边界行以 stripNative 标记同样跳过原生行匹配（R-01-017）。
-  - 槽位派生（R-01-018）：`foldedTimelineWithSlot`/`conversationTimelineWithSlot`/`foldWorkGroupsWithSlot`/`historyTimelineWithSlot` 返回 `{ rows, slot }`——slot 为窗口外最近一条用户指令行（kind=user 副本）；窗口内含指令或窗口外无指令时 slot 为 null；扩窗停止条件并入槽位确定性（窗口行满 4 且槽位已确定才停）；既有时间线函数保持数组返回（rows），语义不变。
+  - `conversationWorkItems` 从原生 ChatSnapshot 的实际 order 收集尾部扁平工作项（含 live 合并与尾部提升），作为折叠分组的输入内核与分组成员级观察接缝；`firstPhysicalLine` 只取消息的第一个非空物理行。
+  - `rawTailItems`/`mergeLiveItems` 为 `conversationWorkItems` 与 `foldedTimelineWithSlot` 共用的收集与 live 合并内核（指数扩窗：分组数不足 limit 时依次加倍窗口，避免长会话全序扫描）；`foldWorkGroups` 把扁平工作项序列折叠成分组行——硬边界为用户输入与含正文 assistant 项（其 reasoning 并入当前分组）、context 连续段独立成组；组行含 label/summary/detail/status/fold 标记，仅用核心聚合状态与 canonical 图标自绘；tool 组行图标统一命令图标，正文边界行以 stripNative 标记剥离推理展示（R-01-017）。
+  - 槽位派生（R-01-018）：`foldedTimelineWithSlot`/`foldWorkGroupsWithSlot` 返回 `{ rows, slot }`——slot 为窗口外最近一条用户指令行（kind=user 副本）；窗口内含指令或窗口外无指令时 slot 为 null；扩窗停止条件并入槽位确定性（窗口行满 4 且槽位已确定才停）。
   - `modelMetadata` 从 native models response 提取当前模型名称与 reasoning level；缺失值保持空白。
   - 富卡辅助：`fmtTokens`（token 计数 K/M 紧凑缩写，镜像原生统计行 formatTokens）、`summarizeToolArguments`（镜像原生 `deriveSummary` 语义）、`progressOf`（回合进度）、`runtimeStats`（时长/token/速率）与 `usageSummary`（计费输入/缓存命中率）为运行卡提供纯函数派生。
   - 排序由工作区索引 + lineage 稳定序共同决定。
@@ -249,7 +248,7 @@ sequenceDiagram
   - 指令槽位行（R-01-018）：`.dap-slot` 插于 `.dap-trace` 之前（卡片根内），与用户消息行同款（user 图标 + 单行省略指令文本），左对齐卡片左缘、无缩进、无分隔线；槽位与时间线内用户行（`.dap-trace-item[data-icon="user"]`）均以 1px 虚线 outline 标识（不占布局，行间空隙保持一致）；无槽位时隐藏不占位；文本经 textContent 写入；随卡片生命周期创建与移除。
   - 运行卡外观对齐 answer-pet。
     - CSS 实现动作时间线（从卡片内容左边界起步、竖线 + 圆点半透明外环 + 运行节点闪烁）与进度条（5px、流式 `data-streaming` 条纹动画）。
-    - 工作项标题与摘要之间渲染小圆点；错误项通过 `data-status="error"` 将保留的动作 SVG、标题和摘要染红。
+    - 工作项标题与摘要之间渲染小圆点；错误显示行通过 `data-status="error"` 将动作 SVG、标题和摘要染红。
     - `prefers-reduced-motion` 仅关闭填充宽度 transition，不关闭状态脉冲/流式条纹；`streaming` 字段并入稳定签名以驱动属性翻转重绘。
   - 标题行整体控件（两端断点一致）：`.dap-header` 标题行整体作为收起控件（`role="button"` + `tabindex` + `aria-expanded`，click 与 Enter/Space 激活；hover 高亮、`cursor: pointer` 与行尾方向符号 « 表达可点，方向符号是行的一部分而非独立按钮，两端断点一致呈现）；桌面断点激活折叠为窄条，折叠态隐藏标题行、显示窄条，窄条内竖排（`writing-mode: vertical-rl`）显示「活动会话」与计数徽标，整条可点展开；移动端断点激活即收起抽屉（`togglePane(false)`），不执行窄条折叠，不再提供独立 × 关闭按钮（R-01-008/AC-02、R-01-011）；移动端经媒体查询切为固定抽屉 + 浮动开关按钮（固定于会话头部左上角 `top:12px; left:44px`，左边栏切换按钮右侧，文案「活动」，R-01-008/AC-04）。
   - 桌面调宽手柄：右缘 6px 命中区，`pointerdown` 后经 `setPointerCapture` 跟踪 `pointermove` 实时写入 `--dap-width`（经核心 `clampPaneWidth` 夹取 200–480px，拖拽期间经 rAF 合帧派发 resize 通知），`pointerup`/`pointercancel` 持久化 localStorage；折叠窄条态与移动断点下经 CSS 隐藏手柄；卸载移除手柄与监听（R-01-015）。

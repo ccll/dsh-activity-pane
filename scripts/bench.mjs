@@ -6,7 +6,7 @@ import {
 	buildEntries,
 	buildRecent,
 	cardSignature,
-	conversationTimeline,
+	foldedConversationTimeline,
 	messagePreviews,
 } from "../src/core.mjs";
 
@@ -70,7 +70,7 @@ function renderPass() {
 		if (detail && snap) {
 			if (detail.memoTimelineOf !== snap) {
 				detail.memoTimelineOf = snap;
-				detail.memoTimeline = conversationTimeline(snap);
+				detail.memoTimeline = foldedConversationTimeline(snap);
 			}
 			entry.timeline = detail.memoTimeline;
 		}
@@ -92,7 +92,7 @@ function renderPass() {
 
 // ---- 改动前成本模型（before 证据下限）----
 // 复刻删除前的调用模式与全序扫描：旧 buildEntries/buildRecent 对每个可见条目做
-// conversationTimeline + messagePreviews 全序推导（≈条目×2 遍全扫），旧渲染循环再对
+// 折叠时间线 + messagePreviews 全序推导（≈条目×2 遍全扫），旧渲染循环再对
 // 活动条目重复一遍（≈活动条目×2 遍全扫）；item 构建从简，只保证 O(order 全长) 同构。
 function legacyScanAll(snapshot) {
 	const chat = snapshot?.chat;

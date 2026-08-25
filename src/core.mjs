@@ -350,10 +350,6 @@ function timelineItemFromChatNode(node, cwd = "") {
 	return null;
 }
 
-/** dsh-auto-collapse 生效样式标记 id：其 client 注入的 <style> 元素以 data-dshcf-state 表达运行态，
- *  是该插件唯一公开的生效信号；本插件只做只读探测（R-01-017、C-016）。 */
-export const AUTO_COLLAPSE_STYLE_ID = "dshcf-style";
-
 /** 尾部反向收集原始工作项（不含 live 合并），取够 want 个可转换项或耗尽 order 即停。 */
 function rawTailItems(snapshot, want, cwd = "") {
 	const chat = snapshot?.chat;
@@ -427,15 +423,16 @@ function promoteRunningTail(timeline, snapshot) {
 	return timeline;
 }
 
-/** 从主会话 ChatSnapshot 的真实 order 提取最近工作项，保留当前 live 项。 */
-export function conversationTimeline(snapshot, limit = 4, cwd = "") {
-	return conversationTimelineWithSlot(snapshot, limit, cwd).rows;
+/** 从主会话 ChatSnapshot 的真实 order 收集尾部扁平工作项（含 live 合并与尾部提升），
+ *  作为折叠分组（foldedTimelineWithSlot/foldWorkGroups）的输入内核与分组成员级观察接缝。 */
+export function conversationWorkItems(snapshot, limit = 4, cwd = "") {
+	const max = Math.max(0, limit);
+	if (max === 0) return [];
+	// 尾部反向收集：工作项只取尾部 max 个，长会话不再全序扫描；
+	// live 合并只作用于尾部子集（partial/runningCalls 的对应已定案项必在最近窗口内）。
+	const full = mergeLiveItems(rawTailItems(snapshot, max, cwd), snapshot, max, cwd);
+	return promoteRunningTail(full.slice(-max), snapshot);
 }
-
-/** 指令槽位窗口外扫描预算：逐项路径的有界窗口外收集起步上限（R-01-018）。
- *  窗口外最近一条用户指令通常距窗口在一轮（用户指令 + 其工具/思考项）之内，
- *  该预算起步；未命中时逐档 ×8 扩窗直至全序宽底，保持长会话不盲目全序扫描。 */
-export const SLOT_SCAN_BUDGET = 64;
 
 /** 窗口（最后 keep 行）内是否已含用户指令（R-01-018/AC-02）：
  *  更新的指令仍在可见窗口内时槽位隐藏，且无需继续向更早处收集。 */
@@ -461,27 +458,6 @@ function slotOf(rows, keep) {
 		}
 	}
 	return null;
-}
-
-/** 逐项镜像 + 指令槽位（R-01-018）：窗口外有界收集（limit + SLOT_SCAN_BUDGET）起步，
- *  rows 窗口行语义与 conversationTimeline 一致（尾部提升、live 合并）；
- *  槽位未确定（窗口内无指令且窗口外尚未见指令）时逐档扩窗直至找到或全序兜底。
- *  lastUser 为运行卡轻量 history 提供的最近用户指令（行内窗口外无指令时兜底）。 */
-export function conversationTimelineWithSlot(snapshot, limit = 4, cwd = "", lastUser = null) {
-	const max = Math.max(0, limit);
-	if (max === 0) return { rows: [], slot: null };
-	let budget = max + SLOT_SCAN_BUDGET;
-	for (;;) {
-		// 尾部反向收集：工作项只取尾部 budget 个，长会话不再全序扫描；
-		// live 合并只作用于尾部子集（partial/runningCalls 的对应已定案项必在最近窗口内）。
-		const full = mergeLiveItems(rawTailItems(snapshot, budget, cwd), snapshot, budget, cwd);
-		const rows = promoteRunningTail(full.slice(-max), snapshot);
-		const slot = slotOf(full, max) ?? fallbackSlot(full, max, lastUser);
-		if (windowHasUser(full, max) || slot !== null || budget >= Number.MAX_SAFE_INTEGER / 2) {
-			return { rows, slot };
-		}
-		budget *= 8;
-	}
 }
 
 /** 折叠分组硬边界：用户输入项与含正文输出的 assistant 项（R-01-017/AC-02）。 */
@@ -628,7 +604,7 @@ export function foldWorkGroups(items, limit = 4) {
 	return rows.slice(-max);
 }
 
-/** 折叠分组时间线（R-01-017）：检测生效时渲染层以此替代 conversationTimeline。
+/** 折叠分组时间线（R-01-017）：渲染层时间线的唯一来源——无条件折叠分组，不做任何探测切换。
  *  指数扩窗收集尾部原始项（分组数不足 limit 时 ×3 → ×8 → 全序）+ live 合并 + 分组 +
  *  尾部提升，长会话典型情况不触碰全序扫描。 */
 export function foldedConversationTimeline(snapshot, limit = 4, cwd = "") {
@@ -664,14 +640,6 @@ function fallbackSlot(rows, keep, lastUser) {
 		if (text !== "") return { id: typeof lastUser.id === "string" ? lastUser.id : "", kind: "user", icon: "user", text, status: "done", slot: true };
 	}
 	return null;
-}
-
-/** 工作项行状态合并：核心派生的 running 优先于原生行 data-state（提升尾项与 live 项
- *  在选中会话原生行已显示 ok，不允许覆盖回 done，R-01-009/AC-10）；coreStatus 非 running
- *  时保持旧语义——原生 ok 归 done、其余原生值优先、双缺省兜底 running。 */
-export function mergeTraceStatus(coreStatus, nativeState) {
-	if (coreStatus === "running") return "running";
-	return (nativeState === "ok" ? "done" : nativeState) || (typeof coreStatus === "string" ? coreStatus : "running");
 }
 
 function timelineItemFromEvent(entry, cwd = "") {
@@ -743,7 +711,7 @@ export async function pagedHistoryEvents({ fetchPage, maxPages = 3 }) {
 	return { events: allEvents, error };
 }
 
-/** 冷会话 history 的同序降级，供没有 ChatSnapshot 的活动/历史会话使用。
+/** 冷会话 history 的扁平工作项映射：供没有 ChatSnapshot 的活动/历史会话折叠分组使用。
  *  native `sessions.history` 响应只含 `{events, hasMore, projections?}`（in-flight
  *  partial 以 chunk 事件携带，不做逐 chunk 折叠），故只从事件流取尾部工作项。 */
 export function conversationTimelineFromHistory(history, limit = 4, cwd = "") {
@@ -764,17 +732,6 @@ export function foldWorkGroupsWithSlot(items, limit = 4) {
 	return { rows: full.slice(-max), slot: slotOf(full, max) };
 }
 
-/** 冷会话 history 逐项路径 + 指令槽位（R-01-018）：items 全量映射后截窗口。 */
-export function historyTimelineWithSlot(history, limit = 4, cwd = "") {
-	const items = [];
-	for (const entry of Array.isArray(history) ? history : []) {
-		const item = timelineItemFromEvent(entry, cwd);
-		if (item) items.push(item);
-	}
-	const max = Math.max(0, limit);
-	if (max === 0) return { rows: [], slot: null };
-	return { rows: items.slice(-max), slot: slotOf(items, max) };
-}
 /** 从 ChatSnapshot/history 取最近用户与 agent reply 的物理首行。
  *  尾部反向扫描：找到最近的用户项与 assistant 项即停，长会话不再全序物化时间线。 */
 export function messagePreviews({ snapshot = null, history = [] } = {}) {
@@ -846,10 +803,6 @@ export function usageSummary({ uncachedInputTokens = null, cacheReadTokens = nul
 	const inputTokens = (uncached ?? 0) + (read ?? 0) + (write ?? 0);
 	const cacheHitPct = read !== null && inputTokens > 0 ? Math.round((read / inputTokens) * 100) : null;
 	return { inputTokens, cacheHitPct };
-}
-/** 只有当前会话卡片允许读取主窗口 DOM；其它卡片必须使用自身快照，避免跨会话串线。 */
-export function nativePresentationSessionId(entry) {
-	return entry?.isCurrent === true && entry?.id !== undefined && entry?.id !== null ? String(entry.id) : null;
 }
 
 /** 需要用户行动的种类的展示文案。 */

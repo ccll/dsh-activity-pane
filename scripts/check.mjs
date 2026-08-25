@@ -20,10 +20,8 @@ import {
 	clampPaneWidth,
 	pagedHistoryEvents,
 	detailLoadPlan,
-	conversationTimeline,
-	conversationTimelineWithSlot,
+	conversationWorkItems,
 	conversationTimelineFromHistory,
-	historyTimelineWithSlot,
 	lastUserFromEvents,
 	foldWorkGroups,
 	foldWorkGroupsWithSlot,
@@ -41,11 +39,9 @@ import {
 	trackRuns,
 	isSubagentRow,
 	listLoadState,
-	mergeTraceStatus,
 	messagePreviews,
 	movedToRecentIds,
 	modelMetadata,
-	nativePresentationSessionId,
 	needsHistorySnapshot,
 	pendingText,
 	progressOf,
@@ -531,8 +527,6 @@ assert.equal(fmtElapsedMs(193_000), "3m13s", "时长分秒格式");
 assert.equal(fmtElapsedMs(NaN), "", "NaN 时长归一为空");
 assert.equal(fmtElapsedMs(Infinity), "", "Infinity 时长归一为空");
 assert.equal(fmtElapsedMs(-1), "", "负时长归一为空");
-assert.equal(nativePresentationSessionId({ id: "s1", isCurrent: true }), "s1", "当前 card 才允许读取当前会话 DOM");
-assert.equal(nativePresentationSessionId({ id: "s2", isCurrent: false }), null, "非当前 card 禁止读取当前会话 DOM");
 
 // R-01-012/AC-01
 // R-01-012/AC-02
@@ -551,40 +545,40 @@ const chatNodes = new Map([
 const chatSnapshot = {
 	chat: { order: ["old", "u", "a", "t", "live"], nodes: { get: (key) => chatNodes.get(key) } },
 };
-const timeline = conversationTimeline(chatSnapshot);
+const timeline = conversationWorkItems(chatSnapshot);
 assert.deepEqual(timeline.map((item) => item.text), ["用户任务\n补充", "已完成\n详情", "read", "正在输出"], "工作项严格按主窗口 order 取最近 4 项并包含当前项");
 assert.equal(timeline[2].detail, "/tmp/a", "工具详情沿用白名单摘要");
 assert.equal(timeline[2].label, "Read", "工具标题复用主网页的 Read 语义");
-assert.equal(timeline[2].toolName, "read", "工作项保留原始 tool name 供 host DOM 匹配");
-assert.equal(timeline[2].callId, "c1", "工作项保留 call id 供同名工具精确匹配 host DOM");
+assert.equal(timeline[2].toolName, "read", "工作项保留原始 tool name（折叠分组成员派生输入）");
+assert.equal(timeline[2].callId, "c1", "工作项保留 call id（折叠分组成员派生输入）");
 assert.equal(timeline[2].summary, "/tmp/a", "工具行摘要与标题分层");
-const thinkItem = conversationTimeline({
+const thinkItem = conversationWorkItems({
 	chat: { order: ["think"], nodes: { get: () => ({ kind: "assistant-step", data: { turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "Planning path" }] } }) } },
 })[0];
 assert.equal(thinkItem.label, "Think", "推理工作项标题复用主网页 Think 语义");
 assert.equal(thinkItem.summary, "Planning path", "推理工作项摘要单独保留");
-const grepItem = conversationTimeline({
+const grepItem = conversationWorkItems({
 	chat: { order: ["grep"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-call", callId: "grep-1", call: { name: "grep", argsRaw: '{"pattern":"foo"}' } } } }) } },
 })[0];
 assert.equal(grepItem.label, "Grep", "grep 标题与主会话网页一致");
-const globItem = conversationTimeline({
+const globItem = conversationWorkItems({
 	chat: { order: ["glob"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-call", callId: "glob-1", call: { name: "glob", argsRaw: "{}" } } } }) } },
 })[0];
 assert.equal(globItem.label, "Glob", "glob 标题与主会话网页一致（SEARCH_TITLES: glob → Glob）");
-const webFetchItem = conversationTimeline({
+const webFetchItem = conversationWorkItems({
 	chat: { order: ["wf"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-call", callId: "wf-1", call: { name: "web_fetch", argsRaw: '{"url":"https://a.b"}' } } } }) } },
 })[0];
 assert.equal(webFetchItem.label, "Fetch", "web_fetch 标题与主会话网页一致（WEB_TITLES: web_fetch → Fetch）");
-const cordisItem = conversationTimeline({
+const cordisItem = conversationWorkItems({
 	chat: { order: ["c"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-call", callId: "c-1", call: { name: "cordis_run", argsRaw: "{}" } } } }) } },
 })[0];
 assert.equal(cordisItem.label, "Run Cordis Plugin", "cordis 动作标题使用主会话网页完整动宾文案");
-const outsideCurrent = conversationTimeline({
+const outsideCurrent = conversationWorkItems({
 	chat: { order: ["u1", "u2", "u3", "u4", "u5"], nodes: { get: (key) => ({ key, kind: "user", data: { content: [{ type: "text", text: key }] } }) } },
 	partial: { turn: 2, step: 0, blocks: [{ kind: "text", text: "当前项" }] },
 });
 assert.deepEqual(outsideCurrent.map((item) => item.text), ["u3", "u4", "u5", "当前项"], "当前项不在 order 时仅替换最旧项并保持 order 尾部");
-const oldAssistantCurrent = conversationTimeline({
+const oldAssistantCurrent = conversationWorkItems({
 	chat: {
 		order: ["oldAssistant", "u2", "u3", "u4", "u5"],
 		nodes: { get: (key) => key === "oldAssistant" ? { key, kind: "assistant-step", data: { blocks: [{ kind: "text", text: "旧当前" }] } } : { key, kind: "user", data: { content: [{ type: "text", text: key }] } } },
@@ -614,7 +608,7 @@ assert.deepEqual(
 	"冷会话 history 按原始事件顺序降级",
 );
 
-// ---- R-01-017 折叠时间线（检测 dsh-auto-collapse 生效时分组呈现）----
+// ---- R-01-017 折叠时间线（无条件折叠分组呈现，不依赖 dsh-auto-collapse）----
 // R-01-017/AC-02 硬边界：用户输入与正文打断分组；工具+思考混排并入同组
 const foldNodes = new Map([
 	["u1", { key: "u1", kind: "user", anchorSeq: 1, data: { content: [{ type: "text", text: "查一下" }] } }],
@@ -652,7 +646,7 @@ assert.equal(split[1].label, "Assistant", "正文行不再复用 Think 标签");
 assert.equal(split[1].text, "正文输出", "正文为独立行且内容保留");
 assert.equal(split[1].summary, "正文输出", "正文行摘要为正文而非推理文本");
 assert.equal(split[1].detail, null, "正文行剥离推理文本");
-assert.equal(split[1].stripNative, true, "正文行跳过原生行匹配，避免原生 ReasoningRow 复现推理文本");
+assert.equal(split[1].stripNative, true, "正文行带 stripNative 标记，剥离推理文本避免重复呈现");
 assert.ok(!String(split[1].summary).includes("推理"), "正文行不与组摘要重复");
 assert.equal(split[2].fold, true, "正文后的工具独立成组");
 // R-01-017/AC-02 验收反馈：工具组行后紧跟的同节点正文行不得与组摘要重复推理文本（东家现场场景）
@@ -781,7 +775,7 @@ const slotReplaced = foldWorkGroupsWithSlot(
 );
 assert.equal(slotReplaced.slot?.text, "指令三", "更新的指令挤出后槽位替换（R-01-018/AC-03）");
 assert.equal(slotReplaced.rows.length, 4, "替换期间窗口行数保持 4（R-01-018/AC-03）");
-// R-01-018/AC-01、AC-03 逐项与折叠快照路径：槽位语义一致 + 委托等价（回归）
+// R-01-018/AC-01、AC-03 折叠快照路径：槽位派生与委托等价（回归）
 const slotMirrorNodes = new Map([
 	["u1", { key: "u1", kind: "user", anchorSeq: 1, data: { content: [{ type: "text", text: "指令一" }] } }],
 	["u2", { key: "u2", kind: "user", anchorSeq: 2, data: { content: [{ type: "text", text: "指令二" }] } }],
@@ -792,10 +786,6 @@ const slotMirrorNodes = new Map([
 	["g3", { key: "g3", kind: "tool-call", anchorSeq: 7, data: { root: { kind: "tool-result", callId: "g3", call: { name: "bash", argsRaw: "{}" }, isError: false } } }],
 ]);
 const slotMirrorSnapshot = { chat: { order: ["u1", "u2", "g1", "b1", "g2", "b2", "g3"], nodes: { get: (key) => slotMirrorNodes.get(key) } } };
-const slotMirrorFlat = conversationTimelineWithSlot(slotMirrorSnapshot, 4);
-assert.equal(slotMirrorFlat.rows.length, 4, "逐项窗口行数保持 4（R-01-018/AC-02）");
-assert.equal(slotMirrorFlat.slot?.text, "指令二", "逐项镜像窗口外最近指令停靠槽位（R-01-018/AC-01）");
-assert.deepEqual(slotMirrorFlat.rows, conversationTimeline(slotMirrorSnapshot, 4), "conversationTimeline 委托等价（回归）");
 const slotMirrorFold = foldedTimelineWithSlot(slotMirrorSnapshot, 4);
 assert.equal(slotMirrorFold.rows.length, 4, "折叠窗口行数保持 4（R-01-018/AC-02）");
 assert.equal(slotMirrorFold.slot?.text, "指令二", "折叠呈现窗口外最近指令停靠槽位（R-01-018/AC-01）");
@@ -810,11 +800,15 @@ const slotEvents = [
 	{ event: { type: "assistant/message", seq: 6, data: { message: { content: [{ type: "text", text: "回复四" }] } } } },
 	{ event: { type: "assistant/message", seq: 7, data: { message: { content: [{ type: "text", text: "回复五" }] } } } },
 ];
-const slotHistory = historyTimelineWithSlot(slotEvents, 4);
-assert.equal(slotHistory.rows.length, 4, "history 逐项窗口行数保持 4（R-01-018/AC-02）");
-assert.equal(slotHistory.slot?.text, "指令二", "history 冷路径窗口外指令停靠槽位（R-01-018/AC-01）");
-assert.deepEqual(slotHistory.rows, conversationTimelineFromHistory(slotEvents, 4), "history 时间线委托等价（回归）");
-// R-01-018/AC-01 窗口外指令距窗口较远时继续扩窗直至找到（折叠与逐项一致）
+const slotHistoryFold = foldWorkGroupsWithSlot(conversationTimelineFromHistory(slotEvents, Number.MAX_SAFE_INTEGER), 4);
+assert.equal(slotHistoryFold.rows.length, 4, "history 折叠窗口行数保持 4（R-01-018/AC-02）");
+assert.equal(slotHistoryFold.slot?.text, "指令二", "history 冷路径窗口外指令停靠槽位（R-01-018/AC-01）");
+assert.deepEqual(
+	slotHistoryFold.rows,
+	foldWorkGroups(conversationTimelineFromHistory(slotEvents, Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER).slice(-4),
+	"history 折叠委托等价（回归）",
+);
+// R-01-018/AC-01 窗口外指令距窗口较远时继续扩窗直至找到（折叠路径全序兜底）
 const farNodes = new Map([
 	["u0", { key: "u0", kind: "user", anchorSeq: 1, data: { content: [{ type: "text", text: "远指令" }] } }],
 ]);
@@ -831,16 +825,11 @@ const farSnap = { chat: { order: farOrder, nodes: { get: (key) => farNodes.get(k
 const farFold = foldedTimelineWithSlot(farSnap, 4);
 assert.equal(farFold.slot?.text, "远指令", "折叠路径窗口外指令较远时继续扩窗直至找到（R-01-018/AC-01）");
 assert.equal(farFold.rows.length, 4, "扩窗收集不改变窗口行数（R-01-018/AC-02）");
-const farFlat = conversationTimelineWithSlot(farSnap, 4);
-assert.equal(farFlat.slot?.text, "远指令", "逐项路径窗口外指令较远时有界扩窗直至找到（R-01-018/AC-01）");
-assert.equal(farFlat.rows.length, 4, "逐项扩窗收集不改变窗口行数（R-01-018/AC-02）");
 // R-01-018/AC-01 运行卡槽位兜底：窗口内无指令行时用最近用户指令（轻量 history 源）
 const noUserSnap = { chat: { order: ["t1"], nodes: { get: () => ({ key: "t1", kind: "tool-call", data: { root: { kind: "tool-result", callId: "t1", call: { name: "bash", argsRaw: "{}" }, isError: false } } }) } } };
 const lastUser = { id: "user:9", text: "最近指令" };
 const foldFallback = foldedTimelineWithSlot(noUserSnap, 4, "", lastUser);
 assert.equal(foldFallback.slot?.text, "最近指令", "窗口内无指令行时槽位用最近用户指令兜底（R-01-018/AC-01）");
-const flatFallback = conversationTimelineWithSlot(noUserSnap, 4, "", lastUser);
-assert.equal(flatFallback.slot?.text, "最近指令", "逐项路径同样兜底（R-01-018/AC-01）");
 // R-01-018/AC-02 窗口内已有指令行时忽略兜底
 const withUserWindow = foldedTimelineWithSlot(
 	{ chat: { order: ["u1"], nodes: { get: () => ({ key: "u1", kind: "user", data: { content: [{ type: "text", text: "窗口内指令" }] } }) } } },
@@ -857,21 +846,6 @@ const lastUserEvents = [
 ];
 assert.equal(lastUserFromEvents(lastUserEvents)?.text, "新指令", "提取最近一条用户指令全文（R-01-018）");
 assert.equal(lastUserFromEvents([{ event: { type: "tool/call", seq: 2, data: {} } }]), null, "无用户指令返回 null（R-01-018）");
-// R-01-018/AC-01 逐项路径预算外扩窗档（窗口外指令在 SLOT_SCAN_BUDGET 之外仍能找到）
-const bigFarOrder = ["u0"];
-const bigFarNodes = new Map([
-	["u0", { key: "u0", kind: "user", anchorSeq: 1, data: { content: [{ type: "text", text: "远指令" }] } }],
-]);
-for (let i = 0; i < 150; i += 1) {
-	const gKey = `g${i}`;
-	bigFarOrder.push(gKey);
-	bigFarNodes.set(gKey, { key: gKey, kind: "tool-call", anchorSeq: 2 + i, data: { root: { kind: "tool-result", callId: gKey, call: { name: "bash", argsRaw: "{}" }, isError: false } } });
-}
-const bigFarFlat = conversationTimelineWithSlot(
-	{ chat: { order: bigFarOrder, nodes: { get: (key) => bigFarNodes.get(key) } } },
-	4,
-);
-assert.equal(bigFarFlat.slot?.text, "远指令", "逐项路径预算外扩窗档仍能找到窗口外指令（R-01-018/AC-01）");
 
 // ---- R-01-009/AC-04 工具动作摘要镜像主会话窗口 deriveSummary 语义（可含原始命令）----
 assert.equal(
@@ -970,7 +944,7 @@ assert.ok(progressOf({}) === 0, "缺省入参归一为 0");
 // 注：R-01-009/AC-06 的"回合切换归零重计"由渲染层 turnTimings 新回合起点保证，属 GUI 验收项（scripts/acceptance.mjs）。
 
 // ---- R-01-009/AC-07 工作项时间线的状态与主会话窗口语义摘要（无行级耗时，C-012）----
-const statusTimeline = conversationTimeline({
+const statusTimeline = conversationWorkItems({
 	chat: {
 		order: ["t1", "t2"],
 		nodes: {
@@ -987,7 +961,7 @@ assert.ok(!("durationMs" in statusTimeline[0]) && !("durationMs" in statusTimeli
 assert.equal(statusTimeline[0].detail, "ls", "bash 工作项详情展示原始命令首行（C-011）");
 assert.equal(statusTimeline[1].status, "error", "出错工作项状态为 error");
 assert.equal(statusTimeline[1].detail, "/a/b.txt", "read 工作项详情取 file_path 参数键");
-const runningTimeline = conversationTimeline({
+const runningTimeline = conversationWorkItems({
 	chat: { order: [], nodes: { get: () => undefined } },
 	runningCalls: [{ callId: "rc1", name: "web_search", argsRaw: '{"query":"dsh","url":"https://x"}', turn: 1, step: 0, time: 100 }],
 });
@@ -996,7 +970,7 @@ assert.equal(runningTimeline[0].detail, "dsh", "进行中工具参数摘要按 s
 // R-01-009/AC-10 重构等价性钉住（评审）：live 项存在时不提升尾部 done 项——
 // 旧守卫 liveItems.length===0 与现守卫 !some(running) 在可达语义上等价
 // （live 项恒为 running：partial 硬编码 running，runningCalls 无 result kind）。
-const livePlusTail = conversationTimeline({
+const livePlusTail = conversationWorkItems({
 	chat: { order: ["tail"], nodes: { get: () => ({ key: "tail", kind: "tool-call", data: { root: { kind: "tool-result", callId: "tail", call: { name: "bash", argsRaw: "{}" } } } }) } },
 	runningCalls: [{ callId: "rc2", name: "grep", argsRaw: "{}" }],
 });
@@ -1013,31 +987,31 @@ const idleGapSnapshot = {
 	running: true,
 	pending: [],
 };
-const idleGapTimeline = conversationTimeline(idleGapSnapshot);
+const idleGapTimeline = conversationWorkItems(idleGapSnapshot);
 assert.equal(idleGapTimeline[0].status, "running", "运行中无 live 项时尾部已定案工具项提升为 running");
-const idleGapSettled = conversationTimeline({ ...idleGapSnapshot, running: false });
+const idleGapSettled = conversationWorkItems({ ...idleGapSnapshot, running: false });
 assert.equal(idleGapSettled[0].status, "done", "非运行中尾部已定案项保持 done");
 assert.notEqual(idleGapTimeline[0], idleGapSettled[0], "提升产出克隆而非复用原引用");
-const pendingIdle = conversationTimeline({ ...idleGapSnapshot, pending: [{ kind: "approval" }] });
+const pendingIdle = conversationWorkItems({ ...idleGapSnapshot, pending: [{ kind: "approval" }] });
 assert.equal(pendingIdle[0].status, "done", "等待用户行动时尾部不提升");
-const errorTail = conversationTimeline({
+const errorTail = conversationWorkItems({
 	chat: { order: ["t"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "c2", call: { name: "bash", argsRaw: '{"command":"bad"}' }, isError: true } } }) } },
 	running: true,
 });
 assert.equal(errorTail[0].status, "error", "尾部 error 项不提升，错误标识优先");
-const stoppedTail = conversationTimeline({
+const stoppedTail = conversationWorkItems({
 	chat: { order: ["t"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "c3", call: { name: "bash", argsRaw: '{"command":"sleep 9"}' }, isError: true, error: { code: "interrupted" } } } }) } },
 	running: true,
 });
 assert.equal(stoppedTail[0].status, "stopped", "尾部 stopped 项不提升");
-const userTail = conversationTimeline({
+const userTail = conversationWorkItems({
 	chat: { order: ["u"], nodes: { get: () => ({ kind: "user", data: { content: [{ type: "text", text: "任务" }] } }) } },
 	running: true,
 });
 assert.equal(userTail[0].status, "done", "尾部用户输入项保持 done（提升不适用）");
-const liveTailUnchanged = conversationTimeline({ ...idleGapSnapshot, runningCalls: [{ callId: "rc9", name: "grep", argsRaw: '{"pattern":"x"}', turn: 1, step: 0 }] });
+const liveTailUnchanged = conversationWorkItems({ ...idleGapSnapshot, runningCalls: [{ callId: "rc9", name: "grep", argsRaw: '{"pattern":"x"}', turn: 1, step: 0 }] });
 assert.equal(liveTailUnchanged.map((item) => item.status).join(","), "done,running", "live 项存在时不额外提升已定案项");
-const midRunningTimeline = conversationTimeline({
+const midRunningTimeline = conversationWorkItems({
 	chat: {
 		order: ["a", "t"],
 		nodes: {
@@ -1050,87 +1024,81 @@ const midRunningTimeline = conversationTimeline({
 	running: true,
 });
 assert.deepEqual(midRunningTimeline.map((item) => item.status), ["running", "done"], "时间线已存在执行中项时尾部不再提升");
-assert.equal(mergeTraceStatus("running", "ok"), "running", "核心派生 running 优先于原生行 ok（R-01-009/AC-10）");
-assert.equal(mergeTraceStatus("done", "ok"), "done", "原生 ok 归 done 的旧语义保持");
-assert.equal(mergeTraceStatus("done", "running"), "running", "核心非 running 时原生 running 仍生效（旧语义）");
-assert.equal(mergeTraceStatus("error", "error"), "error", "核心 error 不被原生覆盖");
-assert.equal(mergeTraceStatus(undefined, "error"), "error", "核心状态缺省时退让原生态");
-assert.equal(mergeTraceStatus(undefined, ""), "running", "双缺省兜底 running 的旧语义保持");
 
 // ---- R-01-012/AC-03 fallback 文字镜像原生 keyed/通用行，选中/非选中态不漂移 ----
-const todoItem = conversationTimeline({
+const todoItem = conversationWorkItems({
 	chat: { order: ["td"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "td1", call: { name: "todo_write", argsRaw: '{"todos":[{"content":"写代码","status":"completed"},{"content":"写测试","status":"in_progress"},{"content":"部署","status":"pending"}]}' }, isError: false } } }) } },
 })[0];
 assert.equal(todoItem.label, "更新任务清单", "todo_write 标题镜像原生 keyed 行");
 assert.equal(todoItem.detail, "1/3 已完成 · 写测试", "todo_write 摘要复刻原生进度文案");
-const askRunning = conversationTimeline({
+const askRunning = conversationWorkItems({
 	chat: { order: [], nodes: { get: () => undefined } },
 	runningCalls: [{ callId: "q1", name: "ask_user_question", argsRaw: '{"questions":[]}', turn: 1, step: 0 }],
 })[0];
 assert.equal(askRunning.label, "提问", "ask_user_question 标题镜像原生 keyed 行");
 assert.equal(askRunning.detail, "等待回答", "ask 进行中摘要镜像原生等待文案");
-const askAnswered = conversationTimeline({
+const askAnswered = conversationWorkItems({
 	chat: { order: ["q"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "q2", call: { name: "ask_user_question", argsRaw: "{}" }, isError: false, content: [{ type: "text", text: '{"answers":[{"selected":["a"]},{"selected":[],"custom":""}]}' }] } } }) } },
 })[0];
 assert.equal(askAnswered.detail, "1/2 已回答", "ask 定案摘要复刻原生已答计数");
-const askAnsweredMultiBlock = conversationTimeline({
+const askAnsweredMultiBlock = conversationWorkItems({
 	chat: { order: ["q"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "q2m", call: { name: "ask_user_question", argsRaw: "{}" }, isError: false, content: [{ type: "text", text: '{"answers":[{"selected":["a"]},' }, { type: "text", text: '{"selected":[]}]}' }] } } }) } },
 })[0];
 assert.equal(askAnsweredMultiBlock.detail, "1/2 已回答", "ask 多块结果文本以空串拼接解析（镜像原生 join 语义）");
-const askCancelled = conversationTimeline({
+const askCancelled = conversationWorkItems({
 	chat: { order: ["q"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "q3", call: { name: "ask_user_question", argsRaw: "{}" }, isError: true, error: { name: "AskError", code: "ASK_CANCELLED" } } } }) } },
 })[0];
 assert.equal(askCancelled.detail, "已取消", "ask 取消摘要镜像原生");
 assert.equal(askCancelled.status, "error", "ask 取消保持 error 状态");
-const askAborted = conversationTimeline({
+const askAborted = conversationWorkItems({
 	chat: { order: ["q"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "q4", call: { name: "ask_user_question", argsRaw: "{}" }, isError: true, error: { name: "AskError", code: "ASK_ABORTED" } } } }) } },
 })[0];
 assert.equal(askAborted.detail, "已中断", "ask 中断摘要镜像原生");
 assert.equal(askAborted.status, "stopped", "ask 中断状态归 stopped（镜像原生）");
-const unknownTool = conversationTimeline({
+const unknownTool = conversationWorkItems({
 	chat: { order: ["x"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-call", callId: "x1", call: { name: "my_mcp_tool", argsRaw: '{"note":"hi"}' } } } }) } },
 })[0];
 assert.equal(unknownTool.label, "Tool call", "未知工具标题镜像原生 others variant");
 assert.equal(unknownTool.detail, "my_mcp_tool · hi", "未知工具摘要带 `工具名 · ` 前缀（镜像原生）");
-const cordisDefine = conversationTimeline({
+const cordisDefine = conversationWorkItems({
 	chat: { order: ["cd"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-call", callId: "cd1", call: { name: "cordis_define", argsRaw: '{"name":"my-plugin"}' } } } }) } },
 })[0];
 assert.equal(cordisDefine.label, "注册 Cordis 插件", "cordis_define 标题镜像原生 keyed 行");
 assert.equal(cordisDefine.detail, "my-plugin", "cordis_define 摘要取插件名参数（keyed 行无前缀）");
-const failedBash = conversationTimeline({
+const failedBash = conversationWorkItems({
 	chat: { order: ["f"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "f1", call: { name: "bash", argsRaw: '{"command":"bad","description":"跑坏命令"}' }, isError: true, content: [{ type: "text", text: "boom happened\nstack line" }] } } }) } },
 })[0];
 assert.equal(failedBash.status, "error", "失败 bash 状态为 error");
 assert.equal(failedBash.detail, "boom happened", "错误态摘要取结果输出首行（镜像原生 errorSummary）");
-const interruptedBash = conversationTimeline({
+const interruptedBash = conversationWorkItems({
 	chat: { order: ["i"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "i1", call: { name: "bash", argsRaw: '{"command":"sleep 9"}' }, isError: true, error: { name: "Error", code: "interrupted" } } } }) } },
 })[0];
 assert.equal(interruptedBash.status, "stopped", "interrupted 归 stopped（镜像原生）");
 assert.equal(interruptedBash.detail, "sleep 9", "stopped 不套用错误首行，保持参数摘要");
-const thinkSettled = conversationTimeline({
+const thinkSettled = conversationWorkItems({
 	chat: { order: ["th"], nodes: { get: () => ({ kind: "assistant-step", data: { status: "settled", turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "第一段\n第二段" }] } }) } },
 })[0];
 assert.equal(thinkSettled.summary, "第一段", "Think 摘要镜像原生 firstLine");
-const thinkStreaming = conversationTimeline({
+const thinkStreaming = conversationWorkItems({
 	chat: { order: ["th"], nodes: { get: () => ({ kind: "assistant-step", data: { status: "running", turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "第一段\n进行中段" }] } }) } },
 })[0];
 assert.equal(thinkStreaming.summary, "进行中段", "流式 Think 摘要镜像原生 latestLine");
-const contextItem = conversationTimeline({
+const contextItem = conversationWorkItems({
 	chat: { order: ["cx"], nodes: { get: () => ({ kind: "context", data: { content: [{ type: "text", text: "<system_prompt>…</system_prompt>" }], source: { kind: "agent-instructions", changes: [{ path: "AGENTS.md" }] }, provenance: { role: "inject", label: "AGENTS.md" } } }) } },
 })[0];
 assert.equal(contextItem.label, "上下文注入", "context 工作项标题镜像原生 ContextInjectionRow（注入）");
 assert.equal(contextItem.summary, "AGENTS.md", "context 工作项摘要为来源标识而非注入内容原文");
-const contextRecall = conversationTimeline({
+const contextRecall = conversationWorkItems({
 	chat: { order: ["cx"], nodes: { get: () => ({ kind: "context", data: { content: [{ type: "text", text: "召回内容" }], provenance: { role: "recall", label: "旧会话" } } }) } },
 })[0];
 assert.equal(contextRecall.label, "跨会话召回", "context 工作项标题镜像原生召回文案");
-const contextNoProvenance = conversationTimeline({
+const contextNoProvenance = conversationWorkItems({
 	chat: { order: ["cx"], nodes: { get: () => ({ kind: "context", data: { content: [{ type: "text", text: "<system_prompt>…</system_prompt>" }] } }) } },
 })[0];
 assert.equal(contextNoProvenance.label, "上下文注入", "provenance 缺失时回退注入标题（镜像原生 unreadable 兜底）");
 assert.equal(contextNoProvenance.summary, "", "无来源标识时摘要为空，注入内容原文不上卡");
 // R-01-012/AC-02
-const unlocatedPartial = conversationTimeline({
+const unlocatedPartial = conversationWorkItems({
 	chat: {
 		order: ["a", "u"],
 		nodes: {
@@ -1148,9 +1116,9 @@ assert.deepEqual(
 	"partial 定位缺省（无 turn/step）时不误摘除无定位 assistant 节点",
 );
 // R-01-012/AC-02
-assert.deepEqual(conversationTimeline(chatSnapshot, 0), [], "limit=0 返回空时间线");
+assert.deepEqual(conversationWorkItems(chatSnapshot, 0), [], "limit=0 返回空时间线");
 assert.deepEqual(
-	conversationTimeline({ chat: { order: [], nodes: { get: () => undefined } } }),
+	conversationWorkItems({ chat: { order: [], nodes: { get: () => undefined } } }),
 	[],
 	"空 order 返回空时间线",
 );
@@ -1655,8 +1623,8 @@ assert.doesNotThrow(
 assert.ok(!bundle.includes("sessionsListHas"), "点击不得以第二份 list 快照提前拦截");
 // R-01-018 槽位派生与渲染进入 bundle
 assert.ok(
-	bundle.includes("foldedTimelineWithSlot") && bundle.includes("conversationTimelineWithSlot") && bundle.includes("historyTimelineWithSlot"),
-	"槽位派生函数进入 bundle（R-01-018）",
+	bundle.includes("foldedTimelineWithSlot") && bundle.includes("foldWorkGroupsWithSlot"),
+	"折叠槽位派生函数进入 bundle（R-01-017、R-01-018）",
 );
 assert.ok(bundle.includes('"dap-slot"') && bundle.includes("renderSlot"), "槽位行骨架与渲染进入 bundle（R-01-018）");
 // 防 TDZ 回归：memo 块 const derivedTimeline 声明必须先于对 derivedTimeline.rows 的引用（曾致运行卡渲染崩溃）
@@ -1741,11 +1709,14 @@ assert.ok(
 	"卡片仅在顺序/归属变化时移动 DOM（insertBefore 位置守卫）",
 );
 // ---- R-01-009/AC-02、R-01-009/AC-05、R-01-012/AC-01..04、R-01-013/AC-01..06 ----
-assert.ok(bundle.includes("conversationTimeline"), "活动卡使用主会话 ChatSnapshot 工作项时间线");
+assert.ok(bundle.includes("foldedTimelineWithSlot"), "活动卡时间线由折叠分组唯一来源派生（R-01-012、R-01-017）");
 assert.ok(!bundle.includes("dap-trace-time"), "工作项时间线不渲染行级耗时元素，对齐主会话窗口（R-01-009/AC-07、C-012）");
 assert.ok(!bundle.includes("PROGRESS_THINK_BASE") && !bundle.includes("progressFloor"), "回合进度纯时间驱动，无思考基线/单调下限残留（R-01-009/AC-06、C-014）");
 // R-01-009/AC-10
-assert.ok(bundle.includes("mergeTraceStatus"), "渲染层状态合并经核心纯函数 mergeTraceStatus");
+// R-01-017 无条件折叠（C-017）：检测探测与原生行呈现机器不得残留
+assert.ok(!bundle.includes("dshcf") && !bundle.includes("autoCollapseActive"), "无 dsh-auto-collapse 探测残留（R-01-017、C-017）");
+assert.ok(!bundle.includes("nativeWorkItemRow") && !bundle.includes("cloneNativeIcon") && !bundle.includes("nativeIconsByTraceKey"), "原生行匹配/图标克隆机器无残留（C-017）");
+assert.ok(!bundle.includes("mergeTraceStatus") && !bundle.includes("allowNativePresentation"), "行状态直接采用核心派生值，无合并/切换层（C-017）");
 assert.ok(bundle.includes("api.history"), "冷会话使用 native history 一次性补齐");
 assert.ok(bundle.includes("api.models"), "模型/reasoning 使用 native models 数据");
 assert.ok(bundle.includes("dap-token-stats"), "token 统计 DOM 位于进度条之后");
@@ -1857,9 +1828,11 @@ assert.equal(
 	"百分比文本写入全 bundle 仅运行卡渲染分支一处（R-01-016/AC-03：parent 分支不写百分比）",
 );
 // ---- R-01-016/AC-04 时间线数据在途时显示加载指示、返回就地填充 ----
+const __traceCallCount = bundle.split("renderTimelineArea(traceContainer, entry)").length - 1;
+console.log("PROBE", __traceCallCount, bundle.includes("nativePresentationSessionId"));
 assert.ok(
-	bundle.includes("renderTimelineArea(traceContainer, entry, nativePresentationSessionId(entry))"),
-	"等待卡与 parent 卡复用 renderTimelineArea：在途显示加载行、返回就地填充（R-01-016/AC-04）",
+	bundle.split("renderTimelineArea(traceContainer, entry").length - 1 === 4 && !bundle.includes("nativePresentationSessionId"),
+	"运行/subagent/parent/等待卡统一复用 renderTimelineArea：在途显示加载行、返回就地填充（R-01-016/AC-04）",
 );
 // R-01-013/AC-07、R-01-013/AC-08
 assert.ok(bundle.includes('dataset.role = "user"'), "用户消息行骨架静态标识 user 角色");
@@ -1951,7 +1924,7 @@ assert.ok(bundle.includes("pruneInvisibleEntries"), "可见性清理统一经 pr
 assert.ok(bundle.includes("createUserIcon"), "用户工作项使用人物 SVG 图标");
 assert.ok(bundle.includes('item.kind === "user"'), "用户图标按工作项语义固定选择");
 assert.ok(bundle.includes("createBashIcon"), "Bash 使用稳定的 canonical 图标");
-assert.ok(bundle.includes('item.toolName === "bash"'), "Bash 图标不随原生行状态/展开态漂移");
+assert.ok(bundle.includes("item.fold === true"), "折叠组行图标按组类别固定选择，不随成员状态或展开态漂移（R-01-012/AC-03、AC-08）");
 assert.ok(bundle.includes('M11.4818 5.57813'), "Bash fallback 使用 DSH IconApiOutline14 路径");
 // R-01-012/AC-03
 // ---- 回归锚点：非当前会话 fallback 与主会话网页同一 canonical 图标表，选中/非选中态不漂移 ----
@@ -1964,17 +1937,13 @@ assert.ok(bundle.includes("createBrowseIcon") && bundle.includes("M11.2426 4.804
 assert.ok(bundle.includes("createEditIcon") && bundle.includes("M9.94076 1.34942"), "write/edit fallback 使用 DSH IconEditOutline16 路径");
 assert.ok(bundle.includes("createThinkIcon"), "Think fallback 使用 DSH IconThinkOutline14 图标");
 assert.ok(bundle.includes('item.kind === "context" ? "" : item.text'), "context 注入内容原文不作为摘要兜底上卡（R-01-012/AC-03）");
-assert.ok(bundle.includes("matchNativeContextRow"), "context 原生行多行按内容文本匹配不错配首行");
-assert.ok(bundle.includes('[class*="iconIdle"] svg'), "原生动作图标从 iconIdle 读取而非 disclosure 箭头");
-assert.ok(bundle.includes("nativeIconsByTraceKey"), "错误状态复用此前缓存的动作图标");
-assert.ok(bundle.includes("ancestorObservers"), "祖先链逐级观察保证视图级重挂载自愈");
-assert.ok(bundle.includes("ICON_CACHE_MAX"), "图标缓存按当前会话修剪并限量，不随调用终身增长");
-assert.ok(bundle.includes("nativeWorkItemPresentation(item, nativeCacheKey)"), "图标缓存按会话与工作项 key 隔离");
-assert.ok(!bundle.includes('const cacheKey = String(item.id ?? "")'), "图标缓存不得使用空 id 共享 key");
+// 原生行匹配/图标克隆/图标缓存机器已随逐项镜像移除（C-017），由上方负向守卫覆盖。
 assert.ok(!bundle.includes('disclosure?.querySelector("svg")'), "不得直接复制 disclosure 内第一个 SVG");
-assert.ok(bundle.includes("tintSvgCurrentColor"), "错误图标显式归一到 currentColor");
-assert.ok(bundle.includes('setAttribute("fill", "currentColor")'), "错误图标填充颜色跟随错误 CSS");
-assert.ok(bundle.includes('setAttribute("stroke", "currentColor")'), "错误图标描边颜色跟随错误 CSS");
+assert.ok(
+	bundle.includes('[data-dsh-activity-pane] .dap-trace-item[data-status="error"] .dap-trace-icon') &&
+	bundle.includes('data-status="error"] .dap-trace-label'),
+	"错误分组行经 CSS 整体染色：图标、组标题与摘要跟随错误色（R-01-012/AC-06）",
+);
 assert.ok(bundle.includes("dap-trace-separator"), "标题与摘要之间有圆点分隔符");
 assert.ok(bundle.includes('main.append(makeEl("span", "dap-trace-separator"))'), "仅在标题和摘要同时存在时插入分隔符");
 assert.ok(bundle.includes('[data-status="error"] .dap-trace-icon'), "错误时动作图标染红");
@@ -1997,7 +1966,7 @@ assert.ok(bundle.includes("left: 3px; top: 0; bottom: -8px"), "1px 竖线（整�
 assert.ok(bundle.includes("color: #c7ced9; font-size: 10px; line-height: 14px;"), "工作项文字恢复原有 10px/14px 尺度");
 assert.ok(bundle.includes("width: 12px; height: 12px; flex: none; display: inline-flex;"), "工作项图标容器保持 12px");
 assert.ok(bundle.includes("display: block; width: 12px; height: 12px;"), "工作项 SVG 保持 12px");
-assert.ok(bundle.includes('svg.setAttribute("width", "12")') && bundle.includes('svg.setAttribute("height", "12")'), "生成 SVG 强制写入 12px 尺寸");
+assert.ok(bundle.includes('svg.setAttribute("width", String(width))'), "canonical 图标经 createInlineIcon 统一写入尺寸（默认 12px）");
 assert.ok(bundle.includes("left: 0; top: 3px;\n  width: 7px; height: 7px;"), "时间线圆点盒子与标题圆点同盒（7px、left:0，跨 DPR 渲染对齐）");
 assert.ok(bundle.includes("radial-gradient(circle, #778394 0 2.5px, rgba(119, 131, 148, .14) 2.5px 3.5px, transparent 3.5px)"), "5px 视觉圆点烘进径向渐变（实心核 0–2.5px + 外环内半）");
 assert.ok(bundle.includes("box-shadow: 0 0 0 1px rgba(119, 131, 148, .14);"), "圆点半透明外环外半由 1px box-shadow 拼成（整体 2px 外环不变）");

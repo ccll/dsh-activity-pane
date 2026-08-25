@@ -6,7 +6,7 @@ id: T-053
 
 # T-053 用户指令行浅绿标识、「需要响应」徽标闪烁与执行中闪烁语义修正
 
-状态: active
+状态: completed
 关联: R-01-002（AC-08）、R-01-016、R-01-017（AC-02、AC-03）、R-01-018 → 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -53,4 +53,13 @@ PRD 演进仅限 R-01-002 新增 AC-08（徽标闪烁呈现承诺，经东家现
 
 ## 终态与证据
 
-（关闭时填写：实现、测试、DESIGN 对照、commit、review。）
+- 实现: `src/client.mjs`（虚线 outline 体系移除；用户行/槽位整行浅绿平底 rgba(88,201,143,.1)；槽位垂直间距改 margin、gap 5px；图标统一 14px 盒 + 1px padding；`data-icon="robot"` 按 kind/detail/fold 判别分流、字形 13px 无底色；徽标 `dap-badge-flash` 复用 dap-pulse 1.2s、开启瞬间重启状态点动画对齐相位；`entryIdle` 判定与 memo 键扩展）；`src/core.mjs`（`settleWhenIdle`/`snapshotIdle` 落定内核、`foldedTimelineWithSlot` 增 `idle` 入参且落定前移至分组前、委托周期例外、边界拆分思考成员 running→done、`NEEDS_RESPONSE_LABEL` 常量单一事实源）；`scripts/check.mjs`（pending/idle/思考组落定核心用例 + AC-08 bundle 断言）；`scripts/acceptance.mjs`（三条人工验收点）；`PRD.md`（R-01-002/AC-08）、`DESIGN.md`（六处）、`DECISIONS.md`（C-018）同次演进。评审修复：acceptance 缩进回归、字面量提取常量、快照 idle 后代活跃例外、落定前移至分组前（组标题口径）、DESIGN 图标措辞遗漏。
+- 测试: `pnpm build:client && pnpm check` 全绿（R-01-016 pending/idle 落定、R-01-017/AC-02 思考组落定与 live 正文行保持 running、R-01-009/AC-10 委托提升例外、R-01-002/AC-08 徽标闪烁与相位重启 bundle 断言）；`python3 tools/agentmap_lint.py --report` 通过（requirements=22、AC=105 全锚定）；GUI 人工验收步骤见 `scripts/acceptance.mjs`（AC-08 闪烁同步、绿底标识、思考组落定三条，由东家按单核验）。
+- DESIGN 对照: 指令槽位行（绿底标识/margin 间距/14px 图标盒/robot 判别）、非运行活动卡呈现（分组前落定、委托例外）、等待文案（AC-08 闪烁与相位同步）、折叠呈现细节（思考成员落定）、最近卡图标措辞（两处「字形 12px」统一）均与实现一致；需求追溯索引无需变动（无新增 R）。
+- commit: a59d7c8c18c446b9f5759562e72ca6527cf0e9e0
+- review:
+  - 审核方: code-review skill 双轴独立子代理（Standards 轴、Spec 轴）
+  - 目的理解: 时间线用户指令标识去虚线框演进为不抢眼浅绿平底、「需要响应」徽标与标题状态点同步闪烁、执行中闪烁语义修正（等待卡不闪、思考组随正文流出落定、真实在飞项保留）；关联 R-01-002/AC-08、R-01-016、R-01-017/AC-02/AC-03、R-01-018 与 C-018；验证方式为 check.mjs 锚点 + agentmap lint + acceptance.mjs 人工验收。
+  - 执行方式: `code-review` skill，评审基线 HEAD（e64b66e193f99ecb8a14b953dea2ea001b2ea5a2，工作区未提交 diff），范围为 PRD/DESIGN/DECISIONS/src/scripts 全量变更；Standards 对照 AGENTS/CONVENTIONS 与既有代码风格 + Fowler 味道基线，Spec 对照 T-053 方案与 PRD/DESIGN 相关条目。
+  - 问题与修复: Standards 轴——acceptance.mjs 缩进回归（已补回）、「需要响应」字面量多处比较（提取 core 导出常量 NEEDS_RESPONSE_LABEL）；6 位置参数提示（维持同文件现状风格，记录不改）。Spec 轴——DESIGN 图标措辞遗漏一处（已改「字形 12px」统一）；快照 idle 未排除活动后代（落定条件加 `descendantActive !== true`，新增 pendingDescendant 用例）；组标题口径不一致（落定前移至 foldWorkGroups 之前、settle 时跳过尾部提升，新增「已思考」标题用例）。
+  - 复审结论: Standards 轴复审通过（无遗留 finding）；Spec 轴复审通过（三条 finding 均正确修复，常量抽取非 scope creep）。

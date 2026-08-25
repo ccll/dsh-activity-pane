@@ -555,7 +555,7 @@ assert.equal(timeline[2].summary, "/tmp/a", "工具行摘要与标题分层");
 const thinkItem = conversationWorkItems({
 	chat: { order: ["think"], nodes: { get: () => ({ kind: "assistant-step", data: { turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "Planning path" }] } }) } },
 })[0];
-assert.equal(thinkItem.label, "Think", "推理工作项标题复用主网页 Think 语义");
+assert.equal(thinkItem.label, "思考", "推理工作项 label 为中文「思考」（R-01-012/AC-10）");
 assert.equal(thinkItem.summary, "Planning path", "推理工作项摘要单独保留");
 const grepItem = conversationWorkItems({
 	chat: { order: ["grep"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-call", callId: "grep-1", call: { name: "grep", argsRaw: '{"pattern":"foo"}' } } } }) } },
@@ -586,6 +586,11 @@ const oldAssistantCurrent = conversationWorkItems({
 	partial: { turn: 3, step: 0, blocks: [{ kind: "text", text: "当前更新" }] },
 });
 assert.deepEqual(oldAssistantCurrent.map((item) => item.text), ["u3", "u4", "u5", "当前更新"], "order 尾部外的旧 assistant 被 live 当前项槽位替换");
+// R-01-012/AC-09、AC-10 数据层 label 中文归一：正文「助手」、思考「思考」
+const bodyLabelItems = conversationWorkItems({
+	chat: { order: ["bd"], nodes: { get: (key) => ({ key, kind: "assistant-step", data: { status: "settled", turn: 1, step: 0, blocks: [{ kind: "text", text: "纯正文" }] } }) } },
+});
+assert.equal(bodyLabelItems[0].label, "助手", "正文工作项 label 为中文「助手」（R-01-012/AC-09）");
 assert.equal(needsHistorySnapshot({ chat: { order: [] } }), true, "空 chat snapshot 需要 history fallback");
 assert.equal(needsHistorySnapshot({ chat: { order: ["item"] } }), false, "已 hydrate 的 chat snapshot 优先使用 order");
 const models = modelMetadata({
@@ -634,7 +639,7 @@ const splitNodes = new Map([
 	["q", { key: "q", kind: "tool-call", anchorSeq: 2, data: { root: { kind: "tool-result", callId: "q", call: { name: "grep", argsRaw: "{}" } } } }],
 ]);
 const split = foldWorkGroups(
-	[{ id: "k", kind: "assistant", label: "Think", text: "正文输出", summary: "推理前置", detail: "推理前置", icon: "assistant", status: "done" },
+	[{ id: "k", kind: "assistant", label: "思考", text: "正文输出", summary: "推理前置", detail: "推理前置", icon: "assistant", status: "done" },
 	 { id: "q", kind: "tool", toolName: "grep", label: "Grep", summary: "a", icon: "search", status: "done" }],
 	4);
 assert.equal(split[0].fold, true, "reasoning 先行独立成思考组");
@@ -642,7 +647,8 @@ assert.equal(split[0].label, "已思考", "纯思考完成组标题为已思考�
 assert.equal(split[0].summary, "推理前置", "思考组摘要为该推理文本（R-01-017/AC-04）");
 assert.equal(split[0].icon, "assistant", "思考组行图标为思考图标");
 // R-01-017/AC-02 reasoning+正文同节点剥离：推理只归组摘要，正文行不得重复显示推理文本（验收修正）
-assert.equal(split[1].label, "Assistant", "正文行不再复用 Think 标签");
+// R-01-012/AC-09 正文行 label 为中文「助手」
+assert.equal(split[1].label, "助手", "正文行不再复用思考标签，label 为中文「助手」（R-01-012/AC-09）");
 assert.equal(split[1].text, "正文输出", "正文为独立行且内容保留");
 assert.equal(split[1].summary, "正文输出", "正文行摘要为正文而非推理文本");
 assert.equal(split[1].detail, null, "正文行剥离推理文本");
@@ -652,12 +658,12 @@ assert.equal(split[2].fold, true, "正文后的工具独立成组");
 // R-01-017/AC-02 验收反馈：工具组行后紧跟的同节点正文行不得与组摘要重复推理文本（东家现场场景）
 const dedup = foldWorkGroups(
 	[{ id: "t1", kind: "tool", toolName: "bash", label: "Bash", summary: "ls -la", icon: "bash", status: "done" },
-	 { id: "k1", kind: "assistant", label: "Think", text: "这是正文", summary: "推理文本", detail: "推理文本", icon: "assistant", status: "done" }],
+	 { id: "k1", kind: "assistant", label: "思考", text: "这是正文", summary: "推理文本", detail: "推理文本", icon: "assistant", status: "done" }],
 	4);
 assert.equal(dedup[0].label, "运行了命令", "前组标题为运行了命令（R-01-017/AC-03）");
 assert.equal(dedup[0].summary, "推理文本", "推理文本归组摘要（R-01-017/AC-04）");
 assert.equal(dedup[0].icon, "bash", "tool 组行图标为命令图标（IconApiOutline14，与 auto-collapse chip 同源）");
-assert.equal(dedup[1].label, "Assistant", "下一行为正文行而非 Think 行");
+assert.equal(dedup[1].label, "助手", "下一行为正文行而非思考行，label 为中文「助手」（R-01-012/AC-09）");
 assert.equal(dedup[1].summary, "这是正文", "正文行内容不与组摘要重复");
 assert.equal(dedup[1].detail, null, "正文行不携带推理文本");
 // R-01-017/AC-03 运行中工具/思考标题与摘要
@@ -722,9 +728,9 @@ assert.equal(promoteFold[0].status, "running", "R-01-009/AC-10 尾部提升作�
 const manyFlat = [
 	{ id: "u1", kind: "user", icon: "user", text: "hi", detail: null, status: "done" },
 	{ id: "t1", kind: "tool", toolName: "bash", label: "Bash", summary: "a", icon: "bash", status: "done" },
-	{ id: "b1", kind: "assistant", label: "Assistant", text: "正文一", summary: "正文一", icon: "assistant", status: "done" },
+	{ id: "b1", kind: "assistant", label: "助手", text: "正文一", summary: "正文一", icon: "assistant", status: "done" },
 	{ id: "t2", kind: "tool", toolName: "bash", label: "Bash", summary: "b", icon: "bash", status: "done" },
-	{ id: "b2", kind: "assistant", label: "Assistant", text: "正文二", summary: "正文二", icon: "assistant", status: "done" },
+	{ id: "b2", kind: "assistant", label: "助手", text: "正文二", summary: "正文二", icon: "assistant", status: "done" },
 	{ id: "t3", kind: "tool", toolName: "grep", label: "Grep", summary: "c", icon: "search", status: "done" },
 ];
 const manyGroups = foldWorkGroups(manyFlat, 4);
@@ -740,12 +746,12 @@ assert.equal(groupIdStable.id, manyGroups[3].id, "分组 id 稳定供渲染层 D
 const slotItems = [
 	{ id: "u1", kind: "user", icon: "user", text: "指令一", detail: null, status: "done" },
 	{ id: "t1", kind: "tool", toolName: "bash", label: "Bash", summary: "a", icon: "bash", status: "done" },
-	{ id: "b1", kind: "assistant", label: "Assistant", text: "正文一", summary: "正文一", icon: "assistant", status: "done" },
+	{ id: "b1", kind: "assistant", label: "助手", text: "正文一", summary: "正文一", icon: "assistant", status: "done" },
 	{ id: "u2", kind: "user", icon: "user", text: "指令二", detail: null, status: "done" },
 	{ id: "t2", kind: "tool", toolName: "bash", label: "Bash", summary: "b", icon: "bash", status: "done" },
-	{ id: "b2", kind: "assistant", label: "Assistant", text: "正文二", summary: "正文二", icon: "assistant", status: "done" },
+	{ id: "b2", kind: "assistant", label: "助手", text: "正文二", summary: "正文二", icon: "assistant", status: "done" },
 	{ id: "t3", kind: "tool", toolName: "bash", label: "Bash", summary: "c", icon: "bash", status: "done" },
-	{ id: "b3", kind: "assistant", label: "Assistant", text: "正文三", summary: "正文三", icon: "assistant", status: "done" },
+	{ id: "b3", kind: "assistant", label: "助手", text: "正文三", summary: "正文三", icon: "assistant", status: "done" },
 	{ id: "t4", kind: "tool", toolName: "bash", label: "Bash", summary: "d", icon: "bash", status: "done" },
 ];
 const slotMirror = foldWorkGroupsWithSlot(slotItems, 4);
@@ -766,9 +772,9 @@ const slotReplaced = foldWorkGroupsWithSlot(
 		...slotItems,
 		{ id: "u3", kind: "user", icon: "user", text: "指令三", detail: null, status: "done" },
 		{ id: "t5", kind: "tool", toolName: "bash", label: "Bash", summary: "e", icon: "bash", status: "done" },
-		{ id: "b4", kind: "assistant", label: "Assistant", text: "正文四", summary: "正文四", icon: "assistant", status: "done" },
+	{ id: "b4", kind: "assistant", label: "助手", text: "正文四", summary: "正文四", icon: "assistant", status: "done" },
 		{ id: "t6", kind: "tool", toolName: "bash", label: "Bash", summary: "f", icon: "bash", status: "done" },
-		{ id: "b5", kind: "assistant", label: "Assistant", text: "正文五", summary: "正文五", icon: "assistant", status: "done" },
+	{ id: "b5", kind: "assistant", label: "助手", text: "正文五", summary: "正文五", icon: "assistant", status: "done" },
 		{ id: "t7", kind: "tool", toolName: "bash", label: "Bash", summary: "g", icon: "bash", status: "done" },
 	],
 	4,
@@ -1840,7 +1846,12 @@ assert.ok(bundle.includes("dap-history-text"), "历史卡预览文本写入图�
 // R-01-013/AC-08
 assert.ok(bundle.includes("agentIcon.append(createRobotIcon())"), "agent 回复行使用机器人图标");
 // R-01-012/AC-03（T-021 副作用守卫：历史卡换图标不影响时间线兜底）
-assert.ok(bundle.includes('"Think" ? createThinkIcon() : createSparkleIcon()'), "时间线 assistant 兜底仍为 sparkle 图标");
+// R-01-012/AC-09 时间线 assistant 行图标：正文行机器人图标（与最近卡 agent 角色标识同源）、思考行思考图标，按 detail 有无分流而非比较 label 文案
+assert.ok(bundle.includes('? createThinkIcon() : createRobotIcon()'), "时间线 assistant 正文行使用机器人图标、思考行使用思考图标（R-01-012/AC-09）");
+assert.ok(!bundle.includes('label === "Think"') && !bundle.includes('label === "Assistant"'), "图标分流不比较 label 显示文案（R-01-012/AC-09）");
+// R-01-012/AC-10 时间线数据层无英文 Think/Assistant 标签残留
+assert.ok(!bundle.includes('"Think"') && !bundle.includes('"Assistant"'), "bundle 无英文 Think/Assistant 标签残留（R-01-012/AC-10）");
+assert.ok(bundle.includes('"思考"') && bundle.includes('"助手"'), "bundle 含中文「思考」「助手」标签（R-01-012/AC-09、AC-10）");
 assert.ok(bundle.includes("session.subscribe"), "运行卡通过 native session subscribe 接收实时推送");
 assert.ok(
 	clientSource.includes('const inject = ["connection", "sessions", "workspaces"];'),

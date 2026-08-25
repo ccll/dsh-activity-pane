@@ -320,7 +320,7 @@ function timelineItemFromChatNode(node, cwd = "") {
 		const text = assistantBlockText(data.blocks, "text");
 		const reasoning = assistantBlockText(data.blocks, "reasoning");
 		if (!text && !reasoning) return null;
-		const label = reasoning ? "Think" : "Assistant";
+		const label = reasoning ? "思考" : "助手";
 		return {
 			id: String(node.key ?? `assistant:${data.turn}:${data.step}`),
 			kind: "assistant",
@@ -489,7 +489,7 @@ function foldMemberOf(item) {
 	}
 	return {
 		cat: "think",
-		label: "Think",
+		label: "思考",
 		summary: typeof item.summary === "string" ? item.summary : "",
 		text: typeof item.detail === "string" ? item.detail : "",
 		icon: "assistant",
@@ -584,7 +584,7 @@ function foldWorkGroups(items, limit = 4) {
 			run.keys.push(String(item.id ?? ""));
 			// 推理文本已并入当前组（组摘要承载，AC-04）；正文行剥离推理展示并跳过原生行匹配，
 			// 避免同一推理文本在组行与下一行重复呈现（R-01-017/AC-02 验收修正）。
-			const body = { ...item, label: "Assistant", summary: item.text, detail: null, stripNative: true };
+			const body = { ...item, label: "助手", summary: item.text, detail: null, stripNative: true };
 			flush();
 			rows.push(body);
 			continue;
@@ -2931,7 +2931,7 @@ function apply(ctx) {
 		}
 
 		if (item.kind === "user") return createUserIcon();
-		if (item.kind === "assistant") return item.label === "Think" ? createThinkIcon() : createSparkleIcon();
+		if (item.kind === "assistant") return typeof item.detail === "string" && item.detail.trim() !== "" ? createThinkIcon() : createRobotIcon();
 		if (item.kind === "context") return createBrowseIcon();
 		return (TOOL_ICON_FACTORIES[item.toolName] ?? KIND_ICON_FACTORIES[item.icon] ?? createSparkleIcon)();
 	}

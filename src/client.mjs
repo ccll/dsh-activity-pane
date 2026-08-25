@@ -1491,7 +1491,7 @@ function apply(ctx) {
 		}
 
 		if (item.kind === "user") return createUserIcon();
-		if (item.kind === "assistant") return item.label === "Think" ? createThinkIcon() : createSparkleIcon();
+		if (item.kind === "assistant") return typeof item.detail === "string" && item.detail.trim() !== "" ? createThinkIcon() : createRobotIcon();
 		if (item.kind === "context") return createBrowseIcon();
 		return (TOOL_ICON_FACTORIES[item.toolName] ?? KIND_ICON_FACTORIES[item.icon] ?? createSparkleIcon)();
 	}

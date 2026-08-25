@@ -402,12 +402,17 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-history-line[data-role="agent"] { color: color-mix(in srgb, currentColor 54%, transparent); }
 [data-dsh-activity-pane] .dap-history-icon {
-  flex: none; width: 10px; height: 10px; display: inline-flex;
+  flex: none; width: 12px; height: 12px; display: inline-flex;
   align-items: center; justify-content: center;
 }
-[data-dsh-activity-pane] .dap-history-icon svg { display: block; width: 10px; height: 10px; }
+[data-dsh-activity-pane] .dap-history-icon svg { display: block; width: 12px; height: 12px; }
 [data-dsh-activity-pane] .dap-history-text {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+[data-dsh-activity-pane] .dap-history-label { flex: none; }
+[data-dsh-activity-pane] .dap-history-separator {
+  width: 2px; height: 2px; flex: none; border-radius: 50%;
+  background: #778394;
 }
 /* 动作时间线：纵向竖线串起圆点（对齐 answer-pet 的 .ap-session-trace，并修正几何细节——
    轨道列从卡片内容左边起步，和标题圆点/状态行/进度条共用左边界；轨道下放到每个
@@ -718,7 +723,8 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-label {
   color: var(--dsw-alias-label-secondary, rgb(97, 102, 107));
 }
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-separator {
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-separator,
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-history-separator {
   background: var(--dsw-alias-label-caption, rgb(173, 178, 184));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item::after {
@@ -1289,12 +1295,16 @@ function apply(ctx) {
 			userLine.dataset.role = "user";
 			const userIcon = makeEl("span", "dap-history-icon");
 			userIcon.append(createUserIcon());
-			userLine.append(userIcon, makeEl("span", "dap-history-text"));
+			const userLabel = makeEl("span", "dap-history-label");
+			userLabel.textContent = "用户";
+			userLine.append(userIcon, userLabel, makeEl("span", "dap-history-separator"), makeEl("span", "dap-history-text"));
 			const agentLine = makeEl("div", "dap-history-line");
 			agentLine.dataset.role = "agent";
 			const agentIcon = makeEl("span", "dap-history-icon");
 			agentIcon.append(createRobotIcon());
-			agentLine.append(agentIcon, makeEl("span", "dap-history-text"));
+			const agentLabel = makeEl("span", "dap-history-label");
+			agentLabel.textContent = "助手";
+			agentLine.append(agentIcon, agentLabel, makeEl("span", "dap-history-separator"), makeEl("span", "dap-history-text"));
 			return [head, row, userLine, agentLine, makeEl("div", "dap-note")];
 		}
 		if (kind === "awaiting") {
@@ -1418,13 +1428,13 @@ function apply(ctx) {
 		});
 	}
 
-	/** 历史卡 agent 回复行角色图标（R-01-013/AC-08）：主网页图标集无现成机器人，按 canonical 风格手绘。 */
 	/** agent 角色机器人图标（R-01-013/AC-08、R-01-012/AC-09）：canonical 图标集无现成机器人，
-	 *  采用 Lucide bot 图标几何（ISC 许可，来源声明见 LICENSE/README），24 框描边风格。 */
+	 *  采用 Lucide bot 图标几何（ISC 许可，来源声明见 LICENSE/README），24 框描边风格；
+	 *  viewBox 裁剪至笔墨边界盒（1 3 22 18），12px 图标盒内显示尺度与同盒 canonical 图标一致（R-01-012/AC-11）。 */
 	function createRobotIcon() {
 		const stroke = { fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round" };
 		return createInlineIcon({
-			viewBox: "0 0 24 24",
+			viewBox: "1 3 22 18",
 			parts: [
 				{ attrs: { d: "M12 8V4H8", ...stroke } },
 				{ tag: "rect", attrs: { x: "4", y: "8", width: "16", height: "12", rx: "2", ...stroke } },

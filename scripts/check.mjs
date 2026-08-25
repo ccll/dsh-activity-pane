@@ -607,7 +607,8 @@ assert.deepEqual(
 		{ event: { type: "assistant/message", seq: 2, data: { message: { content: [{ type: "text", text: "历史回复" }] } } } },
 	]),
 	[
-		{ id: "user:1", kind: "user", icon: "user", text: "历史用户", detail: null, status: "done" },
+		// R-01-012/AC-05 冷路径用户行同样携带「用户」标签
+		{ id: "user:1", kind: "user", icon: "user", label: "用户", text: "历史用户", detail: null, status: "done" },
 		{ id: "assistant:2", kind: "assistant", icon: "assistant", text: "历史回复", detail: null, status: "done" },
 	],
 	"冷会话 history 按原始事件顺序降级",
@@ -626,6 +627,8 @@ const foldSnapshot = { chat: { order: ["u1", "g1", "th1", "b1", "b2"], nodes: { 
 const folded = foldedConversationTimeline(foldSnapshot);
 assert.equal(folded.length, 4, "用户输入、混排组、正文、尾部工具各占一行（R-01-017/AC-02）");
 assert.equal(folded[0].kind, "user", "用户输入项原样保留");
+// R-01-012/AC-05 用户行 label 为中文「用户」（与 assistant 行「助手/思考」标签同构）
+assert.equal(folded[0].label, "用户", "用户输入项 label 为中文「用户」（R-01-012/AC-05）");
 assert.equal(folded[1].fold, true, "混排工作项合并为分组行");
 assert.equal(folded[1].label, "运行了命令", "完成态工具+思考组标题取工具去向（R-01-017/AC-03）");
 assert.match(folded[1].summary, /^思考一/, "组摘要携带推理文本内容（R-01-017/AC-04）");
@@ -1843,11 +1846,24 @@ assert.ok(bundle.includes('dataset.role = "user"'), "用户消息行骨架静态
 assert.ok(bundle.includes('dataset.role = "agent"'), "agent 回复行骨架静态标识 agent 角色");
 assert.ok(bundle.includes("dap-history-icon"), "历史卡预览行带常驻角色图标段");
 assert.ok(bundle.includes("dap-history-text"), "历史卡预览文本写入图标后的独立文本段");
+// R-01-013/AC-07、AC-08 最近卡预览行对齐时间线形式：角色标签 + 圆点分隔符 + 12px 图标盒
+assert.ok(bundle.includes("dap-history-label"), "历史卡预览行带角色标签段（R-01-013/AC-07、AC-08）");
+assert.ok(bundle.includes('userLabel.textContent = "用户"'), "用户消息行带「用户」标签（R-01-013/AC-07）");
+assert.ok(bundle.includes('agentLabel.textContent = "助手"'), "agent 回复行带「助手」标签（R-01-013/AC-08）");
+assert.ok(bundle.includes("dap-history-separator"), "历史卡预览行标签与文本之间带圆点分隔符（R-01-013/AC-07、AC-08）");
+assert.ok(
+	bundle.includes(".dap-history-icon svg { display: block; width: 12px; height: 12px; }") &&
+	!bundle.includes(".dap-history-icon svg { display: block; width: 10px; height: 10px; }"),
+	"历史卡角色图标盒 12px，与时间线图标一致（R-01-013/AC-07、AC-08）",
+);
 // R-01-013/AC-08
 assert.ok(bundle.includes("agentIcon.append(createRobotIcon())"), "agent 回复行使用机器人图标");
 // 回归：机器人图标采用 Lucide bot 几何（ISC 许可，来源声明见 LICENSE/README；东家选定 F 方案）
 assert.ok(bundle.includes("M12 8V4H8"), "机器人图标为 Lucide bot 几何（天线折线 path）");
 assert.ok(!bundle.includes('"stroke-width": "1.3"'), "旧自绘描边机器人（1.3px 细描边）不再残留");
+// R-01-012/AC-11 机器人图标 viewBox 裁剪至笔墨边界盒（1 3 22 18），显示尺度与同盒 canonical 图标一致
+assert.ok(bundle.includes('viewBox: "1 3 22 18"'), "机器人图标 viewBox 为笔墨边界盒，不因留白显小（R-01-012/AC-11）");
+assert.ok(!bundle.includes('viewBox: "0 0 24 24"'), "机器人图标不再使用留白 24 框（R-01-012/AC-11）");
 // R-01-012/AC-03（T-021 副作用守卫：历史卡换图标不影响时间线兜底）
 // R-01-012/AC-09 时间线 assistant 行图标：正文行机器人图标（与最近卡 agent 角色标识同源）、思考行思考图标，按 detail 有无分流而非比较 label 文案
 assert.ok(bundle.includes('? createThinkIcon() : createRobotIcon()'), "时间线 assistant 正文行使用机器人图标、思考行使用思考图标（R-01-012/AC-09）");

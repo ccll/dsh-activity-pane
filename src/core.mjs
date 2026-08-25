@@ -305,6 +305,7 @@ function timelineItemFromChatNode(node, cwd = "") {
 			id: String(node.key ?? node.anchorSeq ?? `user:${text}`),
 			kind: "user",
 			icon: "user",
+			label: "用户",
 			text,
 			detail: null,
 			status: "done",
@@ -647,7 +648,7 @@ function timelineItemFromEvent(entry, cwd = "") {
 	const data = isRecord(event?.data) ? event.data : {};
 	if (!event || typeof event.type !== "string") return null;
 	if (event.type === "user/message" && data.source?.kind === "user") {
-		return { id: `user:${event.seq}`, kind: "user", icon: "user", text: contentText(data.content), detail: null, status: "done" };
+		return { id: `user:${event.seq}`, kind: "user", icon: "user", label: "用户", text: contentText(data.content), detail: null, status: "done" };
 	}
 	if (event.type === "assistant/message") {
 		const text = contentText(data.message?.content);

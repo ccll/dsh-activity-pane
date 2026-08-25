@@ -17,9 +17,9 @@ id: T-051
 ## 差距评估
 
 - PRD/DESIGN：已同次演进（R-01-012 AC-05 改写+AC-11 新增；R-01-013 AC-07/08 改写；DESIGN 运行卡外观、显示行图标、最近卡预览行与双段结构四条目同步）。
-- `src/core.mjs`：用户行派生两处（`nodeToTimelineItem` 用户分支、`eventToItem` 的 `user/message` 分支）无 `label` 字段，assistant 行已有「助手/思考」label。
+- `src/core.mjs`：用户行派生两处（`timelineItemFromChatNode` 用户分支、`timelineItemFromEvent` 的 `user/message` 分支）无 `label` 字段，assistant 行已有「助手/思考」label。
 - `src/client.mjs`：`createRobotIcon` viewBox `0 0 24 24` 上下留白；最近卡骨架（`cardChildren` recent 分支）为「图标+文本」双段，`.dap-history-icon` 10px。
-- `scripts/check.mjs`：多处用户行 deepEqual fixtures（约 610、729、747、750、773 行）需同步补 `label: "用户"`；缺 AC-05 用户行 label、AC-11 机器人 viewBox、R-01-013/AC-07/08 标签段锚点。
+- `scripts/check.mjs`：冷路径用户行 deepEqual 期望（约 610 行）需同步补 `label: "用户"`；缺 AC-05 用户行 label、AC-11 机器人 viewBox、R-01-013/AC-07/08 标签段锚点。
 - `scripts/acceptance.mjs`：需补三条人工验收步骤（时间线用户行标签、机器人尺度一致、最近卡标签与 12px 图标）。
 
 ## 收敛方案

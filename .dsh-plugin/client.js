@@ -415,10 +415,11 @@ function mergeLiveItems(items, snapshot, max, cwd = "") {
 }
 
 /** R-01-009/AC-10：会话运行中（无 pending）、无执行中项且尾部为已定案非用户项时，
- *  克隆提升为 running 作为 agent 工作中的持续标志；error/stopped 与用户输入项不提升。 */
-function promoteRunningTail(timeline, snapshot) {
+ *  克隆提升为 running 作为 agent 工作中的持续标志；error/stopped 与用户输入项不提升。
+ *  descendantActive：存在活动后代（委托周期呈现）视同运行中。 */
+function promoteRunningTail(timeline, snapshot, descendantActive = false) {
 	if (
-		snapshot?.running === true &&
+		(snapshot?.running === true || descendantActive === true) &&
 		!(Array.isArray(snapshot?.pending) && snapshot.pending.length > 0) &&
 		!timeline.some((item) => item.status === "running")
 	) {
@@ -622,7 +623,7 @@ function foldedConversationTimeline(snapshot, limit = 4, cwd = "") {
  *  槽位未确定（窗口内无指令且窗口外尚未见指令）时继续扩窗直至全序兜底，
  *  保证窗口外最近用户指令只要存在就能被找到。
  *  lastUser 为运行卡轻量 history 提供的最近用户指令（行内窗口外无指令时兜底）。 */
-function foldedTimelineWithSlot(snapshot, limit = 4, cwd = "", lastUser = null) {
+function foldedTimelineWithSlot(snapshot, limit = 4, cwd = "", lastUser = null, descendantActive = false) {
 	const max = Math.max(0, limit);
 	if (max === 0) return { rows: [], slot: null };
 	for (const want of [max * 3, max * 8, Number.MAX_SAFE_INTEGER]) {
@@ -632,7 +633,7 @@ function foldedTimelineWithSlot(snapshot, limit = 4, cwd = "", lastUser = null) 
 		const slot = slotOf(full, max) ?? fallbackSlot(full, max, lastUser);
 		if (rows.length >= max || want === Number.MAX_SAFE_INTEGER) {
 			if (windowHasUser(full, max) || slot !== null || want === Number.MAX_SAFE_INTEGER) {
-				return { rows: promoteRunningTail(rows, snapshot), slot };
+				return { rows: promoteRunningTail(rows, snapshot, descendantActive), slot };
 			}
 		}
 	}
@@ -818,7 +819,7 @@ function pendingText(kind) {
 }
 
 /** 数量徽标统计：只统计主会话——分子为等待响应（awaiting，含响应保持）的主会话数，
- *  分母为其加运行中（running）主会话之和；子代理与 parent 层级上下文不计入
+ *  分母为其加运行中（running，含委托周期保持运行呈现）主会话之和；子代理不计入
  *  （R-01-001/AC-05）。空列表返回 { waiting: 0, total: 0 }，徽标恒以 n/m 呈现。 */
 function awaitBadgeStats(entries) {
 	let waiting = 0;
@@ -961,17 +962,19 @@ function mainTitle(byId, id) {
 /**
  * 把 sessions/workspaces 快照构建成窗格条目列表（有序、已含层级与显示过滤）。
  * 返回数组的每一项：
- *   { id, parentId?, depth, kind: 'running'|'awaiting'|'subagent'|'parent', title, workspaceTitle,
- *     isCurrent, pendingText? }
+ *   { id, parentId?, depth, kind: 'running'|'awaiting'|'subagent', title, workspaceTitle,
+ *     isCurrent, pendingText?, descendantActive? }
  * kind 规则：
- *   - 主会话 running（且无 pending）→ 'running'
+ *   - 主会话 running（且无 pending）或处于委托周期（含后代耗尽空窗）→ 'running'
  *   - 主会话 pendingInteraction / completed → 'awaiting'（等待用户行动）
- *   - 自身不活动但存在活动后代的任意母会话 → 'parent'（活动层级上下文）
- *   - 子代理 running / pending → 'subagent'，自身与后代均不活动则不显示
+ *   - 子代理 running / pending 或存在活动后代 → 'subagent'，自身与后代均不活动则不显示
  * heldIds（响应保持，R-01-002/AC-05、R-01-010/AC-06）：集合内主会话按 awaiting
- * 「需要响应」保留在活动区。
+ * 「需要响应」保留在活动区。delegatingIds（委托周期集合，渲染层由 progressAnchor
+ * 记账派生）：集合内会话视同处于委托周期——后代耗尽至 settle 处理回合启动的
+ * 空窗内仍保持运行呈现、完成提醒与响应保持不生效；条目的 descendantActive 字段
+ * 始终为当帧原始后代活性（供进度锚点记账判定耗尽），不受 delegatingIds 影响。
  */
-function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds = null) {
+function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds = null, delegatingIds = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
@@ -979,8 +982,8 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds = null
 		? snapshot.subagentsByParent
 		: {};
 	const rank = workspaceRank(workspaceItems ?? []);
-	const activeIds = activeSessionIds(byId);
-	// 第一遍：层级关系 + 显示判定（show 同 isActiveRow，单点实现避免漂移）。
+	const descendantIds = descendantActiveIds(byId);
+	// 第一遍：层级关系 + 显示判定（show = 自身活动 || 委托周期 || 响应保持，单点实现避免漂移）。
 	const rootIds = [];
 	const childIds = new Map();
 	const meta = new Map();
@@ -1000,10 +1003,12 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds = null
 		const isSub = hasParent;
 		// 响应保持（R-01-002/AC-05、R-01-010/AC-06）：保持中主会话按自身活动计入。
 		const held = !isSub && heldIds instanceof Set && heldIds.has(String(id));
-		// 子代理完成且没有活动后代时消失；主会话完成后保留为"等待打开"，活动祖先显示为 parent 上下文。
-		const ownActive = isActiveRow(row, byId) || held;
-		const show = isActiveRow(row, byId, activeIds) || held;
-		meta.set(id, { row, running, pending, isSub, ownActive, show, held, depth: 0 });
+		// 子代理完成且没有活动后代时消失；主会话完成后保留为"等待打开"；母会话在委托周期保持运行呈现（R-01-003/AC-05）。
+		const selfActive = isOwnActiveRow(row, byId);
+		const descendantActive = descendantIds.has(String(id));
+		const delegating = descendantActive || (delegatingIds instanceof Set && delegatingIds.has(String(id)));
+		const show = selfActive || delegating || held;
+		meta.set(id, { row, running, pending, isSub, show, held, descendantActive, delegating, depth: 0 });
 	}
 
 	// 主会话按 workspace 顺序排序；未归入任何工作区的主会话保持在 lineage 中靠后。
@@ -1035,9 +1040,14 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds = null
 				id,
 				parentId: m.isSub ? String(parentId) : null,
 				depth,
-				kind: m.ownActive
-					? m.isSub ? "subagent" : m.pending ? "awaiting" : m.running ? "running" : "awaiting"
-					: "parent",
+				kind: m.isSub
+					? "subagent"
+					: m.pending
+						? "awaiting"
+						: m.running || m.delegating
+							? "running"
+							: "awaiting",
+				descendantActive: m.descendantActive,
 				title: m.isSub
 					? subagentTitle(parentId, id, byId, subagentsByParent)
 					: mainTitle(byId, id),
@@ -1052,7 +1062,7 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds = null
 				isCurrent: current !== null && String(current) === String(id),
 				pendingText: m.pending
 					? pendingText(m.row.pendingInteraction)
-					: (m.row.completed === true || m.held) && !m.running
+					: (m.row.completed === true || m.held) && !m.running && !m.delegating
 						? "需要响应"
 						: undefined,
 			});
@@ -1080,7 +1090,7 @@ function trackRuns(entries) {
 	const runs = new Map();
 	for (const entry of list) {
 		if (entry?.id == null || entry?.parentId == null || (entry.depth ?? 0) < 1) continue;
-		if (entry.kind !== "subagent" && entry.kind !== "parent") continue;
+		if (entry.kind !== "subagent") continue;
 		const pid = String(entry.parentId);
 		const parentDepth = depthById.get(pid);
 		if (parentDepth === undefined || entry.depth !== parentDepth + 1) continue;
@@ -1186,28 +1196,37 @@ function isOwnActiveRow(row, byId = {}) {
 	return running || pending || row.completed === true;
 }
 
-/** 沿活动会话的有效 parentId 链补齐活动祖先，供活动区与历史区共用。 */
-function activeSessionIds(byId = {}) {
-	const activeIds = new Set();
+/** 沿自身活动会话的有效 parentId 链上溯收集会话 id：includeSelf 含活动会话自身，
+ *  否则只收祖先（存在活动后代的母会话）。活动区与历史区显示判定的单点实现。 */
+function lineageActiveIds(byId, includeSelf) {
+	const ids = new Set();
 	for (const [id, row] of Object.entries(byId)) {
 		if (!isOwnActiveRow(row, byId)) continue;
-		let currentId = String(id);
 		const seen = new Set();
-		while (currentId !== "" && !seen.has(currentId)) {
-			seen.add(currentId);
-			activeIds.add(currentId);
-			const parentId = byId[currentId]?.parentId;
-			if (parentId === undefined || parentId === null || !isRecord(byId[parentId])) break;
-			currentId = String(parentId);
+		let currentId = includeSelf ? id : row?.parentId;
+		while (currentId !== undefined && currentId !== null && isRecord(byId[currentId]) && !seen.has(String(currentId))) {
+			seen.add(String(currentId));
+			ids.add(String(currentId));
+			currentId = byId[currentId]?.parentId;
 		}
 	}
-	return activeIds;
+	return ids;
 }
 
-/** 判断活动条目是否需要建立轮内状态订阅；parent 上下文明确排除。 */
+/** 沿活动会话的有效 parentId 链补齐活动祖先（含活动会话自身），供历史区显示判定。 */
+function activeSessionIds(byId = {}) {
+	return lineageActiveIds(byId, true);
+}
+
+/** 「存在活动后代」的母会话集合（不含活动会话自身），供 buildEntries 判定委托周期（R-01-003/AC-05）。 */
+function descendantActiveIds(byId = {}) {
+	return lineageActiveIds(byId, false);
+}
+
+/** 判断活动条目是否需要建立轮内状态订阅：以宿主 running 为准、与呈现 kind 解耦——
+ *  委托周期中保持运行呈现的母会话不建立订阅（R-02-004/AC-01）。 */
 function shouldSubscribeToSession(entry, byId = {}) {
-	if (entry?.kind === "running") return true;
-	return entry?.kind === "subagent" && byId?.[entry.id]?.running === true;
+	return entry?.id != null && byId?.[entry.id]?.running === true;
 }
 
 /** 会话行是否满足活动区显示判定（自身活动或存在活动后代）。 */
@@ -1268,9 +1287,10 @@ function movedToRecentIds(prevActiveIds, active, recent) {
  * （子代理是临时工作单元，不入最近历史；故需同时排除表白会话与已结束子代理），
  * 按最后活动时间从新到旧，最多 HISTORY_MAX 条。blank 会话不出现（从未用过）；
  * 归档会话不出现——原生 runtime 会立即清空对归档会话的选中，列出它只会得到
- * 一张点了回落到新会话界面的死卡。响应保持中的会话留在活动区，不入历史区。
+ * 一张点了回落到新会话界面的死卡。响应保持中的会话留在活动区，不入历史区；
+ * 委托周期（含耗尽空窗）中的会话同样留在活动区（delegatingIds，分区不变量）。
  */
-function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS, detailsById = {}, archivedIds = [], heldIds = null) {
+function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS, detailsById = {}, archivedIds = [], heldIds = null, delegatingIds = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
@@ -1285,6 +1305,7 @@ function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS
 		if (row.blank === true) continue;
 		if (archived.has(id)) continue; // 归档会话不可选中，不入最近历史
 		if (heldIds instanceof Set && heldIds.has(String(id))) continue; // 响应保持中，留在活动区
+		if (delegatingIds instanceof Set && delegatingIds.has(String(id))) continue; // 委托周期中（含耗尽空窗），留在活动区
 		if (isSubagentRow(row, byId)) continue; // 子代理（含已结束）不入最近历史
 		if (isActiveRow(row, byId, activeIds)) continue;
 		const updatedAt = Number(row.updatedAt);
@@ -1335,7 +1356,7 @@ function fmtTokens(n) {
 /**
  * 回合进度估计（0–100）：纯时间驱动，y = t/(t+120)（t 为本回合已耗秒数，半衰期
  * 120s）。过原点、先快后慢、渐近 100 永不到达；不区分 think/stream/tool 阶段，
- * 单调性由函数本身保证；回合切换由渲染层 turnTimings 新回合起点自然归零重计
+ * 单调性由函数本身保证；回合切换归零/委托周期连续由渲染层 progressAnchor 记账保证
  * （R-01-009/AC-06，C-014）。非法/缺失已耗时归一为 0。
  */
 function progressOf({ elapsedMs = 0 } = {}) {
@@ -1345,6 +1366,60 @@ function progressOf({ elapsedMs = 0 } = {}) {
 			(Number.isFinite(elapsedMs) && elapsedMs >= 0 ? elapsedMs : 0) / 1000,
 		);
 	return Math.round((100 * sec) / (sec + 120) * 10) / 10;
+}
+
+/** 委托耗尽归属宽限（R-01-009/AC-06）：后代全部结束后、在该毫秒数内开始的新回合
+ *  视为处理后代结果的回合（委托周期锚点连续）；超时开始的新回合视为委托周期外的
+ *  全新回合（归零重计）。 */
+const SETTLE_TURN_GRACE_MS = 60_000;
+
+/**
+ * 委托周期进度锚点（R-01-009/AC-06）：三态状态机。
+ *   - idle：无活动后代且无开放回合，锚点为空。
+ *   - turn：无活动后代、自身回合在飞；锚点 = 本回合起点，新回合开始即归零重计。
+ *   - delegating：委托周期——自首个活动后代出现起，至后代全部结束且处理其结果的
+ *     回合完成止；锚点在周期内连续，不随自身回合结束或新回合开始而归零；进入周期
+ *     时取最近已知回合起点，无已知起点时以进入周期时刻（now）为起点。后代耗尽且
+ *     无开放回合时记 drainedAt；耗尽后 SETTLE_TURN_GRACE_MS 内开始的新回合归属本
+ *     周期（锚点连续），超时开始的新回合归零重计并退出周期。
+ * prev 为上一帧状态（null 视同 idle）；返回新状态对象，渲染层按会话 id 记账。
+ */
+function progressAnchor(prev, { descendantActive = false, hostStartTime = null, now = null } = {}) {
+	const hs = Number.isFinite(hostStartTime) ? hostStartTime : null;
+	const da = descendantActive === true;
+	const mode = prev?.mode === "turn" || prev?.mode === "delegating" ? prev.mode : "idle";
+	if (da) {
+		if (mode === "delegating") {
+			const turnStart = hs !== null && hs !== prev.turnStart ? hs : prev.turnStart;
+			if (turnStart === prev.turnStart && prev.drainedAt == null) return prev;
+			return { mode: "delegating", anchor: prev.anchor, turnStart, drainedAt: null };
+		}
+		const anchor = hs ?? (mode === "turn" ? prev.anchor : Number.isFinite(now) ? now : 0);
+		return { mode: "delegating", anchor, turnStart: hs ?? (mode === "turn" ? prev.turnStart : null), drainedAt: null };
+	}
+	if (hs === null) {
+		if (mode !== "delegating") return { mode: "idle", anchor: null, turnStart: null, drainedAt: null };
+		if (prev.drainedAt != null) return prev;
+		return { ...prev, drainedAt: Number.isFinite(now) ? now : 0 };
+	}
+	if (mode === "delegating") {
+		if (hs === prev.turnStart) return { mode: "turn", anchor: prev.anchor, turnStart: hs, drainedAt: null };
+		const withinGrace = prev.drainedAt != null && hs - prev.drainedAt <= SETTLE_TURN_GRACE_MS;
+		return withinGrace
+			? { mode: "turn", anchor: prev.anchor, turnStart: hs, drainedAt: null }
+			: { mode: "turn", anchor: hs, turnStart: hs, drainedAt: null };
+	}
+	if (mode === "turn" && hs === prev.turnStart) return prev;
+	return { mode: "turn", anchor: hs, turnStart: hs, drainedAt: null };
+}
+
+/** 会话是否处于委托周期（含后代耗尽空窗）：delegating 态且未耗尽，或耗尽时刻距
+ *  now 不超过 SETTLE_TURN_GRACE_MS（空窗内等待 settle 处理回合启动）。供渲染层
+ *  派生 delegatingIds 注入 buildEntries/buildRecent（R-01-003/AC-05、R-01-009/AC-06）。 */
+function delegationActive(state, now) {
+	if (state?.mode !== "delegating") return false;
+	if (state.drainedAt == null) return true;
+	return Number.isFinite(now) && now - state.drainedAt <= SETTLE_TURN_GRACE_MS;
 }
 
 /**
@@ -1717,11 +1792,6 @@ const CSS = `
   border-radius: 12px;
   background: rgba(25, 27, 32, 0.95);
 }
-[data-dsh-activity-pane] .dap-card[data-kind="parent"] .dap-dot {
-  background: #8a94a3;
-  box-shadow: none;
-  animation: none;
-}
 [data-dsh-activity-pane] .dap-card[data-kind="recent"] {
   padding: 6px 10px;
   border-radius: 12px;
@@ -1999,14 +2069,6 @@ const CSS = `
   from { background-position: 0 0; }
   to { background-position: 40px 0; }
 }
-/* 活动层级上下文卡（parent）：不确定态进度条——满宽轨道内条纹滚动动画、
-   无百分比文本，表示仍有活动后代在工作（R-01-016/AC-03）。 */
-[data-dsh-activity-pane] .dap-card[data-kind="parent"] .dap-fill {
-  width: 100%;
-  background: repeating-linear-gradient(90deg, #58c98f 0 10px, #3fbf86 10px 20px);
-  background-size: 200% 100%;
-  animation: dap-stripes 0.8s linear infinite;
-}
 @media (prefers-reduced-motion: reduce) {
   /* answer-pet 保留状态脉冲/流式条纹；仅关闭宽度过渡，避免状态反馈消失。 */
   [data-dsh-activity-pane] .dap-fill { transition: none; }
@@ -2123,8 +2185,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card:hover {
   border-color: var(--dsw-alias-border-l4, rgba(0, 0, 0, 0.16));
   filter: brightness(0.97);
 }
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="subagent"],
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="parent"] {
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="subagent"] {
   background: var(--dsw-specific-sidebar-fill, rgb(249, 250, 251));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="recent"] {
@@ -2299,6 +2360,8 @@ function apply(ctx) {
 	const recentCardsById = new Map();
 	/** 运行中会话原生快照订阅：id → { unsubscribe, liveness, snapshot }。 */
 	const livenessById = new Map();
+	/** 委托周期进度锚点记账：id → progressAnchor 状态（R-01-009/AC-06）。 */
+	const progressAnchorById = new Map();
 	/** 订阅停止后保留最近快照，供 awaiting/recent 卡继续显示上下文。 */
 	const sessionDetailsById = new Map();
 	/** 会话跳转的单一重试链；避免重复点击叠加 refresh/timer。 */
@@ -2717,13 +2780,6 @@ function apply(ctx) {
 		workspaceIcon.append(createWorkspaceFolderIcon());
 		workspace.append(workspaceIcon, makeEl("span", "dap-workspace-text"));
 		head.append(workspace, makeEl("div", "dap-model"));
-		if (kind === "parent") {
-			const row = makeEl("div", "dap-row");
-			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
-			const track = makeEl("div", "dap-track");
-			track.append(makeEl("div", "dap-fill"));
-			return [head, row, makeEl("div", "dap-trace"), track];
-		}
 		if (kind === "subagent") {
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
@@ -3157,11 +3213,6 @@ function apply(ctx) {
 			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, { lastOnly: true });
 			return;
 		}
-		if (entry.kind === "parent") {
-			const traceContainer = el.querySelector(".dap-trace");
-			if (traceContainer !== null) renderTimelineArea(traceContainer, entry);
-			return;
-		}
 
 		if (entry.kind === "recent") {
 			const lines = el.querySelectorAll(".dap-history-line");
@@ -3202,7 +3253,7 @@ function apply(ctx) {
 	}
 
 	// ---- 轮内状态订阅生命周期（R-01-009、R-02-004） ----
-	function syncLiveness(runningIds) {
+	function syncLiveness(runningIds, clockWanted) {
 		for (const id of runningIds) {
 			if (livenessById.has(id)) continue;
 			let session = null;
@@ -3262,10 +3313,10 @@ function apply(ctx) {
 			} catch {}
 			livenessById.delete(id);
 		}
-		// 运行卡时钟：有运行中会话才启动，无则停。
-		if (runningIds.size > 0 && clockTimer === null) {
+		// 运行卡时钟：有运行呈现卡（含委托周期母会话）才启动，无则停。
+		if (clockWanted && clockTimer === null) {
 			clockTimer = setInterval(() => queueSync(), CLOCK_MS);
-		} else if (runningIds.size === 0 && clockTimer !== null) {
+		} else if (!clockWanted && clockTimer !== null) {
 			clearInterval(clockTimer);
 			clockTimer = null;
 		}
@@ -3603,14 +3654,20 @@ function apply(ctx) {
 
 		// 响应保持登记/解除先于派生（R-01-002/AC-05、R-01-010/AC-06）。
 		heldCompletedIds = updateCompletedHolds(heldCompletedIds, snapshot, prevActiveMainIds);
-		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById, heldCompletedIds);
+		// 委托周期集合（R-01-003/AC-05）：由上一帧 progressAnchor 记账派生——后代耗尽
+		// 至 settle 处理回合启动的空窗内，母会话保持运行呈现且不入历史区（分区不变量）。
+		const delegatingIds = new Set();
+		for (const [id, state] of progressAnchorById) {
+			if (delegationActive(state, now)) delegatingIds.add(id);
+		}
+		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById, heldCompletedIds, delegatingIds);
 		prevActiveMainIds = active.filter((entry) => entry.kind === "running" || entry.kind === "awaiting").map((entry) => entry.id);
 		// 轮内订阅仅对"运行中"会话建立（主会话 + 运行中的子代理），保持在运行中的订阅
 		// 数量 == 运行中会话数量（R-02-004/AC-01）；暂停等待的子代理只显示标题。
 		const runLikeIds = new Set(
 			active.filter((entry) => shouldSubscribeToSession(entry, snapshot?.byId ?? {})).map((entry) => entry.id),
 		);
-		syncLiveness(runLikeIds);
+		syncLiveness(runLikeIds, active.some((entry) => entry.kind === "running"));
 		for (const entry of active) {
 			const liveRecord = livenessById.get(entry.id);
 			const live = liveRecord?.liveness ?? null;
@@ -3620,13 +3677,14 @@ function apply(ctx) {
 				// 按快照引用 memo：引用不变（时钟 tick、无关推送）时命中缓存，
 				// 长会话不再每次渲染全序扫描。
 				const entryCwd = snapshot?.byId?.[entry.id]?.cwd ?? "";
-				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineUser !== detail.lastUser) {
+				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineUser !== detail.lastUser || detail.memoTimelineDescendantActive !== (entry.descendantActive === true)) {
 					detail.memoTimelineOf = detailSnapshot;
 					detail.memoTimelineCwd = entryCwd;
 					detail.memoTimelineUser = detail.lastUser;
+					detail.memoTimelineDescendantActive = entry.descendantActive === true;
 					// R-01-018：运行卡槽位源——轻量 history 的最近用户指令（窗口内无指令行时兜底）；
 					// 窗口内出现用户指令行时顺带刷新该记录，指令被挤出后槽位跟随最新指令。
-					const derivedTimeline = foldedTimelineWithSlot(detailSnapshot, 4, entryCwd, detail.lastUser ?? null);
+					const derivedTimeline = foldedTimelineWithSlot(detailSnapshot, 4, entryCwd, detail.lastUser ?? null, entry.descendantActive === true);
 					// 行内更新收敛：值相等不换引用，避免 lastUser 引用变化引发 memo 键抖动重算。
 					const windowUser = derivedTimeline.rows.findLast((row) => row.kind === "user") ?? null;
 					if (windowUser !== null && (detail.lastUser?.text !== windowUser.text || detail.lastUser?.id !== windowUser.id)) {
@@ -3650,11 +3708,17 @@ function apply(ctx) {
 			entry.loadingTimeline =
 				entry.timeline.length === 0 &&
 				(historyLoads.has(entry.id) || sessionOpenLoads.has(entry.id) || (runLikeIds.has(entry.id) && !liveRecord));
+			// 委托周期锚点（R-01-009/AC-06）：全部活动条目逐帧记账——锚点不因呈现翻转
+			// （委托期与 awaiting 互转）或瞬时不可见而丢失，仅 dispose 时整体清除；周期内
+			// 进度连续（含 settle 处理回合），周期外由宿主回合起点驱动（新回合归零）。
+			const anchor = progressAnchor(progressAnchorById.get(entry.id) ?? null, {
+				descendantActive: entry.descendantActive === true,
+				hostStartTime: live?.startTime ?? null,
+				now,
+			});
+			progressAnchorById.set(entry.id, anchor);
 			if (entry.kind === "running") {
-				const elapsedMs =
-					live?.startTime != null
-						? Math.max(0, Date.now() - live.startTime)
-						: null;
+				const elapsedMs = Number.isFinite(anchor.anchor) ? Math.max(0, now - anchor.anchor) : null;
 				// token/速率取自 sessions.list 条目的投影（tokenUsage/sessionStats），
 				// 复用既有列表订阅，无新增轮询（R-01-009/AC-05、R-02-004/AC-02）。
 				const projection = snapshot?.byId?.[entry.id]?.projectionValues;
@@ -3669,12 +3733,12 @@ function apply(ctx) {
 				// 流式阶段标记驱动 data-streaming（进度条条纹动画）；工具调用期间视作
 				// 非流式，与 answer-pet 的 phase==='stream' 判定一致。
 				entry.streaming = !live?.runningTool && live?.streaming === true;
-				// 回合进度：纯时间驱动 y = t/(t+120)，单调性由函数本身保证；回合切换由
-				// turnTimings 新回合起点（elapsedMs 归零）自然重置（R-01-009/AC-06，C-014）。
+				// 回合进度：纯时间驱动 y = t/(t+120)，单调性由函数本身保证；锚点由
+				// progressAnchor 记账（委托周期连续、周期外回合切换归零，R-01-009/AC-06，C-014）。
 				entry.progress = progressOf({ elapsedMs: elapsedMs ?? 0 });
 			}
 		}
-		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds, heldCompletedIds);
+		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds, heldCompletedIds, delegatingIds);
 		// 预览只对 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
 		for (const entry of recent) {
 			const detail = sessionDetailsById.get(entry.id);
@@ -3696,6 +3760,8 @@ function apply(ctx) {
 		loadNativeDetails(detailIds);
 		const visibleIds = new Set([...active, ...recent].map((entry) => entry.id));
 		// 详情与 loads 记账同生命周期：离开可见集合即放行，重回可见时允许重拉/重试。
+		// 锚点记账不随可见性 prune：瞬时 loading 空帧不得误清（进度重置）；陈旧条目靠
+		// 耗尽宽限与 turnStart 不匹配自校正，仅在 dispose 时整体清除。
 		pruneInvisibleEntries([sessionDetailsById, modelLoads, historyLoads, sessionOpenLoads], visibleIds);
 		// 重试链目标已成为当前会话（他途到达）即取消，避免过期链条拽回会话。
 		cancelStaleOpenRetries({ currentId: snapshot?.current ?? null, activatedId: lastActivatedId });
@@ -3966,6 +4032,7 @@ function apply(ctx) {
 			} catch {}
 		}
 		livenessById.clear();
+		progressAnchorById.clear();
 		sessionOpenLoads.clear();
 		loadQueue.length = 0;
 		loadInflight = 0;

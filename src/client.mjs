@@ -276,11 +276,6 @@ const CSS = `
   border-radius: 12px;
   background: rgba(25, 27, 32, 0.95);
 }
-[data-dsh-activity-pane] .dap-card[data-kind="parent"] .dap-dot {
-  background: #8a94a3;
-  box-shadow: none;
-  animation: none;
-}
 [data-dsh-activity-pane] .dap-card[data-kind="recent"] {
   padding: 6px 10px;
   border-radius: 12px;
@@ -558,14 +553,6 @@ const CSS = `
   from { background-position: 0 0; }
   to { background-position: 40px 0; }
 }
-/* 活动层级上下文卡（parent）：不确定态进度条——满宽轨道内条纹滚动动画、
-   无百分比文本，表示仍有活动后代在工作（R-01-016/AC-03）。 */
-[data-dsh-activity-pane] .dap-card[data-kind="parent"] .dap-fill {
-  width: 100%;
-  background: repeating-linear-gradient(90deg, #58c98f 0 10px, #3fbf86 10px 20px);
-  background-size: 200% 100%;
-  animation: dap-stripes 0.8s linear infinite;
-}
 @media (prefers-reduced-motion: reduce) {
   /* answer-pet 保留状态脉冲/流式条纹；仅关闭宽度过渡，避免状态反馈消失。 */
   [data-dsh-activity-pane] .dap-fill { transition: none; }
@@ -682,8 +669,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card:hover {
   border-color: var(--dsw-alias-border-l4, rgba(0, 0, 0, 0.16));
   filter: brightness(0.97);
 }
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="subagent"],
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="parent"] {
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="subagent"] {
   background: var(--dsw-specific-sidebar-fill, rgb(249, 250, 251));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="recent"] {
@@ -858,6 +844,8 @@ function apply(ctx) {
 	const recentCardsById = new Map();
 	/** 运行中会话原生快照订阅：id → { unsubscribe, liveness, snapshot }。 */
 	const livenessById = new Map();
+	/** 委托周期进度锚点记账：id → progressAnchor 状态（R-01-009/AC-06）。 */
+	const progressAnchorById = new Map();
 	/** 订阅停止后保留最近快照，供 awaiting/recent 卡继续显示上下文。 */
 	const sessionDetailsById = new Map();
 	/** 会话跳转的单一重试链；避免重复点击叠加 refresh/timer。 */
@@ -1276,13 +1264,6 @@ function apply(ctx) {
 		workspaceIcon.append(createWorkspaceFolderIcon());
 		workspace.append(workspaceIcon, makeEl("span", "dap-workspace-text"));
 		head.append(workspace, makeEl("div", "dap-model"));
-		if (kind === "parent") {
-			const row = makeEl("div", "dap-row");
-			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
-			const track = makeEl("div", "dap-track");
-			track.append(makeEl("div", "dap-fill"));
-			return [head, row, makeEl("div", "dap-trace"), track];
-		}
 		if (kind === "subagent") {
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
@@ -1716,11 +1697,6 @@ function apply(ctx) {
 			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, { lastOnly: true });
 			return;
 		}
-		if (entry.kind === "parent") {
-			const traceContainer = el.querySelector(".dap-trace");
-			if (traceContainer !== null) renderTimelineArea(traceContainer, entry);
-			return;
-		}
 
 		if (entry.kind === "recent") {
 			const lines = el.querySelectorAll(".dap-history-line");
@@ -1761,7 +1737,7 @@ function apply(ctx) {
 	}
 
 	// ---- 轮内状态订阅生命周期（R-01-009、R-02-004） ----
-	function syncLiveness(runningIds) {
+	function syncLiveness(runningIds, clockWanted) {
 		for (const id of runningIds) {
 			if (livenessById.has(id)) continue;
 			let session = null;
@@ -1821,10 +1797,10 @@ function apply(ctx) {
 			} catch {}
 			livenessById.delete(id);
 		}
-		// 运行卡时钟：有运行中会话才启动，无则停。
-		if (runningIds.size > 0 && clockTimer === null) {
+		// 运行卡时钟：有运行呈现卡（含委托周期母会话）才启动，无则停。
+		if (clockWanted && clockTimer === null) {
 			clockTimer = setInterval(() => queueSync(), CLOCK_MS);
-		} else if (runningIds.size === 0 && clockTimer !== null) {
+		} else if (!clockWanted && clockTimer !== null) {
 			clearInterval(clockTimer);
 			clockTimer = null;
 		}
@@ -2162,14 +2138,20 @@ function apply(ctx) {
 
 		// 响应保持登记/解除先于派生（R-01-002/AC-05、R-01-010/AC-06）。
 		heldCompletedIds = updateCompletedHolds(heldCompletedIds, snapshot, prevActiveMainIds);
-		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById, heldCompletedIds);
+		// 委托周期集合（R-01-003/AC-05）：由上一帧 progressAnchor 记账派生——后代耗尽
+		// 至 settle 处理回合启动的空窗内，母会话保持运行呈现且不入历史区（分区不变量）。
+		const delegatingIds = new Set();
+		for (const [id, state] of progressAnchorById) {
+			if (delegationActive(state, now)) delegatingIds.add(id);
+		}
+		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById, heldCompletedIds, delegatingIds);
 		prevActiveMainIds = active.filter((entry) => entry.kind === "running" || entry.kind === "awaiting").map((entry) => entry.id);
 		// 轮内订阅仅对"运行中"会话建立（主会话 + 运行中的子代理），保持在运行中的订阅
 		// 数量 == 运行中会话数量（R-02-004/AC-01）；暂停等待的子代理只显示标题。
 		const runLikeIds = new Set(
 			active.filter((entry) => shouldSubscribeToSession(entry, snapshot?.byId ?? {})).map((entry) => entry.id),
 		);
-		syncLiveness(runLikeIds);
+		syncLiveness(runLikeIds, active.some((entry) => entry.kind === "running"));
 		for (const entry of active) {
 			const liveRecord = livenessById.get(entry.id);
 			const live = liveRecord?.liveness ?? null;
@@ -2179,13 +2161,14 @@ function apply(ctx) {
 				// 按快照引用 memo：引用不变（时钟 tick、无关推送）时命中缓存，
 				// 长会话不再每次渲染全序扫描。
 				const entryCwd = snapshot?.byId?.[entry.id]?.cwd ?? "";
-				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineUser !== detail.lastUser) {
+				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineUser !== detail.lastUser || detail.memoTimelineDescendantActive !== (entry.descendantActive === true)) {
 					detail.memoTimelineOf = detailSnapshot;
 					detail.memoTimelineCwd = entryCwd;
 					detail.memoTimelineUser = detail.lastUser;
+					detail.memoTimelineDescendantActive = entry.descendantActive === true;
 					// R-01-018：运行卡槽位源——轻量 history 的最近用户指令（窗口内无指令行时兜底）；
 					// 窗口内出现用户指令行时顺带刷新该记录，指令被挤出后槽位跟随最新指令。
-					const derivedTimeline = foldedTimelineWithSlot(detailSnapshot, 4, entryCwd, detail.lastUser ?? null);
+					const derivedTimeline = foldedTimelineWithSlot(detailSnapshot, 4, entryCwd, detail.lastUser ?? null, entry.descendantActive === true);
 					// 行内更新收敛：值相等不换引用，避免 lastUser 引用变化引发 memo 键抖动重算。
 					const windowUser = derivedTimeline.rows.findLast((row) => row.kind === "user") ?? null;
 					if (windowUser !== null && (detail.lastUser?.text !== windowUser.text || detail.lastUser?.id !== windowUser.id)) {
@@ -2209,11 +2192,17 @@ function apply(ctx) {
 			entry.loadingTimeline =
 				entry.timeline.length === 0 &&
 				(historyLoads.has(entry.id) || sessionOpenLoads.has(entry.id) || (runLikeIds.has(entry.id) && !liveRecord));
+			// 委托周期锚点（R-01-009/AC-06）：全部活动条目逐帧记账——锚点不因呈现翻转
+			// （委托期与 awaiting 互转）或瞬时不可见而丢失，仅 dispose 时整体清除；周期内
+			// 进度连续（含 settle 处理回合），周期外由宿主回合起点驱动（新回合归零）。
+			const anchor = progressAnchor(progressAnchorById.get(entry.id) ?? null, {
+				descendantActive: entry.descendantActive === true,
+				hostStartTime: live?.startTime ?? null,
+				now,
+			});
+			progressAnchorById.set(entry.id, anchor);
 			if (entry.kind === "running") {
-				const elapsedMs =
-					live?.startTime != null
-						? Math.max(0, Date.now() - live.startTime)
-						: null;
+				const elapsedMs = Number.isFinite(anchor.anchor) ? Math.max(0, now - anchor.anchor) : null;
 				// token/速率取自 sessions.list 条目的投影（tokenUsage/sessionStats），
 				// 复用既有列表订阅，无新增轮询（R-01-009/AC-05、R-02-004/AC-02）。
 				const projection = snapshot?.byId?.[entry.id]?.projectionValues;
@@ -2228,12 +2217,12 @@ function apply(ctx) {
 				// 流式阶段标记驱动 data-streaming（进度条条纹动画）；工具调用期间视作
 				// 非流式，与 answer-pet 的 phase==='stream' 判定一致。
 				entry.streaming = !live?.runningTool && live?.streaming === true;
-				// 回合进度：纯时间驱动 y = t/(t+120)，单调性由函数本身保证；回合切换由
-				// turnTimings 新回合起点（elapsedMs 归零）自然重置（R-01-009/AC-06，C-014）。
+				// 回合进度：纯时间驱动 y = t/(t+120)，单调性由函数本身保证；锚点由
+				// progressAnchor 记账（委托周期连续、周期外回合切换归零，R-01-009/AC-06，C-014）。
 				entry.progress = progressOf({ elapsedMs: elapsedMs ?? 0 });
 			}
 		}
-		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds, heldCompletedIds);
+		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds, heldCompletedIds, delegatingIds);
 		// 预览只对 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
 		for (const entry of recent) {
 			const detail = sessionDetailsById.get(entry.id);
@@ -2255,6 +2244,8 @@ function apply(ctx) {
 		loadNativeDetails(detailIds);
 		const visibleIds = new Set([...active, ...recent].map((entry) => entry.id));
 		// 详情与 loads 记账同生命周期：离开可见集合即放行，重回可见时允许重拉/重试。
+		// 锚点记账不随可见性 prune：瞬时 loading 空帧不得误清（进度重置）；陈旧条目靠
+		// 耗尽宽限与 turnStart 不匹配自校正，仅在 dispose 时整体清除。
 		pruneInvisibleEntries([sessionDetailsById, modelLoads, historyLoads, sessionOpenLoads], visibleIds);
 		// 重试链目标已成为当前会话（他途到达）即取消，避免过期链条拽回会话。
 		cancelStaleOpenRetries({ currentId: snapshot?.current ?? null, activatedId: lastActivatedId });
@@ -2525,6 +2516,7 @@ function apply(ctx) {
 			} catch {}
 		}
 		livenessById.clear();
+		progressAnchorById.clear();
 		sessionOpenLoads.clear();
 		loadQueue.length = 0;
 		loadInflight = 0;

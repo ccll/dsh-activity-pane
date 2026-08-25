@@ -19,6 +19,8 @@ import {
 	cleanPreview,
 	clampPaneWidth,
 	pagedHistoryEvents,
+	delegationActive,
+	progressAnchor,
 	detailLoadPlan,
 	conversationWorkItems,
 	conversationTimelineFromHistory,
@@ -439,15 +441,78 @@ assert.deepEqual(
 );
 assert.deepEqual(
 	buildEntries(inheritedActivity, []).map((entry) => [entry.id, entry.kind, entry.depth]),
-	[["root", "parent", 0], ["parent", "parent", 1], ["child", "subagent", 2]],
-	"自身不活动的母会话作为 parent 上下文显示并保持层级深度",
+	[["root", "running", 0], ["parent", "subagent", 1], ["child", "subagent", 2]],
+	"委托周期中主会话母会话保持 running 呈现、子代理母会话保持 subagent 呈现，层级深度不变（R-01-003/AC-05）",
+);
+assert.deepEqual(
+	buildEntries(inheritedActivity, []).map((entry) => entry.descendantActive),
+	[true, true, false],
+	"委托周期母会话携带 descendantActive 标记（R-01-003/AC-05）",
 );
 assert.deepEqual(buildRecent(inheritedActivity, [], 2000), [], "活动祖先不进入最近历史区");
 assert.equal(
-	shouldSubscribeToSession({ id: "parent", kind: "parent" }, inheritedActivity.byId),
+	shouldSubscribeToSession({ id: "parent", kind: "running" }, inheritedActivity.byId),
 	false,
-	"parent 上下文不建立轮内状态订阅",
+	"委托周期母会话不建立轮内状态订阅（宿主 running 为准，R-02-004/AC-01）",
 );
+// ---- R-01-002/AC-03、R-01-010/AC-06 委托周期压制完成提醒与响应保持 ----
+const delegCompleted = {
+	ids: ["root", "child"],
+	byId: {
+		root: { id: "root", displayTitle: "母会话", running: false, completed: true, updatedAt: 1900 },
+		child: { id: "child", displayTitle: "活动子会话", running: true, parentId: "root" },
+	},
+	current: null,
+};
+assert.deepEqual(
+	buildEntries(delegCompleted, []).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
+	[["root", "running", null], ["child", "subagent", null]],
+	"存在活动后代时 completed 不产出「需要响应」、卡片保持运行呈现（R-01-002/AC-03）",
+);
+assert.deepEqual(
+	buildEntries(delegCompleted, [], {}, new Set(["root"])).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
+	[["root", "running", null], ["child", "subagent", null]],
+	"存在活动后代时响应保持不生效、卡片保持运行呈现（R-01-010/AC-06）",
+);
+assert.deepEqual(
+	buildEntries({ ids: ["root"], byId: { root: delegCompleted.byId.root }, current: null }, []).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
+	[["root", "awaiting", "需要响应"]],
+	"后代全部结束后完成提醒恢复显示（R-01-002/AC-03）",
+);
+// ---- R-01-003/AC-05、R-01-009/AC-06 耗尽空窗（后代结束、settle 回合未启动）保持运行呈现 ----
+const drainGap = {
+	ids: ["root"],
+	byId: { root: { id: "root", displayTitle: "母会话", running: false, completed: true, updatedAt: 1900 } },
+	current: null,
+};
+assert.deepEqual(
+	buildEntries(drainGap, [], {}, null, new Set(["root"])).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null, entry.descendantActive]),
+	[["root", "running", null, false]],
+	"耗尽空窗内委托周期保持运行呈现、完成提醒不生效；descendantActive 仍为当帧原始后代活性（R-01-003/AC-05、R-01-002/AC-03）",
+);
+assert.deepEqual(
+	buildEntries(drainGap, [], {}, null).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
+	[["root", "awaiting", "需要响应"]],
+	"无委托周期记账时同一快照回到等待呈现（空窗保持来自渲染层 delegatingIds 注入）",
+);
+// 分区不变量：空窗内不入最近历史，周期结束后才入。
+const drainGapIdle = {
+	ids: ["root"],
+	byId: { root: { id: "root", displayTitle: "母会话", running: false, completed: false, updatedAt: 1900 } },
+	current: null,
+};
+assert.equal(
+	buildRecent(drainGapIdle, [], 2000, undefined, {}, [], null, new Set(["root"])).length,
+	0,
+	"耗尽空窗内委托周期会话不入最近历史（R-01-010 分区不变量）",
+);
+assert.equal(buildRecent(drainGapIdle, [], 2000, undefined, {}, [], null).length, 1, "委托周期结束后才入最近历史");
+// delegationActive：耗尽宽限内视为委托周期（空窗保持），超时退出。
+assert.equal(delegationActive({ mode: "delegating", anchor: 1000, turnStart: 9000, drainedAt: null }, 50000), true, "委托周期中视为活动");
+assert.equal(delegationActive({ mode: "delegating", anchor: 1000, turnStart: 9000, drainedAt: 30000 }, 31000), true, "耗尽宽限内视为活动（空窗保持运行呈现）");
+assert.equal(delegationActive({ mode: "delegating", anchor: 1000, turnStart: 9000, drainedAt: 30000 }, 91001), false, "耗尽宽限超时退出委托周期");
+assert.equal(delegationActive({ mode: "turn", anchor: 1000, turnStart: 1000, drainedAt: null }, 50000), false, "非委托周期不视为活动");
+assert.equal(delegationActive(null, 50000), false, "无记账不视为委托周期");
 assert.equal(
 	shouldSubscribeToSession({ id: "child", kind: "subagent" }, inheritedActivity.byId),
 	true,
@@ -471,7 +536,7 @@ const pendingEntries = buildEntries(pendingSnap, []);
 assert.equal(pendingEntries[0].kind, "awaiting", "pending 覆盖 running");
 assert.equal(pendingEntries[0].pendingText, "待确认");
 
-// ---- R-01-001/AC-05 徽标计数口径：只统计主会话，子代理与 parent 不计入 ----
+// ---- R-01-001/AC-05 徽标计数口径：只统计主会话，子代理不计入 ----
 assert.deepEqual(awaitBadgeStats([]), { waiting: 0, total: 0 }, "空列表为 0/0（R-01-001/AC-06）");
 assert.deepEqual(
 	awaitBadgeStats([
@@ -479,7 +544,6 @@ assert.deepEqual(
 		{ id: "b", kind: "awaiting" },
 		{ id: "c", kind: "awaiting" },
 		{ id: "d", kind: "subagent" },
-		{ id: "e", kind: "parent" },
 	]),
 	{ waiting: 2, total: 3 },
 	"分子=awaiting 主会话数，分母=running+awaiting 主会话数",
@@ -951,6 +1015,50 @@ assert.ok(pLate > pEarly && pEarly > 0, "随已耗时单调递增且先快后慢
 assert.ok(progressOf({ elapsedMs: Number.NaN }) === 0 && progressOf({ elapsedMs: -1 }) === 0, "非法已耗时归一为 0");
 assert.ok(progressOf({}) === 0, "缺省入参归一为 0");
 // 注：R-01-009/AC-06 的"回合切换归零重计"由渲染层 turnTimings 新回合起点保证，属 GUI 验收项（scripts/acceptance.mjs）。
+// ---- R-01-009/AC-06 委托周期进度锚点：周期内连续、周期外回合切换归零 ----
+const anchorIdle = progressAnchor(null, { descendantActive: false, hostStartTime: null, now: 1000 });
+assert.deepEqual(anchorIdle, { mode: "idle", anchor: null, turnStart: null, drainedAt: null }, "无后代无回合为 idle");
+const anchorTurnA = progressAnchor(anchorIdle, { descendantActive: false, hostStartTime: 1000, now: 1000 });
+assert.deepEqual(anchorTurnA, { mode: "turn", anchor: 1000, turnStart: 1000, drainedAt: null }, "回合起点即锚点");
+assert.equal(progressAnchor(anchorTurnA, { descendantActive: false, hostStartTime: 1000, now: 5000 }).anchor, 1000, "同回合锚点不变");
+assert.equal(progressAnchor(anchorTurnA, { descendantActive: false, hostStartTime: 9000, now: 9000 }).anchor, 9000, "无活动后代时回合切换归零重计");
+const anchorDeleg = progressAnchor(anchorTurnA, { descendantActive: true, hostStartTime: 1000, now: 2000 });
+assert.deepEqual(anchorDeleg, { mode: "delegating", anchor: 1000, turnStart: 1000, drainedAt: null }, "进入委托周期锚点保持");
+const anchorDelegIdle = progressAnchor(anchorDeleg, { descendantActive: true, hostStartTime: null, now: 8000 });
+assert.equal(anchorDelegIdle.anchor, 1000, "自身回合结束后委托周期锚点连续（不归零、不打满）");
+const anchorDelegNewTurn = progressAnchor(anchorDelegIdle, { descendantActive: true, hostStartTime: 9000, now: 9000 });
+assert.equal(anchorDelegNewTurn.anchor, 1000, "settle 触发的新回合委托周期内不归零");
+const anchorDrained = progressAnchor(anchorDelegNewTurn, { descendantActive: false, hostStartTime: 9000, now: 12000 });
+assert.equal(anchorDrained.anchor, 1000, "后代全部结束、处理回合在飞时锚点仍连续");
+assert.deepEqual(
+	progressAnchor(anchorDrained, { descendantActive: false, hostStartTime: null, now: 20000 }),
+	{ mode: "idle", anchor: null, turnStart: null, drainedAt: null },
+	"处理回合完成即委托周期结束",
+);
+assert.equal(
+	progressAnchor(anchorIdle, { descendantActive: false, hostStartTime: 30000, now: 30000 }).anchor,
+	30000,
+	"委托周期结束后新回合归零重计",
+);
+assert.deepEqual(
+	progressAnchor(null, { descendantActive: true, hostStartTime: null, now: 42000 }),
+	{ mode: "delegating", anchor: 42000, turnStart: null, drainedAt: null },
+	"无已知起点时以进入委托周期时刻为起点（冷启动）",
+);
+// 后代耗尽后宽限内开始的新回合视为 settle 处理回合（锚点连续），超时视为全新回合（归零）。
+const anchorDrainWait = progressAnchor(anchorDelegNewTurn, { descendantActive: false, hostStartTime: null, now: 30000 });
+assert.equal(anchorDrainWait.mode, "delegating", "后代耗尽、无开放回合时委托周期不立即退出");
+assert.equal(anchorDrainWait.drainedAt, 30000, "耗尽时刻记账供 settle 回合归属判定");
+assert.equal(
+	progressAnchor(anchorDrainWait, { descendantActive: false, hostStartTime: 31000, now: 31000 }).anchor,
+	1000,
+	"耗尽后宽限内开始的 settle 处理回合锚点连续（不归零）",
+);
+assert.equal(
+	progressAnchor(anchorDrainWait, { descendantActive: false, hostStartTime: 91001, now: 91001 }).anchor,
+	91001,
+	"耗尽宽限超时后开始的新回合归零重计",
+);
 
 // ---- R-01-009/AC-07 工作项时间线的状态与主会话窗口语义摘要（无行级耗时，C-012）----
 const statusTimeline = conversationWorkItems({
@@ -1003,6 +1111,11 @@ assert.equal(idleGapSettled[0].status, "done", "非运行中尾部已定案项�
 assert.notEqual(idleGapTimeline[0], idleGapSettled[0], "提升产出克隆而非复用原引用");
 const pendingIdle = conversationWorkItems({ ...idleGapSnapshot, pending: [{ kind: "approval" }] });
 assert.equal(pendingIdle[0].status, "done", "等待用户行动时尾部不提升");
+// 委托周期（存在活动后代）视同运行中：尾部提升继续（R-01-009/AC-10）。
+const delegatingFold = foldedTimelineWithSlot({ ...idleGapSnapshot, running: false }, 4, "", null, true);
+assert.equal(delegatingFold.rows[0].status, "running", "委托周期中尾部已定案项同样提升为 running");
+const nonDelegatingFold = foldedTimelineWithSlot({ ...idleGapSnapshot, running: false }, 4);
+assert.equal(nonDelegatingFold.rows[0].status, "done", "非运行且非委托周期尾部不提升");
 const errorTail = conversationWorkItems({
 	chat: { order: ["t"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "c2", call: { name: "bash", argsRaw: '{"command":"bad"}' }, isError: true } } }) } },
 	running: true,
@@ -1468,7 +1581,7 @@ assert.deepEqual(
 	"子代理 completed 同帧命中也不登记保持",
 );
 
-// ---- R-01-016/AC-01、AC-02 非运行活动卡条目承载会话最后已知工作项时间线（数据路径）----
+// ---- R-01-016/AC-01 等待卡条目承载会话最后已知工作项时间线（数据路径）----
 const settledTrace = [{ id: "w1", kind: "tool", label: "Bash", summary: "pnpm check", status: "done" }];
 const awaitingTraceEntries = buildEntries(holdSnap, [], { sB: { timeline: settledTrace } }, new Set(["sB"]));
 assert.equal(awaitingTraceEntries[0].kind, "awaiting", "响应保持中会话以 awaiting 卡呈现");
@@ -1476,12 +1589,6 @@ assert.deepEqual(awaitingTraceEntries[0].timeline, settledTrace, "awaiting 条�
 const pendingTraceEntries = buildEntries(pendingSnap, [], { sP: { timeline: settledTrace } });
 assert.equal(pendingTraceEntries[0].kind, "awaiting", "待确认会话以 awaiting 卡呈现");
 assert.deepEqual(pendingTraceEntries[0].timeline, settledTrace, "待确认 awaiting 条目同样承载时间线（R-01-016/AC-01）");
-const parentTraceEntries = buildEntries(inheritedActivity, [], { root: { timeline: settledTrace }, parent: { timeline: settledTrace } });
-assert.deepEqual(
-	parentTraceEntries.filter((entry) => entry.kind === "parent").map((entry) => entry.timeline),
-	[settledTrace, settledTrace],
-	"parent 条目承载母会话最近工作项时间线（R-01-016/AC-02）",
-);
 
 // ---- R-01-010/AC-06 响应保持扩展：当前焦点下运行结束（宿主不置 completed）同样保持 ----
 const focusRun = { ids: ["sB"], byId: { sB: { ...holdBase, running: true, completed: false } }, current: "sB" };
@@ -1812,34 +1919,25 @@ assert.ok(
 	bundle.includes('return [head, row, makeEl("div", "dap-trace"), makeEl("div", "dap-note")];'),
 	"awaiting 骨架在标题行与 note 之间含时间线容器（R-01-016/AC-01）",
 );
-// ---- R-01-016/AC-02 parent 卡显示母会话最近工作项时间线 ----
+// ---- R-01-003/AC-05 委托周期保持运行呈现：parent 卡形态已废除 ----
 assert.ok(
-	bundle.includes('return [head, row, makeEl("div", "dap-trace"), track];'),
-	"parent 骨架含时间线容器与进度条轨道（R-01-016/AC-02、AC-03）",
-);
-assert.ok(
-	bundle.includes('if (entry.kind === "parent") {\n\t\t\tconst traceContainer = el.querySelector(".dap-trace");'),
-	"parent 分支渲染自身时间线而非直接 return（R-01-016/AC-02）",
-);
-// ---- R-01-016/AC-03 parent 不确定态进度条（无百分比、条纹滚动动画） ----
-assert.ok(
-	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="parent"] .dap-fill {'),
-	"parent 进度条由 data-kind 纯 CSS 驱动、不新增状态字段（R-01-016/AC-03）",
+	!bundle.includes('entry.kind === "parent"') && !bundle.includes('[data-kind="parent"]'),
+	"parent 分支与样式全部移除，委托母会话保持运行卡呈现（R-01-003/AC-05）",
 );
 assert.equal(
 	bundle.split('makeEl("span", "dap-pct")').length - 1,
 	1,
-	"百分比文本元素全 bundle 仅运行卡骨架一处创建（R-01-016/AC-03：parent 进度条无百分比文本）",
+	"百分比文本元素全 bundle 仅运行卡骨架一处创建（R-01-009/AC-06）",
 );
 assert.equal(
 	bundle.split('querySelector(".dap-pct")').length - 1,
 	1,
-	"百分比文本写入全 bundle 仅运行卡渲染分支一处（R-01-016/AC-03：parent 分支不写百分比）",
+	"百分比文本写入全 bundle 仅运行卡渲染分支一处（R-01-009/AC-06）",
 );
 // ---- R-01-016/AC-04 时间线数据在途时显示加载指示、返回就地填充 ----
 assert.ok(
-	bundle.split("renderTimelineArea(traceContainer, entry").length - 1 === 4 && !bundle.includes("nativePresentationSessionId"),
-	"运行/subagent/parent/等待卡统一复用 renderTimelineArea：在途显示加载行、返回就地填充（R-01-016/AC-04）",
+	bundle.split("renderTimelineArea(traceContainer, entry").length - 1 === 3 && !bundle.includes("nativePresentationSessionId"),
+	"运行/subagent/等待卡统一复用 renderTimelineArea：在途显示加载行、返回就地填充（R-01-016/AC-04）",
 );
 // R-01-013/AC-07、R-01-013/AC-08
 assert.ok(bundle.includes('dataset.role = "user"'), "用户消息行骨架静态标识 user 角色");

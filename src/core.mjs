@@ -409,10 +409,11 @@ function mergeLiveItems(items, snapshot, max, cwd = "") {
 }
 
 /** R-01-009/AC-10：会话运行中（无 pending）、无执行中项且尾部为已定案非用户项时，
- *  克隆提升为 running 作为 agent 工作中的持续标志；error/stopped 与用户输入项不提升。 */
-function promoteRunningTail(timeline, snapshot) {
+ *  克隆提升为 running 作为 agent 工作中的持续标志；error/stopped 与用户输入项不提升。
+ *  descendantActive：存在活动后代（委托周期呈现）视同运行中。 */
+function promoteRunningTail(timeline, snapshot, descendantActive = false) {
 	if (
-		snapshot?.running === true &&
+		(snapshot?.running === true || descendantActive === true) &&
 		!(Array.isArray(snapshot?.pending) && snapshot.pending.length > 0) &&
 		!timeline.some((item) => item.status === "running")
 	) {
@@ -616,7 +617,7 @@ export function foldedConversationTimeline(snapshot, limit = 4, cwd = "") {
  *  槽位未确定（窗口内无指令且窗口外尚未见指令）时继续扩窗直至全序兜底，
  *  保证窗口外最近用户指令只要存在就能被找到。
  *  lastUser 为运行卡轻量 history 提供的最近用户指令（行内窗口外无指令时兜底）。 */
-export function foldedTimelineWithSlot(snapshot, limit = 4, cwd = "", lastUser = null) {
+export function foldedTimelineWithSlot(snapshot, limit = 4, cwd = "", lastUser = null, descendantActive = false) {
 	const max = Math.max(0, limit);
 	if (max === 0) return { rows: [], slot: null };
 	for (const want of [max * 3, max * 8, Number.MAX_SAFE_INTEGER]) {
@@ -626,7 +627,7 @@ export function foldedTimelineWithSlot(snapshot, limit = 4, cwd = "", lastUser =
 		const slot = slotOf(full, max) ?? fallbackSlot(full, max, lastUser);
 		if (rows.length >= max || want === Number.MAX_SAFE_INTEGER) {
 			if (windowHasUser(full, max) || slot !== null || want === Number.MAX_SAFE_INTEGER) {
-				return { rows: promoteRunningTail(rows, snapshot), slot };
+				return { rows: promoteRunningTail(rows, snapshot, descendantActive), slot };
 			}
 		}
 	}
@@ -812,7 +813,7 @@ export function pendingText(kind) {
 }
 
 /** 数量徽标统计：只统计主会话——分子为等待响应（awaiting，含响应保持）的主会话数，
- *  分母为其加运行中（running）主会话之和；子代理与 parent 层级上下文不计入
+ *  分母为其加运行中（running，含委托周期保持运行呈现）主会话之和；子代理不计入
  *  （R-01-001/AC-05）。空列表返回 { waiting: 0, total: 0 }，徽标恒以 n/m 呈现。 */
 export function awaitBadgeStats(entries) {
 	let waiting = 0;
@@ -955,17 +956,19 @@ export function mainTitle(byId, id) {
 /**
  * 把 sessions/workspaces 快照构建成窗格条目列表（有序、已含层级与显示过滤）。
  * 返回数组的每一项：
- *   { id, parentId?, depth, kind: 'running'|'awaiting'|'subagent'|'parent', title, workspaceTitle,
- *     isCurrent, pendingText? }
+ *   { id, parentId?, depth, kind: 'running'|'awaiting'|'subagent', title, workspaceTitle,
+ *     isCurrent, pendingText?, descendantActive? }
  * kind 规则：
- *   - 主会话 running（且无 pending）→ 'running'
+ *   - 主会话 running（且无 pending）或处于委托周期（含后代耗尽空窗）→ 'running'
  *   - 主会话 pendingInteraction / completed → 'awaiting'（等待用户行动）
- *   - 自身不活动但存在活动后代的任意母会话 → 'parent'（活动层级上下文）
- *   - 子代理 running / pending → 'subagent'，自身与后代均不活动则不显示
+ *   - 子代理 running / pending 或存在活动后代 → 'subagent'，自身与后代均不活动则不显示
  * heldIds（响应保持，R-01-002/AC-05、R-01-010/AC-06）：集合内主会话按 awaiting
- * 「需要响应」保留在活动区。
+ * 「需要响应」保留在活动区。delegatingIds（委托周期集合，渲染层由 progressAnchor
+ * 记账派生）：集合内会话视同处于委托周期——后代耗尽至 settle 处理回合启动的
+ * 空窗内仍保持运行呈现、完成提醒与响应保持不生效；条目的 descendantActive 字段
+ * 始终为当帧原始后代活性（供进度锚点记账判定耗尽），不受 delegatingIds 影响。
  */
-export function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds = null) {
+export function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds = null, delegatingIds = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
@@ -973,8 +976,8 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds
 		? snapshot.subagentsByParent
 		: {};
 	const rank = workspaceRank(workspaceItems ?? []);
-	const activeIds = activeSessionIds(byId);
-	// 第一遍：层级关系 + 显示判定（show 同 isActiveRow，单点实现避免漂移）。
+	const descendantIds = descendantActiveIds(byId);
+	// 第一遍：层级关系 + 显示判定（show = 自身活动 || 委托周期 || 响应保持，单点实现避免漂移）。
 	const rootIds = [];
 	const childIds = new Map();
 	const meta = new Map();
@@ -994,10 +997,12 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds
 		const isSub = hasParent;
 		// 响应保持（R-01-002/AC-05、R-01-010/AC-06）：保持中主会话按自身活动计入。
 		const held = !isSub && heldIds instanceof Set && heldIds.has(String(id));
-		// 子代理完成且没有活动后代时消失；主会话完成后保留为"等待打开"，活动祖先显示为 parent 上下文。
-		const ownActive = isActiveRow(row, byId) || held;
-		const show = isActiveRow(row, byId, activeIds) || held;
-		meta.set(id, { row, running, pending, isSub, ownActive, show, held, depth: 0 });
+		// 子代理完成且没有活动后代时消失；主会话完成后保留为"等待打开"；母会话在委托周期保持运行呈现（R-01-003/AC-05）。
+		const selfActive = isOwnActiveRow(row, byId);
+		const descendantActive = descendantIds.has(String(id));
+		const delegating = descendantActive || (delegatingIds instanceof Set && delegatingIds.has(String(id)));
+		const show = selfActive || delegating || held;
+		meta.set(id, { row, running, pending, isSub, show, held, descendantActive, delegating, depth: 0 });
 	}
 
 	// 主会话按 workspace 顺序排序；未归入任何工作区的主会话保持在 lineage 中靠后。
@@ -1029,9 +1034,14 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds
 				id,
 				parentId: m.isSub ? String(parentId) : null,
 				depth,
-				kind: m.ownActive
-					? m.isSub ? "subagent" : m.pending ? "awaiting" : m.running ? "running" : "awaiting"
-					: "parent",
+				kind: m.isSub
+					? "subagent"
+					: m.pending
+						? "awaiting"
+						: m.running || m.delegating
+							? "running"
+							: "awaiting",
+				descendantActive: m.descendantActive,
 				title: m.isSub
 					? subagentTitle(parentId, id, byId, subagentsByParent)
 					: mainTitle(byId, id),
@@ -1046,7 +1056,7 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds
 				isCurrent: current !== null && String(current) === String(id),
 				pendingText: m.pending
 					? pendingText(m.row.pendingInteraction)
-					: (m.row.completed === true || m.held) && !m.running
+					: (m.row.completed === true || m.held) && !m.running && !m.delegating
 						? "需要响应"
 						: undefined,
 			});
@@ -1074,7 +1084,7 @@ export function trackRuns(entries) {
 	const runs = new Map();
 	for (const entry of list) {
 		if (entry?.id == null || entry?.parentId == null || (entry.depth ?? 0) < 1) continue;
-		if (entry.kind !== "subagent" && entry.kind !== "parent") continue;
+		if (entry.kind !== "subagent") continue;
 		const pid = String(entry.parentId);
 		const parentDepth = depthById.get(pid);
 		if (parentDepth === undefined || entry.depth !== parentDepth + 1) continue;
@@ -1180,28 +1190,37 @@ function isOwnActiveRow(row, byId = {}) {
 	return running || pending || row.completed === true;
 }
 
-/** 沿活动会话的有效 parentId 链补齐活动祖先，供活动区与历史区共用。 */
-export function activeSessionIds(byId = {}) {
-	const activeIds = new Set();
+/** 沿自身活动会话的有效 parentId 链上溯收集会话 id：includeSelf 含活动会话自身，
+ *  否则只收祖先（存在活动后代的母会话）。活动区与历史区显示判定的单点实现。 */
+function lineageActiveIds(byId, includeSelf) {
+	const ids = new Set();
 	for (const [id, row] of Object.entries(byId)) {
 		if (!isOwnActiveRow(row, byId)) continue;
-		let currentId = String(id);
 		const seen = new Set();
-		while (currentId !== "" && !seen.has(currentId)) {
-			seen.add(currentId);
-			activeIds.add(currentId);
-			const parentId = byId[currentId]?.parentId;
-			if (parentId === undefined || parentId === null || !isRecord(byId[parentId])) break;
-			currentId = String(parentId);
+		let currentId = includeSelf ? id : row?.parentId;
+		while (currentId !== undefined && currentId !== null && isRecord(byId[currentId]) && !seen.has(String(currentId))) {
+			seen.add(String(currentId));
+			ids.add(String(currentId));
+			currentId = byId[currentId]?.parentId;
 		}
 	}
-	return activeIds;
+	return ids;
 }
 
-/** 判断活动条目是否需要建立轮内状态订阅；parent 上下文明确排除。 */
+/** 沿活动会话的有效 parentId 链补齐活动祖先（含活动会话自身），供历史区显示判定。 */
+export function activeSessionIds(byId = {}) {
+	return lineageActiveIds(byId, true);
+}
+
+/** 「存在活动后代」的母会话集合（不含活动会话自身），供 buildEntries 判定委托周期（R-01-003/AC-05）。 */
+function descendantActiveIds(byId = {}) {
+	return lineageActiveIds(byId, false);
+}
+
+/** 判断活动条目是否需要建立轮内状态订阅：以宿主 running 为准、与呈现 kind 解耦——
+ *  委托周期中保持运行呈现的母会话不建立订阅（R-02-004/AC-01）。 */
 export function shouldSubscribeToSession(entry, byId = {}) {
-	if (entry?.kind === "running") return true;
-	return entry?.kind === "subagent" && byId?.[entry.id]?.running === true;
+	return entry?.id != null && byId?.[entry.id]?.running === true;
 }
 
 /** 会话行是否满足活动区显示判定（自身活动或存在活动后代）。 */
@@ -1262,9 +1281,10 @@ export function movedToRecentIds(prevActiveIds, active, recent) {
  * （子代理是临时工作单元，不入最近历史；故需同时排除表白会话与已结束子代理），
  * 按最后活动时间从新到旧，最多 HISTORY_MAX 条。blank 会话不出现（从未用过）；
  * 归档会话不出现——原生 runtime 会立即清空对归档会话的选中，列出它只会得到
- * 一张点了回落到新会话界面的死卡。响应保持中的会话留在活动区，不入历史区。
+ * 一张点了回落到新会话界面的死卡。响应保持中的会话留在活动区，不入历史区；
+ * 委托周期（含耗尽空窗）中的会话同样留在活动区（delegatingIds，分区不变量）。
  */
-export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS, detailsById = {}, archivedIds = [], heldIds = null) {
+export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS, detailsById = {}, archivedIds = [], heldIds = null, delegatingIds = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
@@ -1279,6 +1299,7 @@ export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WI
 		if (row.blank === true) continue;
 		if (archived.has(id)) continue; // 归档会话不可选中，不入最近历史
 		if (heldIds instanceof Set && heldIds.has(String(id))) continue; // 响应保持中，留在活动区
+		if (delegatingIds instanceof Set && delegatingIds.has(String(id))) continue; // 委托周期中（含耗尽空窗），留在活动区
 		if (isSubagentRow(row, byId)) continue; // 子代理（含已结束）不入最近历史
 		if (isActiveRow(row, byId, activeIds)) continue;
 		const updatedAt = Number(row.updatedAt);
@@ -1329,7 +1350,7 @@ export function fmtTokens(n) {
 /**
  * 回合进度估计（0–100）：纯时间驱动，y = t/(t+120)（t 为本回合已耗秒数，半衰期
  * 120s）。过原点、先快后慢、渐近 100 永不到达；不区分 think/stream/tool 阶段，
- * 单调性由函数本身保证；回合切换由渲染层 turnTimings 新回合起点自然归零重计
+ * 单调性由函数本身保证；回合切换归零/委托周期连续由渲染层 progressAnchor 记账保证
  * （R-01-009/AC-06，C-014）。非法/缺失已耗时归一为 0。
  */
 export function progressOf({ elapsedMs = 0 } = {}) {
@@ -1339,4 +1360,58 @@ export function progressOf({ elapsedMs = 0 } = {}) {
 			(Number.isFinite(elapsedMs) && elapsedMs >= 0 ? elapsedMs : 0) / 1000,
 		);
 	return Math.round((100 * sec) / (sec + 120) * 10) / 10;
+}
+
+/** 委托耗尽归属宽限（R-01-009/AC-06）：后代全部结束后、在该毫秒数内开始的新回合
+ *  视为处理后代结果的回合（委托周期锚点连续）；超时开始的新回合视为委托周期外的
+ *  全新回合（归零重计）。 */
+export const SETTLE_TURN_GRACE_MS = 60_000;
+
+/**
+ * 委托周期进度锚点（R-01-009/AC-06）：三态状态机。
+ *   - idle：无活动后代且无开放回合，锚点为空。
+ *   - turn：无活动后代、自身回合在飞；锚点 = 本回合起点，新回合开始即归零重计。
+ *   - delegating：委托周期——自首个活动后代出现起，至后代全部结束且处理其结果的
+ *     回合完成止；锚点在周期内连续，不随自身回合结束或新回合开始而归零；进入周期
+ *     时取最近已知回合起点，无已知起点时以进入周期时刻（now）为起点。后代耗尽且
+ *     无开放回合时记 drainedAt；耗尽后 SETTLE_TURN_GRACE_MS 内开始的新回合归属本
+ *     周期（锚点连续），超时开始的新回合归零重计并退出周期。
+ * prev 为上一帧状态（null 视同 idle）；返回新状态对象，渲染层按会话 id 记账。
+ */
+export function progressAnchor(prev, { descendantActive = false, hostStartTime = null, now = null } = {}) {
+	const hs = Number.isFinite(hostStartTime) ? hostStartTime : null;
+	const da = descendantActive === true;
+	const mode = prev?.mode === "turn" || prev?.mode === "delegating" ? prev.mode : "idle";
+	if (da) {
+		if (mode === "delegating") {
+			const turnStart = hs !== null && hs !== prev.turnStart ? hs : prev.turnStart;
+			if (turnStart === prev.turnStart && prev.drainedAt == null) return prev;
+			return { mode: "delegating", anchor: prev.anchor, turnStart, drainedAt: null };
+		}
+		const anchor = hs ?? (mode === "turn" ? prev.anchor : Number.isFinite(now) ? now : 0);
+		return { mode: "delegating", anchor, turnStart: hs ?? (mode === "turn" ? prev.turnStart : null), drainedAt: null };
+	}
+	if (hs === null) {
+		if (mode !== "delegating") return { mode: "idle", anchor: null, turnStart: null, drainedAt: null };
+		if (prev.drainedAt != null) return prev;
+		return { ...prev, drainedAt: Number.isFinite(now) ? now : 0 };
+	}
+	if (mode === "delegating") {
+		if (hs === prev.turnStart) return { mode: "turn", anchor: prev.anchor, turnStart: hs, drainedAt: null };
+		const withinGrace = prev.drainedAt != null && hs - prev.drainedAt <= SETTLE_TURN_GRACE_MS;
+		return withinGrace
+			? { mode: "turn", anchor: prev.anchor, turnStart: hs, drainedAt: null }
+			: { mode: "turn", anchor: hs, turnStart: hs, drainedAt: null };
+	}
+	if (mode === "turn" && hs === prev.turnStart) return prev;
+	return { mode: "turn", anchor: hs, turnStart: hs, drainedAt: null };
+}
+
+/** 会话是否处于委托周期（含后代耗尽空窗）：delegating 态且未耗尽，或耗尽时刻距
+ *  now 不超过 SETTLE_TURN_GRACE_MS（空窗内等待 settle 处理回合启动）。供渲染层
+ *  派生 delegatingIds 注入 buildEntries/buildRecent（R-01-003/AC-05、R-01-009/AC-06）。 */
+export function delegationActive(state, now) {
+	if (state?.mode !== "delegating") return false;
+	if (state.drainedAt == null) return true;
+	return Number.isFinite(now) && now - state.drainedAt <= SETTLE_TURN_GRACE_MS;
 }

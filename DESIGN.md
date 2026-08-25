@@ -99,7 +99,7 @@ sequenceDiagram
   - 不依赖任何第三方宠物插件，也不向第三方数据路由发请求（R-02-001）。
   - 移动端抽屉不改变主会话布局，离开文档流（R-01-008）。
   - 双区结构：窗格内容区分为上「活动会话」下「最近历史」，两者都由同一快照派生；最近历史仅主会话（R-01-010）。
-  - 响应保持与迁移动画：主会话在当前焦点下结束一轮（含完成提醒卡被激活、当前焦点下运行结束）后，渲染器经纯函数单点登记保持（易失内存态），保持期间活动卡位置与「需要响应」呈现不变；当前会话切走后解除保持、卡片落入历史区。任一卡片由活动区转入历史区时，渲染器以相邻两帧活动区/历史区 id 集合差检测迁移，用旧卡克隆 ghost（挂于窗格内、继承卡片样式作用域）从原矩形 FLIP 平移并形变至目标最近卡矩形，到位后淡出、真卡同步淡入，`transitionend` 收口移除 ghost；`prefers-reduced-motion` 或目标矩形不可量取时跳过动画直接落位（R-01-002/AC-05、R-01-010/AC-06、AC-07）。
+  - 响应保持与迁移动画：主会话在当前焦点下结束一轮（含完成提醒卡被激活、当前焦点下运行结束）后，渲染器经纯函数单点登记保持（易失内存态），保持期间活动卡位置与「需要响应」呈现不变；当前会话切走后解除保持、卡片落入历史区。保持期间若会话存在活动后代（委托周期），卡片按运行中呈现、「需要响应」标识暂不显示，后代全部结束后恢复（R-01-002/AC-03、R-01-010/AC-06）。任一卡片由活动区转入历史区时，渲染器以相邻两帧活动区/历史区 id 集合差检测迁移，用旧卡克隆 ghost（挂于窗格内、继承卡片样式作用域）从原矩形 FLIP 平移并形变至目标最近卡矩形，到位后淡出、真卡同步淡入，`transitionend` 收口移除 ghost；`prefers-reduced-motion` 或目标矩形不可量取时跳过动画直接落位（R-01-002/AC-05、R-01-010/AC-06、AC-07）。
   - 轮内状态通过 `sessions.binding(sessionId).session` 订阅运行中会话取得，随运行结束断开；token 统计（计费输入/输出/缓存命中率）与速率取 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`，复用既有列表订阅，无新增轮询）；运行时长与进度在渲染期按回合开始时间实时计算（R-01-009、R-02-004）。
   - 工作项数据优先从原生 `ConversationSnapshot.chat` 的 `order` / `nodes` 读取，按主会话窗口实际显示顺序派生并折叠为分组呈现；冷会话使用 native `sessions.history` 读取补齐：尾页取不到最近用户/agent 消息时按 `beforeSeq` 向前有界深翻（最多 3 页，找到或翻尽即止），不克隆第三方 UI 路由。运行中当前项由原生 `session.subscribe` 推送刷新（R-01-012）。
   - 模型上下文从 native `sessions.models` 的当前选择与 catalog metadata 归一，模型名称与 reasoning level 缺失时保持空值；不使用 `agentPreset` 冒充模型（R-01-012）。
@@ -110,26 +110,26 @@ sequenceDiagram
     - 卡片不渲染独立当前动作状态行。
     - 工作项标题与摘要之间显示小圆点；用户项使用人物图标并带「用户」标签（R-01-012/AC-05）。
     - 错误所在分组行整体染为错误红色；含 Bash 的分组行使用稳定的命令图标，不读取展开态下的 disclosure 箭头（R-01-009/AC-02、AC-08、AC-09；R-01-012/AC-03～AC-08）。
-  - 徽标计数与脉冲紧迫度：列头/窄条/移动端开关的数量徽标由 buildEntries 条目单点派生——分子为 awaiting 主会话数、分母为其加 running 主会话之和（`awaitBadgeStats`），子代理与 parent 不计入；空态同样以「0/0」呈现。存在等待响应时徽标以与等待卡完全一致的背景色、透明度与边框（含 1px 外环）呈现，并以亮度呼吸脉冲提示——不改整体不透明度，避免半透明底透进列头背景；周期由占比 n/m 线性映射到 [0.5s, 1.6s] 封闭区间、随占比单调加快（`awaitPulsePeriod`），渲染层仅写文本、data-awaiting 与 --dap-await-period 三个呈现值（R-01-001/AC-04～AC-06、R-01-002/AC-06、AC-07）。
+  - 徽标计数与脉冲紧迫度：列头/窄条/移动端开关的数量徽标由 buildEntries 条目单点派生——分子为 awaiting 主会话数、分母为其加 running 主会话之和（`awaitBadgeStats`），子代理不计入；空态同样以「0/0」呈现。存在等待响应时徽标以与等待卡完全一致的背景色、透明度与边框（含 1px 外环）呈现，并以亮度呼吸脉冲提示——不改整体不透明度，避免半透明底透进列头背景；周期由占比 n/m 线性映射到 [0.5s, 1.6s] 封闭区间、随占比单调加快（`awaitPulsePeriod`），渲染层仅写文本、data-awaiting 与 --dap-await-period 三个呈现值（R-01-001/AC-04～AC-06、R-01-002/AC-06、AC-07）。
 
   - 桌面列右缘叠加拖拽手柄：拖拽实时写入 `--dap-width` 并夹取在 200–480px；调宽结果存 localStorage，启动时读取恢复，缺失/非法值回退默认 280px、越界值夹取进范围；折叠窄条与移动端抽屉不显示手柄（R-01-015）。
   - 时间线只有折叠分组一种形态：渲染层不做任何 dsh-auto-collapse 探测或条件切换，时间线 memo 键由快照引用、cwd 与 lastUser 组成；该插件热装/卸载对窗格无可观察影响（R-01-017、R-02-001）。
 
 ## 核心数据与不变量
 
-- 核心结构：`活动卡片条目 = { id, parentId?, depth, kind: running|awaiting|subagent|parent, title, workspaceTitle, model, reasoning, timeline, isCurrent, pendingText? }`；`parent` 表示自身非活动但因后代活动而显示的活动层级上下文；`最近卡片条目 = { id, kind: 'recent', title, workspaceTitle, model, reasoning, userPreview, agentPreview, isCurrent, updatedAt }`。
+- 核心结构：`活动卡片条目 = { id, parentId?, depth, kind: running|awaiting|subagent, title, workspaceTitle, model, reasoning, timeline, isCurrent, pendingText? }`；`最近卡片条目 = { id, kind: 'recent', title, workspaceTitle, model, reasoning, userPreview, agentPreview, isCurrent, updatedAt }`。
 - 显示过滤（核心不变量）：
-  - 主会话显示当自身 `running || pendingInteraction || completed`、处于响应保持，或存在活动后代；自身不活动但存在活动后代时显示为 `parent` 活动层级上下文，否则显示为 running 或 awaiting。
+  - 主会话显示当自身 `running || pendingInteraction || completed`、处于响应保持，或存在活动后代；`pendingInteraction` 时显示为 awaiting，自身 `running` 或存在活动后代时显示为 running（委托周期中母会话保持运行中呈现，R-01-003/AC-05），completed/响应保持时显示为 awaiting。
   - 响应保持：主会话结束一轮后仍为当前会话期间登记保持——含完成提醒（`completed`）卡被激活（宿主同帧清除 `completed`）、当前焦点下运行结束（宿主不置 `completed`）、等待项在焦点下被解除转空闲，同为自身活动（running/awaiting）变为非活动的登记口径；保持中以 awaiting「需要响应」呈现；当前会话切换为其它会话即解除，`current` 暂缺（导航瞬时态）时保持不解除（R-01-002/AC-05、R-01-010/AC-06）。
-  - 子代理显示当自身 `running || pendingInteraction`，或存在活动后代；自身不活动但存在活动后代时显示为 `parent` 上下文，既无自身活动也无活动后代时结束并消失（R-01-001、R-01-003）。
-  - 等待优先：存在待确认/待审查/待回复时以对应文案呈现；否则完成态以"需要响应"呈现（R-01-002）。
+  - 子代理显示当自身 `running || pendingInteraction`，或存在活动后代；自身不活动但存在活动后代时保持 `subagent` 呈现，既无自身活动也无活动后代时结束并消失（R-01-001、R-01-003）。
+  - 等待优先：存在待确认/待审查/待回复时以对应文案呈现；否则完成态以"需要响应"呈现；完成态（含响应保持）在会话存在活动后代期间不生效，后代全部结束后恢复（R-01-002、R-01-010/AC-06）。
 - 分区不变量：会话要么在活动区、要么在历史区，绝不同时出现；最近历史 = 当前非活动 && `updatedAt` 落在历史窗口（24h）内、**仅主会话（不含子代理）**，按最后活动时间倒序，最多 20 条；响应保持中会话仍归属活动区，解除后经移动动画迁入历史区（R-01-010）。
 - 轮内状态输入：`runtimeStats({ elapsedMs, outputTokens, rateTokS })`、`usageSummary(tokenUsage)`（计费输入=未缓存输入+缓存读+缓存写，缓存命中率=缓存读÷计费输入，对齐原生统计行口径）与 `conversationTimeline(snapshot)` 为纯函数，输入由渲染器从原生 `ConversationSnapshot`（`chat` / `runningCalls` / `partial` / `turnTimings` / `legacy.nodes`）与 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`）归一而来（R-01-009、R-01-012）。
-- 排序不变量：主会话按所在工作区侧栏顺序；未纳入任何工作区的排在全部工作区之后并保持出现顺序；活动层级上下文与子代理均跟随母会话并缩进（R-01-001、R-01-003）。
+- 排序不变量：主会话按所在工作区侧栏顺序；未纳入任何工作区的排在全部工作区之后并保持出现顺序；子代理跟随母会话并缩进（R-01-001、R-01-003）。
 - 稳定签名：`cardSignature` 对条目可见字段求签名（含 model/reasoning/timeline/userPreview/agentPreview、progress/streaming/tokenStats）；签名相同的重复渲染必须跳过全部 DOM 写入（R-02-003）。
 - 响应保持为渲染器易失内存态：不写回宿主、不持久化；页面刷新后保持自然失效，会话按当帧快照判定归属（R-01-010/AC-06）。
 - 运行卡渲染期字段：渲染器为 running 条目补充 `progress`（阶段百分比）、`timeline`（主会话窗口最近工作项）、`streaming`（流式阶段标记，驱动 `data-streaming` 属性与进度条条纹动画）与 `tokenStats`；不再派生独立 `status` 文案行；同一 `kind` 卡片的 DOM 骨架在 `streaming` 翻转时经签名重绘更新属性。
-- 非运行活动卡呈现：awaiting 与 parent 条目同样承载 `timeline`（会话最后已知工作项，最多 4 项，非运行会话不做尾部 running 提升）；parent 卡附不确定态进度条——满宽轨道 + `dap-stripes` 条纹滚动动画、无百分比文本，纯 CSS 由 `[data-kind="parent"]` 驱动，不新增状态字段（R-01-016）。
+- 非运行活动卡呈现：awaiting 条目同样承载 `timeline`（会话最后已知工作项，最多 4 项，非运行会话不做尾部 running 提升）（R-01-016）。
 
 ## 运行时、并发与失败语义
 
@@ -176,7 +176,7 @@ sequenceDiagram
 | R-02-003 | 活动状态模型 | 渲染签名与卸载清理 | src/core.mjs、src/client.mjs |
 | R-02-004 | 窗格渲染器 | 轮内状态订阅生命周期 | src/client.mjs |
 | R-01-014 | 窗格渲染器 | 加载状态模型与渐进呈现 | src/core.mjs、src/client.mjs |
-| R-01-016 | 活动状态模型 | 非运行活动卡时间线与不确定态进度条 | src/client.mjs |
+| R-01-016 | 活动状态模型 | 等待卡时间线 | src/client.mjs |
 | R-01-017 | 活动状态模型 | 折叠分组派生（唯一时间线形态） | src/core.mjs、src/client.mjs |
 | R-01-018 | 活动状态模型 | 指令槽位派生与呈现 | src/core.mjs、src/client.mjs |
 ## 产品契约
@@ -187,12 +187,12 @@ sequenceDiagram
 - 工作项时间线呈现：`活动状态模型#foldedTimelineWithSlot` 产出的显示行为折叠分组行与用户输入行，含 label/summary/status；时间线不显示行级耗时，对齐主会话窗口工作项行（原生无行级耗时，C-012）；显示行 label 中文归一——agent 正文行 label 为「助手」、思考语义 label 为「思考」，数据层不残留英文「Assistant」「Think」标签（R-01-012/AC-09、AC-10）；工具成员摘要经 `summarizeToolArguments` 镜像主会话窗口 `deriveSummary` 语义（R-01-009/AC-07、R-01-012）。
   - 渲染层以竖线串圆点的时间线呈现：轨道从卡片内容左边界起步，竖线与圆点严格同圆心（整数像素位，避免 1px 竖线分数位吸附偏移）；竖线穿过首个节点圆点并向上引出，终点没入最新动作圆点内部不外露。
   - 圆点带半透明外环；正在执行节点使用蓝色外环并闪烁，已定案节点使用绿/红实心圆点；圆点位于内容区，不被容器裁切。
-  - 会话运行中（快照 `running === true` 且 `pending` 为空）、时间线无执行中显示行且无其他执行中项时，核心将尾部已定案的非用户显示行克隆提升为 `running`，作为 agent 工作中的持续标志；尾部为 error/stopped/用户输入行时不提升；渲染层直接采用核心派生状态绘制（R-01-009/AC-10）。
+  - 会话处于运行呈现（快照 `running === true` 或存在活动后代，且 `pending` 为空）、时间线无执行中显示行且无其他执行中项时，核心将尾部已定案的非用户显示行克隆提升为 `running`，作为 agent 工作中的持续标志；尾部为 error/stopped/用户输入行时不提升；渲染层直接采用核心派生状态绘制（R-01-009/AC-10）。
   - 显示行图标一律由渲染层自绘的 canonical 图标表产出（按 toolName 镜像原生 classifyTool 与行级覆盖，未知工具按 view.kind 语义兜底），不读取宿主 DOM、无克隆图标；用户项使用人物 SVG，agent 正文行使用机器人 SVG（与最近卡 agent 角色标识同源），思考行使用思考图标，图标分流按 reasoning/detail 有无判定而不比较 label 显示文案；机器人 SVG 几何按其笔墨边界盒（viewBox `1 3 22 18`）渲染，显示尺度与同盒 canonical 图标一致（R-01-012/AC-11）；选中/非选中态不漂移（R-01-012/AC-03、AC-09、AC-10）。
   - 文字语义镜像原生 keyed 行：`TOOL_LABELS` 含 todo_write「更新任务清单」与 ask_user_question「提问」；todo 摘要复刻「done/total 已完成 · 当前活动项」、ask 摘要复刻「等待回答 / 已答 x/y / 已取消 / 已中断」状态文案，错误态摘要取结果输出首行；上述语义经折叠分组的工作成员派生上卡（R-01-012/AC-03）。
   - 含 Bash 的分组无论成员状态均使用稳定的命令图标，不替换为 disclosure 箭头；错误分组行整体染色而不替换图标；组标题和组摘要之间插入 2px 圆形分隔符（R-01-009/AC-09、R-01-012/AC-03～AC-08）。
-- 回合进度：`活动状态模型#progressOf({ elapsedMs })` 产出 0–100 的进度百分比，由本回合已耗时按有理曲线 y = t/(t+120)（t 为已耗秒数）映射，过原点、先快后慢、渐近 100% 永不到达，不区分 think/stream/tool 阶段；单调性由函数本身保证，无渲染层单调下限；回合切换由 `turnTimings` 新回合起点自然归零重计（R-01-009/AC-06，C-014）。渲染层以 5px 圆角进度条呈现，流式阶段（`data-streaming`）填充为向右滚动条纹动画（R-01-009/AC-08）。
-- 非运行活动卡时间线与不确定态进度条：等待卡（需要响应/待确认/待审查/待回复）与活动层级上下文卡（parent）显示会话最近工作项时间线（最多 4 项，图标/文字/状态语义同运行卡时间线；数据在途时时间线区域显示加载指示，就地填充）；parent 卡另显示不确定态进度条（R-01-016）。
+- 回合进度：`活动状态模型#progressOf({ elapsedMs })` 产出 0–100 的进度百分比，由已耗时按有理曲线 y = t/(t+120)（t 为已耗秒数）映射，过原点、先快后慢、渐近 100% 永不到达，不区分 think/stream/tool 阶段；单调性由函数本身保证，无渲染层单调下限。进度锚点由渲染层 `#progressAnchor` 三态状态机（idle/turn/delegating）按会话记账：委托周期外由宿主回合起点驱动、`turnTimings` 新回合起点归零重计；委托周期（自出现活动后代起，至后代全部结束且处理其结果的回合完成止）内锚点连续——进入周期时取最近已知回合起点（无已知起点时取当刻），不随自身回合结束或新回合开始而归零；后代耗尽且无开放回合时记 `drainedAt`，耗尽后 `SETTLE_TURN_GRACE_MS`（60s）内开始的新回合归属本周期（视为处理后代结果的回合），超时开始的新回合归零并退出周期（R-01-009/AC-06，C-014）。渲染层以 5px 圆角进度条呈现，流式阶段（`data-streaming`）填充为向右滚动条纹动画（R-01-009/AC-08）。
+- 非运行活动卡时间线：等待卡（需要响应/待确认/待审查/待回复）显示会话最近工作项时间线（最多 4 项，图标/文字/状态语义同运行卡时间线；数据在途时时间线区域显示加载指示，就地填充）（R-01-016）。
 - 最近卡消息预览行：第三行（最近用户消息首行）文本前常驻人物图标与「用户」标签、第四行（最近 agent reply 首行）文本前常驻机器人图标与「助手」标签，标签与文本之间以小圆点分隔，图标盒与时间线行同为 12px，整体形式与工作项时间线的用户/助手行一致；文本缺失时仅显示图标与标签，文本与加载指示写入独立文本段（R-01-013/AC-03、AC-04、AC-07、AC-08）。
 - 等待文案：`pendingText(kind)` 将待确认/待审查/待回复归一为中文标识；完成态默认"需要响应"（R-01-002）。
 - 迁移动画：渲染器比较相邻两帧派生的活动区/历史区 id 集合，id 由活动区消失且出现于历史区即判定一次迁移（id 彻底消失不播放）；动画以旧卡克隆 ghost 经 FLIP 平移并形变至目标最近卡矩形、到位后淡出，真卡同步淡入，`transitionend` 移除 ghost，时长约 300ms，多次迁移各自独立播放；`prefers-reduced-motion` 或目标矩形不可量取时降级为直接落位（R-01-010/AC-07）。
@@ -216,7 +216,7 @@ sequenceDiagram
 - 职责: 把宿主会话与工作区快照归一化为活动区/历史区条目、工作项时间线、折叠分组时间线、模型上下文与消息预览（实现 R-01-001、R-01-002、R-01-003、R-01-009、R-01-010、R-01-012、R-01-013、R-01-016、R-01-017、R-02-001、R-02-003）
 - 关键内部结构:
   - 纯函数、无 DOM、可单测。
-  - 显示过滤单点实现：`activeSessionIds` 沿活动会话的 `parentId` 链补齐所有活动祖先，`isActiveRow` 供 buildEntries/buildRecent 共用；`isSubagentRow` 判定直属子代理，`parent` 条目只承载层级上下文，不建立轮内订阅。
+  - 显示过滤单点实现：`lineageActiveIds` 沿自身活动会话的 `parentId` 链上溯——含自身为 `activeSessionIds`（历史区显示判定），仅祖先为 `descendantActiveIds`（活动区委托周期判定）；`isSubagentRow` 判定直属子代理；轮内订阅以宿主 running 为准（`shouldSubscribeToSession` 按 `byId` 行 `running` 判定），与呈现 kind 解耦——委托周期中的母会话保持 running 呈现但不建立订阅。
   - `buildRecent` 按 24h 历史窗口派生历史区（仅主会话、倒序、上限 20），并归一化 workspace/model/reasoning、最近用户首行与 agent 首行。
   - `buildEntries`/`buildRecent` 接受 `heldIds` 入参：保持中主会话以 awaiting「需要响应」条目留在活动区，并从历史区排除（R-01-002/AC-05、R-01-010/AC-06）。
   - `conversationWorkItems` 从原生 ChatSnapshot 的实际 order 收集尾部扁平工作项（含 live 合并与尾部提升），作为折叠分组的输入内核与分组成员级观察接缝；`firstPhysicalLine` 只取消息的第一个非空物理行。
@@ -238,7 +238,7 @@ sequenceDiagram
 - 关键内部结构:
   - 桌面下把中间列临时改为行方向，窗格作为真实 flex 行子项（先于会话座）占据左侧默认 280px；经祖先链（跳过 display:contents）找到会话根设 `flex:1 1 0%` 弹性填充，会话内容随之让位；折叠为窄条时让位同步恢复；仅桌面生效，移动端恢复外壳默认列布局。
   - 内容区为上「活动会话」下「最近历史」两段，各自带空态；由同一快照派生。
-  - `parent` 活动层级上下文卡片显示母会话本身，保持层级顺序，显示自身最近工作项时间线与不确定态进度条；仍不建立轮内状态订阅（R-01-003/AC-05、R-01-016）。
+  - 委托周期中的母会话保持运行卡呈现（kind=running，骨架不重建）：轮内订阅随自身回合结束断开，时间线与 token 统计冻结在最后已知值，进度按委托周期锚点继续推进（R-01-003/AC-05、R-01-009/AC-06）。委托周期集合由渲染层 `progressAnchorById` 记账经 `delegationActive` 逐帧派生并注入 `buildEntries`/`buildRecent`——后代耗尽至 settle 处理回合启动的空窗内（`SETTLE_TURN_GRACE_MS` 宽限）母会话保持运行呈现、完成提醒/响应保持不生效、不入历史区（分区不变量）；宽限超时无新回合则退出周期，完成提醒恢复显示。
   - 活动区子代理卡片沿 `depth` 缩进；母会话到直属子代理的连接线由列表内轨道层（`.dap-tracks`）按测量值整体绘制：每条竖轨一个连续元素、零拼接接缝，横线同为轨道层元素，全部坐标统一取整（同相位、粗细一致、端点相接）；连接线不覆盖卡片内容或点击区域（R-01-003/AC-04）。
   - 卡片按 id 复用，流程节点按稳定 id 复用 DOM；配合签名去重避免无谓 DOM 写入，并保持运行节点脉冲动画连续。
   - 响应保持登记与迁移检测：登记收敛到 `updateCompletedHolds` 纯函数单点——上一帧自身活动（running/awaiting）的主会话在当前焦点下变为非活动即登记 `heldCompletedIds`，当前会话切换为其它会话即解除（暂缺不解除）；活动区→历史区迁移以旧卡克隆 ghost FLIP 平移淡降 + 真卡淡入呈现，`transitionend` 收口，`prefers-reduced-motion` 降级为直接落位（R-01-002/AC-05、R-01-010/AC-06、AC-07）。

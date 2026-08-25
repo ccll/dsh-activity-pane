@@ -668,6 +668,21 @@ function fallbackSlot(rows, keep, lastUser) {
 	return null;
 }
 
+/** 最近用户指令记账（R-01-018/AC-01、AC-03）：优先取窗口内用户行，否则取槽位行——
+ *  槽位行本身就是已知的窗口外最近指令。指令行随窗口前滑被逐出已加载窗口后，
+ *  兜底源仍持有该指令，槽位不因窗口滑动凭空消失，只在窗口内出现更新指令时隐藏。
+ *  值相等返回原引用，避免调用方 memo 键抖动重算。 */
+export function rememberLastUser(lastUser, rows, slot) {
+	const windowUser = (Array.isArray(rows) ? rows : []).findLast((row) => row?.kind === "user") ?? null;
+	const candidate = windowUser ?? (slot !== null && slot !== undefined && slot.kind === "user" ? slot : null);
+	if (candidate === null) return lastUser ?? null;
+	const id = typeof candidate.id === "string" ? candidate.id : "";
+	const text = typeof candidate.text === "string" ? candidate.text : "";
+	if (text === "") return lastUser ?? null;
+	if (lastUser !== null && lastUser !== undefined && lastUser.id === id && lastUser.text === text) return lastUser;
+	return { id, text };
+}
+
 function timelineItemFromEvent(entry, cwd = "") {
 	const event = isRecord(entry?.event) ? entry.event : entry;
 	const data = isRecord(event?.data) ? event.data : {};

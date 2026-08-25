@@ -674,6 +674,21 @@ function fallbackSlot(rows, keep, lastUser) {
 	return null;
 }
 
+/** 最近用户指令记账（R-01-018/AC-01、AC-03）：优先取窗口内用户行，否则取槽位行——
+ *  槽位行本身就是已知的窗口外最近指令。指令行随窗口前滑被逐出已加载窗口后，
+ *  兜底源仍持有该指令，槽位不因窗口滑动凭空消失，只在窗口内出现更新指令时隐藏。
+ *  值相等返回原引用，避免调用方 memo 键抖动重算。 */
+function rememberLastUser(lastUser, rows, slot) {
+	const windowUser = (Array.isArray(rows) ? rows : []).findLast((row) => row?.kind === "user") ?? null;
+	const candidate = windowUser ?? (slot !== null && slot !== undefined && slot.kind === "user" ? slot : null);
+	if (candidate === null) return lastUser ?? null;
+	const id = typeof candidate.id === "string" ? candidate.id : "";
+	const text = typeof candidate.text === "string" ? candidate.text : "";
+	if (text === "") return lastUser ?? null;
+	if (lastUser !== null && lastUser !== undefined && lastUser.id === id && lastUser.text === text) return lastUser;
+	return { id, text };
+}
+
 function timelineItemFromEvent(entry, cwd = "") {
 	const event = isRecord(entry?.event) ? entry.event : entry;
 	const data = isRecord(event?.data) ? event.data : {};
@@ -3733,14 +3748,11 @@ function apply(ctx) {
 					detail.memoTimelineUser = detail.lastUser;
 					detail.memoTimelineDescendantActive = entry.descendantActive === true;
 					detail.memoTimelineIdle = entryIdle;
-					// R-01-018：运行卡槽位源——轻量 history 的最近用户指令（窗口内无指令行时兜底）；
-					// 窗口内出现用户指令行时顺带刷新该记录，指令被挤出后槽位跟随最新指令。
+					// R-01-018：运行卡槽位源——最近用户指令记账（窗口内用户行优先，否则槽位行回写）；
+					// 指令行被挤出已加载窗口后兜底源仍持有它，槽位不因窗口前滑凭空消失（等更新指令入窗才隐藏）。
 					const derivedTimeline = foldedTimelineWithSlot(detailSnapshot, 4, entryCwd, detail.lastUser ?? null, entry.descendantActive === true, entryIdle);
 					// 行内更新收敛：值相等不换引用，避免 lastUser 引用变化引发 memo 键抖动重算。
-					const windowUser = derivedTimeline.rows.findLast((row) => row.kind === "user") ?? null;
-					if (windowUser !== null && (detail.lastUser?.text !== windowUser.text || detail.lastUser?.id !== windowUser.id)) {
-						detail.lastUser = { id: windowUser.id, text: windowUser.text };
-					}
+					detail.lastUser = rememberLastUser(detail.lastUser, derivedTimeline.rows, derivedTimeline.slot);
 					detail.memoTimeline = derivedTimeline.rows;
 					detail.memoSlot = derivedTimeline.slot;
 				}

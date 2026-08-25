@@ -2193,14 +2193,11 @@ function apply(ctx) {
 					detail.memoTimelineUser = detail.lastUser;
 					detail.memoTimelineDescendantActive = entry.descendantActive === true;
 					detail.memoTimelineIdle = entryIdle;
-					// R-01-018：运行卡槽位源——轻量 history 的最近用户指令（窗口内无指令行时兜底）；
-					// 窗口内出现用户指令行时顺带刷新该记录，指令被挤出后槽位跟随最新指令。
+					// R-01-018：运行卡槽位源——最近用户指令记账（窗口内用户行优先，否则槽位行回写）；
+					// 指令行被挤出已加载窗口后兜底源仍持有它，槽位不因窗口前滑凭空消失（等更新指令入窗才隐藏）。
 					const derivedTimeline = foldedTimelineWithSlot(detailSnapshot, 4, entryCwd, detail.lastUser ?? null, entry.descendantActive === true, entryIdle);
 					// 行内更新收敛：值相等不换引用，避免 lastUser 引用变化引发 memo 键抖动重算。
-					const windowUser = derivedTimeline.rows.findLast((row) => row.kind === "user") ?? null;
-					if (windowUser !== null && (detail.lastUser?.text !== windowUser.text || detail.lastUser?.id !== windowUser.id)) {
-						detail.lastUser = { id: windowUser.id, text: windowUser.text };
-					}
+					detail.lastUser = rememberLastUser(detail.lastUser, derivedTimeline.rows, derivedTimeline.slot);
 					detail.memoTimeline = derivedTimeline.rows;
 					detail.memoSlot = derivedTimeline.slot;
 				}

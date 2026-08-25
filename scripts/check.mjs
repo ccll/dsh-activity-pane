@@ -25,6 +25,7 @@ import {
 	conversationWorkItems,
 	conversationTimelineFromHistory,
 	lastUserFromEvents,
+	rememberLastUser,
 	foldWorkGroups,
 	foldWorkGroupsWithSlot,
 	foldedConversationTimeline,
@@ -919,6 +920,29 @@ const lastUserEvents = [
 ];
 assert.equal(lastUserFromEvents(lastUserEvents)?.text, "新指令", "提取最近一条用户指令全文（R-01-018）");
 assert.equal(lastUserFromEvents([{ event: { type: "tool/call", seq: 2, data: {} } }]), null, "无用户指令返回 null（R-01-018）");
+// R-01-018/AC-01、AC-03 最近用户指令记账：槽位行回写兜底源，窗口前滑逐出指令行后槽位不凭空消失
+{
+	// 窗口内用户行优先记账
+	const winRows = [{ id: "u9", kind: "user", text: "窗口内指令" }];
+	assert.deepEqual(rememberLastUser(null, winRows, null), { id: "u9", text: "窗口内指令" }, "窗口内用户行记入最近指令（R-01-018/AC-03）");
+	// 核心回归：窗口内无用户行时取槽位行（窗口外最近指令）回写——指令行被逐出已加载窗口后兜底源仍持有它
+	const slotRow = { id: "u8", kind: "user", text: "窗口外指令", slot: true };
+	const remembered = rememberLastUser(null, [], slotRow);
+	assert.deepEqual(remembered, { id: "u8", text: "窗口外指令" }, "槽位行回写为最近指令兜底源（R-01-018/AC-01）");
+	// 回写后的兜底源在窗口前滑（行内已无该指令）时保住槽位
+	const evicted = foldedTimelineWithSlot(noUserSnap, 4, "", remembered);
+	assert.equal(evicted.slot?.text, "窗口外指令", "指令行逐出已加载窗口后槽位经兜底源保持显示（R-01-018/AC-01）");
+	// 值相等不换引用（memo 键防抖）
+	assert.equal(rememberLastUser(remembered, [], slotRow), remembered, "值相等返回原引用不引发 memo 抖动（R-01-018）");
+	// 兜底源与槽位同源时同样不换引用
+	const fallbackSlotRow = foldedTimelineWithSlot(noUserSnap, 4, "", remembered).slot;
+	assert.equal(rememberLastUser(remembered, [], fallbackSlotRow), remembered, "兜底派生的槽位行回写保持引用稳定（R-01-018）");
+	// 无窗口用户行且无槽位 → 保持原值
+	assert.equal(rememberLastUser(remembered, [], null), remembered, "无候选时保持既有最近指令（R-01-018）");
+	assert.equal(rememberLastUser(null, [], null), null, "无任何候选时保持 null（R-01-018/AC-02）");
+	// 空文本候选不覆盖既有记账
+	assert.equal(rememberLastUser(remembered, [{ id: "u9", kind: "user", text: "" }], null), remembered, "空文本用户行不覆盖最近指令（R-01-018）");
+}
 
 // ---- R-01-009/AC-04 工具动作摘要镜像主会话窗口 deriveSummary 语义（可含原始命令）----
 assert.equal(
@@ -1775,6 +1799,7 @@ assert.ok(
 	"折叠槽位派生函数进入 bundle（R-01-017、R-01-018）",
 );
 assert.ok(bundle.includes('"dap-slot"') && bundle.includes("renderSlot"), "槽位行骨架与渲染进入 bundle（R-01-018）");
+assert.ok(bundle.includes("rememberLastUser"), "最近用户指令记账进入 bundle（R-01-018 槽位凭空消失回归）");
 // 防 TDZ 回归：memo 块 const derivedTimeline 声明必须先于对 derivedTimeline.rows 的引用（曾致运行卡渲染崩溃）
 assert.ok(
 	bundle.indexOf("const derivedTimeline") !== -1 && bundle.indexOf("const derivedTimeline") < bundle.indexOf("derivedTimeline.rows"),

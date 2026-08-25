@@ -28,3 +28,11 @@ The multi-session card visual layout (`src/client.mjs` CSS, `core.mjs`
 normalization ideas) is adapted from
 [`dsh-answer-pet`](https://github.com/Nanki-nn/dsh-answer-pet) (MIT License,
 Copyright (c) Nanki-nn). See README.md for details.
+
+The agent-role robot icon (`createRobotIcon` in `src/client.mjs`) uses the
+`bot` icon geometry from [Lucide](https://lucide.dev), ISC License:
+Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part
+of Feather (MIT). All other copyright (c) for Lucide are held by Lucide
+Contributors 2022. Permission to use, copy, modify, and/or distribute this
+software for any purpose with or without fee is hereby granted, provided that
+the above copyright notice and this permission notice appear in all copies.

@@ -208,7 +208,7 @@ sequenceDiagram
 - 安全呈现：任何会话标题/文本只经 `textContent` 写入，不走 HTML 拼接（防注入）。
 - 角色纪律：窗格只读，不写回宿主；活动数据方向恒为 服务 → 卡片。
 - 依赖边界：`src/core.mjs` 为纯函数（可 Node 单测），`src/client.mjs` 为浏览器 DOM 层。
-- 归属约束：卡片视觉布局借鉴自 MIT 许可证的 dsh-answer-pet，保留来源声明（见 LICENSE 与 README）；折叠分组语义改编自 MIT 许可证的 dsh-auto-collapse@0.1.3（src/fold.ts），同留来源声明（C-016）。
+- 归属约束：卡片视觉布局借鉴自 MIT 许可证的 dsh-answer-pet，保留来源声明（见 LICENSE 与 README）；折叠分组语义改编自 MIT 许可证的 dsh-auto-collapse@0.1.3（src/fold.ts），同留来源声明（C-016）；agent 角色机器人图标采用 ISC 许可证的 Lucide bot 图标几何（canonical 图标集无机器人），同留来源声明。
 
 ## 子系统与模块
 

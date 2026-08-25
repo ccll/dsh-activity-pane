@@ -1419,15 +1419,16 @@ function apply(ctx) {
 	}
 
 	/** 历史卡 agent 回复行角色图标（R-01-013/AC-08）：主网页图标集无现成机器人，按 canonical 风格手绘。 */
+	/** agent 角色机器人图标（R-01-013/AC-08、R-01-012/AC-09）：canonical 图标集无现成机器人，
+	 *  采用 Lucide bot 图标几何（ISC 许可，来源声明见 LICENSE/README），24 框描边风格。 */
 	function createRobotIcon() {
+		const stroke = { fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round" };
 		return createInlineIcon({
-			viewBox: "0 0 16 16",
+			viewBox: "0 0 24 24",
 			parts: [
-				{ tag: "rect", attrs: { x: "2.5", y: "5", width: "11", height: "8", rx: "2", fill: "none", stroke: "currentColor", "stroke-width": "1.3" } },
-				{ tag: "line", attrs: { x1: "8", y1: "5", x2: "8", y2: "2.7", stroke: "currentColor", "stroke-width": "1.3", "stroke-linecap": "round" } },
-				{ tag: "circle", attrs: { cx: "8", cy: "1.8", r: "1.1", fill: "currentColor" } },
-				{ tag: "circle", attrs: { cx: "5.9", cy: "9", r: "1.2", fill: "currentColor" } },
-				{ tag: "circle", attrs: { cx: "10.1", cy: "9", r: "1.2", fill: "currentColor" } },
+				{ attrs: { d: "M12 8V4H8", ...stroke } },
+				{ tag: "rect", attrs: { x: "4", y: "8", width: "16", height: "12", rx: "2", ...stroke } },
+				{ attrs: { d: "M2 14h2M20 14h2M15 13v2M9 13v2", ...stroke } },
 			],
 		});
 	}

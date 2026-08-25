@@ -1845,6 +1845,9 @@ assert.ok(bundle.includes("dap-history-icon"), "历史卡预览行带常驻角�
 assert.ok(bundle.includes("dap-history-text"), "历史卡预览文本写入图标后的独立文本段");
 // R-01-013/AC-08
 assert.ok(bundle.includes("agentIcon.append(createRobotIcon())"), "agent 回复行使用机器人图标");
+// 回归：机器人图标采用 Lucide bot 几何（ISC 许可，来源声明见 LICENSE/README；东家选定 F 方案）
+assert.ok(bundle.includes("M12 8V4H8"), "机器人图标为 Lucide bot 几何（天线折线 path）");
+assert.ok(!bundle.includes('"stroke-width": "1.3"'), "旧自绘描边机器人（1.3px 细描边）不再残留");
 // R-01-012/AC-03（T-021 副作用守卫：历史卡换图标不影响时间线兜底）
 // R-01-012/AC-09 时间线 assistant 行图标：正文行机器人图标（与最近卡 agent 角色标识同源）、思考行思考图标，按 detail 有无分流而非比较 label 文案
 assert.ok(bundle.includes('? createThinkIcon() : createRobotIcon()'), "时间线 assistant 正文行使用机器人图标、思考行使用思考图标（R-01-012/AC-09）");

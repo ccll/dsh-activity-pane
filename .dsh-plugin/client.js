@@ -150,7 +150,7 @@ function firstLineOf(text) {
 	return nl === -1 ? text : text.slice(0, nl);
 }
 
-/** 原生 latestLine 语义：流式 Think 行显示尾部最新行（ReasoningRow running 分支）。 */
+/** 原生 latestLine 语义：流式思考行显示尾部最新行（ReasoningRow running 分支）。 */
 function latestLineOf(text) {
 	const visible = text.trimEnd();
 	const nl = visible.lastIndexOf("\n");
@@ -396,7 +396,7 @@ function mergeLiveItems(items, snapshot, max, cwd = "") {
 			...(current ?? { id: `partial:${snapshot.partial.turn}:${snapshot.partial.step}`, kind: "assistant", icon: "assistant" }),
 			text: partialText,
 			detail: partialReasoning || null,
-			// 镜像原生 ReasoningRow：流式 Think 显示尾部最新行，避免与已定案首行摘要漂移。
+			// 镜像原生 ReasoningRow：流式思考显示尾部最新行，避免与已定案首行摘要漂移。
 			summary: partialReasoning ? latestLineOf(partialReasoning) : partialText,
 			status: "running",
 		});
@@ -2931,7 +2931,8 @@ function apply(ctx) {
 		}
 
 		if (item.kind === "user") return createUserIcon();
-		if (item.kind === "assistant") return typeof item.detail === "string" && item.detail.trim() !== "" ? createThinkIcon() : createRobotIcon();
+		// 与 core 思考语义判定同源的 truthy 谓词：detail（reasoning）存在即思考行，否则正文行。
+		if (item.kind === "assistant") return item.detail ? createThinkIcon() : createRobotIcon();
 		if (item.kind === "context") return createBrowseIcon();
 		return (TOOL_ICON_FACTORIES[item.toolName] ?? KIND_ICON_FACTORIES[item.icon] ?? createSparkleIcon)();
 	}

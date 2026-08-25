@@ -144,7 +144,7 @@ function firstLineOf(text) {
 	return nl === -1 ? text : text.slice(0, nl);
 }
 
-/** 原生 latestLine 语义：流式 Think 行显示尾部最新行（ReasoningRow running 分支）。 */
+/** 原生 latestLine 语义：流式思考行显示尾部最新行（ReasoningRow running 分支）。 */
 function latestLineOf(text) {
 	const visible = text.trimEnd();
 	const nl = visible.lastIndexOf("\n");
@@ -390,7 +390,7 @@ function mergeLiveItems(items, snapshot, max, cwd = "") {
 			...(current ?? { id: `partial:${snapshot.partial.turn}:${snapshot.partial.step}`, kind: "assistant", icon: "assistant" }),
 			text: partialText,
 			detail: partialReasoning || null,
-			// 镜像原生 ReasoningRow：流式 Think 显示尾部最新行，避免与已定案首行摘要漂移。
+			// 镜像原生 ReasoningRow：流式思考显示尾部最新行，避免与已定案首行摘要漂移。
 			summary: partialReasoning ? latestLineOf(partialReasoning) : partialText,
 			status: "running",
 		});

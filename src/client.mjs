@@ -1491,7 +1491,8 @@ function apply(ctx) {
 		}
 
 		if (item.kind === "user") return createUserIcon();
-		if (item.kind === "assistant") return typeof item.detail === "string" && item.detail.trim() !== "" ? createThinkIcon() : createRobotIcon();
+		// 与 core 思考语义判定同源的 truthy 谓词：detail（reasoning）存在即思考行，否则正文行。
+		if (item.kind === "assistant") return item.detail ? createThinkIcon() : createRobotIcon();
 		if (item.kind === "context") return createBrowseIcon();
 		return (TOOL_ICON_FACTORIES[item.toolName] ?? KIND_ICON_FACTORIES[item.icon] ?? createSparkleIcon)();
 	}

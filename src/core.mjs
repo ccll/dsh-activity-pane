@@ -21,6 +21,10 @@ const PENDING_LABELS = {
 	question: "待回复",
 };
 
+/** 完成提醒/响应保持的等待文案（R-01-002）：产出（pendingText 兜底、buildEntries）与
+ *  呈现判定（渲染层闪烁、提示文案分流）共用同一常量，避免字面量多处比较漂移。 */
+export const NEEDS_RESPONSE_LABEL = "需要响应";
+
 /** 镜像原生 toolRowModel 的 classifyTool（dsh-client-ui-tool）：摘要参数键按 variant 分派（C-011）。 */
 const TOOL_VARIANTS = {
 	bash: "bash",
@@ -425,6 +429,18 @@ function promoteRunningTail(timeline, snapshot, descendantActive = false) {
 	return timeline;
 }
 
+/** 非执行呈现（快照 pending，或渲染层判定等待/暂停且快照为冻结值）下无任何在飞项：
+ *  派生行中残留的 running 一律落定为 done——等待卡时间线不再闪烁（执行中呈现只保留真实在飞项）。 */
+function settleWhenIdle(rows, idle) {
+	if (idle !== true) return rows;
+	return rows.map((row) => (row?.status === "running" ? { ...row, status: "done" } : row));
+}
+
+/** 快照级 idle 判定：pending 非空即回合冻结。 */
+function snapshotIdle(snapshot) {
+	return Array.isArray(snapshot?.pending) && snapshot.pending.length > 0;
+}
+
 /** 从主会话 ChatSnapshot 的真实 order 收集尾部扁平工作项（含 live 合并与尾部提升），
  *  作为折叠分组（foldedTimelineWithSlot/foldWorkGroups）的输入内核与分组成员级观察接缝。 */
 export function conversationWorkItems(snapshot, limit = 4, cwd = "") {
@@ -433,7 +449,7 @@ export function conversationWorkItems(snapshot, limit = 4, cwd = "") {
 	// 尾部反向收集：工作项只取尾部 max 个，长会话不再全序扫描；
 	// live 合并只作用于尾部子集（partial/runningCalls 的对应已定案项必在最近窗口内）。
 	const full = mergeLiveItems(rawTailItems(snapshot, max, cwd), snapshot, max, cwd);
-	return promoteRunningTail(full.slice(-max), snapshot);
+	return settleWhenIdle(promoteRunningTail(full.slice(-max), snapshot), snapshotIdle(snapshot));
 }
 
 /** 窗口（最后 keep 行）内是否已含用户指令（R-01-018/AC-02）：
@@ -576,7 +592,10 @@ export function foldWorkGroups(items, limit = 4) {
 				flush();
 				run = { cat: "work", members: [], keys: [] };
 			}
-			run.members.push(foldMemberOf(item));
+			// 正文已流出 ⇒ 本步推理必然结束：拆入组的思考成员落定，不与正文行一起闪烁
+			// （真实在飞的 partial/runningCalls 行不受影响，多子代理并发同闪语义保留）。
+			const thinkMember = foldMemberOf(item);
+			run.members.push(thinkMember.status === "running" ? { ...thinkMember, status: "done" } : thinkMember);
 			run.keys.push(String(item.id ?? ""));
 			// 推理文本已并入当前组（组摘要承载，AC-04）；正文行剥离推理展示并跳过原生行匹配，
 			// 避免同一推理文本在组行与下一行重复呈现（R-01-017/AC-02 验收修正）。
@@ -616,18 +635,23 @@ export function foldedConversationTimeline(snapshot, limit = 4, cwd = "") {
 /** 折叠分组时间线 + 指令槽位（R-01-018）：分组全量行上截窗口；
  *  槽位未确定（窗口内无指令且窗口外尚未见指令）时继续扩窗直至全序兜底，
  *  保证窗口外最近用户指令只要存在就能被找到。
- *  lastUser 为运行卡轻量 history 提供的最近用户指令（行内窗口外无指令时兜底）。 */
-export function foldedTimelineWithSlot(snapshot, limit = 4, cwd = "", lastUser = null, descendantActive = false) {
+ *  lastUser 为运行卡轻量 history 提供的最近用户指令（行内窗口外无指令时兜底）。
+ *  idle：渲染层判定的非执行呈现（等待响应/暂停，快照为冻结值、pending 不可得）——为 true 时残留 running 全部落定。 */
+export function foldedTimelineWithSlot(snapshot, limit = 4, cwd = "", lastUser = null, descendantActive = false, idle = false) {
 	const max = Math.max(0, limit);
 	if (max === 0) return { rows: [], slot: null };
+	// 非执行呈现（渲染层 idle 判定或快照 pending）且非委托周期：落定在分组之前——
+	// 组标题/状态由已定案成员派生（避免 done 圆点配「正在思考」标题），尾部提升同时跳过。
+	const settle = (idle === true || snapshotIdle(snapshot)) && descendantActive !== true;
 	for (const want of [max * 3, max * 8, Number.MAX_SAFE_INTEGER]) {
 		const items = rawTailItems(snapshot, want, cwd);
-		const full = foldWorkGroups(mergeLiveItems(items, snapshot, Number.MAX_SAFE_INTEGER, cwd), Number.MAX_SAFE_INTEGER);
+		const merged = mergeLiveItems(items, snapshot, Number.MAX_SAFE_INTEGER, cwd);
+		const full = foldWorkGroups(settle ? settleWhenIdle(merged, true) : merged, Number.MAX_SAFE_INTEGER);
 		const rows = full.slice(-max);
 		const slot = slotOf(full, max) ?? fallbackSlot(full, max, lastUser);
 		if (rows.length >= max || want === Number.MAX_SAFE_INTEGER) {
 			if (windowHasUser(full, max) || slot !== null || want === Number.MAX_SAFE_INTEGER) {
-				return { rows: promoteRunningTail(rows, snapshot, descendantActive), slot };
+				return { rows: settle ? rows : promoteRunningTail(rows, snapshot, descendantActive), slot };
 			}
 		}
 	}
@@ -809,7 +833,7 @@ export function usageSummary({ uncachedInputTokens = null, cacheReadTokens = nul
 
 /** 需要用户行动的种类的展示文案。 */
 export function pendingText(kind) {
-	return PENDING_LABELS[kind] ?? "需要响应";
+	return PENDING_LABELS[kind] ?? NEEDS_RESPONSE_LABEL;
 }
 
 /** 数量徽标统计：只统计主会话——分子为等待响应（awaiting，含响应保持）的主会话数，
@@ -1057,7 +1081,7 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds
 				pendingText: m.pending
 					? pendingText(m.row.pendingInteraction)
 					: (m.row.completed === true || m.held) && !m.running && !m.delegating
-						? "需要响应"
+					? NEEDS_RESPONSE_LABEL
 						: undefined,
 			});
 		}

@@ -339,6 +339,8 @@ const CSS = `
   background: color-mix(in srgb, currentColor 12%, transparent);
   border-radius: 999px; padding: 0 7px;
 }
+/* 「需要响应」徽标闪烁：与标题圆点同款脉冲（dap-pulse 1.2s），开启瞬间由渲染层重启圆点动画对齐相位。 */
+[data-dsh-activity-pane] .dap-badge.dap-badge-flash { animation: dap-pulse 1.2s ease-in-out infinite; }
 /* 工作区徽标「图标+文本」双段：文件夹图标与左边栏工作区条目同源（R-01-003/AC-06）；
    名称字号不低于 10.5px（AC-07），行高保持 14px 以维持胶囊与卡片高度。 */
 [data-dsh-activity-pane] .dap-workspace {
@@ -426,21 +428,25 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-trace:empty { display: none; }
 /* 指令槽位（R-01-018）：与用户消息行同款排版，左对齐卡片左缘、无缩进；
- *  底部 padding 2px + .dap-trace 顶部 margin 1px = 3px，与时间线行间 gap 一致。 */
+ *  垂直间距走 margin 而非 padding——背景画在 padding box 上，padding 会让色块上下外延、文字偏上；
+ *  底部 margin 2px + .dap-trace 顶部 margin 1px = 3px，与时间线行间 gap 一致。 */
 [data-dsh-activity-pane] .dap-slot {
-  display: flex; align-items: center; column-gap: 7px;
-  min-width: 0; padding: 1px 14px 2px 0;   /* 左缘贴卡片无缩进；底部空隙与行间一致 */
+  display: flex; align-items: center; column-gap: 5px;
+  min-width: 0; padding: 0 14px 0 0; margin: 1px 0 2px;   /* 左缘贴卡片无缩进；垂直间距全走 margin */
   color: #c7ced9; font-size: 10px; line-height: 14px;
 }
-/* 用户指令消息虚线框（R-01-018 验收）：槽位整体；时间线用户行框其内容
- *  main（不含左侧轨道圆点）；outline 不占布局，行间空隙保持 3px 一致。 */
+/* 用户指令行整体平底（R-01-018 呈现标识）：槽位与时间线用户行统一，图标+文字合一底；
+ *  纯绿 #58c98f 透明度 10%；图标不再单设环/底。 */
 [data-dsh-activity-pane] .dap-slot,
 [data-dsh-activity-pane] .dap-trace-item[data-icon="user"] .dap-trace-main {
-  outline: 1px dashed rgba(126, 147, 177, .5);
-  outline-offset: -1px;
+  border-radius: 4px;
+  background: rgba(88, 201, 143, .1);
+}
+[data-dsh-activity-pane] .dap-trace-item[data-icon="robot"] .dap-trace-icon svg {
+  width: 13px; height: 13px;
 }
 [data-dsh-activity-pane] .dap-slot[hidden] { display: none; }
-[data-dsh-activity-pane] .dap-slot-icon { width: 12px; height: 12px; flex: none; display: inline-flex; }
+[data-dsh-activity-pane] .dap-slot-icon { width: 14px; height: 14px; padding: 1px; flex: none; display: inline-flex; }
 [data-dsh-activity-pane] .dap-slot-icon svg { display: block; width: 100%; height: 100%; }
 [data-dsh-activity-pane] .dap-slot-text {
   flex: 1 1 auto; min-width: 0; overflow: hidden;
@@ -485,7 +491,8 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-trace-item:last-child::after { content: none; }
 [data-dsh-activity-pane] .dap-trace-icon {
-   width: 12px; height: 12px; flex: none; display: inline-flex;
+   width: 14px; height: 14px; padding: 1px;   /* 统一 14px 盒：用户行圆底不偏心（R-01-018） */
+   flex: none; display: inline-flex;
    align-items: center; justify-content: center; color: #a9b8cc; text-align: center;
  }
 [data-dsh-activity-pane] .dap-trace-icon svg {
@@ -715,10 +722,6 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-history-separator {
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item::after {
   background: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.12));
-}
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-slot,
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item[data-icon="user"] .dap-trace-main {
-  outline-color: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.22));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-track {
   background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.08));
@@ -1511,7 +1514,12 @@ function apply(ctx) {
 			line.dataset.traceKey = key;
 			// 核心派生状态直接上卡：显示行全部由核心折叠派生，无原生 data-state 合并维度。
 			line.dataset.status = item.status ?? "running";
-			line.dataset.icon = typeof item.icon === "string" ? item.icon : "other";
+			// data-icon 供 CSS 区分呈现：机器人正文行单设 "robot"（思考组/思考行 icon 同为 "assistant" 但渲染
+			// 思考图标，不用机器人圆底；图标圆底仅限用户指令行与助手正文行）。
+			line.dataset.icon =
+				item.kind === "assistant" && item.fold !== true && !item.detail
+					? "robot"
+					: typeof item.icon === "string" ? item.icon : "other";
 			// 活动流式更新只改文本，保留命中节点；按下/抬起之间替换子节点会让浏览器取消 click。
 			let main = line.querySelector(".dap-trace-main");
 			if (main === null) {
@@ -1653,8 +1661,23 @@ function apply(ctx) {
 			title.textContent = entry.title;
 
 		const badge = el.querySelector(".dap-badge");
-		if (badge !== null && badge.textContent !== (entry.pendingText ?? ""))
-			badge.textContent = entry.pendingText ?? "";
+		if (badge !== null) {
+			const pending = entry.pendingText ?? "";
+			if (badge.textContent !== pending) badge.textContent = pending;
+			// 「需要响应」闪烁提示：与标题圆点同款脉冲；其余等待文案不闪。
+			const flash = pending === NEEDS_RESPONSE_LABEL;
+			const wasFlashing = badge.classList.contains("dap-badge-flash");
+			badge.classList.toggle("dap-badge-flash", flash);
+			if (flash && !wasFlashing) {
+				// 开启瞬间重启标题圆点动画：同款同期 keyframes 从同一帧起步，相位不再漂移。
+				const dot = el.querySelector(".dap-dot");
+				if (dot !== null) {
+					dot.style.animation = "none";
+					void dot.offsetWidth;
+					dot.style.animation = "";
+				}
+			}
+		}
 
 		if (entry.kind === "running") {
 			const pct = el.querySelector(".dap-pct");
@@ -1726,7 +1749,7 @@ function apply(ctx) {
 		if (note !== null) {
 			const next =
 				entry.kind === "awaiting"
-					? entry.pendingText === "需要响应"
+					? entry.pendingText === NEEDS_RESPONSE_LABEL
 						? "本轮已完成，等待你处理"
 						: `等待你的回应（${entry.pendingText}）`
 					: entry.kind === "recent"
@@ -2161,14 +2184,18 @@ function apply(ctx) {
 				// 按快照引用 memo：引用不变（时钟 tick、无关推送）时命中缓存，
 				// 长会话不再每次渲染全序扫描。
 				const entryCwd = snapshot?.byId?.[entry.id]?.cwd ?? "";
-				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineUser !== detail.lastUser || detail.memoTimelineDescendantActive !== (entry.descendantActive === true)) {
+				// 等待/暂停呈现（pendingText 存在）且自身快照为冻结值时，残留 running 行全部落定；
+				// 存在活动后代时保留尾部提升的「agent 工作中」呈现（R-01-009/AC-10 委托周期语义）。
+				const entryIdle = (entry.pendingText ?? null) !== null && entry.descendantActive !== true;
+				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineUser !== detail.lastUser || detail.memoTimelineDescendantActive !== (entry.descendantActive === true) || detail.memoTimelineIdle !== entryIdle) {
 					detail.memoTimelineOf = detailSnapshot;
 					detail.memoTimelineCwd = entryCwd;
 					detail.memoTimelineUser = detail.lastUser;
 					detail.memoTimelineDescendantActive = entry.descendantActive === true;
+					detail.memoTimelineIdle = entryIdle;
 					// R-01-018：运行卡槽位源——轻量 history 的最近用户指令（窗口内无指令行时兜底）；
 					// 窗口内出现用户指令行时顺带刷新该记录，指令被挤出后槽位跟随最新指令。
-					const derivedTimeline = foldedTimelineWithSlot(detailSnapshot, 4, entryCwd, detail.lastUser ?? null, entry.descendantActive === true);
+					const derivedTimeline = foldedTimelineWithSlot(detailSnapshot, 4, entryCwd, detail.lastUser ?? null, entry.descendantActive === true, entryIdle);
 					// 行内更新收敛：值相等不换引用，避免 lastUser 引用变化引发 memo 键抖动重算。
 					const windowUser = derivedTimeline.rows.findLast((row) => row.kind === "user") ?? null;
 					if (windowUser !== null && (detail.lastUser?.text !== windowUser.text || detail.lastUser?.id !== windowUser.id)) {

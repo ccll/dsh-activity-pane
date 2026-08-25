@@ -27,6 +27,10 @@ const PENDING_LABELS = {
 	question: "待回复",
 };
 
+/** 完成提醒/响应保持的等待文案（R-01-002）：产出（pendingText 兜底、buildEntries）与
+ *  呈现判定（渲染层闪烁、提示文案分流）共用同一常量，避免字面量多处比较漂移。 */
+const NEEDS_RESPONSE_LABEL = "需要响应";
+
 /** 镜像原生 toolRowModel 的 classifyTool（dsh-client-ui-tool）：摘要参数键按 variant 分派（C-011）。 */
 const TOOL_VARIANTS = {
 	bash: "bash",
@@ -431,6 +435,18 @@ function promoteRunningTail(timeline, snapshot, descendantActive = false) {
 	return timeline;
 }
 
+/** 非执行呈现（快照 pending，或渲染层判定等待/暂停且快照为冻结值）下无任何在飞项：
+ *  派生行中残留的 running 一律落定为 done——等待卡时间线不再闪烁（执行中呈现只保留真实在飞项）。 */
+function settleWhenIdle(rows, idle) {
+	if (idle !== true) return rows;
+	return rows.map((row) => (row?.status === "running" ? { ...row, status: "done" } : row));
+}
+
+/** 快照级 idle 判定：pending 非空即回合冻结。 */
+function snapshotIdle(snapshot) {
+	return Array.isArray(snapshot?.pending) && snapshot.pending.length > 0;
+}
+
 /** 从主会话 ChatSnapshot 的真实 order 收集尾部扁平工作项（含 live 合并与尾部提升），
  *  作为折叠分组（foldedTimelineWithSlot/foldWorkGroups）的输入内核与分组成员级观察接缝。 */
 function conversationWorkItems(snapshot, limit = 4, cwd = "") {
@@ -439,7 +455,7 @@ function conversationWorkItems(snapshot, limit = 4, cwd = "") {
 	// 尾部反向收集：工作项只取尾部 max 个，长会话不再全序扫描；
 	// live 合并只作用于尾部子集（partial/runningCalls 的对应已定案项必在最近窗口内）。
 	const full = mergeLiveItems(rawTailItems(snapshot, max, cwd), snapshot, max, cwd);
-	return promoteRunningTail(full.slice(-max), snapshot);
+	return settleWhenIdle(promoteRunningTail(full.slice(-max), snapshot), snapshotIdle(snapshot));
 }
 
 /** 窗口（最后 keep 行）内是否已含用户指令（R-01-018/AC-02）：
@@ -582,7 +598,10 @@ function foldWorkGroups(items, limit = 4) {
 				flush();
 				run = { cat: "work", members: [], keys: [] };
 			}
-			run.members.push(foldMemberOf(item));
+			// 正文已流出 ⇒ 本步推理必然结束：拆入组的思考成员落定，不与正文行一起闪烁
+			// （真实在飞的 partial/runningCalls 行不受影响，多子代理并发同闪语义保留）。
+			const thinkMember = foldMemberOf(item);
+			run.members.push(thinkMember.status === "running" ? { ...thinkMember, status: "done" } : thinkMember);
 			run.keys.push(String(item.id ?? ""));
 			// 推理文本已并入当前组（组摘要承载，AC-04）；正文行剥离推理展示并跳过原生行匹配，
 			// 避免同一推理文本在组行与下一行重复呈现（R-01-017/AC-02 验收修正）。
@@ -622,18 +641,23 @@ function foldedConversationTimeline(snapshot, limit = 4, cwd = "") {
 /** 折叠分组时间线 + 指令槽位（R-01-018）：分组全量行上截窗口；
  *  槽位未确定（窗口内无指令且窗口外尚未见指令）时继续扩窗直至全序兜底，
  *  保证窗口外最近用户指令只要存在就能被找到。
- *  lastUser 为运行卡轻量 history 提供的最近用户指令（行内窗口外无指令时兜底）。 */
-function foldedTimelineWithSlot(snapshot, limit = 4, cwd = "", lastUser = null, descendantActive = false) {
+ *  lastUser 为运行卡轻量 history 提供的最近用户指令（行内窗口外无指令时兜底）。
+ *  idle：渲染层判定的非执行呈现（等待响应/暂停，快照为冻结值、pending 不可得）——为 true 时残留 running 全部落定。 */
+function foldedTimelineWithSlot(snapshot, limit = 4, cwd = "", lastUser = null, descendantActive = false, idle = false) {
 	const max = Math.max(0, limit);
 	if (max === 0) return { rows: [], slot: null };
+	// 非执行呈现（渲染层 idle 判定或快照 pending）且非委托周期：落定在分组之前——
+	// 组标题/状态由已定案成员派生（避免 done 圆点配「正在思考」标题），尾部提升同时跳过。
+	const settle = (idle === true || snapshotIdle(snapshot)) && descendantActive !== true;
 	for (const want of [max * 3, max * 8, Number.MAX_SAFE_INTEGER]) {
 		const items = rawTailItems(snapshot, want, cwd);
-		const full = foldWorkGroups(mergeLiveItems(items, snapshot, Number.MAX_SAFE_INTEGER, cwd), Number.MAX_SAFE_INTEGER);
+		const merged = mergeLiveItems(items, snapshot, Number.MAX_SAFE_INTEGER, cwd);
+		const full = foldWorkGroups(settle ? settleWhenIdle(merged, true) : merged, Number.MAX_SAFE_INTEGER);
 		const rows = full.slice(-max);
 		const slot = slotOf(full, max) ?? fallbackSlot(full, max, lastUser);
 		if (rows.length >= max || want === Number.MAX_SAFE_INTEGER) {
 			if (windowHasUser(full, max) || slot !== null || want === Number.MAX_SAFE_INTEGER) {
-				return { rows: promoteRunningTail(rows, snapshot, descendantActive), slot };
+				return { rows: settle ? rows : promoteRunningTail(rows, snapshot, descendantActive), slot };
 			}
 		}
 	}
@@ -815,7 +839,7 @@ function usageSummary({ uncachedInputTokens = null, cacheReadTokens = null, cach
 
 /** 需要用户行动的种类的展示文案。 */
 function pendingText(kind) {
-	return PENDING_LABELS[kind] ?? "需要响应";
+	return PENDING_LABELS[kind] ?? NEEDS_RESPONSE_LABEL;
 }
 
 /** 数量徽标统计：只统计主会话——分子为等待响应（awaiting，含响应保持）的主会话数，
@@ -1063,7 +1087,7 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds = null
 				pendingText: m.pending
 					? pendingText(m.row.pendingInteraction)
 					: (m.row.completed === true || m.held) && !m.running && !m.delegating
-						? "需要响应"
+					? NEEDS_RESPONSE_LABEL
 						: undefined,
 			});
 		}
@@ -1855,6 +1879,8 @@ const CSS = `
   background: color-mix(in srgb, currentColor 12%, transparent);
   border-radius: 999px; padding: 0 7px;
 }
+/* 「需要响应」徽标闪烁：与标题圆点同款脉冲（dap-pulse 1.2s），开启瞬间由渲染层重启圆点动画对齐相位。 */
+[data-dsh-activity-pane] .dap-badge.dap-badge-flash { animation: dap-pulse 1.2s ease-in-out infinite; }
 /* 工作区徽标「图标+文本」双段：文件夹图标与左边栏工作区条目同源（R-01-003/AC-06）；
    名称字号不低于 10.5px（AC-07），行高保持 14px 以维持胶囊与卡片高度。 */
 [data-dsh-activity-pane] .dap-workspace {
@@ -1942,21 +1968,25 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-trace:empty { display: none; }
 /* 指令槽位（R-01-018）：与用户消息行同款排版，左对齐卡片左缘、无缩进；
- *  底部 padding 2px + .dap-trace 顶部 margin 1px = 3px，与时间线行间 gap 一致。 */
+ *  垂直间距走 margin 而非 padding——背景画在 padding box 上，padding 会让色块上下外延、文字偏上；
+ *  底部 margin 2px + .dap-trace 顶部 margin 1px = 3px，与时间线行间 gap 一致。 */
 [data-dsh-activity-pane] .dap-slot {
-  display: flex; align-items: center; column-gap: 7px;
-  min-width: 0; padding: 1px 14px 2px 0;   /* 左缘贴卡片无缩进；底部空隙与行间一致 */
+  display: flex; align-items: center; column-gap: 5px;
+  min-width: 0; padding: 0 14px 0 0; margin: 1px 0 2px;   /* 左缘贴卡片无缩进；垂直间距全走 margin */
   color: #c7ced9; font-size: 10px; line-height: 14px;
 }
-/* 用户指令消息虚线框（R-01-018 验收）：槽位整体；时间线用户行框其内容
- *  main（不含左侧轨道圆点）；outline 不占布局，行间空隙保持 3px 一致。 */
+/* 用户指令行整体平底（R-01-018 呈现标识）：槽位与时间线用户行统一，图标+文字合一底；
+ *  纯绿 #58c98f 透明度 10%；图标不再单设环/底。 */
 [data-dsh-activity-pane] .dap-slot,
 [data-dsh-activity-pane] .dap-trace-item[data-icon="user"] .dap-trace-main {
-  outline: 1px dashed rgba(126, 147, 177, .5);
-  outline-offset: -1px;
+  border-radius: 4px;
+  background: rgba(88, 201, 143, .1);
+}
+[data-dsh-activity-pane] .dap-trace-item[data-icon="robot"] .dap-trace-icon svg {
+  width: 13px; height: 13px;
 }
 [data-dsh-activity-pane] .dap-slot[hidden] { display: none; }
-[data-dsh-activity-pane] .dap-slot-icon { width: 12px; height: 12px; flex: none; display: inline-flex; }
+[data-dsh-activity-pane] .dap-slot-icon { width: 14px; height: 14px; padding: 1px; flex: none; display: inline-flex; }
 [data-dsh-activity-pane] .dap-slot-icon svg { display: block; width: 100%; height: 100%; }
 [data-dsh-activity-pane] .dap-slot-text {
   flex: 1 1 auto; min-width: 0; overflow: hidden;
@@ -2001,7 +2031,8 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-trace-item:last-child::after { content: none; }
 [data-dsh-activity-pane] .dap-trace-icon {
-   width: 12px; height: 12px; flex: none; display: inline-flex;
+   width: 14px; height: 14px; padding: 1px;   /* 统一 14px 盒：用户行圆底不偏心（R-01-018） */
+   flex: none; display: inline-flex;
    align-items: center; justify-content: center; color: #a9b8cc; text-align: center;
  }
 [data-dsh-activity-pane] .dap-trace-icon svg {
@@ -2231,10 +2262,6 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-history-separator {
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item::after {
   background: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.12));
-}
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-slot,
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item[data-icon="user"] .dap-trace-main {
-  outline-color: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.22));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-track {
   background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.08));
@@ -3027,7 +3054,12 @@ function apply(ctx) {
 			line.dataset.traceKey = key;
 			// 核心派生状态直接上卡：显示行全部由核心折叠派生，无原生 data-state 合并维度。
 			line.dataset.status = item.status ?? "running";
-			line.dataset.icon = typeof item.icon === "string" ? item.icon : "other";
+			// data-icon 供 CSS 区分呈现：机器人正文行单设 "robot"（思考组/思考行 icon 同为 "assistant" 但渲染
+			// 思考图标，不用机器人圆底；图标圆底仅限用户指令行与助手正文行）。
+			line.dataset.icon =
+				item.kind === "assistant" && item.fold !== true && !item.detail
+					? "robot"
+					: typeof item.icon === "string" ? item.icon : "other";
 			// 活动流式更新只改文本，保留命中节点；按下/抬起之间替换子节点会让浏览器取消 click。
 			let main = line.querySelector(".dap-trace-main");
 			if (main === null) {
@@ -3169,8 +3201,23 @@ function apply(ctx) {
 			title.textContent = entry.title;
 
 		const badge = el.querySelector(".dap-badge");
-		if (badge !== null && badge.textContent !== (entry.pendingText ?? ""))
-			badge.textContent = entry.pendingText ?? "";
+		if (badge !== null) {
+			const pending = entry.pendingText ?? "";
+			if (badge.textContent !== pending) badge.textContent = pending;
+			// 「需要响应」闪烁提示：与标题圆点同款脉冲；其余等待文案不闪。
+			const flash = pending === NEEDS_RESPONSE_LABEL;
+			const wasFlashing = badge.classList.contains("dap-badge-flash");
+			badge.classList.toggle("dap-badge-flash", flash);
+			if (flash && !wasFlashing) {
+				// 开启瞬间重启标题圆点动画：同款同期 keyframes 从同一帧起步，相位不再漂移。
+				const dot = el.querySelector(".dap-dot");
+				if (dot !== null) {
+					dot.style.animation = "none";
+					void dot.offsetWidth;
+					dot.style.animation = "";
+				}
+			}
+		}
 
 		if (entry.kind === "running") {
 			const pct = el.querySelector(".dap-pct");
@@ -3242,7 +3289,7 @@ function apply(ctx) {
 		if (note !== null) {
 			const next =
 				entry.kind === "awaiting"
-					? entry.pendingText === "需要响应"
+					? entry.pendingText === NEEDS_RESPONSE_LABEL
 						? "本轮已完成，等待你处理"
 						: `等待你的回应（${entry.pendingText}）`
 					: entry.kind === "recent"
@@ -3677,14 +3724,18 @@ function apply(ctx) {
 				// 按快照引用 memo：引用不变（时钟 tick、无关推送）时命中缓存，
 				// 长会话不再每次渲染全序扫描。
 				const entryCwd = snapshot?.byId?.[entry.id]?.cwd ?? "";
-				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineUser !== detail.lastUser || detail.memoTimelineDescendantActive !== (entry.descendantActive === true)) {
+				// 等待/暂停呈现（pendingText 存在）且自身快照为冻结值时，残留 running 行全部落定；
+				// 存在活动后代时保留尾部提升的「agent 工作中」呈现（R-01-009/AC-10 委托周期语义）。
+				const entryIdle = (entry.pendingText ?? null) !== null && entry.descendantActive !== true;
+				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineUser !== detail.lastUser || detail.memoTimelineDescendantActive !== (entry.descendantActive === true) || detail.memoTimelineIdle !== entryIdle) {
 					detail.memoTimelineOf = detailSnapshot;
 					detail.memoTimelineCwd = entryCwd;
 					detail.memoTimelineUser = detail.lastUser;
 					detail.memoTimelineDescendantActive = entry.descendantActive === true;
+					detail.memoTimelineIdle = entryIdle;
 					// R-01-018：运行卡槽位源——轻量 history 的最近用户指令（窗口内无指令行时兜底）；
 					// 窗口内出现用户指令行时顺带刷新该记录，指令被挤出后槽位跟随最新指令。
-					const derivedTimeline = foldedTimelineWithSlot(detailSnapshot, 4, entryCwd, detail.lastUser ?? null, entry.descendantActive === true);
+					const derivedTimeline = foldedTimelineWithSlot(detailSnapshot, 4, entryCwd, detail.lastUser ?? null, entry.descendantActive === true, entryIdle);
 					// 行内更新收敛：值相等不换引用，避免 lastUser 引用变化引发 memo 键抖动重算。
 					const windowUser = derivedTimeline.rows.findLast((row) => row.kind === "user") ?? null;
 					if (windowUser !== null && (detail.lastUser?.text !== windowUser.text || detail.lastUser?.id !== windowUser.id)) {

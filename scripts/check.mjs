@@ -1111,9 +1111,41 @@ assert.equal(idleGapSettled[0].status, "done", "非运行中尾部已定案项�
 assert.notEqual(idleGapTimeline[0], idleGapSettled[0], "提升产出克隆而非复用原引用");
 const pendingIdle = conversationWorkItems({ ...idleGapSnapshot, pending: [{ kind: "approval" }] });
 assert.equal(pendingIdle[0].status, "done", "等待用户行动时尾部不提升");
+// pending 期间残留 running 行全部落定：等待卡时间线不再闪烁（R-01-016）。
+const pendingRunning = foldedTimelineWithSlot({
+	chat: { order: ["p1"], nodes: { get: () => ({ kind: "assistant-step", data: { status: "running", turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "被打断的思考" }] } }) } },
+	running: false,
+	pending: [{ kind: "approval" }],
+}, 4, "");
+assert.ok(pendingRunning.rows.length > 0 && pendingRunning.rows.every((row) => row.status !== "running"), "pending 期间无执行中显示行（不闪烁）");
+assert.equal(pendingRunning.rows.at(-1)?.status, "done", "pending 残留 running 行落定为 done");
+// 正文流出 ⇒ 推理落定：live 正文行保持 running，拆入组的思考成员落定（R-01-017/AC-02）。
+const liveTextFold = foldedTimelineWithSlot({
+	chat: { order: [], nodes: { get: () => null } },
+	running: true,
+	partial: { turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "先想" }, { kind: "text", text: "正文输出中" }] },
+}, 4, "");
+const liveTextBody = liveTextFold.rows.at(-1);
+const liveTextGroup = liveTextFold.rows.find((row) => row.fold === true);
+assert.equal(liveTextBody?.status, "running", "流式正文行保持 running（真实在飞项）");
+assert.ok(liveTextGroup !== undefined && liveTextGroup.status === "done", "正文流出后思考组落定，不与正文行同闪");
+// 渲染层 idle 判定路径：等待卡使用冻结快照（running=true、无 pending 字段），idle=true 时残留 running 行同样落定（R-01-016）。
+const frozenSnap = {
+	chat: { order: ["f1"], nodes: { get: () => ({ kind: "assistant-step", data: { status: "running", turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "冻结时的思考" }] } }) } },
+	running: true,
+};
+const frozenIdle = foldedTimelineWithSlot(frozenSnap, 4, "", null, false, true);
+assert.ok(frozenIdle.rows.length > 0 && frozenIdle.rows.every((row) => row.status !== "running"), "idle=true 时冻结快照残留 running 行全部落定");
+const frozenLive = foldedTimelineWithSlot(frozenSnap, 4, "", null, false, false);
+assert.ok(frozenLive.rows.some((row) => row.status === "running"), "idle=false 时冻结快照保持原状态（运行卡实时路径不受影响）");
 // 委托周期（存在活动后代）视同运行中：尾部提升继续（R-01-009/AC-10）。
 const delegatingFold = foldedTimelineWithSlot({ ...idleGapSnapshot, running: false }, 4, "", null, true);
 assert.equal(delegatingFold.rows[0].status, "running", "委托周期中尾部已定案项同样提升为 running");
+// pending + 活动后代：快照级 idle 落定让位于委托语义（R-01-016 例外、R-01-009/AC-10）。
+const pendingDescendant = foldedTimelineWithSlot({ ...frozenSnap, pending: [{ kind: "approval" }] }, 4, "", null, true);
+assert.ok(pendingDescendant.rows.some((row) => row.status === "running"), "pending 且后代活跃时快照 idle 落定不生效（保留在飞呈现）");
+// 落定在分组之前：组标题由已定案成员派生，不出现 done 圆点配「正在思考」（R-01-017/AC-03）。
+assert.equal(frozenIdle.rows.at(-1)?.label, "已思考", "idle 落定后组标题随成员落定（不再显示「正在思考」）");
 const nonDelegatingFold = foldedTimelineWithSlot({ ...idleGapSnapshot, running: false }, 4);
 assert.equal(nonDelegatingFold.rows[0].status, "done", "非运行且非委托周期尾部不提升");
 const errorTail = conversationWorkItems({
@@ -2090,7 +2122,7 @@ assert.ok(bundle.includes(".dap-trace-item:last-child::after"), "时间线末项
 assert.ok(bundle.includes("margin: 1px 0 2px;"), "时间线整体与卡片内容左边界对齐");
 assert.ok(bundle.includes("left: 3px; top: 0; bottom: -8px"), "1px 竖线（整数位）与圆点严格同圆心 x=3.5（对齐标题圆点）");
 assert.ok(bundle.includes("color: #c7ced9; font-size: 10px; line-height: 14px;"), "工作项文字恢复原有 10px/14px 尺度");
-assert.ok(bundle.includes("width: 12px; height: 12px; flex: none; display: inline-flex;"), "工作项图标容器保持 12px");
+assert.ok(bundle.includes("width: 14px; height: 14px; padding: 1px;"), "工作项与槽位图标容器统一 14px 盒 + 1px padding（用户行圆形浅底不偏心，R-01-018）");
 assert.ok(bundle.includes("display: block; width: 12px; height: 12px;"), "工作项 SVG 保持 12px");
 assert.ok(bundle.includes('svg.setAttribute("width", String(width))'), "canonical 图标经 createInlineIcon 统一写入尺寸（默认 12px）");
 assert.ok(bundle.includes("left: 0; top: 3px;\n  width: 7px; height: 7px;"), "时间线圆点盒子与标题圆点同盒（7px、left:0，跨 DPR 渲染对齐）");
@@ -2134,6 +2166,9 @@ assert.ok(bundle.includes('toggle.toggleAttribute("data-drawer-open", open)'), "
 // 等待标识徽标改用主题协调的柔和底，不再使用突兀的橙金渐变。
 assert.ok(bundle.includes('.dap-badge {\n  flex: none; font-size: 10px; line-height: 14px; font-weight: 600;\n  color: color-mix(in srgb, currentColor 88%, transparent);\n  background: color-mix(in srgb, currentColor 12%, transparent);'), "等待标识徽标使用主题协调的柔和底色");
 assert.ok(!bundle.includes('color: #221a10; background: linear-gradient(180deg, #ffd488, #e8a33d);'), "等待标识徽标不再使用橙金渐变");
+assert.ok(bundle.includes('.dap-badge.dap-badge-flash { animation: dap-pulse 1.2s ease-in-out infinite; }'), "「需要响应」徽标与标题圆点同款脉冲（R-01-002/AC-08）");
+assert.ok(bundle.includes('badge.classList.toggle("dap-badge-flash", flash)'), "仅「需要响应」文案触发徽标闪烁（R-01-002/AC-08）");
+assert.ok(bundle.includes('dot.style.animation = "none"'), "闪烁开启瞬间重启标题圆点动画对齐相位（R-01-002/AC-08）");
 // R-01-001/AC-04、AC-05、AC-06 徽标 n/m 计数；R-01-002/AC-06、AC-07 同色占比脉冲
 assert.ok(bundle.includes("const countText = `${waiting}/${total}`;"), "数量徽标以 n/m 分数形式呈现");
 assert.ok(
@@ -2172,7 +2207,7 @@ assert.ok(
 	"浅色主题数量徽标覆盖声明体完整：等待卡浅色背景别名 + 浅色描边 + 去外环（防空规则回归）",
 );
 assert.ok(bundle.includes("`${total} 个活动会话，${waiting} 个等待响应`"), "数量徽标 aria-label 携带语义化计数说明");
-assert.ok(bundle.includes("border-radius: 999px; padding: 0 7px;\n}\n/* 工作区徽标"), "等待标识徽标规则正确闭合，后续为工作区徽标注释与顶层规则（R-01-002/AC-04、R-01-003/AC-06 结构回归防护）");
+assert.ok(bundle.includes("border-radius: 999px; padding: 0 7px;\n}\n/* 「需要响应」徽标闪烁"), "等待标识徽标规则正确闭合，后续为「需要响应」闪烁变体（R-01-002/AC-04 结构回归防护）");
 assert.ok(
 	bundle.includes("border: 1px solid transparent;\n  padding: 0 7px;\n}\n[data-dsh-activity-pane] .dap-count[data-awaiting] {"),
 	"数量徽标基态规则正确闭合，紧随其后为等待态变体（R-01-001/AC-04 结构回归防护）",

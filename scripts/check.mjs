@@ -1828,8 +1828,6 @@ assert.equal(
 	"百分比文本写入全 bundle 仅运行卡渲染分支一处（R-01-016/AC-03：parent 分支不写百分比）",
 );
 // ---- R-01-016/AC-04 时间线数据在途时显示加载指示、返回就地填充 ----
-const __traceCallCount = bundle.split("renderTimelineArea(traceContainer, entry)").length - 1;
-console.log("PROBE", __traceCallCount, bundle.includes("nativePresentationSessionId"));
 assert.ok(
 	bundle.split("renderTimelineArea(traceContainer, entry").length - 1 === 4 && !bundle.includes("nativePresentationSessionId"),
 	"运行/subagent/parent/等待卡统一复用 renderTimelineArea：在途显示加载行、返回就地填充（R-01-016/AC-04）",

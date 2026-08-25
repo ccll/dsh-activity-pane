@@ -92,7 +92,7 @@ function renderPass() {
 
 // ---- 改动前成本模型（before 证据下限）----
 // 复刻删除前的调用模式与全序扫描：旧 buildEntries/buildRecent 对每个可见条目做
-// 折叠时间线 + messagePreviews 全序推导（≈条目×2 遍全扫），旧渲染循环再对
+// conversationTimeline（逐项镜像，已随 T-049 移除）+ messagePreviews 全序推导（≈条目×2 遍全扫），旧渲染循环再对
 // 活动条目重复一遍（≈活动条目×2 遍全扫）；item 构建从简，只保证 O(order 全长) 同构。
 function legacyScanAll(snapshot) {
 	const chat = snapshot?.chat;

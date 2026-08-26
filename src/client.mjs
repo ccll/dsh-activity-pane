@@ -1702,7 +1702,7 @@ function apply(ctx) {
 						? "本轮已完成，等待你处理"
 						: `等待你的回应（${entry.pendingText}）`
 					: entry.kind === "recent"
-						? fmtRecentTime(entry.updatedAt)
+						? fmtRecentTime(entry.activityAt)
 						: "";
 			if (note.textContent !== next) note.textContent = next;
 		}
@@ -2199,7 +2199,21 @@ function apply(ctx) {
 				entry.progress = progressOf({ elapsedMs: elapsedMs ?? 0 });
 			}
 		}
-		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds, heldCompletedIds, delegatingIds);
+		// 历史区时间精化（R-01-010/AC-08、AC-09）：从保留快照的 turnTimings 与已拉取的
+		// history 同批事件提取最后回合结束时刻（取两者较新者），按引用 memo；均无则不提供，
+		// 由 buildRecent 回退宿主列表时间。history/快照到达后经 queueSync 重绘就地精化。
+		const turnEnds = {};
+		for (const [id, detail] of sessionDetailsById) {
+			const detailSnapshot = livenessById.get(id)?.snapshot ?? detail.snapshot ?? null;
+			if (detail.memoTurnEndSnapshotOf !== detailSnapshot || detail.memoTurnEndHistoryOf !== (detail.history ?? null)) {
+				detail.memoTurnEndSnapshotOf = detailSnapshot;
+				detail.memoTurnEndHistoryOf = detail.history ?? null;
+				const ends = [lastTurnEndFromTimings(detailSnapshot?.turnTimings), lastTurnEndFromEvents(detail.history)].filter((v) => v !== null);
+				detail.memoTurnEnd = ends.length > 0 ? Math.max(...ends) : null;
+			}
+			if (detail.memoTurnEnd != null) turnEnds[id] = detail.memoTurnEnd;
+		}
+		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds, heldCompletedIds, delegatingIds, turnEnds);
 		// 预览只对 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
 		for (const entry of recent) {
 			const detail = sessionDetailsById.get(entry.id);

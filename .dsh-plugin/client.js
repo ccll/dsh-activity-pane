@@ -1123,7 +1123,7 @@ function cardSignature(entries) {
 			entry.agentPreview ?? "",
 			entry.isCurrent,
 			entry.pendingText ?? null,
-			entry.updatedAt ?? null,
+			entry.activityAt ?? null,
 			entry.progress ?? null,
 			entry.streaming ?? null,
 			entry.loadingModel ?? null,
@@ -1251,6 +1251,30 @@ function movedToRecentIds(prevActiveIds, active, recent) {
 	return moved;
 }
 
+/** 从 history 事件提取最后回合结束时刻（最后一条 `turn/end` 的有效 time）：
+ *  尾部反向扫描，`time` 非有限值的 `turn/end` 跳过继续向前；全部无有效时刻返回 null（R-01-010/AC-08）。 */
+function lastTurnEndFromEvents(events) {
+	const list = Array.isArray(events) ? events : [];
+	for (let i = list.length - 1; i >= 0; i -= 1) {
+		const event = list[i]?.event;
+		if (event?.type !== "turn/end") continue;
+		const time = Number(event.time);
+		if (Number.isFinite(time)) return time;
+	}
+	return null;
+}
+
+/** 从 ConversationSnapshot.turnTimings 提取最大 endTime；全部回合未结束或无回合返回 null。 */
+function lastTurnEndFromTimings(turnTimings) {
+	if (!(turnTimings instanceof Map)) return null;
+	let last = null;
+	for (const timing of turnTimings.values()) {
+		const end = Number(timing?.endTime);
+		if (Number.isFinite(end) && (last === null || end > last)) last = end;
+	}
+	return last;
+}
+
 /**
  * 构建最近历史区条目：当前非活动、且在历史窗口内最后一次活动过的**主会话**
  * （子代理是临时工作单元，不入最近历史；故需同时排除表白会话与已结束子代理），
@@ -1258,8 +1282,10 @@ function movedToRecentIds(prevActiveIds, active, recent) {
  * 归档会话不出现——原生 runtime 会立即清空对归档会话的选中，列出它只会得到
  * 一张点了回落到新会话界面的死卡。响应保持中的会话留在活动区，不入历史区；
  * 委托周期（含耗尽空窗）中的会话同样留在活动区（delegatingIds，分区不变量）。
+ * 窗口候选判定用宿主列表时间（下界）；turnEnds（id → 已知回合结束时刻）驱动
+ * 时间精化：条目 activityAt 取宿主列表时间与回合结束时刻的较新者（R-01-010/AC-08、AC-09）。
  */
-function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS, detailsById = {}, archivedIds = [], heldIds = null, delegatingIds = null) {
+function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS, detailsById = {}, archivedIds = [], heldIds = null, delegatingIds = null, turnEnds = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
@@ -1280,6 +1306,8 @@ function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS
 		const updatedAt = Number(row.updatedAt);
 		if (!Number.isFinite(updatedAt)) continue;
 		if (updatedAt > now || now - updatedAt > windowMs) continue;
+		const turnEnd = Number(mapValue(turnEnds, id));
+		const activityAt = Number.isFinite(turnEnd) ? Math.max(updatedAt, turnEnd) : updatedAt;
 		const details = mapValue(detailsById, id) ?? {};
 		const metadata = details.model ?? modelMetadata(details.models ?? row.models);
 		// previews 不在此推导：渲染层按需 memo 计算（冷会话由 history 一次性写入 detail.previews）。
@@ -1295,11 +1323,11 @@ function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS
 			userPreview: previews.userPreview ?? "",
 			agentPreview: previews.agentPreview ?? "",
 			isCurrent: current !== null && String(current) === String(id),
-			updatedAt,
+			activityAt,
 		});
 	}
 
-	entries.sort((a, b) => b.updatedAt - a.updatedAt);
+	entries.sort((a, b) => b.activityAt - a.activityAt);
 	return entries.slice(0, HISTORY_MAX);
 }
 
@@ -3187,7 +3215,7 @@ function apply(ctx) {
 						? "本轮已完成，等待你处理"
 						: `等待你的回应（${entry.pendingText}）`
 					: entry.kind === "recent"
-						? fmtRecentTime(entry.updatedAt)
+						? fmtRecentTime(entry.activityAt)
 						: "";
 			if (note.textContent !== next) note.textContent = next;
 		}
@@ -3684,7 +3712,21 @@ function apply(ctx) {
 				entry.progress = progressOf({ elapsedMs: elapsedMs ?? 0 });
 			}
 		}
-		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds, heldCompletedIds, delegatingIds);
+		// 历史区时间精化（R-01-010/AC-08、AC-09）：从保留快照的 turnTimings 与已拉取的
+		// history 同批事件提取最后回合结束时刻（取两者较新者），按引用 memo；均无则不提供，
+		// 由 buildRecent 回退宿主列表时间。history/快照到达后经 queueSync 重绘就地精化。
+		const turnEnds = {};
+		for (const [id, detail] of sessionDetailsById) {
+			const detailSnapshot = livenessById.get(id)?.snapshot ?? detail.snapshot ?? null;
+			if (detail.memoTurnEndSnapshotOf !== detailSnapshot || detail.memoTurnEndHistoryOf !== (detail.history ?? null)) {
+				detail.memoTurnEndSnapshotOf = detailSnapshot;
+				detail.memoTurnEndHistoryOf = detail.history ?? null;
+				const ends = [lastTurnEndFromTimings(detailSnapshot?.turnTimings), lastTurnEndFromEvents(detail.history)].filter((v) => v !== null);
+				detail.memoTurnEnd = ends.length > 0 ? Math.max(...ends) : null;
+			}
+			if (detail.memoTurnEnd != null) turnEnds[id] = detail.memoTurnEnd;
+		}
+		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds, heldCompletedIds, delegatingIds, turnEnds);
 		// 预览只对 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
 		for (const entry of recent) {
 			const detail = sessionDetailsById.get(entry.id);

@@ -43,6 +43,8 @@ import {
 	movedToRecentIds,
 	modelMetadata,
 	needsHistorySnapshot,
+	lastTurnEndFromEvents,
+	lastTurnEndFromTimings,
 	pendingText,
 	progressOf,
 	pruneInvisibleEntries,
@@ -1380,7 +1382,7 @@ assert.deepEqual(
 		userPreview: "用户首行",
 		agentPreview: "回复首行",
 		isCurrent: false,
-		updatedAt: NOW - 3_600_000,
+		activityAt: NOW - 3_600_000,
 	},
 	"历史卡五行数据缺失时仍保留空字段并复用模型/预览",
 );
@@ -1432,8 +1434,87 @@ const multiRecent = buildRecent(
 assert.deepEqual(
 	multiRecent.map((e) => e.id),
 	["r3", "r1", "r2"],
-	"历史区按最近活动时间倒序",
+	"历史区按最后活动时间倒序",
 );
+
+// ---- R-01-010/AC-08 最后活动时间：turn/end 提取与 max 归一 ----
+assert.equal(lastTurnEndFromEvents([]), null, "空 history 无回合结束时刻");
+assert.equal(
+	lastTurnEndFromEvents([{ event: { type: "user/message", time: 100 } }]),
+	null,
+	"无 turn/end 时回退 null（中断会话不抛错）",
+);
+assert.equal(
+	lastTurnEndFromEvents([
+		{ event: { type: "turn/end", time: 1000, data: { turn: 1 } } },
+		{ event: { type: "user/message", time: 2000 } },
+		{ event: { type: "turn/end", time: 3000, data: { turn: 2 } } },
+	]),
+	3000,
+	"history 取最后一条 turn/end 的时刻",
+);
+assert.equal(
+	lastTurnEndFromEvents([
+		{ event: { type: "turn/end", time: 1000, data: { turn: 1 } } },
+		{ event: { type: "turn/end", data: { turn: 2 } } },
+	]),
+	1000,
+	"最后 turn/end 缺有效 time 时继续向前取更早有效回合",
+);
+assert.equal(lastTurnEndFromTimings(new Map()), null, "无回合计时回退 null");
+assert.equal(
+	lastTurnEndFromTimings(new Map([[1, { startTime: 100 }]])),
+	null,
+	"回合未结束（无 endTime）不计",
+);
+assert.equal(
+	lastTurnEndFromTimings(new Map([
+		[1, { startTime: 100, endTime: 900 }],
+		[2, { startTime: 1000 }],
+		[3, { startTime: 2000, endTime: 2500 }],
+	])),
+	2500,
+	"turnTimings 取最大 endTime，忽略未结束回合",
+);
+const refineSnap = {
+	ids: ["sTurn", "sPrompt", "sNone"],
+	byId: {
+		sTurn: { id: "sTurn", displayTitle: "回合", running: false, updatedAt: NOW - 10_000 },
+		sPrompt: { id: "sPrompt", displayTitle: "消息", running: false, updatedAt: NOW - 1_000 },
+		sNone: { id: "sNone", displayTitle: "无回合", running: false, updatedAt: NOW - 5_000 },
+	},
+	current: null,
+};
+const refined = buildRecent(refineSnap, [], NOW, undefined, {}, [], null, null, {
+	sTurn: NOW - 2_000, // 回合结束晚于宿主时间 → 精化为回合结束时刻
+	sPrompt: NOW - 3_000, // 回合结束早于宿主时间（消息未处理）→ 取较新者
+});
+assert.deepEqual(
+	refined.map((e) => [e.id, e.activityAt]),
+	[["sPrompt", NOW - 1_000], ["sTurn", NOW - 2_000], ["sNone", NOW - 5_000]],
+	"activityAt 取宿主列表时间与回合结束时刻的较新者并据此排序（R-01-010/AC-08）",
+);
+
+// ---- R-01-010/AC-09 数据在途先按宿主列表时间，到达后精化 ----
+const unrefined = buildRecent(refineSnap, [], NOW);
+assert.deepEqual(
+	unrefined.map((e) => [e.id, e.activityAt]),
+	[["sPrompt", NOW - 1_000], ["sNone", NOW - 5_000], ["sTurn", NOW - 10_000]],
+	"回合结束时刻在途时先按宿主列表时间判定、排序与显示（R-01-010/AC-09）",
+);
+// 窗口下界语义：宿主时间超窗的会话不读取历史，即使回合在窗内结束也不入区（C-020 明示缺口）。
+const crossWindow = buildRecent(
+	{ ids: ["sLong"], byId: { sLong: { id: "sLong", displayTitle: "长回合", running: false, updatedAt: NOW - 25 * 3_600_000 } }, current: null },
+	[],
+	NOW,
+	undefined,
+	{},
+	[],
+	null,
+	null,
+	{ sLong: NOW - 1_000 },
+);
+assert.equal(crossWindow.length, 0, "宿主时间超窗的会话不入历史区（跨窗长回合缺口，C-020）");
 
 // ---- R-01-002/AC-05、R-01-010/AC-06 响应保持：打开的完成提醒会话仍为当前会话时，保持活动卡位置与"需要响应"呈现 ----
 const holdBase = { id: "sB", displayTitle: "旧B", running: false, updatedAt: NOW - 1_000 };
@@ -2055,6 +2136,12 @@ assert.ok(bundle.includes("white-space: nowrap; font-size: 12px; line-height: 16
 // R-01-013/AC-10
 // 最近历史卡整体不透明度低于活动卡，弱化历史区视觉强调。
 assert.ok(bundle.includes("background: rgba(22, 24, 29, 0.9);\n  border-color: transparent;\n  opacity: 0.8;"), "最近历史卡整体不透明度降为 0.8");
+
+// R-01-010/AC-08、AC-09（bundle 契约）
+// 历史区时间精化链路进入 bundle：turn/end 提取、turnEnds 注入 buildRecent、渲染读 activityAt。
+assert.ok(bundle.includes("lastTurnEndFromEvents") && bundle.includes("lastTurnEndFromTimings"), "回合结束时刻提取进入 bundle（R-01-010/AC-08）");
+assert.ok(bundle.includes("delegatingIds, turnEnds)"), "turnEnds 注入 buildRecent（R-01-010/AC-09）");
+assert.ok(bundle.includes("fmtRecentTime(entry.activityAt)"), "最近卡渲染读取精化后的 activityAt（R-01-010/AC-08）");
 
 assert.ok(
 	bundle.indexOf('[data-kind="recent"] {') < bundle.indexOf(".dap-card[data-opening]"),

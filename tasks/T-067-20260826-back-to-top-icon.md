@@ -6,7 +6,7 @@ id: T-067
 
 # T-067 回到顶部按钮图标化与右下角定位
 
-状态: active
+状态: completed
 关联: R-01-018 / 窗格渲染器
 风险等级: standard
 
@@ -22,7 +22,7 @@ id: T-067
 ## 收敛方案
 
 - 骨架：`<button class="dap-top" type="button" aria-label="回到顶部" title="回到顶部" hidden></button>`；`ensurePane` 创建后 `append(createTopIcon())`。
-- 图标：`createTopIcon()` 经 `createInlineIcon` 产出 14px 向上箭头（viewBox 24，stroke currentColor 2px 圆角线帽，`aria-hidden` 由工厂保证）。
+- 图标：`createTopIcon()` 经 `createInlineIcon` 产出 14px 向上箭头（14 盒描边 1.5px 圆角线帽，几何改编自 Lucide arrow-up——留白 24 盒被 R-01-012/AC-11 守卫全局禁用；`aria-hidden` 由工厂保证）。
 - CSS：`bottom:12px; right:12px`（去 left/transform），28px 圆形盒 flex 居中图标；深色不透明底 `#1d1f25` + 细描边，浅色覆盖块取 `--dsw-alias-bg-layer-2`/`--dsw-alias-border-l2`。
 - 行为代码（syncTopBtn/onTopClick/阈值/清理）不变。
 
@@ -44,4 +44,14 @@ id: T-067
 
 ## 终态与证据
 
-（待填写）
+- 实现: `src/client.mjs` 骨架按钮去文字、补 `aria-label`/`title`；新增 `createTopIcon()`（14 盒 1.5px 描边向上箭头，改编自 ISC 许可 Lucide arrow-up，避让 R-01-012/AC-11 的 24 盒守卫）并在 `ensurePane` 创建时注入；`.dap-top` 改右下角 28px 圆形盒、不透明底色（深色 `#1d1f25`、浅色外壳 layer-2/border-l2 别名含 hover 覆盖），显式补 `[hidden]` 隐藏规则。行为代码不变。`.dsh-plugin/client.js` 已重建。
+- 测试: `node scripts/check.mjs` 通过（R-01-018 断言更新为图标骨架/图标注入/右下角定位/不透明双主题/hidden 规则，行为断言原样保留，锚定 R-01-018/AC-01～AC-05 与 R-02-003/AC-02）；`pnpm build:client && pnpm check` 通过；`python3 tools/agentmap_lint.py --report` 通过（test-anchored=117/117）。`scripts/acceptance.mjs` R-01-018 步骤更新为图标/右下角/不透明验收，真实呈现仍需人工 GUI 验收。
+- DESIGN 对照: PRD R-01-018 修订 AC-01 并新增 AC-05（G-3 / 窗格渲染器），DESIGN「窗格渲染器」回到顶部条目同步为右下角图标按钮与不透明底色描述，与实现一致。
+- commit: 0a5dcbdc0803c9b24a83a316718c97a073c7c6f5
+- 编号说明: 本任务以 T-066 立项开发；集成前 main 已被其它 worktree 推进并占用 T-066（进度条全程移动条纹），按未发布冲突规则 rebase 到最新 main 并重排为 T-067（文件名、frontmatter 与提交内引用同步）。
+- review:
+  - 审核方: Standards 子代理 `909b016b-9af5-470c-8d49-251e46d8033f`；Spec 子代理 `c643989f-db63-4013-a354-0a0c3f12337f`。
+  - 目的理解: 变更 R-01-018 呈现——回到顶部按钮改右下角纯图标（无文字、aria-label 可访问名称、createTopIcon 注入）、不透明双主题底色；阈值显隐/回顶/reduced-motion/窄条隐藏/监听清理行为不回归；测试锚定 AC-ID。
+  - 执行方式: `code-review` skill；固定基线 `main`（a794d62736efa8be22f2e606a9b44a728e6bcdc2），范围为 `git diff main...HEAD` 的 T-067 工作单元；Standards/Spec 双轴并行审核。
+  - 问题与修复: 双轴共同发现 1 处——task 收敛方案图标参数（viewBox 24 / stroke 2px）与最终实现（14 盒 / 1.5px）漂移；修复为关闭前对齐收敛方案文案（本提交）。Spec 另记 1 条轻微 scope 项 `title="回到顶部"`（AC-05 仅要求可访问名称），判定无害保留。Standards 另 1 条 judgement call（深浅底色取值不对称）仓库有先例，按审核方「不建议改」结论保留。
+  - 复审结论: Standards 无硬性违规、通过；Spec 核验 hidden 特异性/浅色覆盖/断言逐字一致均通过，finding 已修复，双轴闭环。

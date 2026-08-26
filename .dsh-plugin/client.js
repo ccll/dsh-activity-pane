@@ -2015,8 +2015,8 @@ const CSS = `
   width: 13px; height: 13px;
 }
 [data-dsh-activity-pane] .dap-slot[hidden] { display: none; }
-[data-dsh-activity-pane] .dap-slot-icon { width: 14px; height: 14px; padding: 1px; flex: none; display: inline-flex; }
-[data-dsh-activity-pane] .dap-slot-icon svg { display: block; width: 100%; height: 100%; }
+[data-dsh-activity-pane] .dap-slot-icon { width: 14px; height: 14px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+[data-dsh-activity-pane] .dap-slot-icon svg { display: block; width: 12px; height: 12px; }
 [data-dsh-activity-pane] .dap-slot-text {
   flex: 1 1 auto; min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap;
@@ -2060,7 +2060,8 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-trace-item:last-child::after { content: none; }
 [data-dsh-activity-pane] .dap-trace-icon {
-   width: 14px; height: 14px; padding: 1px;   /* 统一 14px 盒：用户行圆底不偏心（R-01-018） */
+   width: 14px; height: 14px;   /* 真实 14px 盒：content-box 下 1px padding 会把盒撑成 16px、
+                                   抬高时间线行并打破圆点/竖线的 14px 行高几何 */
    flex: none; display: inline-flex;
    align-items: center; justify-content: center; color: #a9b8cc; text-align: center;
  }

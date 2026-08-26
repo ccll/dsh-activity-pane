@@ -246,7 +246,7 @@ sequenceDiagram
   - 工作区徽标为「文件夹图标 + 名称文本」双段结构：胶囊内常驻与左边栏工作区条目同源的 canonical 文件夹图标（dsh-client-ui-primitives IconFolderClose16 同款 path，经 `createInlineIcon` 工厂复刻），置于名称文字之前使归属一眼可辨；名称字号 10.5px（AC-07 下限）、行高 14px 不变以维持胶囊与卡片高度；无归属时整枚隐藏；文本写入独立文本段，省略号截断不波及图标（R-01-003/AC-03、AC-06、AC-07）。
   - 最近卡两条消息预览行为「角色图标 + 角色标签 + 圆点分隔符 + 文本」结构：用户消息行人物图标 +「用户」、agent 回复行机器人图标 +「助手」，图标常驻且字形 12px 与时间线图标字形一致；文本与加载 spinner 只写入文本段，不覆盖图标与标签（R-01-013/AC-07、AC-08）。
   - 对每个运行中会话经 `sessions.binding(id).session` 订阅轮内状态与 ChatSnapshot，归一为 `runtimeStats` 与工作项时间线；时长在渲染期按起始时间实时计算；停止运行或卸载即 `unsubscribe`。冷会话只通过 native history/model 的一次性读取补齐，不进行状态轮询。
-  - 指令槽位行（R-01-018）：`.dap-slot` 插于 `.dap-trace` 之前（卡片根内），与用户消息行同款（user 图标 + 单行省略指令文本），左对齐卡片左缘、无缩进、无分隔线；槽位与时间线内用户行（`.dap-trace-item[data-icon="user"]`）均以图标+文字整行浅绿平底标识（#58c98f 透明度 10%、4px 圆角，选型见 C-018）；槽位垂直间距走 margin 而非 padding，使底色与时间线用户行同样贴合 14px 内容；全部时间线图标统一 14px 盒 + 1px padding（字形 12px、圆心对齐，用户行叠底色时图标不偏心），助手正文行（`data-icon="robot"`，按 kind=detail 有无与 fold 标记判别，思考组/思考行不算）字形 13px、无底色；无槽位时隐藏不占位；文本经 textContent 写入；随卡片生命周期创建与移除。
+  - 指令槽位行（R-01-018）：`.dap-slot` 插于 `.dap-trace` 之前（卡片根内），与用户消息行同款（user 图标 + 单行省略指令文本），左对齐卡片左缘、无缩进、无分隔线；槽位与时间线内用户行（`.dap-trace-item[data-icon="user"]`）均以图标+文字整行浅绿平底标识（#58c98f 透明度 10%、4px 圆角，选型见 C-018）；槽位垂直间距走 margin 而非 padding，使底色与时间线用户行同样贴合 14px 内容；全部时间线图标统一真实 14px 盒（字形 12px 居中、无占位 padding——content-box 下 padding 会把盒撑成 16px 并抬高时间线行），助手正文行（`data-icon="robot"`，按 kind=detail 有无与 fold 标记判别，思考组/思考行不算）字形 13px、无底色；无槽位时隐藏不占位；文本经 textContent 写入；随卡片生命周期创建与移除。
   - 运行卡外观对齐 answer-pet。
     - CSS 实现动作时间线（从卡片内容左边界起步、竖线 + 圆点半透明外环 + 运行节点闪烁）与进度条（5px、流式 `data-streaming` 条纹动画）。
     - 工作项标题与摘要之间渲染小圆点；错误显示行通过 `data-status="error"` 将动作 SVG、标题和摘要染红。

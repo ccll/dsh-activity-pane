@@ -1636,16 +1636,12 @@ const CSS = `
   color: color-mix(in srgb, currentColor 88%, transparent);
   background: color-mix(in srgb, currentColor 12%, transparent);
   border-radius: 999px;
-  /* 常驻透明边框：等待态仅换色，避免边框出现/消失引起尺寸跳动。 */
-  border: 1px solid transparent;
   padding: 0 7px;
 }
 [data-dsh-activity-pane] .dap-count[data-awaiting] {
-  /* 底色/透明度/边框与等待卡完全一致（R-01-002/AC-06）；脉冲走亮度呼吸而非整体
+  /* 底色/透明度与等待卡完全一致、无描边与外环（R-01-002/AC-06）；脉冲走亮度呼吸而非整体
      不透明度——半透明会让底色透进列头背景；周期由 --dap-await-period 驱动（AC-07）。 */
   background: rgba(35, 31, 25, 0.97);
-  border-color: color-mix(in srgb, #e8a33d 55%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, #e8a33d 35%, transparent);
   animation: dap-await-pulse var(--dap-await-period, 1.6s) ease-in-out infinite;
 }
 @keyframes dap-await-pulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
@@ -1726,7 +1722,6 @@ const CSS = `
   min-width: 20px;
   height: 20px;
   border-radius: 999px;
-  border: 1px solid transparent;
   padding: 0 5px;
   text-align: center;
   line-height: 20px;
@@ -1743,8 +1738,6 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-rail-count[data-awaiting] {
   background: rgba(35, 31, 25, 0.97);
-  border-color: color-mix(in srgb, #e8a33d 55%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, #e8a33d 35%, transparent);
   animation: dap-await-pulse var(--dap-await-period, 1.6s) ease-in-out infinite;
 }
 /* 桌面拖拽调宽手柄（R-01-015）：右缘 6px 命中区，拖拽实时写入 --dap-width；
@@ -2157,14 +2150,11 @@ const CSS = `
 }
 .dap-toggle .dap-toggle-count {
   min-width: 16px; text-align: center; border-radius: 999px;
-  border: 1px solid transparent;
   background: color-mix(in srgb, currentColor 16%, transparent);
   padding: 0 5px; font-size: 10px; font-weight: 700;
 }
 .dap-toggle[data-awaiting] .dap-toggle-count {
   background: rgba(35, 31, 25, 0.97);
-  border-color: color-mix(in srgb, #e8a33d 55%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, #e8a33d 35%, transparent);
   animation: dap-await-pulse var(--dap-await-period, 1.6s) ease-in-out infinite;
 }
 /* 移动端抽屉透明遮罩：抽屉打开时铺满视口、点击收起抽屉（R-01-008/AC-03）。
@@ -2249,13 +2239,11 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current] 
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"] {
   background: var(--dsw-alias-state-warn-tertiary, rgb(254, 245, 231));
 }
-/* 数量徽标等待态浅色主题覆盖：底色取等待卡浅色背景别名、边框取浅色卡描边（R-01-002/AC-06）。 */
+/* 数量徽标等待态浅色主题覆盖：底色取等待卡浅色背景别名（R-01-002/AC-06，无描边与外环）。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting],
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting],
 body:not([data-ds-dark-theme]) .dap-toggle[data-awaiting] .dap-toggle-count {
   background: var(--dsw-alias-state-warn-tertiary, rgb(254, 245, 231));
-  border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
-  box-shadow: none;
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-pct {
   color: var(--dsw-alias-state-success-primary, #22c55e);

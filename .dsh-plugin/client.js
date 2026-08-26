@@ -1741,27 +1741,30 @@ const CSS = `
     scrollbar-color: var(--dsh-scrollbar-thumb, color-mix(in srgb, currentColor 25%, transparent)) transparent;
   }
 }
-/* 「回到顶部」悬浮按钮（R-01-018）：窗格内底部居中胶囊，默认 hidden；
-   scrollTop 超阈值时由滚动监听揭隐。 */
+/* 「回到顶部」悬浮图标按钮（R-01-018）：窗格内右下角圆形按钮，纯图标无文字、不透明底色；
+   默认 hidden，scrollTop 超阈值时由滚动监听揭隐。基类 display:flex 会压过 UA 的
+   [hidden] 规则，故显式补 [hidden] 隐藏。 */
 [data-dsh-activity-pane] .dap-top {
   position: absolute;
   bottom: 12px;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 12px;
   z-index: 6;
-  padding: 4px 12px;
-  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
-  background: color-mix(in srgb, currentColor 10%, transparent);
+  background: #1d1f25;
   color: inherit;
-  font-size: 11px;
-  line-height: 18px;
   cursor: pointer;
-  white-space: nowrap;
 }
+[data-dsh-activity-pane] .dap-top[hidden] { display: none; }
 [data-dsh-activity-pane] .dap-top:hover,
 [data-dsh-activity-pane] .dap-top:focus-visible {
-  background: color-mix(in srgb, currentColor 18%, transparent);
+  background: #262932;
 }
 [data-dsh-activity-pane] .dap-list {
   display: flex;
@@ -2376,6 +2379,15 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-track {
 body:not([data-ds-dark-theme]) .dap-toggle {
   background: var(--dsw-alias-button-floating-fill, rgba(255, 255, 255, 0.94));
 }
+/* 「回到顶部」图标按钮浅色覆盖：不透明层-2 底色与外壳描边别名（R-01-018/AC-05）。 */
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top {
+  background: var(--dsw-alias-bg-layer-2, #ffffff);
+  border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top:hover,
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top:focus-visible {
+  background: var(--dsw-alias-bg-layer-3, #eceef1);
+}
 `;
 
 function getSnapshot(service, key) {
@@ -2918,7 +2930,7 @@ function apply(ctx) {
 						<div class="dap-recent-head"><span>最近历史 · 24h</span></div>
 					</div>
 				</div>
-				<button class="dap-top" type="button" hidden>↑ 回到顶部</button>
+				<button class="dap-top" type="button" aria-label="回到顶部" title="回到顶部" hidden></button>
 				<button class="dap-rail" type="button" aria-label="展开活动会话窗格">
 					<span class="dap-rail-title" aria-hidden="true">活动会话</span>
 					<span class="dap-rail-count" role="status" aria-live="polite"></span>
@@ -2926,6 +2938,8 @@ function apply(ctx) {
 				<div class="dap-resize" aria-hidden="true"></div>
 			`;
 			pane.style.setProperty("--dap-width", `${paneWidth}px`);
+			// 「回到顶部」按钮为纯图标呈现（R-01-018/AC-05）：骨架无文字，图标在创建时注入。
+			pane.querySelector(".dap-top").append(createTopIcon());
 		}
 		if (pane !== boundPane) {
 			unbindPaneControls?.();
@@ -3007,6 +3021,21 @@ function apply(ctx) {
 			svg.append(node);
 		}
 		return svg;
+	}
+
+	/** 「回到顶部」按钮的向上箭头图标（canonical 图标集无现成箭头；
+	 *  几何改编自 ISC 许可证的 Lucide arrow-up，归一到 14 盒——留白 24 盒由
+	 *  R-01-012/AC-11 的机器人图标守卫全局禁用，与 C-021 同一来源声明）。 */
+	function createTopIcon() {
+		return createInlineIcon({
+			viewBox: "0 0 14 14",
+			width: 14,
+			height: 14,
+			parts: [
+				{ attrs: { d: "M7 12.5V2", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
+				{ attrs: { d: "m2.5 6.5 4.5-4.5 4.5 4.5", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
+			],
+		});
 	}
 
 	function createUserIcon() {

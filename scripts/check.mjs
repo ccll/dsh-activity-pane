@@ -2533,17 +2533,37 @@ assert.ok(bundle.includes("@supports not selector(::-webkit-scrollbar)") && bund
 assert.ok(bundle.includes('scroll?.addEventListener("scroll", onScroll, { passive: true })'), "滚动监听置位 data-scrolling");
 assert.ok(bundle.includes('scroll?.removeEventListener("scroll", onScroll);\n\t\t\tif (scrollHideTimer !== null) clearTimeout(scrollHideTimer);'), "unbind 同步清理滚动监听与隐藏定时器（R-02-003/AC-02）");
 
-// R-01-018 回到顶部悬浮按钮
-// R-01-018/AC-01、R-01-018/AC-03：骨架按钮默认 hidden（UA 原生 [hidden] 语义），滚动监听按
-// TOP_THRESHOLD 阈值揭隐/隐藏；R-01-018/AC-02：激活 scrollTo 回顶，reduced-motion 直接定位；
-// R-01-018/AC-04：窄条态 CSS 隐藏。
+// R-01-018 回到顶部悬浮图标按钮
+// R-01-018/AC-01、R-01-018/AC-03：骨架按钮默认 hidden，滚动监听按 TOP_THRESHOLD 阈值揭隐/隐藏；
+// R-01-018/AC-02：激活 scrollTo 回顶，reduced-motion 直接定位；R-01-018/AC-04：窄条态 CSS 隐藏；
+// R-01-018/AC-05：纯图标（无文字、aria-label 可访问名称）、右下角定位、不透明底色。
 assert.ok(
-	bundle.includes('<button class="dap-top" type="button" hidden>↑ 回到顶部</button>'),
-	"窗格骨架含默认隐藏的「回到顶部」原生按钮（未超阈值不显示；键盘激活与 click 同路径）",
+	bundle.includes('<button class="dap-top" type="button" aria-label="回到顶部" title="回到顶部" hidden></button>'),
+	"窗格骨架含默认隐藏的「回到顶部」图标按钮：无文字、aria-label 提供可访问名称（键盘激活与 click 同路径）",
 );
 assert.ok(
-	bundle.includes("[data-dsh-activity-pane] .dap-top {\n  position: absolute;\n  bottom: 12px;\n  left: 50%;\n  transform: translateX(-50%);"),
-	"回到顶部按钮悬浮定位于窗格底部居中",
+	bundle.includes('pane.querySelector(".dap-top").append(createTopIcon());')
+		&& bundle.includes('function createTopIcon()')
+		&& bundle.includes('d: "M7 12.5V2"'),
+	"按钮图标在窗格创建时经 createTopIcon 注入（向上箭头描边几何，14 盒，createInlineIcon 保证 aria-hidden）",
+);
+assert.ok(
+	bundle.includes("[data-dsh-activity-pane] .dap-top {\n  position: absolute;\n  bottom: 12px;\n  right: 12px;"),
+	"回到顶部按钮悬浮定位于窗格右下角（不居中，R-01-018/AC-01）",
+);
+assert.ok(!bundle.includes(".dap-top {\n  position: absolute;\n  bottom: 12px;\n  left: 50%;"), "底部居中定位已移除");
+assert.ok(
+	bundle.includes("border-radius: 999px;\n  background: #1d1f25;")
+		&& !bundle.includes(".dap-top {\n  position: absolute;\n  bottom: 12px;\n  right: 12px;\n  z-index: 6;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: 28px;\n  height: 28px;\n  padding: 0;\n  border: 1px solid color-mix"),
+	"按钮底色为不透明纯色（非 color-mix 半透明，R-01-018/AC-05）",
+);
+assert.ok(
+	bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top {\n  background: var(--dsw-alias-bg-layer-2, #ffffff);\n  border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));"),
+	"浅色主题底色取外壳 layer-2 别名（同样不透明，R-01-018/AC-05）",
+);
+assert.ok(
+	bundle.includes("[data-dsh-activity-pane] .dap-top[hidden] { display: none; }"),
+	"基类 display:flex 会压过 UA [hidden] 规则，显式补 hidden 隐藏（未超阈值不显示）",
 );
 assert.ok(
 	bundle.includes('const topBtn = pane.querySelector(".dap-top");')

@@ -6,7 +6,8 @@
 //
 // 数据来源：DSH 原生 `sessions` / `workspaces` 客户端服务（推送式快照）+ native
 // `sessions.history` / `sessions.models` 冷会话读取 + 运行中会话的原生订阅
-//（binding().session），不依赖任何第三方插件数据路由，也不做状态轮询。
+//（binding().session）+ 可选 `modelDirectories` 目录 store 订阅（模型选择实时更新，
+// 缺失时回落一次性读取），不依赖任何第三方插件数据路由，也不做状态轮询。
 
 const name = "dsh-activity-pane";
 const inject = ["connection", "sessions", "workspaces"];
@@ -852,6 +853,9 @@ function apply(ctx) {
 	/** native cold-session model/history reads, one promise per session and no polling. */
 	const modelLoads = new Map();
 	const historyLoads = new Map();
+	/** 模型目录订阅（R-01-012/AC-16）：id → unsubscribe；模型选择切换经原生
+	 *  modelDirectories store 推送即时到达，随可见性清理/卸载先 unsubscribe 再除名。 */
+	const modelDirectorySubs = new Map();
 	/** native session.open() requests in flight; avoid duplicate cold history reads. */
 	/** 冷数据读取并发池：队列顺序即优先级（调用方已排序），逐个完成逐个重绘。 */
 	const loadQueue = [];
@@ -989,6 +993,39 @@ function apply(ctx) {
 		if (el.style.getPropertyValue("--dap-await-period") !== next) el.style.setProperty("--dap-await-period", next);
 	}
 
+	/** 模型目录订阅（R-01-012/AC-16，C-024）：订阅原生 modelDirectories 服务的
+	 *  per-session 目录 store（与主会话窗口模型选择器同源），同客户端切换模型选择
+	 *  经 select() 成功即推送，到达即重归一模型上下文并就地重绘。
+	 *  只订阅不 load()——load 会推进目录 generation 计数，与进行中的 select() 竞争
+	 *  会致其更新被「最新操作胜出」规则丢弃；初值与失败语义沿用一次性 RPC 路径。
+	 *  服务缺失、会话无 scope 或订阅失败时静默回落为纯一次性读取。 */
+	function subscribeModelDirectory(id, detail) {
+		if (modelDirectorySubs.has(id)) return;
+		let directory = null;
+		try {
+			directory = ctx.get("modelDirectories")?.directoryFor?.(id) ?? null;
+		} catch {
+			directory = null; // 会话无 scope：回落一次性读取
+		}
+		if (directory === null) return;
+		const apply = () => {
+			if (disposed) return;
+			const snap = directory.store?.getSnapshot?.();
+			if (!snap?.current) return; // 目录未就绪：不覆写既有取值
+			detail.models = { current: snap.current, groups: snap.groups ?? [] };
+			detail.model = modelMetadata(detail.models);
+			queueSync();
+		};
+		let unsubscribe = null;
+		try {
+			unsubscribe = directory.store.subscribe(apply);
+		} catch {
+			return; // 订阅失败：保持一次性读取结果
+		}
+		modelDirectorySubs.set(id, unsubscribe);
+		apply(); // 目录已被主窗口加载时立即同步，该会话免发一次性 RPC
+	}
+
 	function loadNativeDetails(ids) {
 		const api = ctx.get("connection")?.api?.sessions;
 		if (!api) return;
@@ -1000,9 +1037,13 @@ function apply(ctx) {
 			const liveSnapshot = livenessById.get(id)?.snapshot;
 			if (liveSnapshot) detail.snapshot = liveSnapshot;
 			sessionDetailsById.set(id, detail);
+			const subagent = isSubagentRow(byId[id], byId);
+			// 主会话先试模型目录订阅：store 已有当前选择时同步填充（随后 plan.model 为假、免发 RPC）；
+			// 子代理的目录不可用（宿主以 agent-busy 拒绝其模型 RPC），不建立订阅。
+			if (!subagent) subscribeModelDirectory(id, detail);
 			const plan = detailLoadPlan({
 				detail,
-				isSubagent: isSubagentRow(byId[id], byId),
+				isSubagent: subagent,
 				snapshotReady: detail.snapshot?.openState === "open",
 				historyNeeded: needsHistorySnapshot(detail.snapshot),
 				modelInflight: modelLoads.has(id),
@@ -2247,6 +2288,8 @@ function apply(ctx) {
 		// 锚点记账不随可见性 prune：瞬时 loading 空帧不得误清（进度重置）；陈旧条目靠
 		// 耗尽宽限与 turnStart 不匹配自校正，仅在 dispose 时整体清除。
 		pruneInvisibleEntries([sessionDetailsById, modelLoads, historyLoads, sessionOpenLoads], visibleIds);
+		// 模型目录订阅同生命周期：不可见即先 unsubscribe 再除名，监听器不残留（R-01-012/AC-16）。
+		pruneSubscriptions(modelDirectorySubs, visibleIds);
 		// 重试链目标已成为当前会话（他途到达）即取消，避免过期链条拽回会话。
 		cancelStaleOpenRetries({ currentId: snapshot?.current ?? null, activatedId: lastActivatedId });
 
@@ -2514,6 +2557,12 @@ function apply(ctx) {
 			} catch {}
 		}
 		livenessById.clear();
+		for (const [, unsubscribe] of modelDirectorySubs) {
+			try {
+				unsubscribe?.();
+			} catch {}
+		}
+		modelDirectorySubs.clear();
 		progressAnchorById.clear();
 		sessionOpenLoads.clear();
 		loadQueue.length = 0;

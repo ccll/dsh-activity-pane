@@ -904,6 +904,20 @@ export function pruneInvisibleEntries(maps, visibleIds) {
 	}
 }
 
+/** 订阅清理（R-01-012/AC-16）：不可见 id 的订阅先 unsubscribe 再除名——监听器不得残留；
+ *  单个 unsubscribe 抛错吞掉，不阻断其余订阅的清理。 */
+export function pruneSubscriptions(subscriptions, visibleIds) {
+	if (!(subscriptions instanceof Map)) return;
+	const visible = visibleIds instanceof Set ? visibleIds : new Set(visibleIds ?? []);
+	for (const [id, unsubscribe] of subscriptions) {
+		if (visible.has(id)) continue;
+		try {
+			unsubscribe?.();
+		} catch {}
+		subscriptions.delete(id);
+	}
+}
+
 /** 会话 cwd 是否被某个 workspace 记录（含 title/path 两种命中）。 */
 export function workspaceTitleForSession(sessionId, workspaceItems, byId = {}) {
 	const id = String(sessionId);

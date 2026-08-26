@@ -48,6 +48,7 @@ import {
 	pendingText,
 	progressOf,
 	pruneInvisibleEntries,
+	pruneSubscriptions,
 	runtimeStats,
 	shouldCancelOpenRetry,
 	subagentTitle,
@@ -236,6 +237,35 @@ assert.equal(
 	false,
 	"原生快照已就绪时不发 history 读取",
 );
+
+// ---- R-01-012/AC-16 模型选择切换经目录订阅推送更新，一次性读取仅作初值 ----
+// 目录 store 快照形状（{current, groups, routable, status, ...}）与 RPC value 同形兼容，经同一归一。
+assert.deepEqual(
+	modelMetadata({
+		current: { provider: "p", model: "m2", reasoningEffort: "low" },
+		groups: [{ id: "p", models: [{ id: "m2", name: "Model M2", reasoning: { efforts: [{ id: "low", name: "Low" }] } }] }],
+		routable: true,
+		failures: [],
+		status: "ready",
+		error: null,
+	}),
+	{ model: "Model M2", reasoning: "Low" },
+	"目录 store 推送快照直接归一为切换后的模型上下文",
+);
+// 订阅清理行为链：不可见 id 先 unsubscribe 再除名；可见 id 保留；单个 unsubscribe 抛错不阻断其余清理。
+const subCalls = [];
+const subMap = new Map([
+	["stay", () => subCalls.push("stay")],
+	["gone", () => subCalls.push("gone")],
+	["bad", () => {
+		throw new Error("unsubscribe failed");
+	}],
+	["gone2", () => subCalls.push("gone2")],
+]);
+pruneSubscriptions(subMap, new Set(["stay"]));
+assert.deepEqual(subCalls, ["gone", "gone2"], "不可见订阅被 unsubscribe，抛错不阻断后续清理");
+assert.deepEqual([...subMap.keys()], ["stay"], "可见订阅保留、其余除名，监听器不残留");
+pruneSubscriptions(null, new Set()); // 非 Map 输入静默忽略
 
 // ---- R-01-008/AC-03 点击遮罩（抽屉外部）收起抽屉 ----
 const backdropListeners = new Map();
@@ -2145,6 +2175,12 @@ assert.ok(bundle.includes("promise.then(queueSync, queueSync)"), "补充数据�
 assert.ok(bundle.includes("LOAD_CONCURRENCY"), "冷数据读取经并发池限制慢网挤占");
 assert.ok(bundle.includes("session.open"), "运行卡通过 native session open hydrate 非当前会话");
 assert.ok(bundle.includes("sessionOpenLoads"), "session.open 请求与 cold history fallback 不重复");
+// R-01-012/AC-16 模型目录订阅：store 推送更新、只订阅不 load、随可见性/卸载清理
+assert.ok(bundle.includes('ctx.get("modelDirectories")'), "模型实时选择来自原生 modelDirectories 服务（可选软依赖）");
+assert.ok(bundle.includes("directory.store.subscribe"), "订阅目录 store 推送模型选择变更");
+assert.ok(!bundle.includes("directory.load("), "不调用目录 load()，不与 select() 竞争 generation（C-024）");
+assert.ok(bundle.includes("pruneSubscriptions(modelDirectorySubs, visibleIds)"), "模型目录订阅随可见性先 unsubscribe 再除名");
+assert.ok(bundle.includes("modelDirectorySubs.clear()"), "卸载时模型目录订阅整体清理归零");
 assert.ok(!bundle.includes("events.mux"), "不常驻全局 mux，当前会话使用原生 session subscribe");
 assert.ok(
 	bundle.indexOf('makeEl("div", "dap-track")') < bundle.indexOf('makeEl("div", "dap-token-stats")'),

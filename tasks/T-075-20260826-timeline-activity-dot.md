@@ -6,7 +6,7 @@ id: T-075
 
 # T-075 时间线当前活动末行与平滑圆点修复
 
-状态: active
+状态: completed
 关联: R-01-009/AC-09、AC-10、AC-11，R-01-012/AC-02、AC-12～AC-15，R-01-017/AC-06 → 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -48,3 +48,14 @@ id: T-075
 | 兼容性 | 适用：保留 7px 同盒与 x=3.5 圆心，不回退跨 DPR 对齐；去除硬停色 gradient | `scripts/check.mjs#R-01-009/AC-09`、`scripts/acceptance.mjs#R-01-009/AC-09`、`src/client.mjs::CSS` |
 
 ## 终态与证据
+
+- 实现: `src/core.mjs` 为 partial/running call 记录并穿透 live 身份，`selectTimelineRows` 单点分配指令锚行、最近历史工作行与最新当前活动末行；`src/client.mjs` 将 history anchor 作为核心输入并移除后置裁剪，时间线圆点改为 7px border-box 内的实体背景、1px border、`border-radius: 50%` 与 `background-clip: padding-box`；`.dsh-plugin/client.js` 已重建。
+- 测试: `pnpm build:client && pnpm check` 通过；`python3 tools/agentmap_lint.py --report` 通过（requirements=22、acceptance-criteria=127、test-anchored=127）；`git diff --check` 通过；`node scripts/acceptance.mjs` 可生成完整 92 项验收清单。Chrome CDP 在 DPR 1/1.25/1.5/2 的独立光栅夹具中确认原生圆角边缘存在连续混合像素且 10× 放大无硬停色八边形；合入实现并刷新现有 `http://127.0.0.1:3080/` 后，目标活动卡实测恰为 4 行，首行为用户指令，末行为真实 `running` 调用文字，蓝点计算样式为 7×7 border-box、`background-image: none`、`border-radius: 50%`、`animation-name: dap-pulse`。
+- DESIGN 对照: `DESIGN.md` 的工作项时间线呈现与折叠时间线均已收敛到 C-035 的单次名额选择与真实活动末行不变量；圆点呈现收敛到 C-036 的同盒实体圆角裁剪，未新增独立 DOM core，跨 DPR 圆心几何保持不变。
+- commit: f46965baa5704f33efdfa768cfed9a1a846df251
+- review:
+  - 审核方: Standards reviewer `21c978a8-fe56-48a2-9127-376e19cb8b8b`；Spec reviewer `3dac37f1-8194-4454-87fa-a57276b64d0a`
+  - 目的理解: 在总行数不超过 4 的契约内固定首行指令，保留最新真实当前活动的身份、文字与 `running` 状态并置于末行，仅无真实活动时提升旧尾；保留 7px 同盒圆心并以原生圆角恢复 5px 视觉核的平滑正圆。
+  - 执行方式: 调用 `code-review` skill，Standards/Spec 双轴并行审核；初始固定范围 `0292fed562b7ef0794d8677fde1592884d113d64...f6b2afd`，canonical main 前进后对最终 `dc4c87823798bfceada84430dddaa782f593d2a9...f46965baa5704f33efdfa768cfed9a1a846df251` 及 C-ID 冲突消解再次复审。
+  - 问题与修复: Standards 无 finding；Spec 初审指出缺少多个 live 项选择最新活动的回归测试，随后在 `scripts/check.mjs` 增加 partial + runningCalls 共存用例，断言 live 身份穿透、四行预算及最新 live 分组 id/summary/status 位于末行；同一 Spec reviewer 复审确认 finding 关闭。rebase 时 canonical C-034 已被占用，本任务决策顺延为 C-035/C-036并同步全部引用，两名 reviewer 再次确认无问题。
+  - 复审结论: 两轴最终通过；无未解决 hard violation、smell、Spec 缺失、scope creep 或逻辑错误。

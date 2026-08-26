@@ -1008,22 +1008,24 @@ function apply(ctx) {
 			directory = null; // 会话无 scope：回落一次性读取
 		}
 		if (directory === null) return;
-		const apply = () => {
+		const syncFromDirectory = () => {
 			if (disposed) return;
 			const snap = directory.store?.getSnapshot?.();
 			if (!snap?.current) return; // 目录未就绪：不覆写既有取值
 			detail.models = { current: snap.current, groups: snap.groups ?? [] };
 			detail.model = modelMetadata(detail.models);
+			// 订阅已产值标记：晚到的一次性 RPC 快照不得回写切换前的旧值。
+			detail.modelLive = true;
 			queueSync();
 		};
 		let unsubscribe = null;
 		try {
-			unsubscribe = directory.store.subscribe(apply);
+			unsubscribe = directory.store.subscribe(syncFromDirectory);
 		} catch {
 			return; // 订阅失败：保持一次性读取结果
 		}
 		modelDirectorySubs.set(id, unsubscribe);
-		apply(); // 目录已被主窗口加载时立即同步，该会话免发一次性 RPC
+		syncFromDirectory(); // 目录已被主窗口加载时立即同步，该会话免发一次性 RPC
 	}
 
 	function loadNativeDetails(ids) {
@@ -1058,14 +1060,16 @@ function apply(ctx) {
 					.then((response) => {
 						const value = apiValue(response);
 						if (!value) {
-							detail.model = { model: "", reasoning: "" };
+							if (!detail.modelLive) detail.model = { model: "", reasoning: "" };
 							return;
 						}
+						// 目录订阅已产出更新的当前选择时，晚到的 RPC 快照不得回写旧值（R-01-012/AC-16）。
+						if (detail.modelLive) return;
 						detail.models = value;
 						detail.model = modelMetadata(value);
 					})
 					.catch((error) => {
-						detail.model = { model: "", reasoning: "" };
+						if (!detail.modelLive) detail.model = { model: "", reasoning: "" };
 						detail.modelError = error instanceof Error ? error.message : String(error);
 					}));
 				modelLoads.set(id, promise);
@@ -2557,12 +2561,8 @@ function apply(ctx) {
 			} catch {}
 		}
 		livenessById.clear();
-		for (const [, unsubscribe] of modelDirectorySubs) {
-			try {
-				unsubscribe?.();
-			} catch {}
-		}
-		modelDirectorySubs.clear();
+		// 卸载即全量退订：空可见集合驱动 pruneSubscriptions 先 unsubscribe 再除名。
+		pruneSubscriptions(modelDirectorySubs, new Set());
 		progressAnchorById.clear();
 		sessionOpenLoads.clear();
 		loadQueue.length = 0;

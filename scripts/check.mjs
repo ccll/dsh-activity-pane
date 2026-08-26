@@ -2180,7 +2180,8 @@ assert.ok(bundle.includes('ctx.get("modelDirectories")'), "模型实时选择来
 assert.ok(bundle.includes("directory.store.subscribe"), "订阅目录 store 推送模型选择变更");
 assert.ok(!bundle.includes("directory.load("), "不调用目录 load()，不与 select() 竞争 generation（C-024）");
 assert.ok(bundle.includes("pruneSubscriptions(modelDirectorySubs, visibleIds)"), "模型目录订阅随可见性先 unsubscribe 再除名");
-assert.ok(bundle.includes("modelDirectorySubs.clear()"), "卸载时模型目录订阅整体清理归零");
+assert.ok(bundle.includes("pruneSubscriptions(modelDirectorySubs, new Set())"), "卸载时模型目录订阅整体退订归零");
+assert.ok(bundle.includes("detail.modelLive"), "目录订阅已产值时晚到的一次性 RPC 不回写旧值");
 assert.ok(!bundle.includes("events.mux"), "不常驻全局 mux，当前会话使用原生 session subscribe");
 assert.ok(
 	bundle.indexOf('makeEl("div", "dap-track")') < bundle.indexOf('makeEl("div", "dap-token-stats")'),

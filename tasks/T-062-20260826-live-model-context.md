@@ -52,4 +52,15 @@ id: T-062
 
 ## 终态与证据
 
-（待填写）
+状态: completed
+
+- 实现: `src/core.mjs` 新增 `pruneSubscriptions`（不可见 id 先 unsubscribe 再除名、单个抛错不阻断）；`src/client.mjs` 新增 `modelDirectorySubs` 记账与 `subscribeModelDirectory`（可选获取 `modelDirectories` 服务、幂等订阅 store、`current` 存在即重归一并 queueSync、store 已就绪时同步填充免 RPC、只订阅不 load），一次性 RPC 三路写回（成功/空值/失败）让位于订阅产值标记 `detail.modelLive`，可见性清理与卸载经 `pruneSubscriptions` 先退订再除名；map 原子演进（PRD R-01-012/AC-16、DESIGN 对外只读约束/模型上下文条目/渲染器订阅生命周期、DOMAIN 模型上下文不变量、DECISIONS C-024）。
+- 测试: `pnpm build:client && pnpm check` 全绿——新增 R-01-012/AC-16 锚点（store 形状快照经 modelMetadata 归一、pruneSubscriptions 行为链）与 bundle 断言（modelDirectories 软依赖、只订阅不 load、可见性/卸载退订、modelLive 让位）；`python3 tools/agentmap_lint.py --report` 通过（21 需求 / 111 AC，测试锚定 111/111）；`scripts/acceptance.mjs` 新增 AC-16 人工验收条目。
+- DESIGN 对照: 与 DESIGN「边界与对外契约」（modelDirectories 可选消费、缺失回落）、「模型上下文」条目（订阅推送 + 一次性初值、只订阅不 load）、窗格渲染器「订阅生命周期」条目（随可见性建立、先 unsubscribe 再除名、卸载归零）及需求追溯索引（R-01-012 → 活动状态模型）逐条一致，无差异。
+- commit: a64482e7337677ab368828b9d4437e7f822dc264（实现与 map 演进）、d2357ba4175e05126c179f349d3d0484671c8734（审核修复）
+- review:
+  - 审核方: 独立 reviewer 双轴 subagent（Standards 38c267f7、Spec 8f5ff5f6）
+  - 目的理解: 卡片模型信息在会话中切换模型后停留在首次读取取值——宿主 selectModel 无任何推送通道、卡片模型来自仅一次的 session.models RPC；修复为订阅宿主 modelDirectories 目录 store 获取实时选择、一次性 RPC 保留为初值与回落；关联约束 PRD R-01-012/AC-16、DECISIONS C-024（否决回合重读/request-context 派生/轮询/主动 load）；验证方式为 check.mjs AC-16 锚点 + bundle 契约 + acceptance.mjs 人工条目
+  - 执行方式: `code-review` skill，评审基线 `main...HEAD`（a64482e7337677ab368828b9d4437e7f822dc264），Standards/Spec 双轴并行 subagent，修复后同一审核方复审
+  - 问题与修复: Standards 轴 0 硬违例 + 2 判断题（订阅回调 apply 遮蔽插件入口 → 更名 syncFromDirectory；卸载清理循环与 pruneSubscriptions 重复 → 收敛复用）；Spec 轴 1 finding（api.models RPC 在途期间切换模型，晚到结果覆写订阅新值且不自愈 → detail.modelLive 让位标记，三路写回均跳过）；另记录非违规观察（目录从未 load 时推送只含 current，卡片回落裸 model id——沿用既有 modelMetadata fallback 语义，实际切换场景会话必为当前会话、目录已被主窗口加载，窗口可忽略）
+  - 复审结论: 双轴均通过（d2357ba4175e05126c179f349d3d0484671c8734 复审确认全部 finding 消解、无新问题）

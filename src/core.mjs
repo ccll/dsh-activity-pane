@@ -952,6 +952,12 @@ export function awaitNoteText(waitClass, pendingKind, questionPreview = null) {
 	return PENDING_NOTES[pendingKind] ?? PENDING_UNKNOWN_NOTE;
 }
 
+/** 等待徽标闪烁判定（R-01-002/AC-08，C-037）：阻塞等待与完成提醒两类均与标题状态点
+ *  同频同相脉冲；未知/无等待类别不闪烁。 */
+export function awaitBadgeFlash(waitClass) {
+	return waitClass === "blocked" || waitClass === "done";
+}
+
 /** 时间线末条 ask_user_question 工作项携带的提问正文（折叠组行同样上浮该字段）；
  *  不存在时返回 null（R-01-002/AC-09）。 */
 export function timelineQuestionPreview(timeline) {
@@ -966,7 +972,8 @@ export function timelineQuestionPreview(timeline) {
 /** 数量徽标统计：只统计主会话——分子为等待行动（awaiting，含完成提醒）的主会话数，
  *  分母为其加运行中（running，含委托周期保持运行呈现）主会话之和；子代理不计入
  *  （R-01-001/AC-05）。blocked 为其中阻塞等待（待确认/待审查/待回复）的主会话数，
- *  驱动计数徽标脉冲门控（R-01-002/AC-06）。空列表返回 { waiting: 0, blocked: 0, total: 0 }。 */
+ *  仅用于徽标 aria 文案的计数说明；脉冲门控已由 waiting 单参数承载（R-01-002/AC-06，C-037）。
+ *  空列表返回 { waiting: 0, blocked: 0, total: 0 }。 */
 export function awaitBadgeStats(entries) {
 	let waiting = 0;
 	let blocked = 0;
@@ -984,10 +991,11 @@ export function awaitBadgeStats(entries) {
 
 /** 数量标识呈现态（R-01-014/AC-06）：列表在途（loading）时不冒充计数——归一为
  *  loading 呈现（加载指示 + 加载中 aria 文案，不等待、不脉冲）；否则归一为 count
- *  呈现（n/m 文本 + 计数 aria 文案）。awaiting 表达「存在等待行动」（琥珀底色）；
- *  blocked 表达「存在阻塞等待」（脉冲门控，R-01-002/AC-06）。错误轴不算在途，维持计数呈现。 */
+ *  呈现（n/m 文本 + 计数 aria 文案）。awaiting 表达「存在等待行动」——琥珀底色与
+ *  脉冲门控同一信号：任一等待行动（阻塞等待或完成提醒）即脉冲（R-01-002/AC-06，C-037）。
+ *  blocked 入参只用于 aria 文案的计数说明，不再驱动门控。错误轴不算在途，维持计数呈现。 */
 export function countBadgeState(listState, waiting, total, blocked = 0) {
-	if (listState === "loading") return { mode: "loading", text: "", ariaText: "活动会话计数加载中", awaiting: false, blocked: false };
+	if (listState === "loading") return { mode: "loading", text: "", ariaText: "活动会话计数加载中", awaiting: false };
 	const awaiting = waiting > 0;
 	const hasBlocked = blocked > 0;
 	const doneCount = waiting - (hasBlocked ? blocked : 0);
@@ -1002,18 +1010,17 @@ export function countBadgeState(listState, waiting, total, blocked = 0) {
 				? `${total} 个活动会话，${waiting} 个已完成`
 				: `${total} 个活动会话`,
 		awaiting,
-		blocked: hasBlocked,
 	};
 }
 
-// 脉冲周期端点：全部阻塞等待时达到最快上限（R-01-002/AC-07）；单个阻塞等待起步时最慢。
+// 脉冲周期端点：全部活动主会话处于等待行动时达到最快上限（R-01-002/AC-07）；单个等待起步时最慢。
 export const AWAIT_PERIOD_FAST_S = 0.5;
 export const AWAIT_PERIOD_SLOW_S = 1.6;
 
-/** 阻塞等待占比 → 徽标脉冲周期（秒）：随 r=n/m 单调加快、两端封闭——全部活动主会话
- *  阻塞等待取 AWAIT_PERIOD_FAST_S 上限频率；无阻塞等待或非法输入返回 null 表示不脉冲。 */
-export function awaitPulsePeriod(blocked, total) {
-	const n = Number.isFinite(blocked) ? Math.max(0, Math.floor(blocked)) : 0;
+/** 等待行动占比 → 徽标脉冲周期（秒）：随 r=n/m 单调加快、两端封闭——全部活动主会话
+ *  等待行动取 AWAIT_PERIOD_FAST_S 上限频率；无等待行动或非法输入返回 null 表示不脉冲。 */
+export function awaitPulsePeriod(waiting, total) {
+	const n = Number.isFinite(waiting) ? Math.max(0, Math.floor(waiting)) : 0;
 	const m = Number.isFinite(total) ? Math.max(0, Math.floor(total)) : 0;
 	if (n <= 0 || m <= 0 || n > m) return null;
 	return AWAIT_PERIOD_SLOW_S - (AWAIT_PERIOD_SLOW_S - AWAIT_PERIOD_FAST_S) * (n / m);

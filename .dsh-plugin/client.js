@@ -958,6 +958,12 @@ function awaitNoteText(waitClass, pendingKind, questionPreview = null) {
 	return PENDING_NOTES[pendingKind] ?? PENDING_UNKNOWN_NOTE;
 }
 
+/** 等待徽标闪烁判定（R-01-002/AC-08，C-037）：阻塞等待与完成提醒两类均与标题状态点
+ *  同频同相脉冲；未知/无等待类别不闪烁。 */
+function awaitBadgeFlash(waitClass) {
+	return waitClass === "blocked" || waitClass === "done";
+}
+
 /** 时间线末条 ask_user_question 工作项携带的提问正文（折叠组行同样上浮该字段）；
  *  不存在时返回 null（R-01-002/AC-09）。 */
 function timelineQuestionPreview(timeline) {
@@ -972,7 +978,8 @@ function timelineQuestionPreview(timeline) {
 /** 数量徽标统计：只统计主会话——分子为等待行动（awaiting，含完成提醒）的主会话数，
  *  分母为其加运行中（running，含委托周期保持运行呈现）主会话之和；子代理不计入
  *  （R-01-001/AC-05）。blocked 为其中阻塞等待（待确认/待审查/待回复）的主会话数，
- *  驱动计数徽标脉冲门控（R-01-002/AC-06）。空列表返回 { waiting: 0, blocked: 0, total: 0 }。 */
+ *  仅用于徽标 aria 文案的计数说明；脉冲门控已由 waiting 单参数承载（R-01-002/AC-06，C-037）。
+ *  空列表返回 { waiting: 0, blocked: 0, total: 0 }。 */
 function awaitBadgeStats(entries) {
 	let waiting = 0;
 	let blocked = 0;
@@ -990,10 +997,11 @@ function awaitBadgeStats(entries) {
 
 /** 数量标识呈现态（R-01-014/AC-06）：列表在途（loading）时不冒充计数——归一为
  *  loading 呈现（加载指示 + 加载中 aria 文案，不等待、不脉冲）；否则归一为 count
- *  呈现（n/m 文本 + 计数 aria 文案）。awaiting 表达「存在等待行动」（琥珀底色）；
- *  blocked 表达「存在阻塞等待」（脉冲门控，R-01-002/AC-06）。错误轴不算在途，维持计数呈现。 */
+ *  呈现（n/m 文本 + 计数 aria 文案）。awaiting 表达「存在等待行动」——琥珀底色与
+ *  脉冲门控同一信号：任一等待行动（阻塞等待或完成提醒）即脉冲（R-01-002/AC-06，C-037）。
+ *  blocked 入参只用于 aria 文案的计数说明，不再驱动门控。错误轴不算在途，维持计数呈现。 */
 function countBadgeState(listState, waiting, total, blocked = 0) {
-	if (listState === "loading") return { mode: "loading", text: "", ariaText: "活动会话计数加载中", awaiting: false, blocked: false };
+	if (listState === "loading") return { mode: "loading", text: "", ariaText: "活动会话计数加载中", awaiting: false };
 	const awaiting = waiting > 0;
 	const hasBlocked = blocked > 0;
 	const doneCount = waiting - (hasBlocked ? blocked : 0);
@@ -1008,18 +1016,17 @@ function countBadgeState(listState, waiting, total, blocked = 0) {
 				? `${total} 个活动会话，${waiting} 个已完成`
 				: `${total} 个活动会话`,
 		awaiting,
-		blocked: hasBlocked,
 	};
 }
 
-// 脉冲周期端点：全部阻塞等待时达到最快上限（R-01-002/AC-07）；单个阻塞等待起步时最慢。
+// 脉冲周期端点：全部活动主会话处于等待行动时达到最快上限（R-01-002/AC-07）；单个等待起步时最慢。
 const AWAIT_PERIOD_FAST_S = 0.5;
 const AWAIT_PERIOD_SLOW_S = 1.6;
 
-/** 阻塞等待占比 → 徽标脉冲周期（秒）：随 r=n/m 单调加快、两端封闭——全部活动主会话
- *  阻塞等待取 AWAIT_PERIOD_FAST_S 上限频率；无阻塞等待或非法输入返回 null 表示不脉冲。 */
-function awaitPulsePeriod(blocked, total) {
-	const n = Number.isFinite(blocked) ? Math.max(0, Math.floor(blocked)) : 0;
+/** 等待行动占比 → 徽标脉冲周期（秒）：随 r=n/m 单调加快、两端封闭——全部活动主会话
+ *  等待行动取 AWAIT_PERIOD_FAST_S 上限频率；无等待行动或非法输入返回 null 表示不脉冲。 */
+function awaitPulsePeriod(waiting, total) {
+	const n = Number.isFinite(waiting) ? Math.max(0, Math.floor(waiting)) : 0;
 	const m = Number.isFinite(total) ? Math.max(0, Math.floor(total)) : 0;
 	if (n <= 0 || m <= 0 || n > m) return null;
 	return AWAIT_PERIOD_SLOW_S - (AWAIT_PERIOD_SLOW_S - AWAIT_PERIOD_FAST_S) * (n / m);
@@ -1957,10 +1964,8 @@ const CSS = `
 [data-dsh-activity-pane] .dap-count[data-awaiting] {
   /* 底色/透明度与等待卡完全一致、无描边与外环（R-01-002/AC-06）；脉冲走亮度呼吸而非整体
      不透明度——半透明会让底色透进列头背景；周期由 --dap-await-period 驱动（AC-07）。
-     脉冲仅属阻塞等待（data-blocked）：完成提醒只计数不催促（C-028）。 */
+     任一等待行动即脉冲：阻塞等待与完成提醒行为一致（C-037）。 */
   background: rgba(35, 31, 25, 0.97);
-}
-[data-dsh-activity-pane] .dap-count[data-awaiting][data-blocked] {
   animation: dap-await-pulse var(--dap-await-period, 1.6s) ease-in-out infinite;
 }
 @keyframes dap-await-pulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
@@ -2082,8 +2087,6 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-rail-count[data-awaiting] {
   background: rgba(35, 31, 25, 0.97);
-}
-[data-dsh-activity-pane] .dap-rail-count[data-awaiting][data-blocked] {
   animation: dap-await-pulse var(--dap-await-period, 1.6s) ease-in-out infinite;
 }
 /* 桌面拖拽调宽手柄（R-01-015）：右缘 6px 命中区，拖拽实时写入 --dap-width；
@@ -2190,17 +2193,6 @@ const CSS = `
   box-shadow: 0 0 0 1px color-mix(in srgb, #e8a33d 35%, transparent), 0 6px 16px rgba(0,0,0,.3);
   background: rgba(35, 31, 25, 0.97);
 }
-/* 完成提醒降噪（R-01-002/AC-08，C-028）：「已完成」是不阻塞的通知——描边弱化、去光晕、
-   状态点静止，与阻塞等待卡（脉冲 + 图标徽标）一瞥可区分，不争夺注意力。
-   置于 awaiting 当前会话组合规则之前：当前会话的蓝色高亮仍压过本弱化规则。 */
-[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {
-  border-color: color-mix(in srgb, #e8a33d 30%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, #e8a33d 16%, transparent);
-}
-[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-dot {
-  animation: none;
-  box-shadow: none;
-}
 /* 等待卡同为当前会话时描边/光晕回归蓝色高亮（R-01-006/AC-01）：基态 [data-current]
    与 [data-kind="awaiting"] 同优先级且定义在前，深色下被橙色描边顶掉；组合选择器
    （0-4-0）压过两者，深浅主题同值。等待状态仍由圆点、等待徽标与底色承载。 */
@@ -2260,8 +2252,8 @@ const CSS = `
 [data-dsh-activity-pane] .dap-badge-icon { width: 12px; height: 12px; display: inline-flex; align-items: center; }
 [data-dsh-activity-pane] .dap-badge-icon:empty { display: none; }
 [data-dsh-activity-pane] .dap-badge-icon svg { display: block; width: 12px; height: 12px; }
-/* 阻塞等待徽标闪烁：与标题圆点同款脉冲（dap-pulse 1.2s），开启瞬间由渲染层重启圆点动画对齐相位；
-   「已完成」徽标不闪烁（C-028）。 */
+/* 等待徽标闪烁：与标题圆点同款脉冲（dap-pulse 1.2s），开启瞬间由渲染层重启圆点动画对齐相位；
+   阻塞等待与完成提醒两类均闪烁（R-01-002/AC-08，C-037）。 */
 [data-dsh-activity-pane] .dap-badge.dap-badge-flash { animation: dap-pulse 1.2s ease-in-out infinite; }
 /* 工作区徽标「图标+文本」双段：文件夹图标与左边栏工作区条目同源（R-01-003/AC-06）；
    名称字号不低于 10.5px（AC-07），行高保持 14px 以维持胶囊与卡片高度。
@@ -2556,8 +2548,6 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 .dap-toggle[data-awaiting] .dap-toggle-count {
   background: rgba(35, 31, 25, 0.97);
-}
-.dap-toggle[data-awaiting][data-blocked] .dap-toggle-count {
   animation: dap-await-pulse var(--dap-await-period, 1.6s) ease-in-out infinite;
 }
 /* 移动端抽屉透明遮罩：抽屉打开时铺满视口、点击收起抽屉（R-01-008/AC-03）。
@@ -3800,8 +3790,8 @@ function apply(ctx) {
 				iconHolder.dataset.kind = iconKind;
 				iconHolder.replaceChildren(...(iconKind === "" ? [] : [createPendingIcon(iconKind)]));
 			}
-			// 阻塞等待闪烁提示：与标题圆点同款脉冲；「已完成」不闪（C-028）。
-			const flash = entry.waitClass === "blocked";
+			// 两类等待行动同频同相闪烁（R-01-002/AC-08，C-037）：与标题圆点同款脉冲。
+			const flash = awaitBadgeFlash(entry.waitClass);
 			const wasFlashing = badge.classList.contains("dap-badge-flash");
 			badge.classList.toggle("dap-badge-flash", flash);
 			if (flash && !wasFlashing) {
@@ -4182,7 +4172,8 @@ function apply(ctx) {
 		rec.el.style.marginLeft = `${(entry.depth ?? 0) * INDENT_PX}px`;
 		rec.el.toggleAttribute("data-current", entry.isCurrent);
 		rec.el.toggleAttribute("data-awaiting", entry.kind === "awaiting");
-		// 等待双类（R-01-002/AC-08）：blocked=阻塞等待（脉冲+图标徽标），done=完成提醒（静态降噪）。
+		// 等待双类（R-01-002/AC-08）：blocked=阻塞等待（类型图标徽标），done=完成提醒（无图标）；
+		// 两类脉冲与描边光晕一致（C-037），data-wait 只承载图标/文案/确认按钮差异。
 		if (entry.waitClass === "blocked" || entry.waitClass === "done") rec.el.setAttribute("data-wait", entry.waitClass);
 		else rec.el.removeAttribute("data-wait");
 		rec.el.setAttribute(
@@ -4607,18 +4598,17 @@ function apply(ctx) {
 
 		// 计数与折叠：n/m 只统计主会话——分子为等待行动数、分母为其加运行中主会话之和
 		// （R-01-001/AC-04、AC-05）；空态同样显示 0/0（AC-06）。列表在途时不冒充计数，
-		// 三处数量标识显示加载指示（R-01-014/AC-06）。脉冲仅属阻塞等待（data-blocked，
-		// R-01-002/AC-06）：完成提醒只计数不催促。
+		// 三处数量标识显示加载指示（R-01-014/AC-06）。脉冲由 data-awaiting 承载：
+		// 任一等待行动（阻塞等待或完成提醒）即脉冲（R-01-002/AC-06，C-037）。
 		const count = pane.querySelector(".dap-count");
 		const railCount = pane.querySelector(".dap-rail-count");
 		const { waiting, blocked, total } = awaitBadgeStats(active);
 		const badge = countBadgeState(listState, waiting, total, blocked);
-		const awaitPeriod = badge.blocked ? awaitPulsePeriod(blocked, total) : null;
+		const awaitPeriod = badge.awaiting ? awaitPulsePeriod(waiting, total) : null;
 		for (const el of [count, railCount])
 			if (el !== null) {
 				setCountBadgeContent(el, badge);
 				el.toggleAttribute("data-awaiting", badge.awaiting);
-				el.toggleAttribute("data-blocked", badge.blocked);
 				if (el.getAttribute("aria-label") !== badge.ariaText) el.setAttribute("aria-label", badge.ariaText);
 				setAwaitPulsePeriod(el, awaitPeriod);
 			}
@@ -4626,7 +4616,6 @@ function apply(ctx) {
 		if (toggleCount !== null) {
 			setCountBadgeContent(toggleCount, badge);
 			toggle.toggleAttribute("data-awaiting", badge.awaiting);
-			toggle.toggleAttribute("data-blocked", badge.blocked);
 			setAwaitPulsePeriod(toggleCount, awaitPeriod);
 		}
 		pane.toggleAttribute("data-collapsed", collapsed);

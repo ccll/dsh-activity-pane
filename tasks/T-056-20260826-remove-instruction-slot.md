@@ -6,7 +6,7 @@ id: T-056
 
 # T-056 删除指令槽位功能，时间线用户行标识改为行下虚线下划线
 
-状态: active
+状态: completed
 关联: R-01-018（删除）、R-01-012 → 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -53,4 +53,13 @@ map 演进已同次完成并经东家确认：PRD 删除 R-01-018（编号退役
 
 ## 终态与证据
 
-（待关闭时填写）
+- 实现: `src/core.mjs`（槽位派生家族 slotOf/windowHasUser/fallbackSlot/rememberLastUser/lastUserFromEvents/foldWorkGroupsWithSlot/foldedTimelineWithSlot 整体删除；`foldedConversationTimeline(snapshot, limit, cwd, descendantActive, idle)` 收敛为唯一入口，承载指数扩窗 + live 合并 + 分组 + settle/尾部提升）；`src/client.mjs`（`.dap-slot` CSS 与 `renderSlot`、entry.slot 管线、运行卡轻量 history 指令拉取、memo 键 lastUser/memoSlot/timelineSlot 全删；用户消息行改为 bottom 1px repeating-linear-gradient 中性灰虚线下划线，浅主题 `--dsw-alias-label-tertiary` 覆盖）；`scripts/check.mjs`（R-01-018 锚定块删除、7 处用例迁移新签名、槽位无残留与下划线断言）；`scripts/acceptance.mjs`（验收点改写）；`PRD.md`/`DESIGN.md`/`DOMAIN.md`/`DECISIONS.md`/`TODO.md` 同次级联。评审修复：DESIGN memo 键四键对齐、TODO 两条失效缺陷线索删除、check.mjs 文案去「槽位」、下划线由 border-bottom 改为背景渐变（保 14px 行高几何）。
+- 测试: `pnpm build:client && pnpm check` 全绿（含槽位派生/渲染无残留反向断言、下划线渐变正向 + 绿底与 border-bottom 双重反向守卫、idle/委托/落定用例新签名回归）；`python3 tools/agentmap_lint.py --report` 通过（requirements=21、AC=103 全锚定，R-01-018 无残留）；GUI 人工验收点见 `scripts/acceptance.mjs`（R-01-012/AC-05 虚线下划线、无槽位行，深浅主题各验，由东家按单核验）。
+- DESIGN 对照: 需求追溯索引已无 R-01-018 行；折叠时间线唯一来源 `foldedConversationTimeline`、memo 键四键、用户行虚线下划线标识（背景渐变不占盒高）与实现逐项一致；DOMAIN「指令槽位」术语已退役；C-019 已记录。
+- commit: eff9eb99db723fe15cc3f5e84fd036caec565a08
+- review:
+  - 审核方: code-review skill 双轴独立子代理（Standards 轴、Spec 轴）
+  - 目的理解: 彻底删除活动卡时间线上方的常驻指令槽位（R-01-018）及围绕它的派生/记账/轻量 history 拉取/渲染；时间线用户消息行由浅绿平底（C-018）改为行下中性灰虚线下划线；关联 R-01-018（删除）、R-01-012 与 C-019；验证方式为 check.mjs 锚点 + agentmap lint + acceptance.mjs 人工验收。
+  - 执行方式: `code-review` skill，评审基线 HEAD（23700c098c8e812f064f4c341b2a6dda4ed22acf，工作区未提交 diff + T-056 新文件），范围为 PRD/DESIGN/DOMAIN/DECISIONS/TODO/src/scripts 全量变更；Standards 对照 AGENTS/CONVENTIONS 与 Fowler 味道基线，Spec 对照 T-056 方案与 map 演进。
+  - 问题与修复: Standards 轴——无硬性违规；判断题 DESIGN memo 键描述与实现四键不符（已对齐）。Spec 轴——TODO.md 两条指向已删除功能的缺陷线索（已删）；check.mjs「槽位替换」术语残留（改「原位替换」）；P1 border-bottom 会把用户行撑成 15px 破坏 14px 行高几何（改 bottom 1px repeating-linear-gradient 背景渐变，不占盒高，文档与断言同步）。
+  - 复审结论: Standards 轴复审通过（无遗留 finding）；Spec 轴复审通过（三条 finding 均正确修复，未引入新问题）。

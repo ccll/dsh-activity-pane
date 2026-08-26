@@ -1143,12 +1143,12 @@ function workspaceHue(key) {
 	return 30 + (hash % 291);
 }
 
-const WORKSPACE_HUE_ANCHORS = [30, 78, 126, 174, 222, 270, 318];
+const WORKSPACE_HUE_ANCHORS = [55, 100, 145, 190, 235, 280, 325];
 
 /**
  * 同屏工作区色相消解（R-01-003/AC-08、AC-12）：身份去重排序后，以稳定基色
- * 确定七色感知锚点的起始槽；撞槽时循环选择空闲槽。超过七个工作区后选择当前
- * 使用次数最少的槽，使复用均衡且确定。同屏不超过七个时任意两色相圆周距离 ≥48°。
+ * 确定七个 OKLCH 感知锚点的起始槽；撞槽时按步进 3 跨色区探测。超过七个
+ * 工作区后选择当前使用次数最少的槽，使复用均衡且确定。
  */
 function resolveWorkspaceHues(keys) {
 	const identities = [...new Set((Array.isArray(keys) ? keys : []).map(cleanText).filter(Boolean))].sort();
@@ -1158,7 +1158,7 @@ function resolveWorkspaceHues(keys) {
 		const start = (workspaceHue(identity) - 30) % WORKSPACE_HUE_ANCHORS.length;
 		let chosen = start;
 		for (let offset = 0; offset < WORKSPACE_HUE_ANCHORS.length; offset += 1) {
-			const candidate = (start + offset) % WORKSPACE_HUE_ANCHORS.length;
+			const candidate = (start + offset * 3) % WORKSPACE_HUE_ANCHORS.length;
 			if (uses[candidate] < uses[chosen]) chosen = candidate;
 			if (uses[candidate] === 0) {
 				chosen = candidate;
@@ -2265,24 +2265,23 @@ const CSS = `
 [data-dsh-activity-pane] .dap-badge.dap-badge-flash { animation: dap-pulse 1.2s ease-in-out infinite; }
 /* 工作区徽标「图标+文本」双段：文件夹图标与左边栏工作区条目同源（R-01-003/AC-06）；
    名称字号不低于 10.5px（AC-07），行高保持 14px 以维持胶囊与卡片高度。
-   着色（AC-08～AC-11）：基色取核心 workspaceHue 派生的 --dap-workspace-hue 色相，
-   按单色系标签配色经验分主题校准——深色主题文字取高明度亮色、底色同色相低透明
-   铺底、描边中透明；浅色主题文字取低明度深色、底色更轻。前景与背景始终同色相、
-   明度对比拉开；文字基色占比 92% 保色，混入 currentColor 保持主题协调。 */
+   着色（AC-08～AC-11）：核心映射提供 OKLCH hue；深色主题文字取高明度中高彩度，
+   浅色主题文字取低明度中高彩度。文字直接使用调色板色，底色与描边在 OKLCH
+   空间按透明度混合；前景与背景始终同色相、明度对比拉开。 */
 [data-dsh-activity-pane] .dap-workspace {
   width: fit-content; max-width: 100%; display: flex; align-items: center; gap: 3px;
   overflow: hidden;
   font-size: 10.5px; line-height: 14px;
-  --dap-workspace-color: hsl(var(--dap-workspace-hue, 210) 70% 68%);
-  color: color-mix(in srgb, var(--dap-workspace-color) 92%, currentColor);
-  background: color-mix(in srgb, var(--dap-workspace-color) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--dap-workspace-color) 32%, transparent);
+  --dap-workspace-color: oklch(0.78 0.16 var(--dap-workspace-hue, 235));
+  color: var(--dap-workspace-color);
+  background: color-mix(in oklch, var(--dap-workspace-color) 14%, transparent);
+  border: 1px solid color-mix(in oklch, var(--dap-workspace-color) 34%, transparent);
   border-radius: 999px; padding: 0 7px;
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
-  --dap-workspace-color: hsl(var(--dap-workspace-hue, 210) 72% 40%);
-  background: color-mix(in srgb, var(--dap-workspace-color) 12%, transparent);
-  border-color: color-mix(in srgb, var(--dap-workspace-color) 28%, transparent);
+  --dap-workspace-color: oklch(0.48 0.15 var(--dap-workspace-hue, 235));
+  background: color-mix(in oklch, var(--dap-workspace-color) 10%, transparent);
+  border-color: color-mix(in oklch, var(--dap-workspace-color) 28%, transparent);
 }
 [data-dsh-activity-pane] .dap-workspace-icon { flex: none; display: inline-flex; }
 [data-dsh-activity-pane] .dap-workspace-icon svg { display: block; }

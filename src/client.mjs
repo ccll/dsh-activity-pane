@@ -272,9 +272,10 @@ const CSS = `
 [data-dsh-activity-pane] .dap-card[data-kind="recent"] {
   padding: 6px 10px;
   border-radius: 12px;
-  /* 弱化但可辨（R-01-013/AC-10、AC-11）：opacity 0.8 承载淡化；底色提亮 + 弱描边
-     保持与窗格底色可分辨，淡化不得使卡片轮廓不可辨。 */
-  background: rgba(31, 34, 42, 0.92);
+  /* 弱化但可辨（R-01-013/AC-10、AC-11）：opacity 0.8 承载淡化；底色介于窗格底色与
+     活动卡（rgba(29,31,37,0.94)）之间——暗于活动卡不抢视线、亮于背景可分辨，
+     弱描边勾勒边界，淡化不得使卡片轮廓不可辨。 */
+  background: rgba(26, 28, 34, 0.92);
   border-color: rgba(255, 255, 255, 0.08);
   opacity: 0.8;
 }
@@ -674,7 +675,8 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="sub
   background: var(--dsw-specific-sidebar-fill, rgb(249, 250, 251));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="recent"] {
-  background: var(--dsw-alias-bg-layer-2, #ffffff);
+  /* 暗于活动卡的 --dsw-alias-bg-layer-2 纯白、深于窗格底色（R-01-013/AC-10、AC-11）。 */
+  background: rgb(243, 244, 246);
   border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
 }
 /* 当前会话高亮（R-01-006/AC-01）：蓝色描边/光晕两主题同值，但浅色块必须在

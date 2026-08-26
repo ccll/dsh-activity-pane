@@ -2208,12 +2208,18 @@ function apply(ctx) {
 			void el.offsetWidth;
 			el.classList.add("dap-shift");
 			el.style.transform = "";
-			const cleanup = () => {
+			// transitionend 冒泡隔离：子元素过渡（如运行卡进度条 .dap-fill 的 width
+			// 0.45s transition）的 transitionend 会冒泡到卡片，不过滤则平移中途被
+			// 提前收口、卡片瞬时跳到终点（违背 R-01-010/AC-10）；只收口本元素
+			// transform 过渡，命中后手动移除监听（once 会被冒泡事件空耗，不可用）。
+			const cleanup = (event) => {
+				if (event.target !== el || event.propertyName !== "transform") return;
+				el.removeEventListener("transitionend", cleanup);
 				el.classList.remove("dap-shift");
 				shiftCleanups.delete(el);
 			};
 			shiftCleanups.set(el, cleanup);
-			el.addEventListener("transitionend", cleanup, { once: true });
+			el.addEventListener("transitionend", cleanup);
 		}
 	}
 
@@ -2236,6 +2242,8 @@ function apply(ctx) {
 			lastSig = "";
 			prevRenderedActiveIds = new Set();
 			prevRenderedRecentIds = new Set();
+			// 旧窗格已脱离文档：其在飞平移的 transitionend 不再触发，逐元素取消避免残留。
+			for (const el of [...shiftCleanups.keys()]) cancelShift(el);
 		}
 		applyLayout();
 		const activeList = pane.querySelector(`.${LIST_CLASS}`);

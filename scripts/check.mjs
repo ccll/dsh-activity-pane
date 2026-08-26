@@ -2455,8 +2455,12 @@ assert.ok(
 assert.ok(bundle.includes('renderedPane?.querySelector(".dap-recent-head")'), "历史区段头一并纳入 FLIP 量取（段头不瞬间跳变）");
 assert.ok(bundle.includes("void el.offsetWidth;"), "反向位移先无过渡落位、reflow 后挂过渡类归零（FLIP 标准序）");
 assert.ok(
-	bundle.includes('el.addEventListener("transitionend", cleanup, { once: true })'),
-	"受影响卡片平移由 transitionend 收口（不引入定时器）",
+	bundle.includes('if (event.target !== el || event.propertyName !== "transform") return;'),
+	"transitionend 冒泡隔离：子元素过渡（进度条 width）不提前收口，只收口本元素 transform 过渡",
+);
+assert.ok(
+	bundle.includes('el.addEventListener("transitionend", cleanup)') && !bundle.includes('"transitionend", cleanup, { once: true }'),
+	"平移收口监听不用 once（once 会被冒泡事件空耗），命中后手动移除",
 );
 assert.ok(bundle.includes("cancelShift(rec.el);"), "卡片被 prune 时同步取消其平移状态（不残留监听与内联位移）");
 assert.ok(

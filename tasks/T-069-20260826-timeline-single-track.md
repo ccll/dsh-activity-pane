@@ -6,7 +6,7 @@ id: T-069
 
 # T-069 时间线竖线改容器级整条绘制，消除分段叠加亮带
 
-状态: active
+状态: completed
 关联: R-01-009/AC-09 / 窗格渲染器
 风险等级: standard
 
@@ -47,4 +47,13 @@ id: T-069
 
 ## 终态与证据
 
-（关闭时填写）
+- 实现: `src/client.mjs`——逐项 `.dap-trace-item::after` 分段竖线（含 `:last-child` 豁免与浅色覆盖）删除，改为 `.dap-trace`/`.dap-subtrace` 容器 `::before` 单元素整条绘制（`left: 3px; top: 0; bottom: 7px`，`:has(> :only-child)` 不画线，浅色覆盖同步迁移）；`scripts/check.mjs` 时间线几何锚点改写为新契约并断言旧拼接几何（`.dap-trace-item::after`、`bottom: -8px`）缺席；`.dsh-plugin/client.js` 同步重建暂存。
+- 测试: `pnpm build:client && pnpm check` 全绿（check.mjs R-01-009/AC-09 锚点双向钉死新旧几何）；`python3 tools/agentmap_lint.py --report` 通过（requirements=22, test-anchored=120）。
+- DESIGN 对照: DESIGN「竖线穿过首个节点圆点并向上引出，终点没入最新动作圆点内部不外露」与 acceptance.mjs R-01-009/AC-09 人工条目修复后字面仍成立，map 不变，无差异。
+- commit: 080422502a33d8b707ae14824ce428ff2a6faefa
+- review:
+  - 审核方: code-review skill 双轴独立 reviewer（Standards / Spec 两个子代理）
+  - 目的理解: 修复活动卡时间线竖线逐项分段导致的接缝半透明叠加亮带（R-01-009/AC-09 呈现细节），要求单条连续竖线且呈现语义（上引出、终点没入末点、单项不画线、圆点盖线）不变，map 不变、附回归断言；审核前已核对 task spec、acceptance.mjs AC-09 与 DESIGN 时间线呈现条目语义。
+  - 执行方式: `code-review` skill；评审在集成前分支（provisional T-062）上进行，基线为该分支相对其基点的 diff，复审针对审核修复增量；findings 修复在集成重排时随实现一并折叠入 080422502a33d8b707ae14824ce428ff2a6faefa；范围含 src/client.mjs、scripts/check.mjs、bundle 与 task 文件。
+  - 问题与修复: Standards 两项 judgement call（check.mjs 注释重复、.dap-subtrace 断言短 includes 冗余）与 Spec 两项小瑕疵（同注释重复、「最末圆心距容器底 7px」数字应为 7.5px），均已修复并体现于 080422502a33d8b707ae14824ce428ff2a6faefa；几何推理与层叠关系经 Standards 轴核查成立，Spec 轴核验无缺失需求、无 scope creep。
+  - 复审结论: 两轴复审均通过，findings 全部消解，未引入新问题。

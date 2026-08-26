@@ -41,7 +41,7 @@ import {
 	trackBoxes,
 	trackRuns,
 	isSubagentRow,
-	countCapsuleState,
+	countBadgeState,
 	listLoadState,
 	messagePreviews,
 	movedToRecentIds,
@@ -1765,19 +1765,19 @@ assert.equal(listLoadState({ phase: "ready", error: { code: "x" } }), "error", "
 
 // ---- R-01-014/AC-06 数量标识在途显示加载指示而非冒充计数 ----
 assert.deepEqual(
-	countCapsuleState("loading", 0, 0),
+	countBadgeState("loading", 0, 0),
 	{ mode: "loading", text: "", ariaText: "活动会话计数加载中", awaiting: false },
 	"列表在途归一为加载指示，不冒充 0/0",
 );
-assert.equal(countCapsuleState("loading", 1, 3).awaiting, false, "在途期即便有等待计数也不触发脉冲");
-assert.equal(countCapsuleState("error", 0, 0).mode, "count", "错误轴不归一为加载指示");
+assert.equal(countBadgeState("loading", 1, 3).awaiting, false, "在途期即便有等待计数也不触发脉冲");
+assert.equal(countBadgeState("error", 0, 0).mode, "count", "错误轴不归一为加载指示");
 assert.deepEqual(
-	countCapsuleState("ready", 0, 0),
+	countBadgeState("ready", 0, 0),
 	{ mode: "count", text: "0/0", ariaText: "0 个活动会话", awaiting: false },
 	"就绪空态仍显示 0/0（R-01-001/AC-06）",
 );
 assert.deepEqual(
-	countCapsuleState("ready", 1, 3),
+	countBadgeState("ready", 1, 3),
 	{ mode: "count", text: "1/3", ariaText: "3 个活动会话，1 个等待响应", awaiting: true },
 	"就绪后显示实际 n/m 与等待响应文案",
 );
@@ -2067,8 +2067,8 @@ assert.ok(bundle.includes('"列表加载失败"'), "列表错误时显示失败�
 assert.ok(bundle.includes("node.dataset.mode"), "加载指示与空态分模式渲染");
 assert.ok(bundle.includes("dap-spinner"), "加载指示使用活动图标");
 // R-01-014/AC-06 数量标识在途显示加载指示而非冒充计数
-assert.ok(bundle.includes("countCapsuleState"), "数量标识在途态经 countCapsuleState 归一");
-assert.ok(bundle.includes("setCountCapsuleContent"), "三处数量标识在途接入加载指示");
+assert.ok(bundle.includes("countBadgeState"), "数量标识在途态经 countBadgeState 归一");
+assert.ok(bundle.includes("setCountBadgeContent"), "三处数量标识在途接入加载指示");
 assert.ok(bundle.includes("活动会话计数加载中"), "数量标识加载态 aria 文案不冒充计数");
 assert.ok(
 	bundle.includes('.dap-count .dap-spinner') && bundle.includes('.dap-rail-count .dap-spinner') && bundle.includes('.dap-toggle-count .dap-spinner'),

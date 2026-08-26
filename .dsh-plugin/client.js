@@ -874,7 +874,7 @@ function awaitBadgeStats(entries) {
 /** 数量标识呈现态（R-01-014/AC-06）：列表在途（loading）时不冒充计数——归一为
  *  loading 呈现（加载指示 + 加载中 aria 文案，不等待、不脉冲）；否则归一为 count
  *  呈现（n/m 文本 + 计数 aria 文案，等待响应时 awaiting）。错误轴不算在途，维持计数呈现。 */
-function countCapsuleState(listState, waiting, total) {
+function countBadgeState(listState, waiting, total) {
 	if (listState === "loading") return { mode: "loading", text: "", ariaText: "活动会话计数加载中", awaiting: false };
 	const awaiting = waiting > 0;
 	return {
@@ -3420,18 +3420,18 @@ function apply(ctx) {
 		} else if (node !== null) {
 			node.remove();
 		}
-}
+	}
 
 	/** 数量标识内容写入（R-01-014/AC-06）：加载态显示活动指示——已是指示则不重写，
 	 *  避免每轮 replaceChildren 重启动画抖动；计数态恢复文本写入，textContent 赋值自动摘除指示。 */
-	function setCountCapsuleContent(el, capsule) {
-		if (capsule.mode === "loading") {
+	function setCountBadgeContent(el, badge) {
+		if (badge.mode === "loading") {
 			const spinner = el.firstElementChild;
 			if (!(el.childNodes.length === 1 && spinner !== null && spinner.classList.contains("dap-spinner")))
 				el.replaceChildren(makeEl("span", "dap-spinner"));
-		} else if (el.textContent !== capsule.text) {
+		} else if (el.textContent !== badge.text) {
 			// 值未变不写文本节点：aria-live 下相同赋值也会触发替换与重复播报。
-			el.textContent = capsule.text;
+			el.textContent = badge.text;
 		}
 	}
 
@@ -3912,19 +3912,19 @@ function apply(ctx) {
 		const count = pane.querySelector(".dap-count");
 		const railCount = pane.querySelector(".dap-rail-count");
 		const { waiting, total } = awaitBadgeStats(active);
-		const capsule = countCapsuleState(listState, waiting, total);
-		const awaitPeriod = capsule.awaiting ? awaitPulsePeriod(waiting, total) : null;
+		const badge = countBadgeState(listState, waiting, total);
+		const awaitPeriod = badge.awaiting ? awaitPulsePeriod(waiting, total) : null;
 		for (const el of [count, railCount])
 			if (el !== null) {
-				setCountCapsuleContent(el, capsule);
-				el.toggleAttribute("data-awaiting", capsule.awaiting);
-				if (el.getAttribute("aria-label") !== capsule.ariaText) el.setAttribute("aria-label", capsule.ariaText);
+				setCountBadgeContent(el, badge);
+				el.toggleAttribute("data-awaiting", badge.awaiting);
+				if (el.getAttribute("aria-label") !== badge.ariaText) el.setAttribute("aria-label", badge.ariaText);
 				setAwaitPulsePeriod(el, awaitPeriod);
 			}
 		const toggleCount = toggle.querySelector(".dap-toggle-count");
 		if (toggleCount !== null) {
-			setCountCapsuleContent(toggleCount, capsule);
-			toggle.toggleAttribute("data-awaiting", capsule.awaiting);
+			setCountBadgeContent(toggleCount, badge);
+			toggle.toggleAttribute("data-awaiting", badge.awaiting);
 			setAwaitPulsePeriod(toggleCount, awaitPeriod);
 		}
 		pane.toggleAttribute("data-collapsed", collapsed);

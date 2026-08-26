@@ -41,6 +41,7 @@ import {
 	trackBoxes,
 	trackRuns,
 	isSubagentRow,
+	countCapsuleState,
 	listLoadState,
 	messagePreviews,
 	movedToRecentIds,
@@ -1762,6 +1763,25 @@ assert.equal(listLoadState({ phase: "ready" }), "ready", "phase 为 ready 才允
 assert.equal(listLoadState({ phase: "ready", state: "error" }), "error", "列表错误轴归一为 error");
 assert.equal(listLoadState({ phase: "ready", error: { code: "x" } }), "error", "携带 error 字段归一为 error");
 
+// ---- R-01-014/AC-06 数量标识在途显示加载指示而非冒充计数 ----
+assert.deepEqual(
+	countCapsuleState("loading", 0, 0),
+	{ mode: "loading", text: "", ariaText: "活动会话计数加载中", awaiting: false },
+	"列表在途归一为加载指示，不冒充 0/0",
+);
+assert.equal(countCapsuleState("loading", 1, 3).awaiting, false, "在途期即便有等待计数也不触发脉冲");
+assert.equal(countCapsuleState("error", 0, 0).mode, "count", "错误轴不归一为加载指示");
+assert.deepEqual(
+	countCapsuleState("ready", 0, 0),
+	{ mode: "count", text: "0/0", ariaText: "0 个活动会话", awaiting: false },
+	"就绪空态仍显示 0/0（R-01-001/AC-06）",
+);
+assert.deepEqual(
+	countCapsuleState("ready", 1, 3),
+	{ mode: "count", text: "1/3", ariaText: "3 个活动会话，1 个等待响应", awaiting: true },
+	"就绪后显示实际 n/m 与等待响应文案",
+);
+
 // ---- R-01-014/AC-05 补充数据失败降级为空字段并可重试 ----
 // （行为链详见 R-01-012/AC-01 的 detailLoadPlan 锚点：失败置空 → 可见期内不热重试 →
 //  离开可见清理 → 重回可见允许重试。）
@@ -2046,6 +2066,14 @@ assert.ok(bundle.includes('listState === "loading" ? "加载中…"'), "列表�
 assert.ok(bundle.includes('"列表加载失败"'), "列表错误时显示失败文案而非空态");
 assert.ok(bundle.includes("node.dataset.mode"), "加载指示与空态分模式渲染");
 assert.ok(bundle.includes("dap-spinner"), "加载指示使用活动图标");
+// R-01-014/AC-06 数量标识在途显示加载指示而非冒充计数
+assert.ok(bundle.includes("countCapsuleState"), "数量标识在途态经 countCapsuleState 归一");
+assert.ok(bundle.includes("setCountCapsuleContent"), "三处数量标识在途接入加载指示");
+assert.ok(bundle.includes("活动会话计数加载中"), "数量标识加载态 aria 文案不冒充计数");
+assert.ok(
+	bundle.includes('.dap-count .dap-spinner') && bundle.includes('.dap-rail-count .dap-spinner') && bundle.includes('.dap-toggle-count .dap-spinner'),
+	"三处数量标识均有加载指示样式",
+);
 assert.ok(bundle.includes("loadingModel"), "模型字段级加载指示并入签名");
 assert.ok(bundle.includes("loadingTimeline"), "时间线字段级加载指示并入签名");
 assert.ok(bundle.includes("loadingPreviews"), "预览字段级加载指示并入签名");
@@ -2195,7 +2223,7 @@ assert.ok(bundle.includes('.dap-badge.dap-badge-flash { animation: dap-pulse 1.2
 assert.ok(bundle.includes('badge.classList.toggle("dap-badge-flash", flash)'), "仅「需要响应」文案触发徽标闪烁（R-01-002/AC-08）");
 assert.ok(bundle.includes('dot.style.animation = "none"'), "闪烁开启瞬间重启标题圆点动画对齐相位（R-01-002/AC-08）");
 // R-01-001/AC-04、AC-05、AC-06 徽标 n/m 计数；R-01-002/AC-06、AC-07 同色占比脉冲
-assert.ok(bundle.includes("const countText = `${waiting}/${total}`;"), "数量徽标以 n/m 分数形式呈现");
+assert.ok(bundle.includes("text: `${waiting}/${total}`,"), "数量徽标以 n/m 分数形式呈现");
 assert.ok(
 	bundle.includes("awaitBadgeStats(active)") && bundle.includes("awaitPulsePeriod(waiting, total)"),
 	"计数与脉冲周期由核心纯函数单点派生",

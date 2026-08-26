@@ -865,6 +865,20 @@ export function awaitBadgeStats(entries) {
 	return { waiting, total };
 }
 
+/** 数量标识呈现态（R-01-014/AC-06）：列表在途（loading）时不冒充计数——归一为
+ *  loading 呈现（加载指示 + 加载中 aria 文案，不等待、不脉冲）；否则归一为 count
+ *  呈现（n/m 文本 + 计数 aria 文案，等待响应时 awaiting）。错误轴不算在途，维持计数呈现。 */
+export function countCapsuleState(listState, waiting, total) {
+	if (listState === "loading") return { mode: "loading", text: "", ariaText: "活动会话计数加载中", awaiting: false };
+	const awaiting = waiting > 0;
+	return {
+		mode: "count",
+		text: `${waiting}/${total}`,
+		ariaText: awaiting ? `${total} 个活动会话，${waiting} 个等待响应` : `${total} 个活动会话`,
+		awaiting,
+	};
+}
+
 // 脉冲周期端点：全部等待时达到最快上限（R-01-002/AC-07）；单个等待起步时最慢。
 export const AWAIT_PERIOD_FAST_S = 0.5;
 export const AWAIT_PERIOD_SLOW_S = 1.6;

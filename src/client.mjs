@@ -578,6 +578,12 @@ const CSS = `
 [data-dsh-activity-pane] .dap-history-line .dap-spinner {
   width: 8px; height: 8px; border-width: 1.5px;
 }
+/* 数量标识加载指示：列表在途时三处徽标内显示活动图标（R-01-014/AC-06）。 */
+[data-dsh-activity-pane] .dap-count .dap-spinner,
+[data-dsh-activity-pane] .dap-rail-count .dap-spinner,
+.dap-toggle .dap-toggle-count .dap-spinner {
+  vertical-align: middle;
+}
 /* 移动端浮动开关按钮：仅在窄屏显示（桌面隐藏）。固定于会话头部左上角、
    原生左边栏切换按钮（28px @ left:8px; top:12px）右侧（R-01-008/AC-04）。 */
 .dap-toggle {
@@ -1845,6 +1851,19 @@ function apply(ctx) {
 		} else if (node !== null) {
 			node.remove();
 		}
+}
+
+	/** 数量标识内容写入（R-01-014/AC-06）：加载态显示活动指示——已是指示则不重写，
+	 *  避免每轮 replaceChildren 重启动画抖动；计数态恢复文本写入，textContent 赋值自动摘除指示。 */
+	function setCountCapsuleContent(el, capsule) {
+		if (capsule.mode === "loading") {
+			const spinner = el.firstElementChild;
+			if (!(el.childNodes.length === 1 && spinner !== null && spinner.classList.contains("dap-spinner")))
+				el.replaceChildren(makeEl("span", "dap-spinner"));
+		} else if (el.textContent !== capsule.text) {
+			// 值未变不写文本节点：aria-live 下相同赋值也会触发替换与重复播报。
+			el.textContent = capsule.text;
+		}
 	}
 
 	/** 层级轨道层（R-01-003/AC-04）：每个拥有可见直属子代理的母会话一条连续竖轨
@@ -2319,26 +2338,24 @@ function apply(ctx) {
 		}
 
 		// 计数与折叠：n/m 只统计主会话——分子为等待响应数、分母为其加运行中主会话之和
-		// （R-01-001/AC-04、AC-05）；空态同样显示 0/0（AC-06）。
+		// （R-01-001/AC-04、AC-05）；空态同样显示 0/0（AC-06）。列表在途时不冒充计数，
+		// 三处数量标识显示加载指示（R-01-014/AC-06）。
 		const count = pane.querySelector(".dap-count");
 		const railCount = pane.querySelector(".dap-rail-count");
 		const { waiting, total } = awaitBadgeStats(active);
-		const hasAwaiting = waiting > 0;
-		const countText = `${waiting}/${total}`;
-		const ariaText = hasAwaiting ? `${total} 个活动会话，${waiting} 个等待响应` : `${total} 个活动会话`;
-		const awaitPeriod = awaitPulsePeriod(waiting, total);
+		const capsule = countCapsuleState(listState, waiting, total);
+		const awaitPeriod = capsule.awaiting ? awaitPulsePeriod(waiting, total) : null;
 		for (const el of [count, railCount])
 			if (el !== null) {
-				// 值未变不写文本节点/属性：aria-live 下相同赋值也会触发替换与重复播报。
-				if (el.textContent !== countText) el.textContent = countText;
-				el.toggleAttribute("data-awaiting", hasAwaiting);
-				if (el.getAttribute("aria-label") !== ariaText) el.setAttribute("aria-label", ariaText);
+				setCountCapsuleContent(el, capsule);
+				el.toggleAttribute("data-awaiting", capsule.awaiting);
+				if (el.getAttribute("aria-label") !== capsule.ariaText) el.setAttribute("aria-label", capsule.ariaText);
 				setAwaitPulsePeriod(el, awaitPeriod);
 			}
 		const toggleCount = toggle.querySelector(".dap-toggle-count");
 		if (toggleCount !== null) {
-			if (toggleCount.textContent !== countText) toggleCount.textContent = countText;
-			toggle.toggleAttribute("data-awaiting", hasAwaiting);
+			setCountCapsuleContent(toggleCount, capsule);
+			toggle.toggleAttribute("data-awaiting", capsule.awaiting);
 			setAwaitPulsePeriod(toggleCount, awaitPeriod);
 		}
 		pane.toggleAttribute("data-collapsed", collapsed);

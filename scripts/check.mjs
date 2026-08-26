@@ -41,6 +41,7 @@ import {
 	listLoadState,
 	messagePreviews,
 	movedToRecentIds,
+	movedToActiveIds,
 	modelMetadata,
 	needsHistorySnapshot,
 	lastTurnEndFromEvents,
@@ -1789,6 +1790,16 @@ assert.deepEqual(movedToRecentIds(new Set(["sB"]), [], []), [], "彻底消失（
 assert.deepEqual(movedToRecentIds(new Set(), [{ id: "sB" }], []), [], "上一帧不在活动区不判定为迁移");
 assert.deepEqual(movedToRecentIds(new Set(["sB"]), [{ id: "sB" }], []), [], "仍在活动区不判定为迁移");
 
+// ---- R-01-010/AC-07 历史区→活动区迁移判定（反向，与 movedToRecentIds 镜像）----
+assert.deepEqual(
+	movedToActiveIds(new Set(["rA", "rB"]), [{ id: "rB" }], [{ id: "rA" }]),
+	["rB"],
+	"上一帧历史区 id 离开历史区且出现于活动区判定为反向迁移",
+);
+assert.deepEqual(movedToActiveIds(new Set(["rB"]), [], []), [], "彻底消失（归档/滑出历史窗口）不判定为反向迁移");
+assert.deepEqual(movedToActiveIds(new Set(), [{ id: "rB" }], []), [], "上一帧不在历史区不判定为反向迁移");
+assert.deepEqual(movedToActiveIds(new Set(["rB"]), [], [{ id: "rB" }]), [], "仍在历史区不判定为反向迁移");
+
 // ---- R-01-003/AC-02、R-01-010/AC-01 已结束子代理不入最近历史 ----
 const recentSubSnap = {
 	ids: ["m", "m-c1"],
@@ -2418,6 +2429,40 @@ assert.ok(bundle.includes("opacity 0.1s ease 0.2s"), "ghost 到位后才淡出�
 assert.ok(bundle.includes(".dap-move-in"), "目标最近卡迁移时淡入");
 assert.ok(bundle.includes('"transitionend"'), "ghost 生命周期由 transitionend 收口（不引入定时器）");
 assert.ok(bundle.includes('matchMedia?.("(prefers-reduced-motion: reduce)")'), "reduced-motion 时跳过迁移动画直接落位");
+
+// R-01-010/AC-07（双向）
+// 历史区→活动区反向迁移：检测接线 prevRenderedRecentIds，ghost 源池为历史卡池、目标池为活动卡池。
+assert.ok(
+	bundle.includes("...movedToActiveIds(prevRenderedRecentIds, active, recent).map((id) => ({ id, from: recentCardsById, to: cardsById }))"),
+	"历史区→活动区迁移经 movedToActiveIds 检测，ghost 源/目标卡池反向接线",
+);
+assert.ok(bundle.includes("const target = plan.to.get(plan.id)?.el;"), "ghost 目标矩形按迁移方向从目标卡池量取（双向共用）");
+assert.ok(
+	bundle.includes("prevRenderedRecentIds = new Set(recent.map((entry) => String(entry.id)))"),
+	"上一帧历史区 id 集合随签名提交记账（反向迁移检测前提）",
+);
+
+// R-01-010/AC-10 受影响卡片 FLIP 过渡
+// 迁移帧内位置变化的其它卡片（含历史区段头）以反向位移 + dap-shift 过渡平滑归位，不瞬间跳变。
+assert.ok(
+	bundle.includes("[data-dsh-activity-pane] .dap-shift {\n  transition: transform 0.3s ease;\n}"),
+	"受影响卡片经 dap-shift 获得 transform 过渡（与 ghost 同时长同缓动）",
+);
+assert.ok(
+	bundle.includes("const shiftRects = movePlans.length > 0 ? snapshotShiftRects() : null;"),
+	"仅迁移帧量取受影响卡片矩形；reduced-motion 下 prepareMoveGhosts 返回空、FLIP 整体跳过",
+);
+assert.ok(bundle.includes('renderedPane?.querySelector(".dap-recent-head")'), "历史区段头一并纳入 FLIP 量取（段头不瞬间跳变）");
+assert.ok(bundle.includes("void el.offsetWidth;"), "反向位移先无过渡落位、reflow 后挂过渡类归零（FLIP 标准序）");
+assert.ok(
+	bundle.includes('el.addEventListener("transitionend", cleanup, { once: true })'),
+	"受影响卡片平移由 transitionend 收口（不引入定时器）",
+);
+assert.ok(bundle.includes("cancelShift(rec.el);"), "卡片被 prune 时同步取消其平移状态（不残留监听与内联位移）");
+assert.ok(
+	bundle.includes("for (const el of [...shiftCleanups.keys()]) cancelShift(el);"),
+	"卸载时清理全部在飞平移（R-02-003 卸载不残留）",
+);
 
 // R-01-004/AC-03
 // 滚动条仅滚动时显示：thumb 默认透明、data-scrolling 时显示；Firefox 路径在 @supports 门内。

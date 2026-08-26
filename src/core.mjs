@@ -1307,6 +1307,22 @@ export function movedToRecentIds(prevActiveIds, active, recent) {
 	return moved;
 }
 
+/**
+ * 历史区→活动区迁移检测（R-01-010/AC-07）：上一帧历史区 id 在本帧离开历史区且出现于
+ * 活动区即判定为一次反向迁移；彻底消失（归档、滑出历史窗口）不判定。prevRecentIds 为上一帧
+ * 已渲染的历史区 id 集合，active/recent 为本帧派生条目。与 movedToRecentIds 镜像对称。
+ */
+export function movedToActiveIds(prevRecentIds, active, recent) {
+	if (!(prevRecentIds instanceof Set)) return [];
+	const activeIds = new Set((Array.isArray(active) ? active : []).map((entry) => String(entry?.id)));
+	const recentIds = new Set((Array.isArray(recent) ? recent : []).map((entry) => String(entry?.id)));
+	const moved = [];
+	for (const id of prevRecentIds) {
+		if (!recentIds.has(id) && activeIds.has(id)) moved.push(id);
+	}
+	return moved;
+}
+
 /** 从 history 事件提取最后回合结束时刻（最后一条 `turn/end` 的有效 time）：
  *  尾部反向扫描，`time` 非有限值的 `turn/end` 跳过继续向前；全部无有效时刻返回 null（R-01-010/AC-08）。 */
 export function lastTurnEndFromEvents(events) {

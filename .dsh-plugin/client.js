@@ -1313,6 +1313,22 @@ function movedToRecentIds(prevActiveIds, active, recent) {
 	return moved;
 }
 
+/**
+ * 历史区→活动区迁移检测（R-01-010/AC-07）：上一帧历史区 id 在本帧离开历史区且出现于
+ * 活动区即判定为一次反向迁移；彻底消失（归档、滑出历史窗口）不判定。prevRecentIds 为上一帧
+ * 已渲染的历史区 id 集合，active/recent 为本帧派生条目。与 movedToRecentIds 镜像对称。
+ */
+function movedToActiveIds(prevRecentIds, active, recent) {
+	if (!(prevRecentIds instanceof Set)) return [];
+	const activeIds = new Set((Array.isArray(active) ? active : []).map((entry) => String(entry?.id)));
+	const recentIds = new Set((Array.isArray(recent) ? recent : []).map((entry) => String(entry?.id)));
+	const moved = [];
+	for (const id of prevRecentIds) {
+		if (!recentIds.has(id) && activeIds.has(id)) moved.push(id);
+	}
+	return moved;
+}
+
 /** 从 history 事件提取最后回合结束时刻（最后一条 `turn/end` 的有效 time）：
  *  尾部反向扫描，`time` 非有限值的 `turn/end` 跳过继续向前；全部无有效时刻返回 null（R-01-010/AC-08）。 */
 function lastTurnEndFromEvents(events) {
@@ -2193,11 +2209,12 @@ const CSS = `
   background: transparent;
   display: none;
 }
-/* 活动区→历史区迁移动画（R-01-010/AC-07）：旧卡克隆 ghost 挂载于窗格元素内
+/* 活动区↔历史区迁移动画（R-01-010/AC-07、AC-10）：旧卡克隆 ghost 挂载于窗格元素内
    （卡片样式经 [data-dsh-activity-pane] 作用域自然生效），以 absolute 覆盖层从原矩形
-   FLIP 平移并形变至目标最近卡矩形，到位后再淡出、真卡同步淡入；ghost 生命周期由
-   transitionend 收口，prefers-reduced-motion 时 JS 侧整体跳过（不创建 ghost、不加
-   dap-move-in）。 */
+   FLIP 平移并形变至目标区卡片矩形，到位后再淡出、真卡同步淡入；ghost 生命周期由
+   transitionend 收口。迁移帧内位置受影响的其它卡片（含历史区段头）经 dap-shift
+   反向位移平滑归位，不瞬间跳变。prefers-reduced-motion 时 JS 侧整体跳过（不创建
+   ghost、不加 dap-move-in、不量取受影响卡片矩形）。 */
 [data-dsh-activity-pane] > .dap-move-ghost {
   position: absolute;
   z-index: 6;
@@ -2209,6 +2226,12 @@ const CSS = `
   animation: dap-move-in 0.3s ease;
 }
 @keyframes dap-move-in { from { opacity: 0; } }
+/* 受影响卡片 FLIP（R-01-010/AC-10）：JS 先以无过渡内联 transform 把元素钉回旧视觉
+   位置，reflow 后挂本类并清除内联位移，经 transform 过渡平滑归位；与 ghost 同时长
+   同缓动。.dap-card/.dap-recent-head 均无既有 transition 规则，本类不覆盖其它过渡。 */
+[data-dsh-activity-pane] .dap-shift {
+  transition: transform 0.3s ease;
+}
 /* 窄屏：窗格变为固定抽屉 + 浮动开关按钮；抽屉默认隐藏在屏外。
    抽屉需不透明背景（否则透出下层会话内容）+ touch-action:none（把手/头部的
    触摸不滚动下层页面），桌面列则保持低透明分界。 */
@@ -2410,9 +2433,14 @@ function apply(ctx) {
 	let prevActiveMainIds = [];
 	/** 上一帧已提交渲染的活动区 id 集合：活动区→历史区迁移检测（R-01-010/AC-07）。 */
 	let prevRenderedActiveIds = new Set();
+	/** 上一帧已提交渲染的历史区 id 集合：历史区→活动区迁移检测（R-01-010/AC-07）。 */
+	let prevRenderedRecentIds = new Set();
 	/** 迁移中 ghost 元素集合（含 id 索引）：同一 id 再迁移时旧 ghost 移除，卸载时统一清理。 */
 	const moveGhosts = new Set();
 	const moveGhostsById = new Map();
+	/** 在飞平移的元素级清理（元素 → transitionend 监听移除 + 类与内联位移复位）：
+	 *  平移中再次迁移以当前视觉矩形为起点重启；prune 与卸载时同步取消（R-01-010/AC-10）。 */
+	const shiftCleanups = new Map();
 	/** 活动区卡片 id → { el, kind } 复用表。 */
 	const cardsById = new Map();
 	/** 历史区卡片 id → { el } 复用表。 */
@@ -3631,6 +3659,7 @@ function apply(ctx) {
 		for (const [id, rec] of reuseMap) {
 			if (alive.has(id)) continue;
 			rec.unbind?.();
+			cancelShift(rec.el);
 			rec.el.remove();
 			reuseMap.delete(id);
 		}
@@ -3651,15 +3680,27 @@ function apply(ctx) {
 		ghost.remove();
 	}
 
-	/** 迁移动画前半（DOM 写入前）：量取迁出活动卡矩形（换算为窗格相对坐标）并克隆
-	 *  ghost；ghost 挂载于窗格元素内，卡片样式经作用域自然生效。 */
-	function prepareMoveGhosts(movedIds) {
-		if (movedIds.length === 0 || disposed || prefersReducedMotion()) return [];
+	/** 取消元素在飞平移：移除 transitionend 监听、过渡类与内联位移（瞬时不渐变）。
+	 *  平移中再次迁移时以当前视觉矩形为起点重启前调用；prune 与卸载时同步调用。 */
+	function cancelShift(el) {
+		const cleanup = shiftCleanups.get(el);
+		if (cleanup === undefined) return;
+		el.removeEventListener("transitionend", cleanup);
+		el.classList.remove("dap-shift");
+		el.style.transform = "";
+		shiftCleanups.delete(el);
+	}
+
+	/** 迁移动画前半（DOM 写入前）：量取迁出卡矩形（换算为窗格相对坐标）并克隆
+	 *  ghost；ghost 挂载于窗格元素内，卡片样式经作用域自然生效。migrations 为双向
+	 *  迁移计划 [{ id, from, to }]，from/to 分别为源/目标卡池（R-01-010/AC-07）。 */
+	function prepareMoveGhosts(migrations) {
+		if (migrations.length === 0 || disposed || prefersReducedMotion()) return [];
 		const paneRect = renderedPane?.getBoundingClientRect?.();
 		if (paneRect == null) return [];
 		const plans = [];
-		for (const id of movedIds) {
-			const source = cardsById.get(id)?.el;
+		for (const { id, from, to } of migrations) {
+			const source = from.get(id)?.el;
 			const rect = source?.getBoundingClientRect?.();
 			if (source == null || rect == null || rect.width <= 0 || rect.height <= 0) continue;
 			// 同一 id 再次迁移：先移除旧 ghost，按最新帧重新判定。
@@ -3677,19 +3718,19 @@ function apply(ctx) {
 			ghost.style.height = `${rect.height}px`;
 			// 克隆在此不挂载：其后 DOM 写入若中途抛错，未挂载克隆随 plans 自然丢弃，
 			// 覆盖层不会无 transition 残留（transitionend 收口的唯一兜底）。
-			plans.push({ id, ghost, left: rect.left - paneRect.left, top: rect.top - paneRect.top });
+			plans.push({ id, to, ghost, left: rect.left - paneRect.left, top: rect.top - paneRect.top });
 		}
 		return plans;
 	}
 
-	/** 迁移动画后半（DOM 写入后）：量取目标最近卡矩形，rAF 内启动 FLIP 平移并形变至
+	/** 迁移动画后半（DOM 写入后）：量取目标区卡片矩形，rAF 内启动 FLIP 平移并形变至
 	 *  目标矩形，到位后淡出、真卡淡入；目标不可量取时直接落位（克隆未挂载，无需清理）。
 	 *  transitionend 收口，不引入定时器。 */
 	function runMoveGhosts(plans) {
 		const paneRect = renderedPane?.getBoundingClientRect?.();
 		if (paneRect == null) return;
 		for (const plan of plans) {
-			const target = recentCardsById.get(plan.id)?.el;
+			const target = plan.to.get(plan.id)?.el;
 			const rect = target?.getBoundingClientRect?.();
 			if (target == null || rect == null || rect.width <= 0 || rect.height <= 0) {
 				continue;
@@ -3719,6 +3760,54 @@ function apply(ctx) {
 		}
 	}
 
+	/** 受影响卡片 FLIP 前半（DOM 写入前，R-01-010/AC-10）：量取两卡池全部现存卡片与
+	 *  历史区段头的当前视觉矩形（含在飞平移的 transform 位移，重启时从视觉位置续接）。
+	 *  零尺寸（整段隐藏等）不量取：无从滑起的元素不做动画。 */
+	function snapshotShiftRects() {
+		const rects = new Map();
+		for (const pool of [cardsById, recentCardsById]) {
+			for (const rec of pool.values()) {
+				const rect = rec.el.getBoundingClientRect();
+				if (rect.width > 0 && rect.height > 0) rects.set(rec.el, rect);
+			}
+		}
+		const head = renderedPane?.querySelector(".dap-recent-head") ?? null;
+		if (head !== null) {
+			const rect = head.getBoundingClientRect();
+			if (rect.width > 0 && rect.height > 0) rects.set(head, rect);
+		}
+		return rects;
+	}
+
+	/** 受影响卡片 FLIP 后半（DOM 写入后，R-01-010/AC-10）：仍连接且位置变化的元素先
+	 *  以无过渡内联 transform 钉回旧视觉位置，reflow 后挂 dap-shift 并清除内联位移，
+	 *  经 transform 过渡平滑归位；transitionend（once）收口。目标零尺寸（整段转隐藏）
+	 *  或位置未变时跳过。迁移卡的新元素不在量取集合内（由 ghost + 淡入承担呈现）。 */
+	function runShiftAnimations(preRects) {
+		for (const [el, pre] of preRects) {
+			if (!el.isConnected) continue;
+			// 平移中再次迁移：先取消旧平移（含监听，元素瞬回布局位），再量取新布局矩形——
+			// 否则 post 会混入在飞 transform 位移，反向位移量算错。
+			cancelShift(el);
+			const post = el.getBoundingClientRect();
+			if (post.width <= 0 || post.height <= 0) continue;
+			const dx = pre.left - post.left;
+			const dy = pre.top - post.top;
+			if (dx === 0 && dy === 0) continue;
+			// 以刚量取的旧视觉矩形为起点重启：先无过渡钉回，reflow 后挂过渡类归零。
+			el.style.transform = `translate(${dx}px, ${dy}px)`;
+			void el.offsetWidth;
+			el.classList.add("dap-shift");
+			el.style.transform = "";
+			const cleanup = () => {
+				el.classList.remove("dap-shift");
+				shiftCleanups.delete(el);
+			};
+			shiftCleanups.set(el, cleanup);
+			el.addEventListener("transitionend", cleanup, { once: true });
+		}
+	}
+
 	/** 卡片渲染异常上报（按会话+错误内容去重）：持续故障不刷屏，错误变化时再记。
 	 *  隔离是为让其余卡片继续更新，错误本身必须保持可见、不吞错。 */
 	let lastCardRenderErrorKey = "";
@@ -3737,6 +3826,7 @@ function apply(ctx) {
 			renderedPane = pane;
 			lastSig = "";
 			prevRenderedActiveIds = new Set();
+			prevRenderedRecentIds = new Set();
 		}
 		applyLayout();
 		const activeList = pane.querySelector(`.${LIST_CLASS}`);
@@ -3874,8 +3964,15 @@ function apply(ctx) {
 
 		const sig = cardSignature([...active, ...recent]);
 		if (sig === lastSig) return;
-		// 活动区→历史区迁移：DOM 写入前量取旧卡矩形并克隆 ghost（R-01-010/AC-07）。
-		const movePlans = prepareMoveGhosts(movedToRecentIds(prevRenderedActiveIds, active, recent));
+		// 跨区迁移（双向，R-01-010/AC-07）：DOM 写入前量取旧卡矩形并克隆 ghost。
+		const migrations = [
+			...movedToRecentIds(prevRenderedActiveIds, active, recent).map((id) => ({ id, from: cardsById, to: recentCardsById })),
+			...movedToActiveIds(prevRenderedRecentIds, active, recent).map((id) => ({ id, from: recentCardsById, to: cardsById })),
+		];
+		const movePlans = prepareMoveGhosts(migrations);
+		// 迁移帧内位置受影响的其它卡片与历史区段头：DOM 写入前量取当前视觉矩形
+		// （R-01-010/AC-10）；reduced-motion 下 movePlans 为空，FLIP 量取整体跳过。
+		const shiftRects = movePlans.length > 0 ? snapshotShiftRects() : null;
 
 		// 逐卡异常隔离：一张卡渲染抛错不得冻结其余卡片（此前签名先于循环提交，
 		// 故障卡及其后全部卡片永久滞留旧内容——历史卡因此停在过去的首条消息
@@ -3915,6 +4012,7 @@ function apply(ctx) {
 			ensureListStatus(recentSection, listState !== "ready" && recent.length === 0, listState === "loading" ? "加载中…" : "列表加载失败", { loading: listState === "loading" });
 		}
 		runMoveGhosts(movePlans);
+		if (shiftRects !== null) runShiftAnimations(shiftRects);
 		// 区域已有条目但列表仍在途时，在区头部显示行内加载指示（R-01-014/AC-01）。
 		const headerEl = pane.querySelector(".dap-header");
 		const recentHeadEl = recentSection?.querySelector(".dap-recent-head") ?? null;
@@ -3959,6 +4057,7 @@ function apply(ctx) {
 		if (renderOk) {
 			lastSig = sig;
 			prevRenderedActiveIds = new Set(active.map((entry) => String(entry.id)));
+			prevRenderedRecentIds = new Set(recent.map((entry) => String(entry.id)));
 		}
 	}
 
@@ -4165,6 +4264,7 @@ function apply(ctx) {
 		trackedLayer = null;
 		trackEls.clear();
 		for (const [id, ghost] of [...moveGhostsById]) removeMoveGhost(id, ghost);
+		for (const el of [...shiftCleanups.keys()]) cancelShift(el);
 		observedCenter = null;
 		toggle.removeEventListener("click", onToggleClick);
 		unbindBackdrop();

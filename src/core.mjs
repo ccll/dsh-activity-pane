@@ -442,7 +442,7 @@ function snapshotIdle(snapshot) {
 }
 
 /** 从主会话 ChatSnapshot 的真实 order 收集尾部扁平工作项（含 live 合并与尾部提升），
- *  作为折叠分组（foldedTimelineWithSlot/foldWorkGroups）的输入内核与分组成员级观察接缝。 */
+ *  作为折叠分组（foldedConversationTimeline/foldWorkGroups）的输入内核与分组成员级观察接缝。 */
 export function conversationWorkItems(snapshot, limit = 4, cwd = "") {
 	const max = Math.max(0, limit);
 	if (max === 0) return [];
@@ -450,32 +450,6 @@ export function conversationWorkItems(snapshot, limit = 4, cwd = "") {
 	// live 合并只作用于尾部子集（partial/runningCalls 的对应已定案项必在最近窗口内）。
 	const full = mergeLiveItems(rawTailItems(snapshot, max, cwd), snapshot, max, cwd);
 	return settleWhenIdle(promoteRunningTail(full.slice(-max), snapshot), snapshotIdle(snapshot));
-}
-
-/** 窗口（最后 keep 行）内是否已含用户指令（R-01-018/AC-02）：
- *  更新的指令仍在可见窗口内时槽位隐藏，且无需继续向更早处收集。 */
-function windowHasUser(rows, keep) {
-	if (!Array.isArray(rows) || keep <= 0) return false;
-	for (let i = rows.length - 1; i >= rows.length - keep && i >= 0; i -= 1) {
-		if (rows[i]?.kind === "user") return true;
-	}
-	return false;
-}
-
-/** 窗口外最近一条用户指令（R-01-018/AC-01、AC-02、AC-03）：rows 按时间正序，
- *  窗口保留最后 keep 行。窗口内已含用户指令（更新的指令仍可见）时返回 null；
- *  否则在前段逆向取最近 kind=user 行的副本（slot 标记）。 */
-function slotOf(rows, keep) {
-	if (!Array.isArray(rows) || keep <= 0) return null;
-	// R-01-018/AC-02：窗口内已含用户指令时隐藏槽位（不重复展示更旧指令）。
-	if (windowHasUser(rows, keep)) return null;
-	for (let i = rows.length - keep - 1; i >= 0; i -= 1) {
-		const row = rows[i];
-		if (row !== null && typeof row === "object" && row.kind === "user") {
-			return { id: row.id, kind: "user", icon: "user", text: typeof row.text === "string" ? row.text : "", status: "done", slot: true };
-		}
-	}
-	return null;
 }
 
 /** 折叠分组硬边界：用户输入项与含正文输出的 assistant 项（R-01-017/AC-02）。 */
@@ -627,19 +601,11 @@ export function foldWorkGroups(items, limit = 4) {
 
 /** 折叠分组时间线（R-01-017）：渲染层时间线的唯一来源——无条件折叠分组，不做任何探测切换。
  *  指数扩窗收集尾部原始项（分组数不足 limit 时 ×3 → ×8 → 全序）+ live 合并 + 分组 +
- *  尾部提升，长会话典型情况不触碰全序扫描。 */
-export function foldedConversationTimeline(snapshot, limit = 4, cwd = "") {
-	return foldedTimelineWithSlot(snapshot, limit, cwd).rows;
-}
-
-/** 折叠分组时间线 + 指令槽位（R-01-018）：分组全量行上截窗口；
- *  槽位未确定（窗口内无指令且窗口外尚未见指令）时继续扩窗直至全序兜底，
- *  保证窗口外最近用户指令只要存在就能被找到。
- *  lastUser 为运行卡轻量 history 提供的最近用户指令（行内窗口外无指令时兜底）。
+ *  尾部提升，长会话典型情况不触碰全序扫描。
  *  idle：渲染层判定的非执行呈现（等待响应/暂停，快照为冻结值、pending 不可得）——为 true 时残留 running 全部落定。 */
-export function foldedTimelineWithSlot(snapshot, limit = 4, cwd = "", lastUser = null, descendantActive = false, idle = false) {
+export function foldedConversationTimeline(snapshot, limit = 4, cwd = "", descendantActive = false, idle = false) {
 	const max = Math.max(0, limit);
-	if (max === 0) return { rows: [], slot: null };
+	if (max === 0) return [];
 	// 非执行呈现（渲染层 idle 判定或快照 pending）且非委托周期：落定在分组之前——
 	// 组标题/状态由已定案成员派生（避免 done 圆点配「正在思考」标题），尾部提升同时跳过。
 	const settle = (idle === true || snapshotIdle(snapshot)) && descendantActive !== true;
@@ -647,40 +613,12 @@ export function foldedTimelineWithSlot(snapshot, limit = 4, cwd = "", lastUser =
 		const items = rawTailItems(snapshot, want, cwd);
 		const merged = mergeLiveItems(items, snapshot, Number.MAX_SAFE_INTEGER, cwd);
 		const full = foldWorkGroups(settle ? settleWhenIdle(merged, true) : merged, Number.MAX_SAFE_INTEGER);
-		const rows = full.slice(-max);
-		const slot = slotOf(full, max) ?? fallbackSlot(full, max, lastUser);
-		if (rows.length >= max || want === Number.MAX_SAFE_INTEGER) {
-			if (windowHasUser(full, max) || slot !== null || want === Number.MAX_SAFE_INTEGER) {
-				return { rows: settle ? rows : promoteRunningTail(rows, snapshot, descendantActive), slot };
-			}
+		if (full.length >= max || want === Number.MAX_SAFE_INTEGER) {
+			const rows = full.slice(-max);
+			return settle ? rows : promoteRunningTail(rows, snapshot, descendantActive);
 		}
 	}
-	return { rows: [], slot: null };
-}
-
-/** lastUser 兜底（R-01-018）：窗口内无用户指令行时，最近用户指令必位于窗口外，可作槽位。 */
-function fallbackSlot(rows, keep, lastUser) {
-	if (lastUser === null || lastUser === undefined) return null;
-	if (!windowHasUser(rows, keep)) {
-		const text = typeof lastUser.text === "string" ? lastUser.text : "";
-		if (text !== "") return { id: typeof lastUser.id === "string" ? lastUser.id : "", kind: "user", icon: "user", text, status: "done", slot: true };
-	}
-	return null;
-}
-
-/** 最近用户指令记账（R-01-018/AC-01、AC-03）：优先取窗口内用户行，否则取槽位行——
- *  槽位行本身就是已知的窗口外最近指令。指令行随窗口前滑被逐出已加载窗口后，
- *  兜底源仍持有该指令，槽位不因窗口滑动凭空消失，只在窗口内出现更新指令时隐藏。
- *  值相等返回原引用，避免调用方 memo 键抖动重算。 */
-export function rememberLastUser(lastUser, rows, slot) {
-	const windowUser = (Array.isArray(rows) ? rows : []).findLast((row) => row?.kind === "user") ?? null;
-	const candidate = windowUser ?? (slot !== null && slot !== undefined && slot.kind === "user" ? slot : null);
-	if (candidate === null) return lastUser ?? null;
-	const id = typeof candidate.id === "string" ? candidate.id : "";
-	const text = typeof candidate.text === "string" ? candidate.text : "";
-	if (text === "") return lastUser ?? null;
-	if (lastUser !== null && lastUser !== undefined && lastUser.id === id && lastUser.text === text) return lastUser;
-	return { id, text };
+	return [];
 }
 
 function timelineItemFromEvent(entry, cwd = "") {
@@ -699,20 +637,6 @@ function timelineItemFromEvent(entry, cwd = "") {
 	}
 	if (event.type === "tool/result") {
 		return timelineToolItem({ kind: "tool-result", callId: data.callId, call: data.name ? { name: data.name, argsRaw: data.arguments ?? "" } : null, isError: data.isError, resultView: entry?.view?.for === "result" ? entry.view.view : null }, null, cwd);
-	}
-	return null;
-}
-
-/** 从 history 事件序列提取最近一条用户指令（R-01-018 运行卡槽位源）；无则 null。 */
-export function lastUserFromEvents(events) {
-	if (!Array.isArray(events)) return null;
-	for (let i = events.length - 1; i >= 0; i -= 1) {
-		const event = isRecord(events[i]?.event) ? events[i].event : events[i];
-		const data = isRecord(event?.data) ? event.data : {};
-		if (event?.type === "user/message" && data.source?.kind === "user") {
-			const text = contentText(data.content);
-			if (text !== "") return { id: `user:${event.seq}`, text };
-		}
 	}
 	return null;
 }
@@ -763,14 +687,6 @@ export function conversationTimelineFromHistory(history, limit = 4, cwd = "") {
 	}
 	const max = Math.max(0, limit);
 	return max === 0 ? [] : items.slice(-max);
-}
-
-/** 冷会话 history 折叠路径 + 指令槽位（R-01-018）：分组全量行上截窗口。 */
-export function foldWorkGroupsWithSlot(items, limit = 4) {
-	const max = Math.max(0, limit);
-	if (max === 0) return { rows: [], slot: null };
-	const full = foldWorkGroups(items, Number.MAX_SAFE_INTEGER);
-	return { rows: full.slice(-max), slot: slotOf(full, max) };
 }
 
 /** 从 ChatSnapshot/history 取最近用户与 agent reply 的物理首行。

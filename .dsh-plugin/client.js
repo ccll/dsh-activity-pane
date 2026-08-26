@@ -448,7 +448,7 @@ function snapshotIdle(snapshot) {
 }
 
 /** 从主会话 ChatSnapshot 的真实 order 收集尾部扁平工作项（含 live 合并与尾部提升），
- *  作为折叠分组（foldedTimelineWithSlot/foldWorkGroups）的输入内核与分组成员级观察接缝。 */
+ *  作为折叠分组（foldedConversationTimeline/foldWorkGroups）的输入内核与分组成员级观察接缝。 */
 function conversationWorkItems(snapshot, limit = 4, cwd = "") {
 	const max = Math.max(0, limit);
 	if (max === 0) return [];
@@ -456,32 +456,6 @@ function conversationWorkItems(snapshot, limit = 4, cwd = "") {
 	// live 合并只作用于尾部子集（partial/runningCalls 的对应已定案项必在最近窗口内）。
 	const full = mergeLiveItems(rawTailItems(snapshot, max, cwd), snapshot, max, cwd);
 	return settleWhenIdle(promoteRunningTail(full.slice(-max), snapshot), snapshotIdle(snapshot));
-}
-
-/** 窗口（最后 keep 行）内是否已含用户指令（R-01-018/AC-02）：
- *  更新的指令仍在可见窗口内时槽位隐藏，且无需继续向更早处收集。 */
-function windowHasUser(rows, keep) {
-	if (!Array.isArray(rows) || keep <= 0) return false;
-	for (let i = rows.length - 1; i >= rows.length - keep && i >= 0; i -= 1) {
-		if (rows[i]?.kind === "user") return true;
-	}
-	return false;
-}
-
-/** 窗口外最近一条用户指令（R-01-018/AC-01、AC-02、AC-03）：rows 按时间正序，
- *  窗口保留最后 keep 行。窗口内已含用户指令（更新的指令仍可见）时返回 null；
- *  否则在前段逆向取最近 kind=user 行的副本（slot 标记）。 */
-function slotOf(rows, keep) {
-	if (!Array.isArray(rows) || keep <= 0) return null;
-	// R-01-018/AC-02：窗口内已含用户指令时隐藏槽位（不重复展示更旧指令）。
-	if (windowHasUser(rows, keep)) return null;
-	for (let i = rows.length - keep - 1; i >= 0; i -= 1) {
-		const row = rows[i];
-		if (row !== null && typeof row === "object" && row.kind === "user") {
-			return { id: row.id, kind: "user", icon: "user", text: typeof row.text === "string" ? row.text : "", status: "done", slot: true };
-		}
-	}
-	return null;
 }
 
 /** 折叠分组硬边界：用户输入项与含正文输出的 assistant 项（R-01-017/AC-02）。 */
@@ -633,19 +607,11 @@ function foldWorkGroups(items, limit = 4) {
 
 /** 折叠分组时间线（R-01-017）：渲染层时间线的唯一来源——无条件折叠分组，不做任何探测切换。
  *  指数扩窗收集尾部原始项（分组数不足 limit 时 ×3 → ×8 → 全序）+ live 合并 + 分组 +
- *  尾部提升，长会话典型情况不触碰全序扫描。 */
-function foldedConversationTimeline(snapshot, limit = 4, cwd = "") {
-	return foldedTimelineWithSlot(snapshot, limit, cwd).rows;
-}
-
-/** 折叠分组时间线 + 指令槽位（R-01-018）：分组全量行上截窗口；
- *  槽位未确定（窗口内无指令且窗口外尚未见指令）时继续扩窗直至全序兜底，
- *  保证窗口外最近用户指令只要存在就能被找到。
- *  lastUser 为运行卡轻量 history 提供的最近用户指令（行内窗口外无指令时兜底）。
+ *  尾部提升，长会话典型情况不触碰全序扫描。
  *  idle：渲染层判定的非执行呈现（等待响应/暂停，快照为冻结值、pending 不可得）——为 true 时残留 running 全部落定。 */
-function foldedTimelineWithSlot(snapshot, limit = 4, cwd = "", lastUser = null, descendantActive = false, idle = false) {
+function foldedConversationTimeline(snapshot, limit = 4, cwd = "", descendantActive = false, idle = false) {
 	const max = Math.max(0, limit);
-	if (max === 0) return { rows: [], slot: null };
+	if (max === 0) return [];
 	// 非执行呈现（渲染层 idle 判定或快照 pending）且非委托周期：落定在分组之前——
 	// 组标题/状态由已定案成员派生（避免 done 圆点配「正在思考」标题），尾部提升同时跳过。
 	const settle = (idle === true || snapshotIdle(snapshot)) && descendantActive !== true;
@@ -653,40 +619,12 @@ function foldedTimelineWithSlot(snapshot, limit = 4, cwd = "", lastUser = null, 
 		const items = rawTailItems(snapshot, want, cwd);
 		const merged = mergeLiveItems(items, snapshot, Number.MAX_SAFE_INTEGER, cwd);
 		const full = foldWorkGroups(settle ? settleWhenIdle(merged, true) : merged, Number.MAX_SAFE_INTEGER);
-		const rows = full.slice(-max);
-		const slot = slotOf(full, max) ?? fallbackSlot(full, max, lastUser);
-		if (rows.length >= max || want === Number.MAX_SAFE_INTEGER) {
-			if (windowHasUser(full, max) || slot !== null || want === Number.MAX_SAFE_INTEGER) {
-				return { rows: settle ? rows : promoteRunningTail(rows, snapshot, descendantActive), slot };
-			}
+		if (full.length >= max || want === Number.MAX_SAFE_INTEGER) {
+			const rows = full.slice(-max);
+			return settle ? rows : promoteRunningTail(rows, snapshot, descendantActive);
 		}
 	}
-	return { rows: [], slot: null };
-}
-
-/** lastUser 兜底（R-01-018）：窗口内无用户指令行时，最近用户指令必位于窗口外，可作槽位。 */
-function fallbackSlot(rows, keep, lastUser) {
-	if (lastUser === null || lastUser === undefined) return null;
-	if (!windowHasUser(rows, keep)) {
-		const text = typeof lastUser.text === "string" ? lastUser.text : "";
-		if (text !== "") return { id: typeof lastUser.id === "string" ? lastUser.id : "", kind: "user", icon: "user", text, status: "done", slot: true };
-	}
-	return null;
-}
-
-/** 最近用户指令记账（R-01-018/AC-01、AC-03）：优先取窗口内用户行，否则取槽位行——
- *  槽位行本身就是已知的窗口外最近指令。指令行随窗口前滑被逐出已加载窗口后，
- *  兜底源仍持有该指令，槽位不因窗口滑动凭空消失，只在窗口内出现更新指令时隐藏。
- *  值相等返回原引用，避免调用方 memo 键抖动重算。 */
-function rememberLastUser(lastUser, rows, slot) {
-	const windowUser = (Array.isArray(rows) ? rows : []).findLast((row) => row?.kind === "user") ?? null;
-	const candidate = windowUser ?? (slot !== null && slot !== undefined && slot.kind === "user" ? slot : null);
-	if (candidate === null) return lastUser ?? null;
-	const id = typeof candidate.id === "string" ? candidate.id : "";
-	const text = typeof candidate.text === "string" ? candidate.text : "";
-	if (text === "") return lastUser ?? null;
-	if (lastUser !== null && lastUser !== undefined && lastUser.id === id && lastUser.text === text) return lastUser;
-	return { id, text };
+	return [];
 }
 
 function timelineItemFromEvent(entry, cwd = "") {
@@ -705,20 +643,6 @@ function timelineItemFromEvent(entry, cwd = "") {
 	}
 	if (event.type === "tool/result") {
 		return timelineToolItem({ kind: "tool-result", callId: data.callId, call: data.name ? { name: data.name, argsRaw: data.arguments ?? "" } : null, isError: data.isError, resultView: entry?.view?.for === "result" ? entry.view.view : null }, null, cwd);
-	}
-	return null;
-}
-
-/** 从 history 事件序列提取最近一条用户指令（R-01-018 运行卡槽位源）；无则 null。 */
-function lastUserFromEvents(events) {
-	if (!Array.isArray(events)) return null;
-	for (let i = events.length - 1; i >= 0; i -= 1) {
-		const event = isRecord(events[i]?.event) ? events[i].event : events[i];
-		const data = isRecord(event?.data) ? event.data : {};
-		if (event?.type === "user/message" && data.source?.kind === "user") {
-			const text = contentText(data.content);
-			if (text !== "") return { id: `user:${event.seq}`, text };
-		}
 	}
 	return null;
 }
@@ -769,14 +693,6 @@ function conversationTimelineFromHistory(history, limit = 4, cwd = "") {
 	}
 	const max = Math.max(0, limit);
 	return max === 0 ? [] : items.slice(-max);
-}
-
-/** 冷会话 history 折叠路径 + 指令槽位（R-01-018）：分组全量行上截窗口。 */
-function foldWorkGroupsWithSlot(items, limit = 4) {
-	const max = Math.max(0, limit);
-	if (max === 0) return { rows: [], slot: null };
-	const full = foldWorkGroups(items, Number.MAX_SAFE_INTEGER);
-	return { rows: full.slice(-max), slot: slotOf(full, max) };
 }
 
 /** 从 ChatSnapshot/history 取最近用户与 agent reply 的物理首行。
@@ -1996,30 +1912,18 @@ const CSS = `
   min-width: 0;
 }
 [data-dsh-activity-pane] .dap-trace:empty { display: none; }
-/* 指令槽位（R-01-018）：与用户消息行同款排版，左对齐卡片左缘、无缩进；
- *  垂直间距走 margin 而非 padding——背景画在 padding box 上，padding 会让色块上下外延、文字偏上；
- *  底部 margin 2px + .dap-trace 顶部 margin 1px = 3px，与时间线行间 gap 一致。 */
-[data-dsh-activity-pane] .dap-slot {
-  display: flex; align-items: center; column-gap: 5px;
-  min-width: 0; padding: 0 14px 0 0; margin: 1px 0 2px;   /* 左缘贴卡片无缩进；垂直间距全走 margin */
-  color: #c7ced9; font-size: 10px; line-height: 14px;
-}
-/* 用户指令行整体平底（R-01-018 呈现标识）：槽位与时间线用户行统一，图标+文字合一底；
- *  纯绿 #58c98f 透明度 10%；图标不再单设环/底。 */
-[data-dsh-activity-pane] .dap-slot,
+/* 用户消息行标识（C-019）：行下 1px 中性灰虚线下划线，深浅主题各自适配，
+ *  不占用状态色（蓝=运行中、绿=完成、红=错误、橙=中断）；浅色主题在覆盖块中改色。
+ *  以 bottom 1px 背景渐变画虚线而非 border-bottom——border 会把 14px 行高撑成 15px，
+ *  破坏圆点/竖线节奏；背景不占盒高。 */
 [data-dsh-activity-pane] .dap-trace-item[data-icon="user"] .dap-trace-main {
-  border-radius: 4px;
-  background: rgba(88, 201, 143, .1);
+  background-image: repeating-linear-gradient(90deg, rgba(139, 152, 165, .55) 0 3px, transparent 3px 6px);
+  background-size: 100% 1px;
+  background-position: bottom;
+  background-repeat: no-repeat;
 }
 [data-dsh-activity-pane] .dap-trace-item[data-icon="robot"] .dap-trace-icon svg {
   width: 13px; height: 13px;
-}
-[data-dsh-activity-pane] .dap-slot[hidden] { display: none; }
-[data-dsh-activity-pane] .dap-slot-icon { width: 14px; height: 14px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
-[data-dsh-activity-pane] .dap-slot-icon svg { display: block; width: 12px; height: 12px; }
-[data-dsh-activity-pane] .dap-slot-text {
-  flex: 1 1 auto; min-width: 0; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap;
 }
 [data-dsh-activity-pane] .dap-trace-item {
   position: relative; display: grid;
@@ -2282,7 +2186,6 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-detail,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-icon {
   color: var(--dsw-alias-label-tertiary, rgb(129, 133, 140));
 }
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-slot,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-label {
   color: var(--dsw-alias-label-secondary, rgb(97, 102, 107));
@@ -2293,6 +2196,9 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-history-separator {
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item::after {
   background: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.12));
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item[data-icon="user"] .dap-trace-main {
+  background-image: repeating-linear-gradient(90deg, var(--dsw-alias-label-tertiary, rgb(129, 133, 140)) 0 3px, transparent 3px 6px);
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-track {
   background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.08));
@@ -2620,12 +2526,8 @@ function apply(ctx) {
 						});
 						if (error) detail.historyError = error instanceof Error ? error.message : String(error);
 						detail.history = events;
-						// R-01-018：冷卡槽位源——history 内最近用户指令全文（全量行内可寻，供行内查找未命中时兜底）。
-						detail.lastUser = lastUserFromEvents(events);
 						// R-01-017：冷路径同样折叠分组（取全量页内事件再折成最多 4 组）。
-						const derivedHistory = foldWorkGroupsWithSlot(conversationTimelineFromHistory(events, Number.MAX_SAFE_INTEGER, byId[id]?.cwd ?? ""), 4);
-						detail.timeline = derivedHistory.rows;
-						detail.timelineSlot = derivedHistory.slot;
+						detail.timeline = foldWorkGroups(conversationTimelineFromHistory(events, Number.MAX_SAFE_INTEGER, byId[id]?.cwd ?? ""), 4);
 						detail.previews = messagePreviews({ history: events });
 					}))
 				historyLoads.set(id, promise);
@@ -2633,20 +2535,6 @@ function apply(ctx) {
 					if (historyLoads.get(id) === promise) historyLoads.delete(id);
 				});
 				historyPromises.push(promise);
-			} else if (detail.lastUserLoad !== true && typeof api.history === "function" && !plan.history && detail.snapshot) {
-				// R-01-018 运行卡槽位源：轻量拉取最近一页事件，提取最近用户指令全文（不作为时间线主体）；
-				// 失败静默降级（槽位隐藏），不再重试，避免每轮渲染重复 RPC。
-				detail.lastUserLoad = true;
-				const promise = enqueueDetailLoad(() => Promise.resolve()
-					.then(() => api.history({ sessionId: id, maxMessages: 50 }))
-					.then((response) => {
-						const value = apiValue(response);
-					const events = Array.isArray(value?.events) ? value.events : [];
-					if (events.length > 0) detail.lastUser = lastUserFromEvents(events);
-					})
-					.catch(() => {
-						// 静默：槽位源缺失时槽位降级隐藏
-					}));
 			}
 		}
 		const pending = modelPromises.concat(historyPromises);
@@ -3169,33 +3057,8 @@ function apply(ctx) {
 		container.replaceChildren(row);
 	}
 
-	/** 指令槽位（R-01-018）：窗口外最近用户指令常驻 `.dap-trace` 顶部；
-	 *  宿主为卡片根（trace 容器的直接父级），不参与 renderTrace 的 children 管理，
-	 *  不破坏时间线行的稳定 key 复用。 */
-	function renderSlot(container, slot) {
-		const host = container.parentElement;
-		if (host === null) return;
-		const text = slot !== null && typeof slot.text === "string" ? slot.text : "";
-		let slotEl = host.querySelector(".dap-slot");
-		if (text === "") {
-			if (slotEl !== null && slotEl.hidden !== true) slotEl.hidden = true;
-			return;
-		}
-		if (slotEl === null) {
-			slotEl = makeEl("div", "dap-slot");
-			slotEl.append(makeEl("span", "dap-slot-icon"), makeEl("span", "dap-slot-text"));
-			host.insertBefore(slotEl, container);
-		}
-		const icon = slotEl.querySelector(".dap-slot-icon");
-		if (icon !== null && icon.childElementCount === 0) icon.append(createUserIcon());
-		const textEl = slotEl.querySelector(".dap-slot-text");
-		if (textEl !== null && textEl.textContent !== text) textEl.textContent = text;
-		if (slotEl.hidden === true) slotEl.hidden = false;
-	}
-
 	/** 时间线区统一渲染：在途且无工作项时显示加载行，否则渲染工作项时间线。 */
 	function renderTimelineArea(container, entry, { lastOnly = false } = {}) {
-		renderSlot(container, entry.slot ?? null);
 		if (entry.loadingTimeline === true && entry.timeline.length === 0) {
 			renderTraceLoading(container);
 			return;
@@ -3771,25 +3634,16 @@ function apply(ctx) {
 				// 等待/暂停呈现（pendingText 存在）且自身快照为冻结值时，残留 running 行全部落定；
 				// 存在活动后代时保留尾部提升的「agent 工作中」呈现（R-01-009/AC-10 委托周期语义）。
 				const entryIdle = (entry.pendingText ?? null) !== null && entry.descendantActive !== true;
-				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineUser !== detail.lastUser || detail.memoTimelineDescendantActive !== (entry.descendantActive === true) || detail.memoTimelineIdle !== entryIdle) {
+				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineDescendantActive !== (entry.descendantActive === true) || detail.memoTimelineIdle !== entryIdle) {
 					detail.memoTimelineOf = detailSnapshot;
 					detail.memoTimelineCwd = entryCwd;
-					detail.memoTimelineUser = detail.lastUser;
 					detail.memoTimelineDescendantActive = entry.descendantActive === true;
 					detail.memoTimelineIdle = entryIdle;
-					// R-01-018：运行卡槽位源——最近用户指令记账（窗口内用户行优先，否则槽位行回写）；
-					// 指令行被挤出已加载窗口后兜底源仍持有它，槽位不因窗口前滑凭空消失（等更新指令入窗才隐藏）。
-					const derivedTimeline = foldedTimelineWithSlot(detailSnapshot, 4, entryCwd, detail.lastUser ?? null, entry.descendantActive === true, entryIdle);
-					// 行内更新收敛：值相等不换引用，避免 lastUser 引用变化引发 memo 键抖动重算。
-					detail.lastUser = rememberLastUser(detail.lastUser, derivedTimeline.rows, derivedTimeline.slot);
-					detail.memoTimeline = derivedTimeline.rows;
-					detail.memoSlot = derivedTimeline.slot;
+					detail.memoTimeline = foldedConversationTimeline(detailSnapshot, 4, entryCwd, entry.descendantActive === true, entryIdle);
 				}
 				entry.timeline = detail.memoTimeline.length > 0 ? detail.memoTimeline : detail.timeline ?? [];
-				entry.slot = detail.memoSlot ?? detail.timelineSlot ?? null;
 			} else {
 				entry.timeline = detail?.timeline ?? entry.timeline ?? [];
-				entry.slot = detail?.timelineSlot ?? entry.slot ?? null;
 			}
 			if (detail?.model) {
 				entry.model = detail.model.model;

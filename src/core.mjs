@@ -1131,6 +1131,34 @@ export function workspaceHue(key) {
 	return 30 + (hash % 291);
 }
 
+const WORKSPACE_HUE_ANCHORS = [30, 78, 126, 174, 222, 270, 318];
+
+/**
+ * 同屏工作区色相消解（R-01-003/AC-08、AC-12）：身份去重排序后，以稳定基色
+ * 确定七色感知锚点的起始槽；撞槽时循环选择空闲槽。超过七个工作区后选择当前
+ * 使用次数最少的槽，使复用均衡且确定。同屏不超过七个时任意两色相圆周距离 ≥48°。
+ */
+export function resolveWorkspaceHues(keys) {
+	const identities = [...new Set((Array.isArray(keys) ? keys : []).map(cleanText).filter(Boolean))].sort();
+	const uses = WORKSPACE_HUE_ANCHORS.map(() => 0);
+	const resolved = new Map();
+	for (const identity of identities) {
+		const start = (workspaceHue(identity) - 30) % WORKSPACE_HUE_ANCHORS.length;
+		let chosen = start;
+		for (let offset = 0; offset < WORKSPACE_HUE_ANCHORS.length; offset += 1) {
+			const candidate = (start + offset) % WORKSPACE_HUE_ANCHORS.length;
+			if (uses[candidate] < uses[chosen]) chosen = candidate;
+			if (uses[candidate] === 0) {
+				chosen = candidate;
+				break;
+			}
+		}
+		uses[chosen] += 1;
+		resolved.set(identity, WORKSPACE_HUE_ANCHORS[chosen]);
+	}
+	return resolved;
+}
+
 /** 主会话按左侧工作区顺序排序的权重；不在任何 workspace 的排在最后保持 lineage 顺序。 */
 function workspaceRank(workspaceItems) {
 	const wsIndex = new Map();

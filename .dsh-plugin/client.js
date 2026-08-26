@@ -1137,6 +1137,34 @@ function workspaceHue(key) {
 	return 30 + (hash % 291);
 }
 
+const WORKSPACE_HUE_ANCHORS = [30, 78, 126, 174, 222, 270, 318];
+
+/**
+ * 同屏工作区色相消解（R-01-003/AC-08、AC-12）：身份去重排序后，以稳定基色
+ * 确定七色感知锚点的起始槽；撞槽时循环选择空闲槽。超过七个工作区后选择当前
+ * 使用次数最少的槽，使复用均衡且确定。同屏不超过七个时任意两色相圆周距离 ≥48°。
+ */
+function resolveWorkspaceHues(keys) {
+	const identities = [...new Set((Array.isArray(keys) ? keys : []).map(cleanText).filter(Boolean))].sort();
+	const uses = WORKSPACE_HUE_ANCHORS.map(() => 0);
+	const resolved = new Map();
+	for (const identity of identities) {
+		const start = (workspaceHue(identity) - 30) % WORKSPACE_HUE_ANCHORS.length;
+		let chosen = start;
+		for (let offset = 0; offset < WORKSPACE_HUE_ANCHORS.length; offset += 1) {
+			const candidate = (start + offset) % WORKSPACE_HUE_ANCHORS.length;
+			if (uses[candidate] < uses[chosen]) chosen = candidate;
+			if (uses[candidate] === 0) {
+				chosen = candidate;
+				break;
+			}
+		}
+		uses[chosen] += 1;
+		resolved.set(identity, WORKSPACE_HUE_ANCHORS[chosen]);
+	}
+	return resolved;
+}
+
 /** 主会话按左侧工作区顺序排序的权重；不在任何 workspace 的排在最后保持 lineage 顺序。 */
 function workspaceRank(workspaceItems) {
 	const wsIndex = new Map();
@@ -3719,13 +3747,13 @@ function apply(ctx) {
 		renderTrace(container, entry.timeline, { lastOnly });
 	}
 
-	function renderCardInto(el, entry) {
+	function renderCardInto(el, entry, hueByWorkspace) {
 		const workspaceLabel = el.querySelector(".dap-workspace");
 		if (workspaceLabel !== null) {
 			const workspaceText = workspaceLabel.querySelector(".dap-workspace-text");
 			if (entry.workspaceTitle !== "") {
 				if (workspaceText !== null) restoreTextField(workspaceText, entry.workspaceTitle);
-				const hue = workspaceHue(entry.workspaceKey);
+				const hue = hueByWorkspace.get(entry.workspaceKey) ?? workspaceHue(entry.workspaceKey);
 				const hueText = hue === null ? "" : String(hue);
 				if (workspaceLabel.style.getPropertyValue("--dap-workspace-hue") !== hueText) {
 					if (hue === null) workspaceLabel.style.removeProperty("--dap-workspace-hue");
@@ -4107,7 +4135,7 @@ function apply(ctx) {
 
 	/** 渲染某一张卡片进指定列表容器（活动/历史通用）。index 是条目在卡片序列中的
 	 * 序号，offset 是容器内首个卡片前的非卡片子节点数（活动区有轨道层、历史区有段头）。 */
-	function renderCardIntoList(list, entry, reuseMap, index, offset = 0) {
+	function renderCardIntoList(list, entry, reuseMap, index, offset, hueByWorkspace) {
 		let rec = reuseMap.get(entry.id);
 		if (rec === undefined) {
 			const el = document.createElement("div");
@@ -4158,7 +4186,7 @@ function apply(ctx) {
 				entry.pendingText ? "，" + entry.pendingText : ""
 			}`,
 		);
-		renderCardInto(rec.el, entry);
+		renderCardInto(rec.el, entry, hueByWorkspace);
 		// 只有顺序/归属真正变化时才移动 DOM：每次渲染无条件 appendChild 会把所有
 		// 卡片瞬时移除再插回——按下/抬起之间经过的移动让浏览器取消 click；焦点卡
 		// 被瞬时断开而失焦；悬停卡的 :hover 也随之丢失且不再补发。会话活跃期间
@@ -4507,8 +4535,10 @@ function apply(ctx) {
 		// 重试链目标已成为当前会话（他途到达）即取消，避免过期链条拽回会话。
 		cancelStaleOpenRetries({ currentId: snapshot?.current ?? null, activatedId: lastActivatedId });
 
-		const sig = cardSignature([...active, ...recent]);
+		const visibleEntries = [...active, ...recent];
+		const sig = cardSignature(visibleEntries);
 		if (sig === lastSig) return;
+		const hueByWorkspace = resolveWorkspaceHues(visibleEntries.map((entry) => entry.workspaceKey));
 		// 跨区迁移（双向，R-01-010/AC-07）：DOM 写入前量取旧卡矩形并克隆 ghost。
 		const migrations = [
 			...movedToRecentIds(prevRenderedActiveIds, active, recent).map((id) => ({ id, from: cardsById, to: recentCardsById })),
@@ -4527,7 +4557,7 @@ function apply(ctx) {
 		const aliveActive = new Set();
 		for (const [index, entry] of active.entries()) {
 			try {
-				renderCardIntoList(activeList, entry, cardsById, index, 1);
+				renderCardIntoList(activeList, entry, cardsById, index, 1, hueByWorkspace);
 			} catch (error) {
 				renderOk = false;
 				logCardRenderError(entry.id, error);
@@ -4544,7 +4574,7 @@ function apply(ctx) {
 		// 历史区容器首个子节点是段头（.dap-recent-head），卡片从 offset 1 开始。
 		for (const [index, entry] of recent.entries()) {
 			try {
-				renderCardIntoList(recentSection, entry, recentCardsById, index, 1);
+				renderCardIntoList(recentSection, entry, recentCardsById, index, 1, hueByWorkspace);
 			} catch (error) {
 				renderOk = false;
 				logCardRenderError(entry.id, error);

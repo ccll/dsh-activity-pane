@@ -66,6 +66,7 @@ import {
 	summarizeToolArguments,
 	usageSummary,
 	workspaceHue,
+	resolveWorkspaceHues,
 	workspaceInfoForSession,
 } from "../src/core.mjs";
 import {
@@ -466,6 +467,50 @@ assert.equal(new Set(familyHues).size, hueFamily.length, "长公共前缀工作�
 const hueSpread = new Set();
 for (let i = 0; i < 50; i += 1) hueSpread.add(workspaceHue(`/home/user/proj/ws-${i}`));
 assert.ok(hueSpread.size >= 40, `50 个长前缀身份分散到 ${hueSpread.size} 个不同色相（≥40，R-01-003/AC-09）`);
+
+// ---- R-01-003/AC-12 七色感知锚点 + 同屏确定性槽位消解 ----
+const workspaceHueAnchors = [30, 78, 126, 174, 222, 270, 318];
+const realWorkspaceCluster = [
+	"/home/cailei/ops",
+	"/home/cailei/proj/docsim",
+	"/home/cailei/proj/dsh-activity-pane",
+	"/home/cailei/proj/dsh-control-center",
+];
+const resolvedCluster = resolveWorkspaceHues(realWorkspaceCluster);
+assert.deepEqual(
+	[...resolvedCluster.entries()],
+	[
+		["/home/cailei/ops", 270],
+		["/home/cailei/proj/docsim", 30],
+		["/home/cailei/proj/dsh-activity-pane", 78],
+		["/home/cailei/proj/dsh-control-center", 318],
+	],
+	"真实蓝紫聚集子集确定性拆分到紫/橙/黄绿/洋红明显色区（R-01-003/AC-12）",
+);
+const circularHueDistance = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
+const resolvedHues = [...resolvedCluster.values()];
+for (let i = 0; i < resolvedHues.length; i += 1)
+	for (let j = i + 1; j < resolvedHues.length; j += 1)
+		assert.ok(
+			circularHueDistance(resolvedHues[i], resolvedHues[j]) >= 48,
+			`同屏色相 ${resolvedHues[i]} 与 ${resolvedHues[j]} 圆周距离不小于 48°（R-01-003/AC-12）`,
+		);
+assert.deepEqual(
+	[...resolveWorkspaceHues([...realWorkspaceCluster].reverse(), "", "  ", realWorkspaceCluster[0]).entries()],
+	[...resolvedCluster.entries()],
+	"输入顺序、重复项与空白身份不影响消解映射（R-01-003/AC-08、AC-12）",
+);
+assert.deepEqual([...resolveWorkspaceHues(null).entries()], [], "无身份集合返回空映射（R-01-003/AC-12）");
+const sevenHues = [...resolveWorkspaceHues(Array.from({ length: 7 }, (_, index) => `/home/user/proj/seven-${index}`)).values()];
+assert.deepEqual([...sevenHues].sort((a, b) => a - b), workspaceHueAnchors, "七个工作区恰占满七个避红感知锚点（R-01-003/AC-12）");
+for (let i = 0; i < sevenHues.length; i += 1)
+	for (let j = i + 1; j < sevenHues.length; j += 1)
+		assert.ok(circularHueDistance(sevenHues[i], sevenHues[j]) >= 48, "七工作区任意两锚点圆周距离至少 48°（R-01-003/AC-12）");
+const crowdedHues = resolveWorkspaceHues(Array.from({ length: 20 }, (_, index) => `/home/user/proj/crowded-${index}`));
+assert.equal(crowdedHues.size, 20, "超容量集合仍为每个身份返回色相并有限终止（R-01-003/AC-12）");
+assert.ok([...crowdedHues.values()].every((hue) => workspaceHueAnchors.includes(hue)), "超容量时仍只使用七个避红感知锚点（R-01-003/AC-12）");
+const anchorUses = workspaceHueAnchors.map((anchor) => [...crowdedHues.values()].filter((hue) => hue === anchor).length);
+assert.ok(Math.max(...anchorUses) - Math.min(...anchorUses) <= 1, "超容量时七锚点复用计数差不超过 1（R-01-003/AC-12）");
 
 // ---- R-01-001/AC-01 活动卡片逐条显示 ｜ R-01-003/AC-01 子代理嵌套 ｜ R-01-003/AC-02 子代理结束即消失 ｜ R-01-006/AC-01 当前会话 ----
 const snapshot = {
@@ -2379,7 +2424,7 @@ assert.ok(
 assert.ok(
 	clientSource.includes("const INDENT_PX = 16;") &&
 		bundle.includes("Math.round(parent.left + indentPx / 2 + 1)") &&
-		bundle.includes("renderCardIntoList(activeList, entry, cardsById, index, 1)"),
+		bundle.includes("renderCardIntoList(activeList, entry, cardsById, index, 1, hueByWorkspace)"),
 	"几何耦合钉住：INDENT_PX=16、轨道 left 由母会话卡片左缘测量推导（+半槽+1px border，取整后与横线起笔相接）与活动区卡片 offset=1（轨道层为首子节点），改任一必须同步",
 );
 // R-01-003/AC-05
@@ -2760,11 +2805,13 @@ assert.ok(bundle.includes("restoreTextField(workspaceText, entry.workspaceTitle)
 assert.ok(bundle.includes('workspace.append(workspaceIcon, makeEl("span", "dap-workspace-text"))'), "文件夹图标先于名称文本段加入胶囊（R-01-003/AC-06 顺序锚点）");
 assert.ok(bundle.includes("if (workspaceText !== null) restoreTextField(workspaceText, entry.workspaceTitle)"), "热装旧骨架无文本段时容空跳过，不中断渲染（R-01-003/AC-06 健壮性）");
 
-// R-01-003/AC-08、AC-09、AC-10、AC-11
-// 工作区徽标按身份派生色相着色：渲染层写入 --dap-workspace-hue，CSS 以 hsl(var(--dap-workspace-hue) …)
+// R-01-003/AC-08、AC-09、AC-10、AC-11、AC-12
+// 工作区徽标按身份派生基色、经同屏最小间距消解后着色：渲染层写入 --dap-workspace-hue，CSS 以 hsl(var(--dap-workspace-hue) …)
 // 为基色沿用 color-mix 透明度层次，并按单色系标签配色分主题校准（深色高明度文字、浅色低明度文字、
 // 同色相铺底与描边）；胶囊几何与字号不变（沿用上方 AC-07 断言）。
-assert.ok(bundle.includes('style.setProperty("--dap-workspace-hue"'), "渲染层把派生色相写入徽标 --dap-workspace-hue（R-01-003/AC-08）");
+assert.ok(bundle.includes("resolveWorkspaceHues(visibleEntries.map((entry) => entry.workspaceKey))"), "渲染层按同帧可见身份集合消解色相（R-01-003/AC-12）");
+assert.ok(bundle.includes("hueByWorkspace.get(entry.workspaceKey)"), "每张卡使用集合消解后的工作区色相（R-01-003/AC-08、AC-12）");
+assert.ok(bundle.includes('style.setProperty("--dap-workspace-hue"'), "渲染层把消解后色相写入徽标 --dap-workspace-hue（R-01-003/AC-08、AC-12）");
 assert.ok(bundle.includes('style.removeProperty("--dap-workspace-hue")'), "徽标隐藏时移除色相变量，不留陈旧着色（R-01-003/AC-08）");
 assert.ok(bundle.includes("hsl(var(--dap-workspace-hue, 210)"), "徽标基色取自派生色相（R-01-003/AC-08、AC-09）");
 assert.ok(bundle.includes("color-mix(in srgb, var(--dap-workspace-color) 92%, currentColor)"), "徽标文字以基色为主混入 currentColor 保持主题协调（R-01-003/AC-10、AC-11）");

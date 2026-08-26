@@ -918,8 +918,11 @@ export function pruneSubscriptions(subscriptions, visibleIds) {
 	}
 }
 
-/** 会话 cwd 是否被某个 workspace 记录（含 title/path 两种命中）。 */
-export function workspaceTitleForSession(sessionId, workspaceItems, byId = {}) {
+/**
+ * 会话的工作区归属归一（R-01-003/AC-08）：在 title 归属判定的同一路径上同时
+ * 返回工作区身份 key（路径优先、名称兜底），供徽标色相派生；无归属时两者皆空。
+ */
+export function workspaceInfoForSession(sessionId, workspaceItems, byId = {}) {
 	const id = String(sessionId);
 	const items = Array.isArray(workspaceItems) ? workspaceItems : [];
 
@@ -928,15 +931,33 @@ export function workspaceTitleForSession(sessionId, workspaceItems, byId = {}) {
 		const title = cleanText(workspace.title);
 		if (!title || !Array.isArray(workspace.sessionIds)) continue;
 		if (workspace.sessionIds.some((candidate) => String(candidate) === id))
-			return title;
+			return { title, key: cleanText(workspace.path) || title };
 	}
 
 	const cwd = cleanText(byId[id]?.cwd);
-	if (!cwd) return "";
+	if (!cwd) return { title: "", key: "" };
 	const workspace = items.find(
 		(candidate) => isRecord(candidate) && cleanText(candidate.path) === cwd,
 	);
-	return cleanText(workspace?.title);
+	const title = cleanText(workspace?.title);
+	return { title, key: title ? cleanText(workspace?.path) || title : "" };
+}
+
+/**
+ * 工作区徽标色相（R-01-003/AC-08、AC-09）：以工作区身份为唯一输入的纯函数——
+ * djb2 哈希取十二槽 30° 量化色相，叠加哈希低位 ±10° 抖动（5° 步进），输出
+ * [0,360) 整数。同一身份恒得同一色相，与工作区列表顺序、会话状态及持久化
+ * 存储无关，页面刷新后不变；空身份返回 null。
+ */
+export function workspaceHue(key) {
+	const text = cleanText(key);
+	if (!text) return null;
+	let hash = 5381;
+	for (let i = 0; i < text.length; i += 1)
+		hash = ((hash << 5) + hash + text.charCodeAt(i)) >>> 0;
+	const slot = hash % 12;
+	const jitter = (((hash >>> 4) % 5) - 2) * 5;
+	return (slot * 30 + jitter + 360) % 360;
 }
 
 /** 主会话按左侧工作区顺序排序的权重；不在任何 workspace 的排在最后保持 lineage 顺序。 */
@@ -987,7 +1008,7 @@ export function mainTitle(byId, id) {
 /**
  * 把 sessions/workspaces 快照构建成窗格条目列表（有序、已含层级与显示过滤）。
  * 返回数组的每一项：
- *   { id, parentId?, depth, kind: 'running'|'awaiting'|'subagent', title, workspaceTitle,
+ *   { id, parentId?, depth, kind: 'running'|'awaiting'|'subagent', title, workspaceTitle, workspaceKey,
  *     isCurrent, pendingText?, descendantActive? }
  * kind 规则：
  *   - 主会话 running（且无 pending）或处于委托周期（含后代耗尽空窗）→ 'running'
@@ -1061,6 +1082,9 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds
 			// 避免每次渲染对每个可见会话重复全序扫描。
 			const timeline = details.timeline ?? [];
 			const previews = details.previews ?? { userPreview: "", agentPreview: "" };
+			const workspace = m.isSub
+				? { title: "", key: "" }
+				: workspaceInfoForSession(id, workspaceItems ?? [], byId);
 			entries.push({
 				id,
 				parentId: m.isSub ? String(parentId) : null,
@@ -1076,9 +1100,8 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds
 				title: m.isSub
 					? subagentTitle(parentId, id, byId, subagentsByParent)
 					: mainTitle(byId, id),
-				workspaceTitle: m.isSub
-					? ""
-					: workspaceTitleForSession(id, workspaceItems ?? [], byId),
+				workspaceTitle: workspace.title,
+				workspaceKey: workspace.key,
 				model: metadata.model ?? "",
 				reasoning: metadata.reasoning ?? "",
 				timeline: timeline ?? [],
@@ -1172,6 +1195,7 @@ export function cardSignature(entries) {
 			entry.kind,
 			entry.title,
 			entry.workspaceTitle,
+			entry.workspaceKey ?? "",
 			entry.model ?? "",
 			entry.reasoning ?? "",
 			entry.timeline ?? null,
@@ -1383,12 +1407,14 @@ export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WI
 		const metadata = details.model ?? modelMetadata(details.models ?? row.models);
 		// previews 不在此推导：渲染层按需 memo 计算（冷会话由 history 一次性写入 detail.previews）。
 		const previews = details.previews ?? { userPreview: "", agentPreview: "" };
+		const workspace = workspaceInfoForSession(id, items, byId);
 		entries.push({
 			id,
 			kind: "recent",
 			depth: 0,
 			title: mainTitle(byId, id),
-			workspaceTitle: workspaceTitleForSession(id, items, byId),
+			workspaceTitle: workspace.title,
+			workspaceKey: workspace.key,
 			model: metadata.model ?? "",
 			reasoning: metadata.reasoning ?? "",
 			userPreview: previews.userPreview ?? "",

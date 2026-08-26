@@ -363,7 +363,7 @@ const CSS = `
 [data-dsh-activity-pane] .dap-card[data-kind="recent"] .dap-title {
   font-weight: 400;
 }
-/* 等待标识徽标改用主题协调的柔和底（与 workspace chip 同系）：醒目性由等待卡
+/* 等待标识徽标采用主题协调的柔和底：醒目性由等待卡
    描边与计数徽标红色脉冲变体承载（R-01-002/AC-04）。 */
 [data-dsh-activity-pane] .dap-badge {
   flex: none; font-size: 10px; line-height: 14px; font-weight: 600;
@@ -374,15 +374,22 @@ const CSS = `
 /* 「需要响应」徽标闪烁：与标题圆点同款脉冲（dap-pulse 1.2s），开启瞬间由渲染层重启圆点动画对齐相位。 */
 [data-dsh-activity-pane] .dap-badge.dap-badge-flash { animation: dap-pulse 1.2s ease-in-out infinite; }
 /* 工作区徽标「图标+文本」双段：文件夹图标与左边栏工作区条目同源（R-01-003/AC-06）；
-   名称字号不低于 10.5px（AC-07），行高保持 14px 以维持胶囊与卡片高度。 */
+   名称字号不低于 10.5px（AC-07），行高保持 14px 以维持胶囊与卡片高度。
+   着色（AC-08～AC-10）：基色取核心 workspaceHue 派生的 --dap-workspace-hue 色相
+   （hsl 固定饱和度/明度），图标、文字、底色与描边同色系，沿用 color-mix 透明度
+   层次与窗格主题协调；浅色主题单独校准基色明度保持可辨。 */
 [data-dsh-activity-pane] .dap-workspace {
   width: fit-content; max-width: 100%; display: flex; align-items: center; gap: 3px;
   overflow: hidden;
   font-size: 10.5px; line-height: 14px;
-  color: color-mix(in srgb, currentColor 90%, transparent);
-  background: color-mix(in srgb, currentColor 11%, transparent);
-  border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+  --dap-workspace-color: hsl(var(--dap-workspace-hue, 210) 65% 62%);
+  color: color-mix(in srgb, var(--dap-workspace-color) 88%, currentColor);
+  background: color-mix(in srgb, var(--dap-workspace-color) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dap-workspace-color) 30%, transparent);
   border-radius: 999px; padding: 0 7px;
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
+  --dap-workspace-color: hsl(var(--dap-workspace-hue, 210) 72% 40%);
 }
 [data-dsh-activity-pane] .dap-workspace-icon { flex: none; display: inline-flex; }
 [data-dsh-activity-pane] .dap-workspace-icon svg { display: block; }
@@ -1709,9 +1716,16 @@ function apply(ctx) {
 			const workspaceText = workspaceLabel.querySelector(".dap-workspace-text");
 			if (entry.workspaceTitle !== "") {
 				if (workspaceText !== null) restoreTextField(workspaceText, entry.workspaceTitle);
+				const hue = workspaceHue(entry.workspaceKey);
+				const hueText = hue === null ? "" : String(hue);
+				if (workspaceLabel.style.getPropertyValue("--dap-workspace-hue") !== hueText) {
+					if (hue === null) workspaceLabel.style.removeProperty("--dap-workspace-hue");
+					else workspaceLabel.style.setProperty("--dap-workspace-hue", hueText);
+				}
 				workspaceLabel.removeAttribute("hidden");
 			} else {
 				if (workspaceText !== null) restoreTextField(workspaceText, "");
+				workspaceLabel.style.removeProperty("--dap-workspace-hue");
 				workspaceLabel.setAttribute("hidden", "");
 			}
 		}

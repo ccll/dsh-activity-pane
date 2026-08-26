@@ -56,7 +56,8 @@ import {
 	subagentTitle,
 	summarizeToolArguments,
 	usageSummary,
-	workspaceTitleForSession,
+	workspaceHue,
+	workspaceInfoForSession,
 } from "../src/core.mjs";
 import {
 	COMPOSER_SELECTOR,
@@ -351,12 +352,42 @@ const workspaces = [
 	{ title: "Ops", path: "/srv/ops", sessionIds: ["sA"] },
 	{ title: "Mail", path: "/srv/mail", sessionIds: [] },
 ];
-assert.equal(workspaceTitleForSession("sA", workspaces), "Ops");
+assert.equal(workspaceInfoForSession("sA", workspaces).title, "Ops");
 assert.equal(
-	workspaceTitleForSession("sB", workspaces, { sB: { cwd: "/srv/mail" } }),
+	workspaceInfoForSession("sB", workspaces, { sB: { cwd: "/srv/mail" } }).title,
 	"Mail",
 );
-assert.equal(workspaceTitleForSession("sX", workspaces), "");
+assert.equal(workspaceInfoForSession("sX", workspaces).title, "");
+
+// ---- R-01-003/AC-08 工作区身份归一与徽标色相稳定性 ----
+assert.deepEqual(workspaceInfoForSession("sA", workspaces), { title: "Ops", key: "/srv/ops" }, "归属命中时身份以路径为准（R-01-003/AC-08）");
+assert.deepEqual(
+	workspaceInfoForSession("sB", workspaces, { sB: { cwd: "/srv/mail" } }),
+	{ title: "Mail", key: "/srv/mail" },
+	"cwd 匹配命中时身份同样以路径为准（R-01-003/AC-08）",
+);
+assert.deepEqual(workspaceInfoForSession("sX", workspaces), { title: "", key: "" }, "无归属时名称与身份皆空（R-01-003/AC-08）");
+assert.deepEqual(
+	workspaceInfoForSession("sC", [{ title: "Solo", sessionIds: ["sC"] }]),
+	{ title: "Solo", key: "Solo" },
+	"工作区无路径时身份以名称兜底（R-01-003/AC-08）",
+);
+assert.equal(workspaceHue(""), null, "空身份不派生色相（R-01-003/AC-08）");
+assert.equal(workspaceHue("  "), null, "空白身份不派生色相（R-01-003/AC-08）");
+assert.equal(workspaceHue("/srv/ops"), workspaceHue("/srv/ops"), "同一工作区身份恒得同一色相（R-01-003/AC-08）");
+assert.notEqual(workspaceHue("/srv/ops"), workspaceHue("/srv/mail"), "不同工作区身份色相可区分（R-01-003/AC-08、AC-09）");
+const hueOps = workspaceHue("/srv/ops");
+assert.ok(Number.isInteger(hueOps) && hueOps >= 0 && hueOps < 360, "色相为 [0,360) 整数（R-01-003/AC-08）");
+assert.equal(workspaceHue("Solo"), workspaceHue(String("So" + "lo")), "派生只依赖身份字符串、与运行状态无关（R-01-003/AC-08）");
+
+// ---- R-01-003/AC-09 十二槽量化 + ±10° 抖动 ----
+for (const hueKey of ["/srv/ops", "/srv/mail", "/srv/web", "Solo", "/opt/alpha", "/opt/beta"]) {
+	const hue = workspaceHue(hueKey);
+	assert.ok(
+		Math.abs(hue - Math.round(hue / 30) * 30) <= 10 && hue % 5 === 0,
+		`色相 ${hue} 落在 30° 量化槽位的 ±10°（5° 步进）抖动范围内（R-01-003/AC-09）`,
+	);
+}
 
 // ---- R-01-001/AC-01 活动卡片逐条显示 ｜ R-01-003/AC-01 子代理嵌套 ｜ R-01-003/AC-02 子代理结束即消失 ｜ R-01-006/AC-01 当前会话 ----
 const snapshot = {
@@ -456,6 +487,15 @@ assert.equal(
 );
 assert.equal(trackBoxes(hierarchyRuns[0], () => null, 16), null, "卡片缺失时跳过该轨道（下轮渲染自愈）");
 assert.equal(entries[2].workspaceTitle, "", "无归属则无工作区徽标");
+assert.equal(entries[0].workspaceKey, "/srv/ops", "活动条目携带工作区身份（路径优先，R-01-003/AC-08）");
+assert.equal(entries[1].workspaceKey, "", "子代理徽标隐藏、身份置空（R-01-003/AC-08）");
+assert.equal(entries[2].workspaceKey, "", "无归属条目身份为空（R-01-003/AC-08）");
+const recentKeyEntries = buildRecent(
+	{ ids: ["sA"], byId: { sA: { id: "sA", displayTitle: "主A", running: false, completed: false, updatedAt: 1000 } }, current: null },
+	workspaces,
+	2000,
+);
+assert.equal(recentKeyEntries[0]?.workspaceKey, "/srv/ops", "最近条目同样携带工作区身份（R-01-003/AC-08）");
 // ---- R-01-003/AC-05 活动子代理补齐所有非活动母会话 ----
 const inheritedActivity = {
 	ids: ["root", "parent", "child"],
@@ -599,6 +639,11 @@ assert.notEqual(
 	cardSignature(e1),
 	cardSignature([{ ...e1[0], title: "改" }]),
 	"状态变化签名必变",
+);
+assert.notEqual(
+	cardSignature(e1),
+	cardSignature([{ ...e1[0], workspaceKey: "/srv/elsewhere" }]),
+	"工作区身份变化签名必变，徽标色相随之重绘（R-01-003/AC-08）",
 );
 
 // ---- R-01-003/AC-01 无目录 label 时回退显示标题 ----
@@ -1567,6 +1612,7 @@ assert.deepEqual(
 		depth: 0,
 		title: "旧B",
 		workspaceTitle: "",
+		workspaceKey: "",
 		model: "Model M",
 		reasoning: "High",
 		userPreview: "用户首行",
@@ -2471,6 +2517,17 @@ assert.ok(bundle.includes(".dap-workspace-text {\n  min-width: 0; overflow: hidd
 assert.ok(bundle.includes("restoreTextField(workspaceText, entry.workspaceTitle)"), "工作区名称只写入文本段，不覆盖图标（R-01-003/AC-06）");
 assert.ok(bundle.includes('workspace.append(workspaceIcon, makeEl("span", "dap-workspace-text"))'), "文件夹图标先于名称文本段加入胶囊（R-01-003/AC-06 顺序锚点）");
 assert.ok(bundle.includes("if (workspaceText !== null) restoreTextField(workspaceText, entry.workspaceTitle)"), "热装旧骨架无文本段时容空跳过，不中断渲染（R-01-003/AC-06 健壮性）");
+
+// R-01-003/AC-08、AC-09、AC-10
+// 工作区徽标按身份派生色相着色：渲染层写入 --dap-workspace-hue，CSS 以 hsl(var(--dap-workspace-hue) …)
+// 基色沿用 color-mix 透明度层次，浅色主题校准明度；胶囊几何与字号不变（沿用上方 AC-07 断言）。
+assert.ok(bundle.includes('style.setProperty("--dap-workspace-hue"'), "渲染层把派生色相写入徽标 --dap-workspace-hue（R-01-003/AC-08）");
+assert.ok(bundle.includes('style.removeProperty("--dap-workspace-hue")'), "徽标隐藏时移除色相变量，不留陈旧着色（R-01-003/AC-08）");
+assert.ok(bundle.includes("hsl(var(--dap-workspace-hue, 210)"), "徽标基色取自派生色相（R-01-003/AC-08、AC-09）");
+assert.ok(bundle.includes("color-mix(in srgb, var(--dap-workspace-color) 88%, currentColor)"), "徽标文字沿用 color-mix 透明度层次（R-01-003/AC-10）");
+assert.ok(bundle.includes("color-mix(in srgb, var(--dap-workspace-color) 13%, transparent)"), "徽标底色沿用 color-mix 透明度层次（R-01-003/AC-10）");
+assert.ok(bundle.includes("color-mix(in srgb, var(--dap-workspace-color) 30%, transparent)"), "徽标描边沿用 color-mix 透明度层次（R-01-003/AC-10）");
+assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {"), "浅色主题单独校准徽标基色明度（R-01-003/AC-10）");
 
 // R-01-010/AC-01、R-01-010/AC-05
 // 两区分隔线上下各保留 10px 留白；历史区无内容时整段隐藏、分隔线不占位。

@@ -924,8 +924,11 @@ function pruneSubscriptions(subscriptions, visibleIds) {
 	}
 }
 
-/** 会话 cwd 是否被某个 workspace 记录（含 title/path 两种命中）。 */
-function workspaceTitleForSession(sessionId, workspaceItems, byId = {}) {
+/**
+ * 会话的工作区归属归一（R-01-003/AC-08）：在 title 归属判定的同一路径上同时
+ * 返回工作区身份 key（路径优先、名称兜底），供徽标色相派生；无归属时两者皆空。
+ */
+function workspaceInfoForSession(sessionId, workspaceItems, byId = {}) {
 	const id = String(sessionId);
 	const items = Array.isArray(workspaceItems) ? workspaceItems : [];
 
@@ -934,15 +937,33 @@ function workspaceTitleForSession(sessionId, workspaceItems, byId = {}) {
 		const title = cleanText(workspace.title);
 		if (!title || !Array.isArray(workspace.sessionIds)) continue;
 		if (workspace.sessionIds.some((candidate) => String(candidate) === id))
-			return title;
+			return { title, key: cleanText(workspace.path) || title };
 	}
 
 	const cwd = cleanText(byId[id]?.cwd);
-	if (!cwd) return "";
+	if (!cwd) return { title: "", key: "" };
 	const workspace = items.find(
 		(candidate) => isRecord(candidate) && cleanText(candidate.path) === cwd,
 	);
-	return cleanText(workspace?.title);
+	const title = cleanText(workspace?.title);
+	return { title, key: title ? cleanText(workspace?.path) || title : "" };
+}
+
+/**
+ * 工作区徽标色相（R-01-003/AC-08、AC-09）：以工作区身份为唯一输入的纯函数——
+ * djb2 哈希取十二槽 30° 量化色相，叠加哈希低位 ±10° 抖动（5° 步进），输出
+ * [0,360) 整数。同一身份恒得同一色相，与工作区列表顺序、会话状态及持久化
+ * 存储无关，页面刷新后不变；空身份返回 null。
+ */
+function workspaceHue(key) {
+	const text = cleanText(key);
+	if (!text) return null;
+	let hash = 5381;
+	for (let i = 0; i < text.length; i += 1)
+		hash = ((hash << 5) + hash + text.charCodeAt(i)) >>> 0;
+	const slot = hash % 12;
+	const jitter = (((hash >>> 4) % 5) - 2) * 5;
+	return (slot * 30 + jitter + 360) % 360;
 }
 
 /** 主会话按左侧工作区顺序排序的权重；不在任何 workspace 的排在最后保持 lineage 顺序。 */
@@ -993,7 +1014,7 @@ function mainTitle(byId, id) {
 /**
  * 把 sessions/workspaces 快照构建成窗格条目列表（有序、已含层级与显示过滤）。
  * 返回数组的每一项：
- *   { id, parentId?, depth, kind: 'running'|'awaiting'|'subagent', title, workspaceTitle,
+ *   { id, parentId?, depth, kind: 'running'|'awaiting'|'subagent', title, workspaceTitle, workspaceKey,
  *     isCurrent, pendingText?, descendantActive? }
  * kind 规则：
  *   - 主会话 running（且无 pending）或处于委托周期（含后代耗尽空窗）→ 'running'
@@ -1067,6 +1088,9 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds = null
 			// 避免每次渲染对每个可见会话重复全序扫描。
 			const timeline = details.timeline ?? [];
 			const previews = details.previews ?? { userPreview: "", agentPreview: "" };
+			const workspace = m.isSub
+				? { title: "", key: "" }
+				: workspaceInfoForSession(id, workspaceItems ?? [], byId);
 			entries.push({
 				id,
 				parentId: m.isSub ? String(parentId) : null,
@@ -1082,9 +1106,8 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds = null
 				title: m.isSub
 					? subagentTitle(parentId, id, byId, subagentsByParent)
 					: mainTitle(byId, id),
-				workspaceTitle: m.isSub
-					? ""
-					: workspaceTitleForSession(id, workspaceItems ?? [], byId),
+				workspaceTitle: workspace.title,
+				workspaceKey: workspace.key,
 				model: metadata.model ?? "",
 				reasoning: metadata.reasoning ?? "",
 				timeline: timeline ?? [],
@@ -1178,6 +1201,7 @@ function cardSignature(entries) {
 			entry.kind,
 			entry.title,
 			entry.workspaceTitle,
+			entry.workspaceKey ?? "",
 			entry.model ?? "",
 			entry.reasoning ?? "",
 			entry.timeline ?? null,
@@ -1389,12 +1413,14 @@ function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS
 		const metadata = details.model ?? modelMetadata(details.models ?? row.models);
 		// previews 不在此推导：渲染层按需 memo 计算（冷会话由 history 一次性写入 detail.previews）。
 		const previews = details.previews ?? { userPreview: "", agentPreview: "" };
+		const workspace = workspaceInfoForSession(id, items, byId);
 		entries.push({
 			id,
 			kind: "recent",
 			depth: 0,
 			title: mainTitle(byId, id),
-			workspaceTitle: workspaceTitleForSession(id, items, byId),
+			workspaceTitle: workspace.title,
+			workspaceKey: workspace.key,
 			model: metadata.model ?? "",
 			reasoning: metadata.reasoning ?? "",
 			userPreview: previews.userPreview ?? "",
@@ -1984,7 +2010,7 @@ const CSS = `
 [data-dsh-activity-pane] .dap-card[data-kind="recent"] .dap-title {
   font-weight: 400;
 }
-/* 等待标识徽标改用主题协调的柔和底（与 workspace chip 同系）：醒目性由等待卡
+/* 等待标识徽标采用主题协调的柔和底：醒目性由等待卡
    描边与计数徽标红色脉冲变体承载（R-01-002/AC-04）。 */
 [data-dsh-activity-pane] .dap-badge {
   flex: none; font-size: 10px; line-height: 14px; font-weight: 600;
@@ -1995,15 +2021,22 @@ const CSS = `
 /* 「需要响应」徽标闪烁：与标题圆点同款脉冲（dap-pulse 1.2s），开启瞬间由渲染层重启圆点动画对齐相位。 */
 [data-dsh-activity-pane] .dap-badge.dap-badge-flash { animation: dap-pulse 1.2s ease-in-out infinite; }
 /* 工作区徽标「图标+文本」双段：文件夹图标与左边栏工作区条目同源（R-01-003/AC-06）；
-   名称字号不低于 10.5px（AC-07），行高保持 14px 以维持胶囊与卡片高度。 */
+   名称字号不低于 10.5px（AC-07），行高保持 14px 以维持胶囊与卡片高度。
+   着色（AC-08～AC-10）：基色取核心 workspaceHue 派生的 --dap-workspace-hue 色相
+   （hsl 固定饱和度/明度），图标、文字、底色与描边同色系，沿用 color-mix 透明度
+   层次与窗格主题协调；浅色主题单独校准基色明度保持可辨。 */
 [data-dsh-activity-pane] .dap-workspace {
   width: fit-content; max-width: 100%; display: flex; align-items: center; gap: 3px;
   overflow: hidden;
   font-size: 10.5px; line-height: 14px;
-  color: color-mix(in srgb, currentColor 90%, transparent);
-  background: color-mix(in srgb, currentColor 11%, transparent);
-  border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+  --dap-workspace-color: hsl(var(--dap-workspace-hue, 210) 65% 62%);
+  color: color-mix(in srgb, var(--dap-workspace-color) 88%, currentColor);
+  background: color-mix(in srgb, var(--dap-workspace-color) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dap-workspace-color) 30%, transparent);
   border-radius: 999px; padding: 0 7px;
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
+  --dap-workspace-color: hsl(var(--dap-workspace-hue, 210) 72% 40%);
 }
 [data-dsh-activity-pane] .dap-workspace-icon { flex: none; display: inline-flex; }
 [data-dsh-activity-pane] .dap-workspace-icon svg { display: block; }
@@ -3330,9 +3363,16 @@ function apply(ctx) {
 			const workspaceText = workspaceLabel.querySelector(".dap-workspace-text");
 			if (entry.workspaceTitle !== "") {
 				if (workspaceText !== null) restoreTextField(workspaceText, entry.workspaceTitle);
+				const hue = workspaceHue(entry.workspaceKey);
+				const hueText = hue === null ? "" : String(hue);
+				if (workspaceLabel.style.getPropertyValue("--dap-workspace-hue") !== hueText) {
+					if (hue === null) workspaceLabel.style.removeProperty("--dap-workspace-hue");
+					else workspaceLabel.style.setProperty("--dap-workspace-hue", hueText);
+				}
 				workspaceLabel.removeAttribute("hidden");
 			} else {
 				if (workspaceText !== null) restoreTextField(workspaceText, "");
+				workspaceLabel.style.removeProperty("--dap-workspace-hue");
 				workspaceLabel.setAttribute("hidden", "");
 			}
 		}

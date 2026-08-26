@@ -6,7 +6,7 @@ id: T-058
 
 # T-058 机器人图标改小电视几何并修复半像素模糊
 
-状态: active
+状态: completed
 关联: R-01-012、R-01-013 → 窗格渲染器
 风险等级: standard
 
@@ -48,4 +48,13 @@ map 演进同次完成：PRD R-01-012/AC-11 演进（12px 同盒、整数像素�
 
 ## 终态与证据
 
-（关闭时填写）
+- 实现: `src/client.mjs`（`createRobotIcon` 去双耳与旧单折线天线、双 45° 短斜天线 `M10 8L7 5`/`M14 8L17 5`、stroke-width 2.2、viewBox 保框 `1 3 22 18`；删除 `data-icon="robot"` svg 13px 覆盖规则回归 12px 盒）；`.dsh-plugin/client.js` 同步重建；`scripts/check.mjs` 机器人几何断言族改写（含双耳/旧天线/1.3px 描边/13px 覆盖/24 留白框负向断言）；`scripts/acceptance.mjs` AC-11 验收点补小电视几何与清晰度口径；PRD R-01-012/AC-11 演进、DESIGN 三处同步、DECISIONS 追加 C-021。审核修复：右耳 `M20 14h2` 负向断言补全、验证矩阵副作用行证据锚点改 AC 锚点。
+- 测试: `pnpm build:client && pnpm check` 全绿；`python3 tools/agentmap_lint.py --report` 通过（21 需求 / 105 AC 全追溯、全锚定）；pre-commit 门禁（agentmap lint + 重建重检）通过。GUI 人工验收（小电视几何、图标与文字对齐观感、边缘清晰度）由东家按 `scripts/acceptance.mjs` 逐档现场确认后定稿。
+- DESIGN 对照: 显示行图标条目（小电视几何、viewBox 保框尺度、12px 盒整数像素对齐、stroke 2.2 渲染 1.2px）、归属约束（Lucide bot 为底改造）、时间线图标几何条目（robot 无底色、12px 同盒）与实现逐项一致；PRD→DESIGN 双向追溯由 agentmap lint 机械验证通过。
+- commit: 42d2886ddcd17e450379da947e109ab530e10f25
+- review:
+  - 审核方: code-review skill 双轴独立子代理（Standards 轴、Spec 轴）
+  - 目的理解: T-058 将机器人图标（时间线助手正文行与最近卡 agent 预览行同源）改为 bilibili 小电视式几何并修复半像素模糊；关联 PRD R-01-012/AC-09、AC-11 与 R-01-013/AC-08、DESIGN 图标几何与归属约束、C-021（废弃 F 方案原版几何与 13px 字形盒）；预期行为为小电视几何、12px 同盒整数像素对齐、1.2px 渲染笔触、显示尺度不变、无旧几何残留；验证方式为 check.mjs 锚点 + agentmap lint + acceptance.mjs 人工验收。
+  - 执行方式: `code-review` skill，评审基线 43e58d6a123dcbec465c09df026c3b7c9aa86c69（实现提交 42d2886ddcd17e450379da947e109ab530e10f25），范围为 map 四文档/src/scripts/bundle/task 全量变更；Standards 对照 AGENTS/CONVENTIONS 与 Fowler 味道基线，Spec 对照 T-058 收敛方案与 map 演进原文。
+  - 问题与修复: Spec 轴——「无双耳」负向断言只钉左耳 `M2 14h2`、右耳 `M20 14h2` 漏检（已扩为三路负向断言）；验证矩阵副作用行证据锚点误用 C-ID（改 `scripts/check.mjs#R-01-012/AC-09`）。未改项经裁量维持：12px 正向断言（负向断言加工厂默认值已双向夹持，正向只能钉实现细节，与工程原则 9 张力更大）。Standards 轴——无硬性违规；两项非阻塞判断题（AC-11 主观措辞、DESIGN 长 bullet）维持现状：UI/UX 路径人工验收为主、可判部分已由 check.mjs 钉住，长 bullet 属既有风格延续。
+  - 复审结论: Spec 轴复审通过（两项修复核验正确、未改项裁量认可、无新问题）；Standards 轴首轮即无违规可放行。

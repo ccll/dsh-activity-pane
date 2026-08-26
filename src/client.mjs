@@ -32,8 +32,6 @@ const INDENT_PX = 16;
 const MOBILE_BREAKPOINT = "767px";
 /** 运行卡时钟：只要存在运行中会话，就以该周期刷新时长显示。 */
 const CLOCK_MS = 1000;
-/** 冷会话 history 深翻页上限：尾页取不到最近用户/agent 消息时向前翻的最多页数。 */
-const HISTORY_MAX_PAGES = 3;
 /** 冷数据读取并发池上限：慢网下避免几十张卡片的 models/history 一次性挤占通道。 */
 const LOAD_CONCURRENCY = 3;
 /** 「回到顶部」悬浮按钮显隐阈值：scrollTop 超过该值（px）时显示（R-01-018/AC-01）。 */
@@ -1244,12 +1242,13 @@ function apply(ctx) {
 			if (plan.history && typeof api.history === "function") {
 				const promise = enqueueDetailLoad(() => Promise.resolve()
 					.then(async () => {
-						// 单池任务内串行深翻（HISTORY_MAX_PAGES 页，约 150 条消息）；
-						// 找到或翻尽即止，中途失败保留已得事件。运行会话缺窗口内回合起点时
-						// 要求深翻至命中开放回合 turn/start（R-01-009/AC-06 冷窗口兜底）。
+						// 单池任务内串行回溯深翻（默认无页数上限）：向前翻到命中最近一条
+						// 用户消息或翻尽为止——超长会话的最后用户消息可能在尾页窗口之外，
+						// 固定页数上限会让历史卡用户预览永久缺失（R-01-013/AC-03 回溯承诺）。
+						// 运行会话缺窗口内回合起点时要求深翻至命中开放回合 turn/start
+						// （R-01-009/AC-06 冷窗口兜底）。
 						const { events, error } = await pagedHistoryEvents({
 							fetchPage: async (beforeSeq) => apiValue(await api.history({ sessionId: id, beforeSeq, maxMessages: 50 })),
-							maxPages: HISTORY_MAX_PAGES,
 							requireOpenTurnStart: turnStartMissing,
 						});
 						if (error) detail.historyError = error instanceof Error ? error.message : String(error);

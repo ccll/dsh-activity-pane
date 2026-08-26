@@ -755,20 +755,23 @@ function needsHistorySnapshot(snapshot) {
 	return !snapshot || !Array.isArray(snapshot.chat?.order) || snapshot.chat.order.length === 0;
 }
 
-/** 冷会话 history 有界深翻：自尾页起按 beforeSeq 向前翻页，直至最近用户/agent 消息
- *  预览齐全、翻尽（hasMore=false/无更多事件）或达到 maxPages。requireOpenTurnStart 为
- *  true 时（运行会话开放回合起点兜底，R-01-009/AC-06）预览齐全但开放回合起点未命中
- *  仍继续深翻，同样受 maxPages 约束。fetchPage(beforeSeq) 注入实际读取（返回
- *  `{events, hasMore}` 或 null），便于纯函数单测；中途异常保留已得事件并以 error
- *  返回。返回 `{ events, error }`（events 按时间正序，新页在后）。 */
-async function pagedHistoryEvents({ fetchPage, maxPages = 3, requireOpenTurnStart = false }) {
+/** 冷会话 history 回溯深翻：自尾页起按 beforeSeq 向前翻页，直至命中最近一条用户消息
+ *  （messagePreviews 的 userPreview 非空，R-01-013/AC-03）、或翻尽
+ *  （hasMore=false/无更多事件/业务错误 null）；requireOpenTurnStart 为 true 时
+ *  （运行会话开放回合起点兜底，R-01-009/AC-06）命中用户消息后开放回合起点未命中
+ *  仍继续深翻直至起点命中或翻尽。maxPages 仅作显式护栏（默认 Infinity 即不设页数
+ *  上限——用户消息必然存在于会话最早段，翻尽必终止，无需预置页数界）。fetchPage
+ *  (beforeSeq) 注入实际读取（返回 `{events, hasMore}` 或 null），便于纯函数单测；
+ *  中途异常保留已得事件并以 error 返回。返回 `{ events, error }`（events 按时间
+ *  正序，新页在后）。 */
+async function pagedHistoryEvents({ fetchPage, maxPages = Infinity, requireOpenTurnStart = false }) {
 	const allEvents = [];
 	let beforeSeq;
 	let hasMore = true;
 	let error = null;
 	for (let pages = 0; pages < maxPages && hasMore; pages += 1) {
 		const previews = messagePreviews({ history: allEvents });
-		if (previews.userPreview && previews.agentPreview) {
+		if (previews.userPreview) {
 			if (!requireOpenTurnStart || openTurnStartFromEvents(allEvents) !== null) break;
 		}
 		let events;
@@ -886,7 +889,10 @@ function messagePreviews({ snapshot = null, history = [] } = {}) {
 		if (item.kind === "assistant" && !agent && item.text) agent = firstPhysicalLine(item.text);
 	}
 	if (!user || !agent) {
-		for (const entry of Array.isArray(history) ? history : []) {
+		// history 事件按时间正序（旧→新）：尾部反向扫描取最近命中，首个非空即最近
+		// （R-01-013/AC-03、AC-04；深翻多页场景下必须取最近而非最早）。
+		for (let i = (Array.isArray(history) ? history : []).length - 1; i >= 0 && (!user || !agent); i -= 1) {
+			const entry = history[i];
 			const event = entry?.event ?? entry;
 			if (event?.type === "user/message" && event.data?.source?.kind === "user") user = firstPhysicalLine(contentText(event.data.content)) || user;
 			if (event?.type === "assistant/message") agent = firstPhysicalLine(contentText(event.data?.message?.content)) || agent;
@@ -1894,8 +1900,6 @@ const INDENT_PX = 16;
 const MOBILE_BREAKPOINT = "767px";
 /** 运行卡时钟：只要存在运行中会话，就以该周期刷新时长显示。 */
 const CLOCK_MS = 1000;
-/** 冷会话 history 深翻页上限：尾页取不到最近用户/agent 消息时向前翻的最多页数。 */
-const HISTORY_MAX_PAGES = 3;
 /** 冷数据读取并发池上限：慢网下避免几十张卡片的 models/history 一次性挤占通道。 */
 const LOAD_CONCURRENCY = 3;
 /** 「回到顶部」悬浮按钮显隐阈值：scrollTop 超过该值（px）时显示（R-01-018/AC-01）。 */
@@ -3106,12 +3110,13 @@ function apply(ctx) {
 			if (plan.history && typeof api.history === "function") {
 				const promise = enqueueDetailLoad(() => Promise.resolve()
 					.then(async () => {
-						// 单池任务内串行深翻（HISTORY_MAX_PAGES 页，约 150 条消息）；
-						// 找到或翻尽即止，中途失败保留已得事件。运行会话缺窗口内回合起点时
-						// 要求深翻至命中开放回合 turn/start（R-01-009/AC-06 冷窗口兜底）。
+						// 单池任务内串行回溯深翻（默认无页数上限）：向前翻到命中最近一条
+						// 用户消息或翻尽为止——超长会话的最后用户消息可能在尾页窗口之外，
+						// 固定页数上限会让历史卡用户预览永久缺失（R-01-013/AC-03 回溯承诺）。
+						// 运行会话缺窗口内回合起点时要求深翻至命中开放回合 turn/start
+						// （R-01-009/AC-06 冷窗口兜底）。
 						const { events, error } = await pagedHistoryEvents({
 							fetchPage: async (beforeSeq) => apiValue(await api.history({ sessionId: id, beforeSeq, maxMessages: 50 })),
-							maxPages: HISTORY_MAX_PAGES,
 							requireOpenTurnStart: turnStartMissing,
 						});
 						if (error) detail.historyError = error instanceof Error ? error.message : String(error);

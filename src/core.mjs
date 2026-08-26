@@ -749,20 +749,23 @@ export function needsHistorySnapshot(snapshot) {
 	return !snapshot || !Array.isArray(snapshot.chat?.order) || snapshot.chat.order.length === 0;
 }
 
-/** 冷会话 history 有界深翻：自尾页起按 beforeSeq 向前翻页，直至最近用户/agent 消息
- *  预览齐全、翻尽（hasMore=false/无更多事件）或达到 maxPages。requireOpenTurnStart 为
- *  true 时（运行会话开放回合起点兜底，R-01-009/AC-06）预览齐全但开放回合起点未命中
- *  仍继续深翻，同样受 maxPages 约束。fetchPage(beforeSeq) 注入实际读取（返回
- *  `{events, hasMore}` 或 null），便于纯函数单测；中途异常保留已得事件并以 error
- *  返回。返回 `{ events, error }`（events 按时间正序，新页在后）。 */
-export async function pagedHistoryEvents({ fetchPage, maxPages = 3, requireOpenTurnStart = false }) {
+/** 冷会话 history 回溯深翻：自尾页起按 beforeSeq 向前翻页，直至命中最近一条用户消息
+ *  （messagePreviews 的 userPreview 非空，R-01-013/AC-03）、或翻尽
+ *  （hasMore=false/无更多事件/业务错误 null）；requireOpenTurnStart 为 true 时
+ *  （运行会话开放回合起点兜底，R-01-009/AC-06）命中用户消息后开放回合起点未命中
+ *  仍继续深翻直至起点命中或翻尽。maxPages 仅作显式护栏（默认 Infinity 即不设页数
+ *  上限——用户消息必然存在于会话最早段，翻尽必终止，无需预置页数界）。fetchPage
+ *  (beforeSeq) 注入实际读取（返回 `{events, hasMore}` 或 null），便于纯函数单测；
+ *  中途异常保留已得事件并以 error 返回。返回 `{ events, error }`（events 按时间
+ *  正序，新页在后）。 */
+export async function pagedHistoryEvents({ fetchPage, maxPages = Infinity, requireOpenTurnStart = false }) {
 	const allEvents = [];
 	let beforeSeq;
 	let hasMore = true;
 	let error = null;
 	for (let pages = 0; pages < maxPages && hasMore; pages += 1) {
 		const previews = messagePreviews({ history: allEvents });
-		if (previews.userPreview && previews.agentPreview) {
+		if (previews.userPreview) {
 			if (!requireOpenTurnStart || openTurnStartFromEvents(allEvents) !== null) break;
 		}
 		let events;
@@ -880,7 +883,10 @@ export function messagePreviews({ snapshot = null, history = [] } = {}) {
 		if (item.kind === "assistant" && !agent && item.text) agent = firstPhysicalLine(item.text);
 	}
 	if (!user || !agent) {
-		for (const entry of Array.isArray(history) ? history : []) {
+		// history 事件按时间正序（旧→新）：尾部反向扫描取最近命中，首个非空即最近
+		// （R-01-013/AC-03、AC-04；深翻多页场景下必须取最近而非最早）。
+		for (let i = (Array.isArray(history) ? history : []).length - 1; i >= 0 && (!user || !agent); i -= 1) {
+			const entry = history[i];
 			const event = entry?.event ?? entry;
 			if (event?.type === "user/message" && event.data?.source?.kind === "user") user = firstPhysicalLine(contentText(event.data.content)) || user;
 			if (event?.type === "assistant/message") agent = firstPhysicalLine(contentText(event.data?.message?.content)) || agent;

@@ -1708,7 +1708,7 @@ assert.deepEqual(
 	"深翻累计事件：新页消息不被旧页遮蔽",
 );
 
-// ---- R-01-014/AC-05、R-01-013/AC-03、AC-04 深翻页序列、有界与部分失败保留 ----
+// ---- R-01-014/AC-05、R-01-013/AC-03、AC-04 回溯翻页序列：一直向前翻到命中最近用户消息或翻尽 ----
 const pageOf = (events, hasMore) => ({ events, hasMore });
 const userEvent = (seq, text) => ({ event: { type: "user/message", seq, data: { source: { kind: "user" }, content: [{ type: "text", text }] } } });
 const agentEvent = (seq, text) => ({ event: { type: "assistant/message", seq, data: { message: { content: [{ type: "text", text }] } } } });
@@ -1719,8 +1719,8 @@ const toolEvent = (seq) => ({ event: { type: "tool/call", seq, data: { callId: `
 		calls.push(beforeSeq);
 		return pageOf([userEvent(1, "用户"), agentEvent(2, "回复")], true);
 	};
-	const result = await pagedHistoryEvents({ fetchPage, maxPages: 3 });
-	assert.equal(calls.length, 1, "尾页含消息时一页即止，不深翻");
+	const result = await pagedHistoryEvents({ fetchPage });
+	assert.equal(calls.length, 1, "尾页含用户消息时一页即止，不回溯");
 	assert.equal(result.error, null, "成功路径无 error");
 }
 {
@@ -1730,24 +1730,41 @@ const toolEvent = (seq) => ({ event: { type: "tool/call", seq, data: { callId: `
 		if (calls.length === 1) return pageOf([toolEvent(10)], true);
 		return pageOf([userEvent(1, "更早用户"), agentEvent(2, "更早回复")], false);
 	};
-	const result = await pagedHistoryEvents({ fetchPage, maxPages: 3 });
-	assert.equal(calls.length, 2, "尾页无消息时向前深翻");
+	const result = await pagedHistoryEvents({ fetchPage });
+	assert.equal(calls.length, 2, "尾页无用户消息时向前回溯");
 	assert.deepEqual(calls[1], 10, "beforeSeq 取上页页首事件 seq");
 	assert.deepEqual(
 		messagePreviews({ history: result.events }),
 		{ userPreview: "更早用户", agentPreview: "更早回复" },
-		"深翻后预览取自更早页",
+		"回溯后预览取自更早页",
+	);
+}
+// R-01-013/AC-03 回溯承诺：一直向前翻，直到命中最近一条用户消息——
+// 实证约 28% 会话的最后用户消息距尾部 >150 事件（旧 3 页上限外）。
+{
+	const calls = [];
+	const fetchPage = async (beforeSeq) => {
+		calls.push(beforeSeq);
+		if (calls.length === 4) return pageOf([toolEvent(1), userEvent(2, "深处用户")], false);
+		return pageOf([toolEvent(100 - calls.length)], true);
+	};
+	const result = await pagedHistoryEvents({ fetchPage });
+	assert.equal(calls.length, 4, "用户消息在第 4 页（远超旧 3 页上限）时仍持续回溯直至命中");
+	assert.deepEqual(
+		messagePreviews({ history: result.events }),
+		{ userPreview: "深处用户", agentPreview: "" },
+		"回溯命中远处用户消息即止；agent 预览缺失不影响停止条件",
 	);
 }
 {
 	let calls = 0;
 	const fetchPage = async () => {
 		calls += 1;
-		return pageOf([toolEvent(100 - calls)], true);
+		return pageOf([toolEvent(100 - calls)], calls < 5);
 	};
-	const result = await pagedHistoryEvents({ fetchPage, maxPages: 3 });
-	assert.equal(calls, 3, "深翻最多 maxPages 页即止");
-	assert.equal(result.events.length, 3, "已翻事件全部保留");
+	const result = await pagedHistoryEvents({ fetchPage });
+	assert.equal(calls, 5, "全程无用户消息时回溯直至翻尽（hasMore=false），不以固定页数截断");
+	assert.equal(result.events.length, 5, "已翻事件全部保留");
 }
 {
 	let calls = 0;
@@ -1755,8 +1772,19 @@ const toolEvent = (seq) => ({ event: { type: "tool/call", seq, data: { callId: `
 		calls += 1;
 		return pageOf([toolEvent(calls)], false);
 	};
-	const result = await pagedHistoryEvents({ fetchPage, maxPages: 3 });
+	const result = await pagedHistoryEvents({ fetchPage });
 	assert.equal(calls, 1, "hasMore=false 即止");
+}
+{
+	// 显式 maxPages 仍作护栏（防畸形数据的显式界；默认 Infinity 即无界）。
+	let calls = 0;
+	const fetchPage = async () => {
+		calls += 1;
+		return pageOf([toolEvent(calls)], true);
+	};
+	const result = await pagedHistoryEvents({ fetchPage, maxPages: 3 });
+	assert.equal(calls, 3, "显式 maxPages 护栏仍生效（默认无界）");
+	assert.equal(result.events.length, 3, "护栏内已翻事件全部保留");
 }
 {
 	let calls = 0;
@@ -1765,8 +1793,8 @@ const toolEvent = (seq) => ({ event: { type: "tool/call", seq, data: { callId: `
 		if (calls === 2) throw new Error("network");
 		return pageOf([toolEvent(calls)], true);
 	};
-	const result = await pagedHistoryEvents({ fetchPage, maxPages: 3 });
-	assert.equal(result.events.length, 1, "深翻中途失败保留已得事件");
+	const result = await pagedHistoryEvents({ fetchPage });
+	assert.equal(result.events.length, 1, "回溯中途失败保留已得事件");
 	assert.ok(result.error instanceof Error, "失败以 error 返回供降级展示");
 }
 {
@@ -1775,11 +1803,11 @@ const toolEvent = (seq) => ({ event: { type: "tool/call", seq, data: { callId: `
 		calls += 1;
 		return calls === 1 ? pageOf([toolEvent(1)], true) : null;
 	};
-	const result = await pagedHistoryEvents({ fetchPage, maxPages: 3 });
+	const result = await pagedHistoryEvents({ fetchPage });
 	assert.equal(calls, 2, "业务错误（null）即停止");
 	assert.equal(result.events.length, 1, "业务错误前已得事件保留");
 }
-// requireOpenTurnStart（R-01-009/AC-06 冷窗口兜底）：预览齐全但开放回合起点未命中时继续深翻，仍受 maxPages 约束
+// requireOpenTurnStart（R-01-009/AC-06 冷窗口兜底）：用户消息命中但开放回合起点未命中时继续回溯
 {
 	const calls = [];
 	const fetchPage = async (beforeSeq) => {
@@ -1787,18 +1815,35 @@ const toolEvent = (seq) => ({ event: { type: "tool/call", seq, data: { callId: `
 		if (calls.length === 1) return pageOf([userEvent(50, "用户"), agentEvent(51, "回复")], true);
 		return pageOf([{ event: { type: "turn/start", seq: 1, time: 1000, data: { turn: 1 } } }, toolEvent(2)], false);
 	};
-	const result = await pagedHistoryEvents({ fetchPage, maxPages: 3, requireOpenTurnStart: true });
-	assert.equal(calls.length, 2, "预览齐全但无开放回合起点时继续深翻（R-01-009/AC-06）");
-	assert.equal(openTurnStartFromEvents(result.events), 1000, "深翻命中开放回合起点时刻");
+	const result = await pagedHistoryEvents({ fetchPage, requireOpenTurnStart: true });
+	assert.equal(calls.length, 2, "用户消息命中但无开放回合起点时继续回溯（R-01-009/AC-06）");
+	assert.equal(openTurnStartFromEvents(result.events), 1000, "回溯命中开放回合起点时刻");
 }
 {
 	let calls = 0;
 	const fetchPage = async () => {
 		calls += 1;
-		return pageOf([userEvent(calls * 2, "u"), agentEvent(calls * 2 + 1, "a")], true);
+		return pageOf([userEvent(calls * 2, "u"), agentEvent(calls * 2 + 1, "a")], calls < 2);
 	};
-	await pagedHistoryEvents({ fetchPage, maxPages: 3, requireOpenTurnStart: true });
-	assert.equal(calls, 3, "开放回合起点未命中时深翻仍以 maxPages 为界");
+	await pagedHistoryEvents({ fetchPage, requireOpenTurnStart: true });
+	assert.equal(calls, 2, "无开放回合起点且翻尽（hasMore=false）即止，不以固定页数截断");
+}
+// R-01-013/AC-03、AC-04 多页取序：回溯组合的多页事件按旧→新排列，预览必须取最近命中而非最早
+{
+	assert.deepEqual(
+		messagePreviews({
+			history: [toolEvent(1), userEvent(2, "最早用户"), agentEvent(3, "最早回复"), toolEvent(4), userEvent(5, "最近用户"), agentEvent(6, "最近回复")],
+		}),
+		{ userPreview: "最近用户", agentPreview: "最近回复" },
+		"多页回溯后预览取最近用户/agent 消息首行而非最早页",
+	);
+	assert.deepEqual(
+		messagePreviews({
+			history: [userEvent(1, "唯一用户"), agentEvent(2, "回复"), userEvent(3, "最新用户")],
+		}),
+		{ userPreview: "最新用户", agentPreview: "回复" },
+		"最近用户消息在尾部的场景取尾部而非最早",
+	);
 }
 
 // ---- R-02-003/AC-01 富卡字段并入签名后，进度/轨迹变化必触重重绘 ----

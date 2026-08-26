@@ -47,6 +47,7 @@ import {
 	lastTurnEndFromEvents,
 	lastTurnEndFromTimings,
 	pendingText,
+	progressHalfLifeSec,
 	progressOf,
 	pruneInvisibleEntries,
 	pruneSubscriptions,
@@ -1040,26 +1041,44 @@ assert.deepEqual(
 	"非法桶不计入，全非法归一为空",
 );
 
-// ---- R-01-009/AC-06 回合进度：y = t/(t+120)（t 为本回合已耗秒数，C-014）----
+// ---- R-01-009/AC-06 回合进度：y = t/(t+k)，半衰期 k 按实测输出速率校准（C-014、C-025）----
 assert.equal(progressOf({ elapsedMs: 0 }), 0, "回合起点过原点 0%");
-assert.equal(progressOf({ elapsedMs: 120_000 }), 50, "半衰期 120s 显示 50%");
-assert.equal(progressOf({ elapsedMs: 360_000 }), 75, "6 分钟显示 75%");
+assert.equal(progressOf({ elapsedMs: 120_000 }), 50, "默认半衰期 120s（基准速率口径）显示 50%");
+assert.equal(progressOf({ elapsedMs: 360_000 }), 75, "默认半衰期下 6 分钟显示 75%");
 assert.ok(progressOf({ elapsedMs: 86_400_000 }) < 100, "超长回合渐近 100% 永不到达");
 const pEarly = progressOf({ elapsedMs: 30_000 });
 const pLate = progressOf({ elapsedMs: 300_000 });
 assert.ok(pLate > pEarly && pEarly > 0, "随已耗时单调递增且先快后慢");
 assert.ok(progressOf({ elapsedMs: Number.NaN }) === 0 && progressOf({ elapsedMs: -1 }) === 0, "非法已耗时归一为 0");
 assert.ok(progressOf({}) === 0, "缺省入参归一为 0");
+assert.equal(progressOf({ elapsedMs: 240_000, halfLifeSec: 240 }), 50, "校准半衰期 240s 时 4 分钟显示 50%");
+assert.equal(progressOf({ elapsedMs: 120_000, halfLifeSec: 240 }), 33.3, "校准半衰期下 2 分钟显示 33.3%");
+assert.equal(progressOf({ elapsedMs: 120_000, halfLifeSec: Number.NaN }), 50, "非法半衰期回退默认 120s");
+assert.equal(progressOf({ elapsedMs: 120_000, halfLifeSec: 0 }), 50, "非正半衰期回退默认 120s");
+// 半衰期速率校准（progressHalfLifeSec）：k = clamp(120×90÷r, 60, 600)，r 为全会话累计输出速率 tok/s
+assert.equal(progressHalfLifeSec({ rateTokS: 90 }), 120, "基准速率 90 tok/s 半衰期 120s（行为与校准前一致）");
+assert.equal(progressHalfLifeSec({ rateTokS: 45 }), 240, "45 tok/s 半衰期按比例拉长为 240s");
+assert.equal(progressHalfLifeSec({ rateTokS: 20 }), 540, "20 tok/s 半衰期 540s");
+assert.equal(progressHalfLifeSec({ rateTokS: 180 }), 60, "180 tok/s 夹取下界 60s");
+assert.equal(progressHalfLifeSec({ rateTokS: 300 }), 60, "超高速率仍夹取下界 60s");
+assert.equal(progressHalfLifeSec({ rateTokS: 10 }), 600, "10 tok/s 夹取上界 600s");
+assert.equal(progressHalfLifeSec({}), 120, "无可用速率取默认 120s");
+assert.ok(
+	progressHalfLifeSec({ rateTokS: Number.NaN }) === 120 &&
+		progressHalfLifeSec({ rateTokS: 0 }) === 120 &&
+		progressHalfLifeSec({ rateTokS: -5 }) === 120,
+	"非法/非正速率回退默认 120s",
+);
 // 注：R-01-009/AC-06 的"回合切换归零重计"由渲染层 turnTimings 新回合起点保证，属 GUI 验收项（scripts/acceptance.mjs）。
 // ---- R-01-009/AC-06 委托周期进度锚点：周期内连续、周期外回合切换归零 ----
 const anchorIdle = progressAnchor(null, { descendantActive: false, hostStartTime: null, now: 1000 });
-assert.deepEqual(anchorIdle, { mode: "idle", anchor: null, turnStart: null, drainedAt: null }, "无后代无回合为 idle");
+assert.deepEqual(anchorIdle, { mode: "idle", anchor: null, turnStart: null, drainedAt: null, halfLifeSec: null }, "无后代无回合为 idle（半衰期清空）");
 const anchorTurnA = progressAnchor(anchorIdle, { descendantActive: false, hostStartTime: 1000, now: 1000 });
-assert.deepEqual(anchorTurnA, { mode: "turn", anchor: 1000, turnStart: 1000, drainedAt: null }, "回合起点即锚点");
+assert.deepEqual(anchorTurnA, { mode: "turn", anchor: 1000, turnStart: 1000, drainedAt: null, halfLifeSec: 120 }, "回合起点即锚点，无速率输入捕获默认半衰期 120s");
 assert.equal(progressAnchor(anchorTurnA, { descendantActive: false, hostStartTime: 1000, now: 5000 }).anchor, 1000, "同回合锚点不变");
 assert.equal(progressAnchor(anchorTurnA, { descendantActive: false, hostStartTime: 9000, now: 9000 }).anchor, 9000, "无活动后代时回合切换归零重计");
 const anchorDeleg = progressAnchor(anchorTurnA, { descendantActive: true, hostStartTime: 1000, now: 2000 });
-assert.deepEqual(anchorDeleg, { mode: "delegating", anchor: 1000, turnStart: 1000, drainedAt: null }, "进入委托周期锚点保持");
+assert.deepEqual(anchorDeleg, { mode: "delegating", anchor: 1000, turnStart: 1000, drainedAt: null, halfLifeSec: 120 }, "进入委托周期锚点与半衰期保持");
 const anchorDelegIdle = progressAnchor(anchorDeleg, { descendantActive: true, hostStartTime: null, now: 8000 });
 assert.equal(anchorDelegIdle.anchor, 1000, "自身回合结束后委托周期锚点连续（不归零、不打满）");
 const anchorDelegNewTurn = progressAnchor(anchorDelegIdle, { descendantActive: true, hostStartTime: 9000, now: 9000 });
@@ -1068,7 +1087,7 @@ const anchorDrained = progressAnchor(anchorDelegNewTurn, { descendantActive: fal
 assert.equal(anchorDrained.anchor, 1000, "后代全部结束、处理回合在飞时锚点仍连续");
 assert.deepEqual(
 	progressAnchor(anchorDrained, { descendantActive: false, hostStartTime: null, now: 20000 }),
-	{ mode: "idle", anchor: null, turnStart: null, drainedAt: null },
+	{ mode: "idle", anchor: null, turnStart: null, drainedAt: null, halfLifeSec: null },
 	"处理回合完成即委托周期结束",
 );
 assert.equal(
@@ -1078,7 +1097,7 @@ assert.equal(
 );
 assert.deepEqual(
 	progressAnchor(null, { descendantActive: true, hostStartTime: null, now: 42000 }),
-	{ mode: "delegating", anchor: 42000, turnStart: null, drainedAt: null },
+	{ mode: "delegating", anchor: 42000, turnStart: null, drainedAt: null, halfLifeSec: 120 },
 	"无已知起点时以进入委托周期时刻为起点（冷启动）",
 );
 // 后代耗尽后宽限内开始的新回合视为 settle 处理回合（锚点连续），超时视为全新回合（归零）。
@@ -1094,6 +1113,29 @@ assert.equal(
 	progressAnchor(anchorDrainWait, { descendantActive: false, hostStartTime: 91001, now: 91001 }).anchor,
 	91001,
 	"耗尽宽限超时后开始的新回合归零重计",
+);
+// 半衰期随锚点生命周期捕获冻结（C-025）：idle→活动捕获输入，活动期保持，归零重计时重捕获
+const anchorFast = progressAnchor(null, { descendantActive: false, hostStartTime: 1000, now: 1000, halfLifeSec: 60 });
+assert.deepEqual(anchorFast, { mode: "turn", anchor: 1000, turnStart: 1000, drainedAt: null, halfLifeSec: 60 }, "锚点建立时捕获校准半衰期");
+assert.equal(
+	progressAnchor(anchorFast, { descendantActive: false, hostStartTime: 1000, now: 5000, halfLifeSec: 240 }).halfLifeSec,
+	60,
+	"锚点期间半衰期冻结不随新输入变化（进度不倒退）",
+);
+assert.equal(
+	progressAnchor(anchorFast, { descendantActive: true, hostStartTime: 1000, now: 2000, halfLifeSec: 240 }).halfLifeSec,
+	60,
+	"进入委托周期半衰期继承已捕获值（锚点连续）",
+);
+assert.equal(
+	progressAnchor(anchorFast, { descendantActive: false, hostStartTime: 9000, now: 9000, halfLifeSec: 240 }).halfLifeSec,
+	240,
+	"委托周期外回合切换归零重计时按最新速率重新校准",
+);
+assert.equal(
+	progressAnchor(null, { descendantActive: false, hostStartTime: 1000, now: 1000, halfLifeSec: Number.NaN }).halfLifeSec,
+	120,
+	"非法半衰期输入捕获时回退默认 120s",
 );
 
 // ---- R-01-009/AC-07 工作项时间线的状态与主会话窗口语义摘要（无行级耗时，C-012）----
@@ -2000,6 +2042,15 @@ assert.ok(
 assert.ok(bundle.includes("foldedConversationTimeline"), "活动卡时间线由折叠分组唯一来源派生（R-01-012、R-01-017）");
 assert.ok(!bundle.includes("dap-trace-time"), "工作项时间线不渲染行级耗时元素，对齐主会话窗口（R-01-009/AC-07、C-012）");
 assert.ok(!bundle.includes("PROGRESS_THINK_BASE") && !bundle.includes("progressFloor"), "回合进度纯时间驱动，无思考基线/单调下限残留（R-01-009/AC-06、C-014）");
+assert.ok(bundle.includes("progressHalfLifeSec"), "bundle 含半衰期速率校准函数（R-01-009/AC-06、C-025）");
+assert.ok(
+	bundle.includes("halfLifeSec: progressHalfLifeSec({ rateTokS })"),
+	"渲染层按实测速率校准半衰期并随锚点捕获（R-01-009/AC-06、C-025）",
+);
+assert.ok(
+	bundle.includes("halfLifeSec: anchor.halfLifeSec"),
+	"进度赋值使用锚点冻结的半衰期（R-01-009/AC-06、C-025）",
+);
 // R-01-009/AC-10
 // R-01-017 无条件折叠（C-017）：检测探测与原生行呈现机器不得残留
 assert.ok(!bundle.includes("dshcf") && !bundle.includes("autoCollapseActive"), "无 dsh-auto-collapse 探测残留（R-01-017、C-017）");

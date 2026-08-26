@@ -2305,34 +2305,36 @@ function apply(ctx) {
 			entry.loadingTimeline =
 				entry.timeline.length === 0 &&
 				(historyLoads.has(entry.id) || sessionOpenLoads.has(entry.id) || (runLikeIds.has(entry.id) && !liveRecord));
+			// token/速率取自 sessions.list 条目的投影（tokenUsage/sessionStats），
+			// 复用既有列表订阅，无新增轮询（R-01-009/AC-05、R-02-004/AC-02）。
+			const projection = snapshot?.byId?.[entry.id]?.projectionValues;
+			const stats = projection?.sessionStats;
+			const rateTokS =
+				stats && Number.isFinite(stats.decodeMs) && stats.decodeMs > 0
+					? stats.decodeTokens / (stats.decodeMs / 1000)
+					: null;
 			// 委托周期锚点（R-01-009/AC-06）：全部活动条目逐帧记账——锚点不因呈现翻转
 			// （委托期与 awaiting 互转）或瞬时不可见而丢失，仅 dispose 时整体清除；周期内
 			// 进度连续（含 settle 处理回合），周期外由宿主回合起点驱动（新回合归零）。
+			// 半衰期按实测速率校准（C-025）：锚点建立时捕获冻结、归零重计时重新校准。
 			const anchor = progressAnchor(progressAnchorById.get(entry.id) ?? null, {
 				descendantActive: entry.descendantActive === true,
 				hostStartTime: live?.startTime ?? null,
 				now,
+				halfLifeSec: progressHalfLifeSec({ rateTokS }),
 			});
 			progressAnchorById.set(entry.id, anchor);
 			if (entry.kind === "running") {
 				const elapsedMs = Number.isFinite(anchor.anchor) ? Math.max(0, now - anchor.anchor) : null;
-				// token/速率取自 sessions.list 条目的投影（tokenUsage/sessionStats），
-				// 复用既有列表订阅，无新增轮询（R-01-009/AC-05、R-02-004/AC-02）。
-				const projection = snapshot?.byId?.[entry.id]?.projectionValues;
 				const outputTokens = projection?.tokenUsage?.outputTokens ?? null;
-				const stats = projection?.sessionStats;
-				const rateTokS =
-					stats && Number.isFinite(stats.decodeMs) && stats.decodeMs > 0
-						? stats.decodeTokens / (stats.decodeMs / 1000)
-						: null;
 				Object.assign(entry, runtimeStats({ elapsedMs, outputTokens, rateTokS }));
 				Object.assign(entry, usageSummary(projection?.tokenUsage ?? {}));
 				// 流式阶段标记驱动 data-streaming（进度条条纹动画）；工具调用期间视作
 				// 非流式，与 answer-pet 的 phase==='stream' 判定一致。
 				entry.streaming = !live?.runningTool && live?.streaming === true;
-				// 回合进度：纯时间驱动 y = t/(t+120)，单调性由函数本身保证；锚点由
-				// progressAnchor 记账（委托周期连续、周期外回合切换归零，R-01-009/AC-06，C-014）。
-				entry.progress = progressOf({ elapsedMs: elapsedMs ?? 0 });
+				// 回合进度：纯时间驱动 y = t/(t+k)，半衰期 k 随锚点捕获冻结，固定 k 下
+				// 单调性由函数本身保证（委托周期连续、周期外回合切换归零，R-01-009/AC-06，C-014、C-025）。
+				entry.progress = progressOf({ elapsedMs: elapsedMs ?? 0, halfLifeSec: anchor.halfLifeSec });
 			}
 		}
 		// 历史区时间精化（R-01-010/AC-08、AC-09）：从保留快照的 turnTimings 与已拉取的

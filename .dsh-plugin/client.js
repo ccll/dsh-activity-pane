@@ -1428,19 +1428,40 @@ function fmtTokens(n) {
 	return `${scaled(n / 1e6)}M`;
 }
 
+/** 回合进度半衰期校准参数（R-01-009/AC-06，C-025）：基准速率 90 tok/s 对应半衰期
+ *  120s；慢模型按比例拉长、快模型缩短，夹取于 [60, 600] 秒。 */
+const PROGRESS_HALFLIFE_REF_RATE = 90;
+const PROGRESS_HALFLIFE_DEFAULT_S = 120;
+const PROGRESS_HALFLIFE_MIN_S = 60;
+const PROGRESS_HALFLIFE_MAX_S = 600;
+
 /**
- * 回合进度估计（0–100）：纯时间驱动，y = t/(t+120)（t 为本回合已耗秒数，半衰期
- * 120s）。过原点、先快后慢、渐近 100 永不到达；不区分 think/stream/tool 阶段，
- * 单调性由函数本身保证；回合切换归零/委托周期连续由渲染层 progressAnchor 记账保证
- * （R-01-009/AC-06，C-014）。非法/缺失已耗时归一为 0。
+ * 回合进度半衰期速率校准（R-01-009/AC-06，C-025）：任务产出 token 量与模型速度
+ * 无关、回合墙钟时长与速率成反比，故 k = 120×90÷r 秒并夹取 [60, 600]（r 为会话
+ * 实测累计输出速率 tok/s）；无可用速率（缺省/非法/非正）回退默认 120s。返回整数秒。
  */
-function progressOf({ elapsedMs = 0 } = {}) {
+function progressHalfLifeSec({ rateTokS = null } = {}) {
+	if (!Number.isFinite(rateTokS) || rateTokS <= 0) return PROGRESS_HALFLIFE_DEFAULT_S;
+	const k = Math.round((PROGRESS_HALFLIFE_DEFAULT_S * PROGRESS_HALFLIFE_REF_RATE) / rateTokS);
+	return Math.min(PROGRESS_HALFLIFE_MAX_S, Math.max(PROGRESS_HALFLIFE_MIN_S, k));
+}
+
+/**
+ * 回合进度估计（0–100）：纯时间驱动，y = t/(t+k)（t 为本回合已耗秒数、k 为半衰期
+ * 秒数）。过原点、先快后慢、渐近 100 永不到达；不区分 think/stream/tool 阶段，固定
+ * k 下单调不减。半衰期按会话实测输出速率校准（progressHalfLifeSec），锚点期间冻结、
+ * 归零重计时重新校准由渲染层 progressAnchor 记账保证（回合切换归零/委托周期连续，
+ * R-01-009/AC-06，C-014、C-025）。非法/缺失已耗时归一为 0；非法/缺失半衰期回退默认
+ * 120s。
+ */
+function progressOf({ elapsedMs = 0, halfLifeSec = null } = {}) {
 	const sec =
 		Math.max(
 			0,
 			(Number.isFinite(elapsedMs) && elapsedMs >= 0 ? elapsedMs : 0) / 1000,
 		);
-	return Math.round((100 * sec) / (sec + 120) * 10) / 10;
+	const k = Number.isFinite(halfLifeSec) && halfLifeSec > 0 ? halfLifeSec : PROGRESS_HALFLIFE_DEFAULT_S;
+	return Math.round((100 * sec) / (sec + k) * 10) / 10;
 }
 
 /** 委托耗尽归属宽限（R-01-009/AC-06）：后代全部结束后、在该毫秒数内开始的新回合
@@ -1450,42 +1471,52 @@ const SETTLE_TURN_GRACE_MS = 60_000;
 
 /**
  * 委托周期进度锚点（R-01-009/AC-06）：三态状态机。
- *   - idle：无活动后代且无开放回合，锚点为空。
+ *   - idle：无活动后代且无开放回合，锚点与半衰期为空。
  *   - turn：无活动后代、自身回合在飞；锚点 = 本回合起点，新回合开始即归零重计。
  *   - delegating：委托周期——自首个活动后代出现起，至后代全部结束且处理其结果的
  *     回合完成止；锚点在周期内连续，不随自身回合结束或新回合开始而归零；进入周期
  *     时取最近已知回合起点，无已知起点时以进入周期时刻（now）为起点。后代耗尽且
  *     无开放回合时记 drainedAt；耗尽后 SETTLE_TURN_GRACE_MS 内开始的新回合归属本
  *     周期（锚点连续），超时开始的新回合归零重计并退出周期。
+ * halfLifeSec（C-025）：进度半衰期随锚点生命周期捕获冻结——idle 转活动时捕获当前
+ * 输入（非法/缺失回退默认 120s），活动期保持不变（含 turn→delegating 继承），锚点
+ * 归零重计时按最新输入重捕获；锚点期间 k 不变以保证进度单调不倒退。
  * prev 为上一帧状态（null 视同 idle）；返回新状态对象，渲染层按会话 id 记账。
  */
-function progressAnchor(prev, { descendantActive = false, hostStartTime = null, now = null } = {}) {
+function progressAnchor(prev, { descendantActive = false, hostStartTime = null, now = null, halfLifeSec = null } = {}) {
 	const hs = Number.isFinite(hostStartTime) ? hostStartTime : null;
 	const da = descendantActive === true;
 	const mode = prev?.mode === "turn" || prev?.mode === "delegating" ? prev.mode : "idle";
+	const k = Number.isFinite(halfLifeSec) && halfLifeSec > 0 ? halfLifeSec : PROGRESS_HALFLIFE_DEFAULT_S;
 	if (da) {
 		if (mode === "delegating") {
 			const turnStart = hs !== null && hs !== prev.turnStart ? hs : prev.turnStart;
 			if (turnStart === prev.turnStart && prev.drainedAt == null) return prev;
-			return { mode: "delegating", anchor: prev.anchor, turnStart, drainedAt: null };
+			return { mode: "delegating", anchor: prev.anchor, turnStart, drainedAt: null, halfLifeSec: prev.halfLifeSec };
 		}
 		const anchor = hs ?? (mode === "turn" ? prev.anchor : Number.isFinite(now) ? now : 0);
-		return { mode: "delegating", anchor, turnStart: hs ?? (mode === "turn" ? prev.turnStart : null), drainedAt: null };
+		return {
+			mode: "delegating",
+			anchor,
+			turnStart: hs ?? (mode === "turn" ? prev.turnStart : null),
+			drainedAt: null,
+			halfLifeSec: mode === "turn" ? prev.halfLifeSec : k,
+		};
 	}
 	if (hs === null) {
-		if (mode !== "delegating") return { mode: "idle", anchor: null, turnStart: null, drainedAt: null };
+		if (mode !== "delegating") return { mode: "idle", anchor: null, turnStart: null, drainedAt: null, halfLifeSec: null };
 		if (prev.drainedAt != null) return prev;
 		return { ...prev, drainedAt: Number.isFinite(now) ? now : 0 };
 	}
 	if (mode === "delegating") {
-		if (hs === prev.turnStart) return { mode: "turn", anchor: prev.anchor, turnStart: hs, drainedAt: null };
+		if (hs === prev.turnStart) return { mode: "turn", anchor: prev.anchor, turnStart: hs, drainedAt: null, halfLifeSec: prev.halfLifeSec };
 		const withinGrace = prev.drainedAt != null && hs - prev.drainedAt <= SETTLE_TURN_GRACE_MS;
 		return withinGrace
-			? { mode: "turn", anchor: prev.anchor, turnStart: hs, drainedAt: null }
-			: { mode: "turn", anchor: hs, turnStart: hs, drainedAt: null };
+			? { mode: "turn", anchor: prev.anchor, turnStart: hs, drainedAt: null, halfLifeSec: prev.halfLifeSec }
+			: { mode: "turn", anchor: hs, turnStart: hs, drainedAt: null, halfLifeSec: k };
 	}
 	if (mode === "turn" && hs === prev.turnStart) return prev;
-	return { mode: "turn", anchor: hs, turnStart: hs, drainedAt: null };
+	return { mode: "turn", anchor: hs, turnStart: hs, drainedAt: null, halfLifeSec: k };
 }
 
 /** 会话是否处于委托周期（含后代耗尽空窗）：delegating 态且未耗尽，或耗尽时刻距
@@ -3896,34 +3927,36 @@ function apply(ctx) {
 			entry.loadingTimeline =
 				entry.timeline.length === 0 &&
 				(historyLoads.has(entry.id) || sessionOpenLoads.has(entry.id) || (runLikeIds.has(entry.id) && !liveRecord));
+			// token/速率取自 sessions.list 条目的投影（tokenUsage/sessionStats），
+			// 复用既有列表订阅，无新增轮询（R-01-009/AC-05、R-02-004/AC-02）。
+			const projection = snapshot?.byId?.[entry.id]?.projectionValues;
+			const stats = projection?.sessionStats;
+			const rateTokS =
+				stats && Number.isFinite(stats.decodeMs) && stats.decodeMs > 0
+					? stats.decodeTokens / (stats.decodeMs / 1000)
+					: null;
 			// 委托周期锚点（R-01-009/AC-06）：全部活动条目逐帧记账——锚点不因呈现翻转
 			// （委托期与 awaiting 互转）或瞬时不可见而丢失，仅 dispose 时整体清除；周期内
 			// 进度连续（含 settle 处理回合），周期外由宿主回合起点驱动（新回合归零）。
+			// 半衰期按实测速率校准（C-025）：锚点建立时捕获冻结、归零重计时重新校准。
 			const anchor = progressAnchor(progressAnchorById.get(entry.id) ?? null, {
 				descendantActive: entry.descendantActive === true,
 				hostStartTime: live?.startTime ?? null,
 				now,
+				halfLifeSec: progressHalfLifeSec({ rateTokS }),
 			});
 			progressAnchorById.set(entry.id, anchor);
 			if (entry.kind === "running") {
 				const elapsedMs = Number.isFinite(anchor.anchor) ? Math.max(0, now - anchor.anchor) : null;
-				// token/速率取自 sessions.list 条目的投影（tokenUsage/sessionStats），
-				// 复用既有列表订阅，无新增轮询（R-01-009/AC-05、R-02-004/AC-02）。
-				const projection = snapshot?.byId?.[entry.id]?.projectionValues;
 				const outputTokens = projection?.tokenUsage?.outputTokens ?? null;
-				const stats = projection?.sessionStats;
-				const rateTokS =
-					stats && Number.isFinite(stats.decodeMs) && stats.decodeMs > 0
-						? stats.decodeTokens / (stats.decodeMs / 1000)
-						: null;
 				Object.assign(entry, runtimeStats({ elapsedMs, outputTokens, rateTokS }));
 				Object.assign(entry, usageSummary(projection?.tokenUsage ?? {}));
 				// 流式阶段标记驱动 data-streaming（进度条条纹动画）；工具调用期间视作
 				// 非流式，与 answer-pet 的 phase==='stream' 判定一致。
 				entry.streaming = !live?.runningTool && live?.streaming === true;
-				// 回合进度：纯时间驱动 y = t/(t+120)，单调性由函数本身保证；锚点由
-				// progressAnchor 记账（委托周期连续、周期外回合切换归零，R-01-009/AC-06，C-014）。
-				entry.progress = progressOf({ elapsedMs: elapsedMs ?? 0 });
+				// 回合进度：纯时间驱动 y = t/(t+k)，半衰期 k 随锚点捕获冻结，固定 k 下
+				// 单调性由函数本身保证（委托周期连续、周期外回合切换归零，R-01-009/AC-06，C-014、C-025）。
+				entry.progress = progressOf({ elapsedMs: elapsedMs ?? 0, halfLifeSec: anchor.halfLifeSec });
 			}
 		}
 		// 历史区时间精化（R-01-010/AC-08、AC-09）：从保留快照的 turnTimings 与已拉取的

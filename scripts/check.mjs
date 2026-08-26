@@ -30,6 +30,11 @@ import {
 	conversationTimelineFromHistory,
 	foldWorkGroups,
 	foldedConversationTimeline,
+	foldedHistoryTimeline,
+	historyInstructionAnchor,
+	withInstructionAnchor,
+	openTurnStartFromEvents,
+	openTurnStartMissing,
 	escapeCssString,
 	firstPhysicalLine,
 	fmtElapsedMs,
@@ -242,7 +247,23 @@ assert.equal(
 assert.equal(
 	detailLoadPlan({ detail: {}, historyNeeded: true, snapshotReady: true }).history,
 	false,
-	"原生快照已就绪时不发 history 读取",
+	"原生快照已就绪且窗口数据齐全时不发 history 读取",
+);
+// R-01-009/AC-06、R-01-012/AC-12 冷窗口兜底：快照就绪但窗口缺锚点数据（开放回合起点/用户行在窗口外）时补读 history
+assert.equal(
+	detailLoadPlan({ detail: {}, snapshotReady: true, windowComplete: false }).history,
+	true,
+	"快照就绪但窗口缺锚点数据时发起 history 补读",
+);
+assert.equal(
+	detailLoadPlan({ detail: {}, snapshotReady: true, windowComplete: true }).history,
+	false,
+	"快照窗口锚点数据齐全时不发 history 读取",
+);
+assert.equal(
+	detailLoadPlan({ detail: { history: [] }, snapshotReady: true, windowComplete: false }).history,
+	false,
+	"窗口补读失败置空后可见期内不热重试",
 );
 
 // ---- R-01-012/AC-16 模型选择切换经目录订阅推送更新，一次性读取仅作初值 ----
@@ -1075,6 +1096,56 @@ const emptyUserAnchor = foldedConversationTimeline({
 	},
 });
 assert.ok(emptyUserAnchor.every((row) => row.anchor !== true), "空文本用户输入行不作为指令锚行（R-01-012/AC-12）");
+// 冷 history 路径同口径指令锚行（R-01-012/AC-12）：页内全部事件折叠后套用同一窗口/锚行选择
+const hUser = (seq, text) => ({ event: { type: "user/message", seq, data: { source: { kind: "user" }, content: [{ type: "text", text }] } } });
+const hAgent = (seq, text) => ({ event: { type: "assistant/message", seq, data: { message: { content: [{ type: "text", text }] } } } });
+const hToolDone = (seq) => ({ event: { type: "tool/result", seq, data: { callId: `hc${seq}`, name: "bash", arguments: "{}", isError: false } } });
+const histAnchored = foldedHistoryTimeline([hUser(1, "冷指令"), hAgent(2, "回复一"), hToolDone(3), hToolDone(4), hAgent(5, "回复二"), hToolDone(6)]);
+assert.equal(histAnchored.length, 4, "冷 history 路径锚行计入总预算：含锚行合计不超过 4（R-01-012/AC-12）");
+assert.equal(histAnchored[0].anchor, true, "窗口之前的用户消息以锚行前置（R-01-012/AC-12）");
+assert.equal(histAnchored[0].kind, "user", "冷路径锚行保留用户行语义（R-01-012/AC-12）");
+assert.equal(histAnchored[0].text, "冷指令", "冷路径锚行内容为最近用户消息（R-01-012/AC-12）");
+assert.ok(histAnchored.slice(1).every((row) => row.anchor !== true), "冷路径仅首行带锚标记（R-01-012/AC-12）");
+const histInWindow = foldedHistoryTimeline([hUser(1, "近指令"), hAgent(2, "回复")]);
+assert.equal(histInWindow.length, 2, "冷路径用户消息在窗口内时按普通显示行（R-01-012/AC-13）");
+assert.ok(histInWindow.every((row) => row.anchor !== true), "冷路径消息未被挤出窗口时不出现锚行（R-01-012/AC-13）");
+assert.ok(foldedHistoryTimeline([hAgent(1, "仅回复"), hToolDone(2)]).every((row) => row.anchor !== true), "history 无用户消息时不造锚行");
+// historyInstructionAnchor：尾扫最近一条非空文本真实用户消息（R-01-012/AC-12 快照窗口外兜底）
+assert.equal(historyInstructionAnchor([hUser(1, "旧指令"), hAgent(2, "回复"), hUser(3, "新指令")])?.text, "新指令", "锚行取最近一条用户消息");
+assert.equal(historyInstructionAnchor([hUser(1, "  "), hAgent(2, "回复")]), null, "空文本用户消息不作锚");
+assert.equal(historyInstructionAnchor([{ event: { type: "user/message", seq: 1, data: { source: { kind: "recall" }, content: [{ type: "text", text: "召回" }] } } }]), null, "非真实用户来源不作锚");
+assert.equal(historyInstructionAnchor([hAgent(1, "仅回复")]), null, "无用户消息返回 null");
+assert.equal(historyInstructionAnchor(null), null, "非数组输入归一 null");
+// withInstructionAnchor：快照窗口无任何用户行时以 history 锚行兜底前置（R-01-012/AC-12）
+const anchorRow = historyInstructionAnchor([hUser(9, "兜底指令")]);
+const noUserRows = [
+	{ id: "f1", kind: "tool", fold: true, label: "运行了命令", text: "", summary: "make", status: "done" },
+	{ id: "b1", kind: "assistant", label: "助手", text: "正文一", status: "done" },
+];
+const withAnchor = withInstructionAnchor(noUserRows, anchorRow, 4);
+assert.equal(withAnchor.length, 3, "窗口无用户行时锚行前置、总行数 +1（预算内）");
+assert.equal(withAnchor[0].anchor, true, "兜底锚行带锚标记");
+assert.equal(withAnchor[0].text, "兜底指令", "兜底锚行内容为 history 最近用户消息");
+const fullNoUserRows = [
+	{ id: "f1", kind: "tool", fold: true, label: "运行了命令", text: "", summary: "a", status: "done" },
+	{ id: "f2", kind: "tool", fold: true, label: "运行了命令", text: "", summary: "b", status: "done" },
+	{ id: "f3", kind: "tool", fold: true, label: "运行了命令", text: "", summary: "c", status: "done" },
+	{ id: "f4", kind: "tool", fold: true, label: "运行了命令", text: "", summary: "d", status: "done" },
+];
+const shrunk = withInstructionAnchor(fullNoUserRows, anchorRow, 4);
+assert.equal(shrunk.length, 4, "锚行计入总预算：窗口收缩为最近 3 行（R-01-012/AC-12）");
+assert.equal(shrunk[1].id, "f2", "收缩窗口丢弃最旧行保留较新行");
+const hasUserRows = [
+	{ id: "u1", kind: "user", label: "用户", text: "窗口内指令", status: "done" },
+	{ id: "b1", kind: "assistant", label: "助手", text: "正文", status: "done" },
+];
+assert.equal(withInstructionAnchor(hasUserRows, anchorRow, 4), hasUserRows, "窗口已有用户行时不叠加兜底锚行（R-01-012/AC-13）");
+const newerUserRows = [
+	{ id: "u2", kind: "user", label: "用户", text: "新指令", status: "done" },
+	{ id: "b2", kind: "assistant", label: "助手", text: "新正文", status: "done" },
+];
+assert.equal(withInstructionAnchor(newerUserRows, anchorRow, 4), newerUserRows, "新指令进窗后兜底旧锚让位不叠加（R-01-012/AC-15）");
+assert.equal(withInstructionAnchor(noUserRows, null, 4), noUserRows, "无可用锚行时原样返回");
 
 // ---- R-01-009/AC-04 工具动作摘要镜像主会话窗口 deriveSummary 语义（可含原始命令）----
 assert.equal(
@@ -1255,6 +1326,53 @@ assert.equal(
 	progressAnchor(null, { descendantActive: false, hostStartTime: 1000, now: 1000, halfLifeSec: Number.NaN }).halfLifeSec,
 	120,
 	"非法半衰期输入捕获时回退默认 120s",
+);
+// 冷窗口回合起点兜底（R-01-009/AC-06）：history 事件尾扫——尾部最近边界为 turn/start 即开放回合起点
+const turnStartEv = (seq, turn, time) => ({ event: { type: "turn/start", seq, time, data: { turn } } });
+const turnEndEv = (seq, turn, time) => ({ event: { type: "turn/end", seq, time, data: { turn } } });
+assert.equal(
+	openTurnStartFromEvents([turnStartEv(1, 1, 1000), turnEndEv(2, 1, 2000), turnStartEv(3, 2, 5000)]),
+	5000,
+	"尾部边界为 turn/start 时返回其时刻（快照窗口外开放回合起点兜底）",
+);
+assert.equal(
+	openTurnStartFromEvents([turnStartEv(1, 1, 1000), turnEndEv(2, 1, 2000)]),
+	null,
+	"尾部边界为 turn/end 时无开放回合",
+);
+assert.equal(
+	openTurnStartFromEvents([turnStartEv(1, 1, 1000), turnEndEv(2, 1, 2000), turnStartEv(3, 2, 5000)], 3),
+	null,
+	"history 开放回合落后于快照已知回合（minTurn）时判为陈旧不采用",
+);
+assert.equal(openTurnStartFromEvents([turnStartEv(1, 1, Number.NaN)]), null, "turn/start 时刻非法时无可用起点");
+assert.equal(openTurnStartFromEvents([]), null, "空事件无开放回合起点");
+assert.equal(openTurnStartFromEvents(null), null, "非数组输入归一 null");
+// 补读触发口径（R-01-009/AC-06）：仅「运行中 + 轮内订阅已建立 + 快照无开放回合起点」算缺口
+assert.equal(
+	openTurnStartMissing({ snapshotReady: true, running: true, hasLiveness: true, liveStartTime: null }),
+	true,
+	"运行中且快照无开放回合起点判定为缺口（超长回合冷窗口）",
+);
+assert.equal(
+	openTurnStartMissing({ snapshotReady: true, running: true, hasLiveness: true, liveStartTime: 1000 }),
+	false,
+	"窗口内含开放回合起点时不是缺口",
+);
+assert.equal(
+	openTurnStartMissing({ snapshotReady: true, running: false, hasLiveness: false, liveStartTime: null }),
+	false,
+	"等待/空闲会话（非运行、无 liveness 记录）不算缺口、不触发补读",
+);
+assert.equal(
+	openTurnStartMissing({ snapshotReady: true, running: true, hasLiveness: false, liveStartTime: null }),
+	false,
+	"轮内订阅尚未建立时不算缺口（下一帧建立后再判定）",
+);
+assert.equal(
+	openTurnStartMissing({ snapshotReady: false, running: true, hasLiveness: true, liveStartTime: null }),
+	false,
+	"快照未就绪走 historyNeeded 原路径，不算窗口缺口",
 );
 
 // ---- R-01-009/AC-07 工作项时间线的状态与主会话窗口语义摘要（无行级耗时，C-012）----
@@ -1615,6 +1733,27 @@ const toolEvent = (seq) => ({ event: { type: "tool/call", seq, data: { callId: `
 	const result = await pagedHistoryEvents({ fetchPage, maxPages: 3 });
 	assert.equal(calls, 2, "业务错误（null）即停止");
 	assert.equal(result.events.length, 1, "业务错误前已得事件保留");
+}
+// requireOpenTurnStart（R-01-009/AC-06 冷窗口兜底）：预览齐全但开放回合起点未命中时继续深翻，仍受 maxPages 约束
+{
+	const calls = [];
+	const fetchPage = async (beforeSeq) => {
+		calls.push(beforeSeq);
+		if (calls.length === 1) return pageOf([userEvent(50, "用户"), agentEvent(51, "回复")], true);
+		return pageOf([{ event: { type: "turn/start", seq: 1, time: 1000, data: { turn: 1 } } }, toolEvent(2)], false);
+	};
+	const result = await pagedHistoryEvents({ fetchPage, maxPages: 3, requireOpenTurnStart: true });
+	assert.equal(calls.length, 2, "预览齐全但无开放回合起点时继续深翻（R-01-009/AC-06）");
+	assert.equal(openTurnStartFromEvents(result.events), 1000, "深翻命中开放回合起点时刻");
+}
+{
+	let calls = 0;
+	const fetchPage = async () => {
+		calls += 1;
+		return pageOf([userEvent(calls * 2, "u"), agentEvent(calls * 2 + 1, "a")], true);
+	};
+	await pagedHistoryEvents({ fetchPage, maxPages: 3, requireOpenTurnStart: true });
+	assert.equal(calls, 3, "开放回合起点未命中时深翻仍以 maxPages 为界");
 }
 
 // ---- R-02-003/AC-01 富卡字段并入签名后，进度/轨迹变化必触重重绘 ----
@@ -2089,6 +2228,14 @@ assert.ok(!bundle.includes("sessionsListHas"), "点击不得以第二份 list �
 assert.ok(
 	bundle.includes("foldedConversationTimeline") && bundle.includes("foldWorkGroups"),
 	"折叠分组派生函数进入 bundle（R-01-017）",
+);
+assert.ok(
+	bundle.includes("openTurnStartFromEvents") && bundle.includes("requireOpenTurnStart"),
+	"开放回合起点 history 兜底进入 bundle（R-01-009/AC-06 冷窗口兜底）",
+);
+assert.ok(
+	bundle.includes("historyInstructionAnchor") && bundle.includes("withInstructionAnchor") && bundle.includes("foldedHistoryTimeline"),
+	"指令锚行 history 兜底与冷路径锚行选择进入 bundle（R-01-012/AC-12）",
 );
 assert.ok(!bundle.includes("renderSlot") && !bundle.includes("dap-slot"), "指令槽位渲染无残留（C-019）");
 assert.ok(!bundle.includes("rememberLastUser") && !bundle.includes("lastUserFromEvents") && !bundle.includes("foldedTimelineWithSlot") && !bundle.includes("foldWorkGroupsWithSlot"), "槽位派生家族无残留（C-019）");

@@ -827,6 +827,11 @@ function schedule(callback) {
 	}
 }
 
+/** Map 键数组兜底：非 Map 输入归一空数组（快照字段防御性读取）。 */
+function mapKeys(value) {
+	return value instanceof Map ? [...value.keys()] : [];
+}
+
 /** 从原生会话快照归一运行卡回合开始时间。
  *  elapsed 不在快照事件时固化——渲染期用 Date.now()-startTime 实时算，时长才能
  *  随 1s 时钟逐秒跳动（R-01-009/AC-03）。 */
@@ -1117,11 +1122,23 @@ function apply(ctx) {
 			// 主会话先试模型目录订阅：store 已有当前选择时同步填充（随后 plan.model 为假、免发 RPC）；
 			// 子代理的目录不可用（宿主以 agent-busy 拒绝其模型 RPC），不建立订阅。
 			if (!subagent) subscribeModelDirectory(id, detail);
+			const snapshotReady = detail.snapshot?.openState === "open";
+			// 冷窗口兜底（R-01-009/AC-06、R-01-012/AC-12）：快照就绪但窗口缺开放回合起点
+			// （超长回合的 turn/start 在尾页窗口之外；等待/空闲会话不算缺口）或缺可锚
+			// 用户行时，补读一次 history。
+			const turnStartMissing = openTurnStartMissing({
+				snapshotReady,
+				running: byId[id]?.running === true,
+				hasLiveness: livenessById.has(id),
+				liveStartTime: livenessById.get(id)?.liveness?.startTime ?? null,
+			});
+			const windowComplete = snapshotReady !== true || (!turnStartMissing && detail.snapshotHasAnchorableUserRow === true);
 			const plan = detailLoadPlan({
 				detail,
 				isSubagent: subagent,
-				snapshotReady: detail.snapshot?.openState === "open",
+				snapshotReady,
 				historyNeeded: needsHistorySnapshot(detail.snapshot),
+				windowComplete,
 				modelInflight: modelLoads.has(id),
 				historyInflight: historyLoads.has(id) || sessionOpenLoads.has(id),
 			});
@@ -1157,15 +1174,18 @@ function apply(ctx) {
 				const promise = enqueueDetailLoad(() => Promise.resolve()
 					.then(async () => {
 						// 单池任务内串行深翻（HISTORY_MAX_PAGES 页，约 150 条消息）；
-						// 找到或翻尽即止，中途失败保留已得事件。
+						// 找到或翻尽即止，中途失败保留已得事件。运行会话缺窗口内回合起点时
+						// 要求深翻至命中开放回合 turn/start（R-01-009/AC-06 冷窗口兜底）。
 						const { events, error } = await pagedHistoryEvents({
 							fetchPage: async (beforeSeq) => apiValue(await api.history({ sessionId: id, beforeSeq, maxMessages: 50 })),
 							maxPages: HISTORY_MAX_PAGES,
+							requireOpenTurnStart: turnStartMissing,
 						});
 						if (error) detail.historyError = error instanceof Error ? error.message : String(error);
 						detail.history = events;
-						// R-01-017：冷路径同样折叠分组（取全量页内事件再折成最多 4 组）。
-						detail.timeline = foldWorkGroups(conversationTimelineFromHistory(events, Number.MAX_SAFE_INTEGER, byId[id]?.cwd ?? ""), 4);
+						// R-01-017：冷路径同样折叠分组（取全量页内事件再折成最多 4 组，
+						// 含指令锚行窗口选择，R-01-012/AC-12～AC-15）。
+						detail.timeline = foldedHistoryTimeline(events, 4, byId[id]?.cwd ?? "");
 						detail.previews = messagePreviews({ history: events });
 					}))
 				historyLoads.set(id, promise);
@@ -2439,10 +2459,36 @@ function apply(ctx) {
 					detail.memoTimelineDescendantActive = entry.descendantActive === true;
 					detail.memoTimelineIdle = entryIdle;
 					detail.memoTimeline = foldedConversationTimeline(detailSnapshot, 4, entryCwd, entry.descendantActive === true, entryIdle);
+					// 冷窗口兜底触发记账（R-01-012/AC-12）：窗口内有可锚用户行时锚行机制保证其
+					// 出现在输出（窗口行或锚行），反之需 history 补读。
+					detail.snapshotHasAnchorableUserRow = detail.memoTimeline.some(isAnchorableUserRow);
 				}
 				entry.timeline = detail.memoTimeline.length > 0 ? detail.memoTimeline : detail.timeline ?? [];
 			} else {
 				entry.timeline = detail?.timeline ?? entry.timeline ?? [];
+			}
+			if (detail) {
+				// history 兜底派生（按引用 memo）：指令锚行与开放回合起点
+				// （R-01-012/AC-12、R-01-009/AC-06 冷窗口兜底）。
+				if (detail.memoHistoryAnchorOf !== (detail.history ?? null)) {
+					detail.memoHistoryAnchorOf = detail.history ?? null;
+					detail.memoHistoryAnchor = historyInstructionAnchor(detail.history);
+				}
+				if (detail.memoOpenTurnStartHistoryOf !== (detail.history ?? null) || detail.memoOpenTurnStartSnapOf !== detailSnapshot) {
+					detail.memoOpenTurnStartHistoryOf = detail.history ?? null;
+					detail.memoOpenTurnStartSnapOf = detailSnapshot;
+					// minTurn 取快照已知最晚回合号（partial/turnTimings/turnEnds）：history 拉取
+					// 后若已切换新回合，旧开放回合起点判为陈旧不采用。
+					const partialTurn = detailSnapshot?.partial?.turn;
+					const hint = Math.max(
+						0,
+						Number.isFinite(partialTurn) ? partialTurn : 0,
+						...mapKeys(detailSnapshot?.turnTimings),
+						...mapKeys(detailSnapshot?.turnEnds),
+					);
+					detail.memoOpenTurnStart = openTurnStartFromEvents(detail.history, hint);
+				}
+				entry.timeline = withInstructionAnchor(entry.timeline, detail.memoHistoryAnchor ?? null, 4);
 			}
 			if (detail?.model) {
 				entry.model = detail.model.model;
@@ -2465,9 +2511,11 @@ function apply(ctx) {
 			// （委托期与 awaiting 互转）或瞬时不可见而丢失，仅 dispose 时整体清除；周期内
 			// 进度连续（含 settle 处理回合），周期外由宿主回合起点驱动（新回合归零）。
 			// 半衰期按实测速率校准（C-025）：锚点建立时捕获冻结、归零重计时重新校准。
+			// 冷窗口兜底：快照 turnTimings 无开放回合起点（超长回合 turn/start 在尾页窗口
+			// 之外）时，取 history 深翻提取的开放回合起点。
 			const anchor = progressAnchor(progressAnchorById.get(entry.id) ?? null, {
 				descendantActive: entry.descendantActive === true,
-				hostStartTime: live?.startTime ?? null,
+				hostStartTime: live?.startTime ?? detail?.memoOpenTurnStart ?? null,
 				now,
 				halfLifeSec: progressHalfLifeSec({ rateTokS }),
 			});

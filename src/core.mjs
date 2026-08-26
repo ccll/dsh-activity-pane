@@ -664,6 +664,42 @@ export function foldWorkGroups(items, limit = 4) {
 	return rows.slice(-max);
 }
 
+/** history 事件条目解包：兼容 `{ event }` 包装与裸事件两种形态（尾扫类派生共用）。 */
+function eventOf(entry) {
+	return isRecord(entry?.event) ? entry.event : entry;
+}
+
+/** 可锚用户行判定：非空文本的用户输入行（R-01-012/AC-12 口径，快照与 history 路径共用）。 */
+export function isAnchorableUserRow(row) {
+	return row?.kind === "user" && typeof row.text === "string" && row.text.trim() !== "";
+}
+
+/** 在 rows 的 [0, end) 区间内反向找最近一条可锚用户行。 */
+function anchorableRowBefore(rows, end) {
+	for (let i = end - 1; i >= 0; i -= 1) {
+		if (isAnchorableUserRow(rows[i])) return rows[i];
+	}
+	return null;
+}
+
+/** 指令锚行窗口选择（R-01-012/AC-12～AC-15、C-023）：锚行计入总预算——锚行出现时窗口
+ *  收缩为最近 max-1 个显示行，总行数（含锚行）不超过 max；该消息仍在窗口内时不标记
+ *  （AC-13）；更近的用户输入行到达收缩窗口首行时直接顶替旧锚、不再叠加（总行数暂减一，
+ *  AC-15）。输入为折叠后的完整显示行序列，快照路径与冷 history 路径共用同一选择语义。 */
+function selectTimelineRows(full, max) {
+	// 预扫无锚窗口（last-max）起点之前：不存在非空文本用户行则无锚，原样返回至多 max 行。
+	if (anchorableRowBefore(full, Math.max(0, full.length - max)) === null) {
+		return full.slice(-max);
+	}
+	const sliced = max > 1 ? full.slice(-(max - 1)) : [];
+	// AC-15 顶替：收缩窗口首行本身是非空文本用户行 → 直接顶替旧锚、不叠加（总行数暂为 max-1）。
+	if (isAnchorableUserRow(sliced[0])) {
+		return sliced;
+	}
+	const anchorRow = anchorableRowBefore(full, full.length - sliced.length);
+	return anchorRow === null ? sliced : [{ ...anchorRow, anchor: true }].concat(sliced);
+}
+
 /** 折叠分组时间线（R-01-017）：渲染层时间线的唯一来源——无条件折叠分组，不做任何探测切换。
  *  指数扩窗收集尾部原始项（分组数不足 limit 时 ×3 → ×8 → 全序）+ live 合并 + 分组 +
  *  尾部提升，长会话典型情况不触碰全序扫描。
@@ -679,30 +715,10 @@ export function foldedConversationTimeline(snapshot, limit = 4, cwd = "", descen
 		const merged = mergeLiveItems(items, snapshot, Number.MAX_SAFE_INTEGER, cwd);
 		const full = foldWorkGroups(settle ? settleWhenIdle(merged, true) : merged, Number.MAX_SAFE_INTEGER);
 		if (full.length >= max || want === Number.MAX_SAFE_INTEGER) {
-			// 指令锚行（R-01-012/AC-12～AC-15、C-023）：锚行计入总预算——锚行出现时窗口收缩为
-			// 最近 max-1 个显示行，总行数（含锚行）不超过 max；该消息仍在窗口内时不标记（AC-13）；
-			// 更近的用户输入行到达收缩窗口首行时直接顶替旧锚、不再叠加（总行数暂减一，AC-15）。
-			const isAnchorableUserRow = (row) => row?.kind === "user" && typeof row.text === "string" && row.text.trim() !== "";
-			const anchorableBefore = (end) => {
-				for (let i = end - 1; i >= 0; i -= 1) {
-					if (isAnchorableUserRow(full[i])) return full[i];
-				}
-				return null;
-			};
-			// settle/尾部提升出口归一为 finish（三种返回形状共用）。
+			// 指令锚行窗口选择与冷 history 路径共用（selectTimelineRows，R-01-012/AC-12～AC-15）；
+			// settle/尾部提升出口归一为 finish。
 			const finish = (rows) => (settle ? rows : promoteRunningTail(rows, snapshot, descendantActive));
-			// 预扫无锚窗口（last-max）起点之前：不存在非空文本用户行则无锚，原样返回至多 max 行。
-			if (anchorableBefore(Math.max(0, full.length - max)) === null) {
-				return finish(full.slice(-max));
-			}
-			const sliced = max > 1 ? full.slice(-(max - 1)) : [];
-			// AC-15 顶替：收缩窗口首行本身是非空文本用户行 → 直接顶替旧锚、不叠加（总行数暂为 max-1）。
-			if (isAnchorableUserRow(sliced[0])) {
-				return finish(sliced);
-			}
-			const anchorRow = anchorableBefore(full.length - sliced.length);
-			const rows = finish(sliced);
-			return anchorRow === null ? rows : [{ ...anchorRow, anchor: true }].concat(rows);
+			return finish(selectTimelineRows(full, max));
 		}
 	}
 	return [];
@@ -734,17 +750,21 @@ export function needsHistorySnapshot(snapshot) {
 }
 
 /** 冷会话 history 有界深翻：自尾页起按 beforeSeq 向前翻页，直至最近用户/agent 消息
- *  预览齐全、翻尽（hasMore=false/无更多事件）或达到 maxPages。fetchPage(beforeSeq)
- *  注入实际读取（返回 `{events, hasMore}` 或 null），便于纯函数单测；中途异常保留
- *  已得事件并以 error 返回。返回 `{ events, error }`（events 按时间正序，新页在后）。 */
-export async function pagedHistoryEvents({ fetchPage, maxPages = 3 }) {
+ *  预览齐全、翻尽（hasMore=false/无更多事件）或达到 maxPages。requireOpenTurnStart 为
+ *  true 时（运行会话开放回合起点兜底，R-01-009/AC-06）预览齐全但开放回合起点未命中
+ *  仍继续深翻，同样受 maxPages 约束。fetchPage(beforeSeq) 注入实际读取（返回
+ *  `{events, hasMore}` 或 null），便于纯函数单测；中途异常保留已得事件并以 error
+ *  返回。返回 `{ events, error }`（events 按时间正序，新页在后）。 */
+export async function pagedHistoryEvents({ fetchPage, maxPages = 3, requireOpenTurnStart = false }) {
 	const allEvents = [];
 	let beforeSeq;
 	let hasMore = true;
 	let error = null;
 	for (let pages = 0; pages < maxPages && hasMore; pages += 1) {
 		const previews = messagePreviews({ history: allEvents });
-		if (previews.userPreview && previews.agentPreview) break;
+		if (previews.userPreview && previews.agentPreview) {
+			if (!requireOpenTurnStart || openTurnStartFromEvents(allEvents) !== null) break;
+		}
 		let events;
 		try {
 			const value = await fetchPage(beforeSeq);
@@ -774,6 +794,68 @@ export function conversationTimelineFromHistory(history, limit = 4, cwd = "") {
 	}
 	const max = Math.max(0, limit);
 	return max === 0 ? [] : items.slice(-max);
+}
+
+/** 冷 history 折叠分组时间线（R-01-017、R-01-012/AC-12～AC-15）：页内全部事件映射折叠后
+ *  套用与快照路径同一窗口/锚行选择（selectTimelineRows），最近用户消息被挤出窗口时
+ *  钉为首行锚行。 */
+export function foldedHistoryTimeline(history, limit = 4, cwd = "") {
+	const max = Math.max(0, limit);
+	if (max === 0) return [];
+	const items = conversationTimelineFromHistory(history, Number.MAX_SAFE_INTEGER, cwd);
+	return selectTimelineRows(foldWorkGroups(items, Number.MAX_SAFE_INTEGER), max);
+}
+
+/** history 指令锚行提取（R-01-012/AC-12 快照窗口外兜底）：尾部反向取最近一条非空文本的
+ *  真实用户消息（source.kind === "user"），归一为带 anchor 标记的用户行；无则返回 null。 */
+export function historyInstructionAnchor(history) {
+	const list = Array.isArray(history) ? history : [];
+	for (let i = list.length - 1; i >= 0; i -= 1) {
+		const event = eventOf(list[i]);
+		if (event?.type !== "user/message" || event.data?.source?.kind !== "user") continue;
+		const text = contentText(event.data.content);
+		if (text.trim() === "") continue;
+		return { id: `user:${event.seq}`, kind: "user", icon: "user", label: "用户", text, detail: null, status: "done", anchor: true };
+	}
+	return null;
+}
+
+/** 快照窗口外锚行兜底（R-01-012/AC-12）：显示行序列不含任何可锚用户行（开放窗口够不到
+ *  最近用户消息）时，把 history 提取的锚行前置并计入总预算（窗口收缩为最近 max-1 行）；
+ *  序列已含用户行（AC-13 消息仍在窗口内）或无可用锚行时原样返回。 */
+export function withInstructionAnchor(rows, anchorRow, limit = 4) {
+	const list = Array.isArray(rows) ? rows : [];
+	if (!isRecord(anchorRow) || list.some(isAnchorableUserRow)) return list;
+	const max = Math.max(0, limit);
+	if (max === 0) return [];
+	const sliced = max > 1 ? list.slice(-(max - 1)) : [];
+	return [{ ...anchorRow, anchor: true }].concat(sliced);
+}
+
+/** 开放回合起点缺口判定（R-01-009/AC-06 冷窗口兜底触发口径）：快照就绪、宿主判定运行中、
+ *  轮内订阅已建立，但快照 turnTimings 无开放回合起点（liveStartTime 为 null）——超长回合
+ *  的 turn/start 在尾页窗口之外。等待/空闲会话（非运行或无 liveness 记录）不算缺口，
+ *  不触发 history 补读。 */
+export function openTurnStartMissing({ snapshotReady = false, running = false, hasLiveness = false, liveStartTime = null } = {}) {
+	return snapshotReady === true && running === true && hasLiveness === true && liveStartTime == null;
+}
+
+/** 开放回合起点兜底提取（R-01-009/AC-06）：history 事件尾部反向扫描，最近一条边界事件
+ *  为 turn/start 即存在开放回合、返回其时刻；为 turn/end 则无开放回合返回 null。
+ *  minTurn：快照已知的最晚回合号——history 开放回合落后于此（拉取后已切换新回合）时
+ *  判为陈旧返回 null。turn/start 时刻非法或输入非数组归一 null。 */
+export function openTurnStartFromEvents(events, minTurn = -Infinity) {
+	const list = Array.isArray(events) ? events : [];
+	for (let i = list.length - 1; i >= 0; i -= 1) {
+		const event = eventOf(list[i]);
+		if (event?.type === "turn/end") return null;
+		if (event?.type !== "turn/start") continue;
+		const turn = Number(event.data?.turn);
+		if (Number.isFinite(turn) && turn < minTurn) return null;
+		const time = Number(event.time);
+		return Number.isFinite(time) ? time : null;
+	}
+	return null;
 }
 
 /** 从 ChatSnapshot/history 取最近用户与 agent reply 的物理首行。
@@ -945,19 +1027,26 @@ export function escapeCssString(value) {
 
 /** 冷会话补充数据读取决策（单次渲染内是否发起 models/history 读取）。
  *  失败路径会写入空 model/history 使决策转为「不读」（可见期内不热重试）；
- *  详情与记账随可见性清理（pruneInvisibleEntries）一起移除后，决策自然恢复为「读取」。 */
+ *  详情与记账随可见性清理（pruneInvisibleEntries）一起移除后，决策自然恢复为「读取」。
+ *  windowComplete（R-01-009/AC-06、R-01-012/AC-12 冷窗口兜底）：快照已就绪但窗口缺
+ *  锚点数据（开放回合起点或可锚用户行在窗口外）时为 false——此时仍发起一次 history
+ *  补读，供进度锚点与指令锚行兜底。 */
 export function detailLoadPlan({
 	detail = {},
 	isSubagent = false,
 	snapshotReady = false,
 	historyNeeded = false,
+	windowComplete = true,
 	modelInflight = false,
 	historyInflight = false,
 } = {}) {
 	return {
 		subagent: isSubagent === true,
 		model: !isSubagent && !detail.model && !modelInflight,
-		history: !detail.history && !snapshotReady && historyNeeded && !historyInflight,
+		history:
+			!detail.history &&
+			!historyInflight &&
+			((!snapshotReady && historyNeeded) || (snapshotReady === true && windowComplete === false)),
 	};
 }
 

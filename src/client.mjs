@@ -437,9 +437,6 @@ const CSS = `
   background-position: bottom;
   background-repeat: no-repeat;
 }
-[data-dsh-activity-pane] .dap-trace-item[data-icon="robot"] .dap-trace-icon svg {
-  width: 13px; height: 13px;
-}
 [data-dsh-activity-pane] .dap-trace-item {
   position: relative; display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1387,16 +1384,21 @@ function apply(ctx) {
 	}
 
 	/** agent 角色机器人图标（R-01-013/AC-08、R-01-012/AC-09）：canonical 图标集无现成机器人，
-	 *  采用 Lucide bot 图标几何（ISC 许可，来源声明见 LICENSE/README），24 框描边风格；
-	 *  viewBox 裁剪至笔墨边界盒（1 3 22 18），12px 图标盒内显示尺度与同盒 canonical 图标一致（R-01-012/AC-11）。 */
+	 *  以 Lucide bot 图标几何（ISC 许可，来源声明见 LICENSE/README）为底改造，24 框描边风格：
+	 *  去双耳、头顶单折线天线改为两条外撇斜短线（bilibili 小电视式）；viewBox 保持笔墨边界盒
+	 * （1 3 22 18）——纵向墨迹 y4..21（短斜天线尖含描边触 y4），横向虽去耳收窄，保框使机身
+	 *  显示尺度与其他 canonical 图标一致（R-01-012/AC-11），不因裁小框而变粗变大。
+	 *  字形与其他时间线图标同用 12px 盒：13px 盒在 14px 图标盒内产生 0.5px 半像素居中偏移，
+	 *  所有描边边缘落在物理像素之间被抗锯齿抹灰；stroke-width 2.2 使 12/22 缩放后渲染笔触
+	 *  保持 1.2px，与 canonical 填充轮廓环（约 1px）视觉重量相当。 */
 	function createRobotIcon() {
-		const stroke = { fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round" };
+		const stroke = { fill: "none", stroke: "currentColor", "stroke-width": "2.2", "stroke-linecap": "round", "stroke-linejoin": "round" };
 		return createInlineIcon({
 			viewBox: "1 3 22 18",
 			parts: [
-				{ attrs: { d: "M12 8V4H8", ...stroke } },
+				{ attrs: { d: "M10 8L7 5M14 8L17 5", ...stroke } },
 				{ tag: "rect", attrs: { x: "4", y: "8", width: "16", height: "12", rx: "2", ...stroke } },
-				{ attrs: { d: "M2 14h2M20 14h2M15 13v2M9 13v2", ...stroke } },
+				{ attrs: { d: "M15 13v2M9 13v2", ...stroke } },
 			],
 		});
 	}

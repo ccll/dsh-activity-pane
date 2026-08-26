@@ -1970,12 +1970,21 @@ assert.ok(
 );
 // R-01-013/AC-08
 assert.ok(bundle.includes("agentIcon.append(createRobotIcon())"), "agent 回复行使用机器人图标");
-// 回归：机器人图标采用 Lucide bot 几何（ISC 许可，来源声明见 LICENSE/README；东家选定 F 方案）
-assert.ok(bundle.includes("M12 8V4H8"), "机器人图标为 Lucide bot 几何（天线折线 path）");
-assert.ok(!bundle.includes('"stroke-width": "1.3"'), "旧自绘描边机器人（1.3px 细描边）不再残留");
-// R-01-012/AC-11 机器人图标 viewBox 裁剪至笔墨边界盒（1 3 22 18），显示尺度与同盒 canonical 图标一致
-assert.ok(bundle.includes('viewBox: "1 3 22 18"'), "机器人图标 viewBox 为笔墨边界盒，不因留白显小（R-01-012/AC-11）");
-assert.ok(!bundle.includes('viewBox: "0 0 24 24"'), "机器人图标不再使用留白 24 框（R-01-012/AC-11）");
+// R-01-012/AC-09、AC-11 回归：机器人图标为 Lucide bot 改造的小电视几何——去双耳、双 45° 外撇短斜天线
+//（ISC 许可，来源声明见 LICENSE/README）；几何与清晰化选型见 C-021
+assert.ok(bundle.includes("M10 8L7 5M14 8L17 5"), "机器人图标为双斜短天线小电视几何（R-01-012/AC-09）");
+assert.ok(!bundle.includes("M2 14h2") && !bundle.includes("M20 14h2") && !bundle.includes("M12 8V4H8"), "机器人图标无双耳与旧单折线天线残留（C-021）");
+assert.ok(
+	bundle.includes('"stroke-width": "2.2"') && !bundle.includes('"stroke-width": "1.3"'),
+	"机器人描边 2.2（12/22 缩放渲染 1.2px），旧 1.3px 细描边不残留（R-01-012/AC-11）",
+);
+assert.ok(
+	!bundle.includes('data-icon="robot"] .dap-trace-icon svg'),
+	"机器人字形与其他时间线图标同用 12px 盒，无 13px 半像素偏移覆盖（R-01-012/AC-11）",
+);
+// R-01-012/AC-11 机器人图标 viewBox 保框（1 3 22 18）保持显示尺度，与同盒 canonical 图标一致
+assert.ok(bundle.includes('viewBox: "1 3 22 18"'), "机器人图标 viewBox 保框保持显示尺度，不因留白显小（R-01-012/AC-11）");
+assert.ok(!bundle.includes('viewBox: "0 0 24 24"'), "机器人图标不使用留白 24 框（R-01-012/AC-11）");
 // R-01-012/AC-03（T-021 副作用守卫：历史卡换图标不影响时间线兜底）
 // R-01-012/AC-09 时间线 assistant 行图标：正文行机器人图标（与最近卡 agent 角色标识同源）、思考行思考图标，按 detail 有无分流而非比较 label 文案
 assert.ok(bundle.includes('? createThinkIcon() : createRobotIcon()'), "时间线 assistant 正文行使用机器人图标、思考行使用思考图标（R-01-012/AC-09）");

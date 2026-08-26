@@ -1760,7 +1760,6 @@ const CSS = `
   cursor: pointer;
   white-space: nowrap;
 }
-[data-dsh-activity-pane] .dap-top[hidden] { display: none; }
 [data-dsh-activity-pane] .dap-top:hover,
 [data-dsh-activity-pane] .dap-top:focus-visible {
   background: color-mix(in srgb, currentColor 18%, transparent);
@@ -2899,8 +2898,8 @@ function apply(ctx) {
 			header?.removeEventListener("keydown", onHeaderKeydown);
 			rail?.removeEventListener("click", onRailClick);
 			scroll?.removeEventListener("scroll", onScroll);
-			topBtn?.removeEventListener("click", onTopClick);
 			if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);
+			topBtn?.removeEventListener("click", onTopClick);
 			resize?.removeEventListener("pointerdown", onResizeDown);
 		};
 	}

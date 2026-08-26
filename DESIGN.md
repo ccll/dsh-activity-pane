@@ -170,7 +170,7 @@ sequenceDiagram
 | R-01-010 | 活动状态模型 | 双区派生、最后活动时间精化、响应保持与迁移动画 | src/core.mjs、src/client.mjs |
 | R-01-011 | 窗格渲染器 | 标题行整体折叠控件 | src/client.mjs |
 | R-01-015 | 窗格渲染器 | 桌面右缘拖拽调宽与持久化 | src/core.mjs、src/client.mjs |
-| R-01-012 | 活动状态模型 | 原生会话工作项、模型上下文与实时快照 | src/core.mjs、src/client.mjs |
+| R-01-012 | 活动状态模型 | 原生会话工作项、指令锚行、模型上下文与实时快照 | src/core.mjs、src/client.mjs |
 | R-01-013 | 窗格渲染器 | 最近卡五行信息层级、角色图标与 hover | src/core.mjs、src/client.mjs |
 | R-02-001 | 活动状态模型 | 独立数据源订阅 | src/core.mjs、src/client.mjs |
 | R-02-002 | 窗格渲染器 | 重挂载恢复与静默等待 | src/client.mjs |
@@ -200,7 +200,7 @@ sequenceDiagram
 - 层级结构：子代理经 `parentId` 关联并以 `depth` 表达缩进；子代理标题优先取目录 label，其次显示标题；渲染层在缩进槽内绘制母会话到直属子代理的层级连接线（R-01-003/AC-01、AC-04）。
 - 窗口形态：桌面为左栏旁贴边列，可经「活动会话」标题行整体折叠为窄条（窄条竖排标题 + 计数，整条可点展开）；移动端（≤767px）为固定抽屉 + 左上角浮动开关（文案「活动」，抽屉打开时隐藏）（R-01-007、R-01-008、R-01-011）。桌面列宽可经右缘手柄拖拽在 200–480px 内调整，拖拽实时生效并令主会话弹性让位，结果存 localStorage 于启动时恢复（R-01-015）。
 - 交互面：点击或 Enter/Space 激活卡片 → 切换会话；当前会话卡片高亮（R-01-005、R-01-006）。
-- 折叠时间线：`活动状态模型#foldedConversationTimeline(snapshot, limit)` 是渲染层时间线的唯一来源（无条件折叠，不做任何探测切换）：先按指数扩窗收集尾部原始工作项并合并 live 项，再经 `#foldWorkGroups` 分组——用户输入项与含正文的 assistant 项为硬边界（其 reasoning 先并入当前分组，等价 splitThinkByBody 前置语义），连续 context 单独成组；组标题镜像 auto-collapse chip 优先级（正在运行→正在思考→运行了命令/编辑了文件/上下文注入→已思考），组摘要携带推理文本内容；状态聚合 running > error > stopped > done，尾部提升沿用 R-01-009/AC-10。冷会话 history 时间线经同一 `#foldWorkGroups` 分组。该派生不依赖 dsh-auto-collapse 存在；分组语义改编自 MIT 许可的 dsh-auto-collapse@0.1.3 `src/fold.ts`（数据层移植，不读其 DOM、无运行时依赖，C-016）（R-01-017）。
+- 折叠时间线：`活动状态模型#foldedConversationTimeline(snapshot, limit)` 是渲染层时间线的唯一来源（无条件折叠，不做任何探测切换）：先按指数扩窗收集尾部原始工作项并合并 live 项，再经 `#foldWorkGroups` 分组——用户输入项与含正文的 assistant 项为硬边界（其 reasoning 先并入当前分组，等价 splitThinkByBody 前置语义），连续 context 单独成组；组标题镜像 auto-collapse chip 优先级（正在运行→正在思考→运行了命令/编辑了文件/上下文注入→已思考），组摘要携带推理文本内容；状态聚合 running > error > stopped > done，尾部提升沿用 R-01-009/AC-10。冷会话 history 时间线经同一 `#foldWorkGroups` 分组。该派生不依赖 dsh-auto-collapse 存在；分组语义改编自 MIT 许可的 dsh-auto-collapse@0.1.3 `src/fold.ts`（数据层移植，不读其 DOM、无运行时依赖，C-016）（R-01-017）。指令锚行在同一派生内产出：窗口起点之前最近的一条非空文本用户输入行标记 `anchor` 后前置返回（空文本行不作锚），该消息仍在窗口内时不标记；收集阶段尾部反向扫描取够条数后以廉价检查继续前走至最近一个未收集的非空文本用户节点并单独转换，不为找锚做全序转换；渲染层把锚行按普通工作项行渲染，无独立 DOM 分支（R-01-012/AC-12～AC-14）。
 - 折叠呈现细节：tool 组行图标统一为 DSH canonical IconApiOutline14 命令图标（与 auto-collapse 工具 chip 同源）；含正文 assistant 边界的推理文本只归组摘要，其正文行以 stripNative 标记剥离推理展示，避免同一推理文本双行重复（R-01-017/AC-02、AC-04）；正文已流出即本步推理结束——拆入组的思考成员按已定案处理，组行不与正文行同闪（真实在飞的 partial/runningCalls 行不受影响）。
 
 ## 横切约束
@@ -245,7 +245,7 @@ sequenceDiagram
   - 工作区徽标为「文件夹图标 + 名称文本」双段结构：胶囊内常驻与左边栏工作区条目同源的 canonical 文件夹图标（dsh-client-ui-primitives IconFolderClose16 同款 path，经 `createInlineIcon` 工厂复刻），置于名称文字之前使归属一眼可辨；名称字号 10.5px（AC-07 下限）、行高 14px 不变以维持胶囊与卡片高度；无归属时整枚隐藏；文本写入独立文本段，省略号截断不波及图标（R-01-003/AC-03、AC-06、AC-07）。
   - 最近卡两条消息预览行为「角色图标 + 角色标签 + 圆点分隔符 + 文本」结构：用户消息行人物图标 +「用户」、agent 回复行机器人图标 +「助手」，图标常驻且字形 12px 与时间线图标字形一致；文本与加载 spinner 只写入文本段，不覆盖图标与标签（R-01-013/AC-07、AC-08）。
   - 对每个运行中会话经 `sessions.binding(id).session` 订阅轮内状态与 ChatSnapshot，归一为 `runtimeStats` 与工作项时间线；时长在渲染期按起始时间实时计算；停止运行或卸载即 `unsubscribe`。冷会话只通过 native history/model 的一次性读取补齐，不进行状态轮询。历史区时间精化：history 到达或保留快照存在时提取最后回合结束时刻注入 `buildRecent` 的 `turnEnds`，重派生后排序与时间显示经签名驱动就地更新；数据在途期间以宿主列表时间显示（R-01-010/AC-09）。
-  - 时间线用户行标识与图标几何：时间线内用户消息行（`.dap-trace-item[data-icon="user"]`）以行下 1px 中性灰虚线下划线标识（深浅主题各自适配，不占用蓝/绿/红/橙状态色；以 bottom 1px 背景渐变绘制、不占盒高，保持 14px 行高几何，选型见 C-019）；全部时间线图标统一真实 14px 盒（字形 12px 居中、无占位 padding——content-box 下 padding 会把盒撑成 16px 并抬高时间线行），助手正文行（`data-icon="robot"`，按 kind=detail 有无与 fold 标记判别，思考组/思考行不算）无底色、字形与其他图标同用 12px 盒（13px 盒在 14px 图标盒内产生 0.5px 半像素偏移致描边发虚，C-021）；文本经 textContent 写入。
+  - 时间线用户行标识与图标几何：时间线内用户消息行（`.dap-trace-item[data-icon="user"]`）以行下 1px 中性灰实线下划线标识，宽度仅为图标+文字的内容宽度（`width: fit-content; max-width: 100%`，不贯穿整行；深浅主题各自适配，不占用蓝/绿/红/橙状态色；仍以 bottom 1px 背景渐变绘制、不占盒高，保持 14px 行高几何；C-019 整行虚线呈现的修订见 C-022）；全部时间线图标统一真实 14px 盒（字形 12px 居中、无占位 padding——content-box 下 padding 会把盒撑成 16px 并抬高时间线行），助手正文行（`data-icon="robot"`，按 kind=detail 有无与 fold 标记判别，思考组/思考行不算）无底色、字形与其他图标同用 12px 盒（13px 盒在 14px 图标盒内产生 0.5px 半像素偏移致描边发虚，C-021）；文本经 textContent 写入。
   - 运行卡外观对齐 answer-pet。
     - CSS 实现动作时间线（从卡片内容左边界起步、竖线 + 圆点半透明外环 + 运行节点闪烁）与进度条（5px、流式 `data-streaming` 条纹动画）。
     - 工作项标题与摘要之间渲染小圆点；错误显示行通过 `data-status="error"` 将动作 SVG、标题和摘要染红。

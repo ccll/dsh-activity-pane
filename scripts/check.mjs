@@ -808,6 +808,94 @@ assert.equal(manyGroups[0].text, "正文一", "正文行内容保留");
 const groupIdStable = foldWorkGroups(manyFlat, 4)[3];
 assert.equal(groupIdStable.id, manyGroups[3].id, "分组 id 稳定供渲染层 DOM 复用");
 
+// ---- R-01-012/AC-12～AC-14 指令锚行：窗口之前最近的用户输入行钉为时间线首行 ----
+const anchorNodes = new Map([
+	["a-u1", { key: "a-u1", kind: "user", anchorSeq: 1, data: { content: [{ type: "text", text: "修复登录页" }] } }],
+	["a-b1", { key: "a-b1", kind: "assistant-step", anchorSeq: 2, data: { status: "settled", turn: 1, step: 0, blocks: [{ kind: "text", text: "正文一" }] } }],
+	["a-t1", { key: "a-t1", kind: "tool-call", anchorSeq: 3, data: { root: { kind: "tool-result", callId: "a-t1", call: { name: "bash", argsRaw: '{"command":"make"}' }, isError: false } } }],
+	["a-b2", { key: "a-b2", kind: "assistant-step", anchorSeq: 4, data: { status: "settled", turn: 1, step: 1, blocks: [{ kind: "text", text: "正文二" }] } }],
+	["a-t2", { key: "a-t2", kind: "tool-call", anchorSeq: 5, data: { root: { kind: "tool-result", callId: "a-t2", call: { name: "grep", argsRaw: '{"pattern":"x"}' }, isError: false } } }],
+	["a-b3", { key: "a-b3", kind: "assistant-step", anchorSeq: 6, data: { status: "settled", turn: 1, step: 2, blocks: [{ kind: "text", text: "正文三" }] } }],
+]);
+const anchorBaseOrder = ["a-u1", "a-b1", "a-t1", "a-b2", "a-t2", "a-b3"];
+const anchored = foldedConversationTimeline({ chat: { order: anchorBaseOrder, nodes: { get: (key) => anchorNodes.get(key) } } });
+// AC-12：u1 被挤出最近 4 行窗口后作为指令锚行前置到首行
+assert.equal(anchored.length, 5, "指令锚行不占窗口名额：窗口仍为最近 4 个显示行 + 首部锚行（R-01-012/AC-12、R-01-017/AC-06）");
+assert.equal(anchored[0].anchor, true, "窗口之前的用户输入行以 anchor 标记前置（R-01-012/AC-12）");
+assert.equal(anchored[0].kind, "user", "锚行保留用户行语义供渲染层复用图标/标签/下划线（R-01-012/AC-12）");
+assert.equal(anchored[0].label, "用户", "锚行 label 为中文「用户」（R-01-012/AC-05）");
+assert.equal(anchored[0].text, "修复登录页", "锚行内容为本轮指令文本（R-01-012/AC-12）");
+assert.ok(anchored.slice(1).every((row) => row.anchor !== true), "仅首行带锚标记（R-01-012/AC-12）");
+// AC-14：新工作项进入时间线，锚行位置与内容保持不变
+const laterNodes = new Map(anchorNodes);
+laterNodes.set("a-t3", { key: "a-t3", kind: "tool-call", anchorSeq: 7, data: { root: { kind: "tool-result", callId: "a-t3", call: { name: "bash", argsRaw: '{"command":"ls"}' }, isError: false } } });
+const anchoredLater = foldedConversationTimeline({ chat: { order: [...anchorBaseOrder, "a-t3"], nodes: { get: (key) => laterNodes.get(key) } } });
+assert.equal(anchoredLater.length, 5, "新动作进入后窗口仍为 4 行 + 锚行（R-01-012/AC-14）");
+assert.equal(anchoredLater[0].anchor, true, "新动作进入时锚行仍在首行（R-01-012/AC-14）");
+assert.equal(anchoredLater[0].text, "修复登录页", "新动作进入时锚行内容不变（R-01-012/AC-14）");
+// AC-13：指令仍在窗口内时不出现锚行
+const inWindow = foldedConversationTimeline({ chat: { order: ["a-u1", "a-b1"], nodes: { get: (key) => anchorNodes.get(key) } } });
+assert.equal(inWindow.length, 2, "指令在窗口内时时间线即普通显示行（R-01-012/AC-13）");
+assert.ok(inWindow.every((row) => row.anchor !== true), "指令未被挤出窗口时不出现锚行（R-01-012/AC-13）");
+// ×3 扩窗收集不足时经廉价前走命中窗口前的用户节点（不做全序转换）
+const longNodes = new Map([["L-u1", { key: "L-u1", kind: "user", anchorSeq: 0, data: { content: [{ type: "text", text: "深层指令" }] } }]]);
+const longOrder = ["L-u1"];
+for (let n = 0; n < 7; n += 1) {
+	const bKey = `L-b${n}`;
+	const tKey = `L-t${n}`;
+	longNodes.set(bKey, { key: bKey, kind: "assistant-step", anchorSeq: n * 2 + 1, data: { status: "settled", turn: 1, step: n, blocks: [{ kind: "text", text: `正文${n}` }] } });
+	longNodes.set(tKey, { key: tKey, kind: "tool-call", anchorSeq: n * 2 + 2, data: { root: { kind: "tool-result", callId: tKey, call: { name: "bash", argsRaw: '{"command":"echo"}' }, isError: false } } });
+	longOrder.push(bKey, tKey);
+}
+const deepAnchor = foldedConversationTimeline({ chat: { order: longOrder, nodes: { get: (key) => longNodes.get(key) } } });
+assert.equal(deepAnchor[0]?.anchor, true, "×3 扩窗收集不足时经廉价前走命中窗口前的用户节点（R-01-012/AC-12）");
+assert.equal(deepAnchor[0]?.text, "深层指令", "前走命中的锚行内容正确（R-01-012/AC-12）");
+// steering 消息按用户输入行归一参与锚行
+const steeringAnchor = foldedConversationTimeline({
+	chat: {
+		order: ["s1", "a-b1", "a-t1", "a-b2", "a-t2", "a-b3"],
+		nodes: { get: (key) => key === "s1"
+			? { key: "s1", kind: "steering", anchorSeq: -1, data: { content: [{ type: "text", text: "插话补充" }] } }
+			: anchorNodes.get(key) },
+	},
+});
+assert.equal(steeringAnchor[0]?.anchor, true, "steering 消息按用户输入行归一参与锚行（R-01-012/AC-12）");
+assert.equal(steeringAnchor[0]?.text, "插话补充", "steering 锚行内容正确（R-01-012/AC-12）");
+// hidden 用户节点不入锚
+const hiddenAnchor = foldedConversationTimeline({
+	chat: {
+		order: ["h1", "a-b1", "a-t1", "a-b2", "a-t2", "a-b3"],
+		nodes: { get: (key) => key === "h1"
+			? { key: "h1", kind: "user", visibility: "hidden", anchorSeq: -1, data: { content: [{ type: "text", text: "隐藏消息" }] } }
+			: anchorNodes.get(key) },
+	},
+});
+assert.ok(hiddenAnchor.every((row) => row.anchor !== true), "hidden 用户节点不作为指令锚行（R-01-012/AC-12）");
+// AC-14 取代分支：更近的用户输入行移出窗口后取代旧锚行
+const switchNodes = new Map();
+const switchOrder = ["w-u1"];
+switchNodes.set("w-u1", { key: "w-u1", kind: "user", anchorSeq: 1, data: { content: [{ type: "text", text: "第一轮指令" }] } });
+for (let n = 1; n <= 4; n += 1) switchNodes.set(`w-b${n}`, { key: `w-b${n}`, kind: "assistant-step", anchorSeq: n + 1, data: { status: "settled", turn: 1, step: n, blocks: [{ kind: "text", text: `正文${n}` }] } });
+switchOrder.push("w-b1", "w-b2", "w-b3", "w-b4");
+switchNodes.set("w-u2", { key: "w-u2", kind: "user", anchorSeq: 6, data: { content: [{ type: "text", text: "第二轮指令" }] } });
+switchOrder.push("w-u2");
+for (let n = 5; n <= 9; n += 1) switchNodes.set(`w-b${n}`, { key: `w-b${n}`, kind: "assistant-step", anchorSeq: n + 2, data: { status: "settled", turn: 1, step: n, blocks: [{ kind: "text", text: `正文${n}` }] } });
+switchOrder.push("w-b5", "w-b6", "w-b7", "w-b8", "w-b9");
+const switchedAnchor = foldedConversationTimeline({ chat: { order: switchOrder, nodes: { get: (key) => switchNodes.get(key) } } });
+assert.equal(switchedAnchor[0]?.anchor, true, "更近的用户输入行移出窗口后成为新锚行（R-01-012/AC-14）");
+assert.equal(switchedAnchor[0]?.text, "第二轮指令", "新锚行内容为更近的用户输入行（R-01-012/AC-14）");
+assert.ok(!switchedAnchor.some((row) => row.text === "第一轮指令"), "被取代的旧指令行不再出现（R-01-012/AC-14）");
+// 空文本用户输入行不作锚（前缀扫描与前走同口径）
+const emptyUserAnchor = foldedConversationTimeline({
+	chat: {
+		order: ["e1", "a-b1", "a-t1", "a-b2", "a-t2", "a-b3"],
+		nodes: { get: (key) => key === "e1"
+			? { key: "e1", kind: "user", anchorSeq: -1, data: { content: [{ type: "text", text: "   " }] } }
+			: anchorNodes.get(key) },
+	},
+});
+assert.ok(emptyUserAnchor.every((row) => row.anchor !== true), "空文本用户输入行不作为指令锚行（R-01-012/AC-12）");
+
 // ---- R-01-009/AC-04 工具动作摘要镜像主会话窗口 deriveSummary 语义（可含原始命令）----
 assert.equal(
 	summarizeToolArguments("bash", '{"command":"rm -rf /","description":"清理目录"}'),
@@ -2122,7 +2210,9 @@ assert.ok(bundle.includes("margin: 1px 0 2px;"), "时间线整体与卡片内容
 assert.ok(bundle.includes("left: 3px; top: 0; bottom: -8px"), "1px 竖线（整数位）与圆点严格同圆心 x=3.5（对齐标题圆点）");
 assert.ok(bundle.includes("color: #c7ced9; font-size: 10px; line-height: 14px;"), "工作项文字恢复原有 10px/14px 尺度");
 assert.ok(bundle.includes("width: 14px; height: 14px;") && !bundle.includes("width: 14px; height: 14px; padding: 1px;"), "工作项图标容器为真实 14px 盒、无占位的 padding 环（R-01-012、C-019）");
-assert.ok(bundle.includes("repeating-linear-gradient(90deg, rgba(139, 152, 165, .55) 0 3px, transparent 3px 6px)") && !bundle.includes("rgba(88, 201, 143, .1)") && !bundle.includes("border-bottom: 1px dashed"), "时间线用户消息行以行下中性灰虚线下划线标识（背景渐变绘制、不占 14px 行高），无浅绿平底残留（R-01-012/AC-05、C-019）");
+assert.ok(bundle.includes("width: fit-content;\n  max-width: 100%;") && bundle.includes("linear-gradient(rgba(139, 152, 165, .55), rgba(139, 152, 165, .55))") && !bundle.includes("repeating-linear-gradient(90deg, rgba(139, 152, 165, .55)") && !bundle.includes("rgba(88, 201, 143, .1)") && !bundle.includes("border-bottom: 1px dashed"), "时间线用户消息行下划线改实线且宽度仅为图标+文字内容宽（背景渐变绘制、不占 14px 行高），无整行虚线与浅绿平底残留（R-01-012/AC-05、C-022）");
+assert.ok(bundle.includes("linear-gradient(var(--dsw-alias-label-tertiary, rgb(129, 133, 140)), var(--dsw-alias-label-tertiary, rgb(129, 133, 140)))"), "浅色主题用户行下划线同改实线（alias 变量色）（R-01-012/AC-05）");
+assert.ok(bundle.includes("anchor: true") && bundle.includes("isUserChatNode"), "指令锚行由核心派生并前置返回，找锚只做廉价 kind 检查（R-01-012/AC-12）");
 assert.ok(bundle.includes("display: block; width: 12px; height: 12px;"), "工作项 SVG 保持 12px");
 assert.ok(bundle.includes('svg.setAttribute("width", String(width))'), "canonical 图标经 createInlineIcon 统一写入尺寸（默认 12px）");
 assert.ok(bundle.includes("left: 0; top: 3px;\n  width: 7px; height: 7px;"), "时间线圆点盒子与标题圆点同盒（7px、left:0，跨 DPR 渲染对齐）");

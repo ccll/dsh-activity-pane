@@ -355,23 +355,49 @@ function timelineItemFromChatNode(node, cwd = "") {
 	return null;
 }
 
-/** 尾部反向收集原始工作项（不含 live 合并），取够 want 个可转换项或耗尽 order 即停。 */
-function rawTailItems(snapshot, want, cwd = "") {
+/** 用户节点廉价判定（指令锚行前走用）：与 timelineItemFromChatNode 的 user/steering
+ *  转换入口同口径（非 hidden 的 user/steering），并按锚行语义额外要求非空文本——
+ *  空白指令不值得钉住；只读 kind/visibility 与文本块类型，不解析正文全文。 */
+function isUserChatNode(node) {
+	if (!isRecord(node) || node.visibility === "hidden") return false;
+	if (node.kind !== "user" && node.kind !== "steering") return false;
+	const data = isRecord(node.data) ? node.data : {};
+	return Array.isArray(data.content) && data.content.some((block) => isRecord(block) && block.type === "text" && typeof block.text === "string" && block.text.trim() !== "");
+}
+
+function chatNodeAt(nodes, key) {
+	try {
+		return nodes?.get?.(key) ?? nodes?.[key];
+	} catch {
+		return undefined;
+	}
+}
+
+/** 尾部反向收集原始工作项（不含 live 合并），取够 want 个可转换项或耗尽 order 即停。
+ *  continueToUser：取够后以廉价结构检查（isUserChatNode：非 hidden 的 user/steering 且含非空文本块）继续前走至最近一个未收集的用户节点（含
+ *  steering），命中才转换并入队首——供指令锚行派生（R-01-012/AC-12），不为找锚做全序转换。 */
+function rawTailItems(snapshot, want, cwd = "", continueToUser = false) {
 	const chat = snapshot?.chat;
 	const order = Array.isArray(chat?.order) ? chat.order : [];
 	const nodes = chat?.nodes;
 	const max = Math.max(0, want);
 	if (max === 0) return [];
 	const items = [];
-	for (let i = order.length - 1; i >= 0 && items.length < max; i -= 1) {
-		let node;
-		try {
-			node = nodes?.get?.(order[i]) ?? nodes?.[order[i]];
-		} catch {
-			node = undefined;
-		}
-		const item = timelineItemFromChatNode(node, cwd);
+	let i = order.length - 1;
+	for (; i >= 0 && items.length < max; i -= 1) {
+		const item = timelineItemFromChatNode(chatNodeAt(nodes, order[i]), cwd);
 		if (item) items.unshift(item);
+	}
+	if (continueToUser) {
+		for (; i >= 0; i -= 1) {
+			const node = chatNodeAt(nodes, order[i]);
+			if (!isUserChatNode(node)) continue;
+			const item = timelineItemFromChatNode(node, cwd);
+			// 判定与转换口径分叉时继续前走，不提前终止（漏掉更早的用户节点）。
+			if (!item) continue;
+			items.unshift(item);
+			break;
+		}
 	}
 	return items;
 }
@@ -610,12 +636,23 @@ export function foldedConversationTimeline(snapshot, limit = 4, cwd = "", descen
 	// 组标题/状态由已定案成员派生（避免 done 圆点配「正在思考」标题），尾部提升同时跳过。
 	const settle = (idle === true || snapshotIdle(snapshot)) && descendantActive !== true;
 	for (const want of [max * 3, max * 8, Number.MAX_SAFE_INTEGER]) {
-		const items = rawTailItems(snapshot, want, cwd);
+		const items = rawTailItems(snapshot, want, cwd, true);
 		const merged = mergeLiveItems(items, snapshot, Number.MAX_SAFE_INTEGER, cwd);
 		const full = foldWorkGroups(settle ? settleWhenIdle(merged, true) : merged, Number.MAX_SAFE_INTEGER);
 		if (full.length >= max || want === Number.MAX_SAFE_INTEGER) {
-			const rows = full.slice(-max);
-			return settle ? rows : promoteRunningTail(rows, snapshot, descendantActive);
+			const sliced = full.slice(-max);
+			const rows = settle ? sliced : promoteRunningTail(sliced, snapshot, descendantActive);
+			// 指令锚行（R-01-012/AC-12～AC-14）：窗口起点之前最近的一条非空文本用户输入行
+			// 标记 anchor 后前置到首行固定显示；该消息仍在窗口内时不标记（AC-13），不占窗口名额。
+			let anchor = null;
+			for (let i = full.length - sliced.length - 1; i >= 0; i -= 1) {
+				const row = full[i];
+				if (row?.kind === "user" && typeof row.text === "string" && row.text.trim() !== "") {
+					anchor = { ...row, anchor: true };
+					break;
+				}
+			}
+			return anchor === null ? rows : [anchor].concat(rows);
 		}
 	}
 	return [];

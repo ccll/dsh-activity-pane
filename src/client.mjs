@@ -427,12 +427,15 @@ const CSS = `
   min-width: 0;
 }
 [data-dsh-activity-pane] .dap-trace:empty { display: none; }
-/* 用户消息行标识（C-019）：行下 1px 中性灰虚线下划线，深浅主题各自适配，
+/* 用户消息行标识（C-019、C-022）：行下 1px 中性灰实线下划线，宽度仅为图标+文字的内容
+ *  宽度（fit-content 收缩、超长仍按可用宽截断，不贯穿整行），深浅主题各自适配，
  *  不占用状态色（蓝=运行中、绿=完成、红=错误、橙=中断）；浅色主题在覆盖块中改色。
- *  以 bottom 1px 背景渐变画虚线而非 border-bottom——border 会把 14px 行高撑成 15px，
+ *  以 bottom 1px 背景渐变画实线而非 border-bottom——border 会把 14px 行高撑成 15px，
  *  破坏圆点/竖线节奏；背景不占盒高。 */
 [data-dsh-activity-pane] .dap-trace-item[data-icon="user"] .dap-trace-main {
-  background-image: repeating-linear-gradient(90deg, rgba(139, 152, 165, .55) 0 3px, transparent 3px 6px);
+  width: fit-content;
+  max-width: 100%;
+  background-image: linear-gradient(rgba(139, 152, 165, .55), rgba(139, 152, 165, .55));
   background-size: 100% 1px;
   background-position: bottom;
   background-repeat: no-repeat;
@@ -710,7 +713,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item::after {
   background: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.12));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item[data-icon="user"] .dap-trace-main {
-  background-image: repeating-linear-gradient(90deg, var(--dsw-alias-label-tertiary, rgb(129, 133, 140)) 0 3px, transparent 3px 6px);
+  background-image: linear-gradient(var(--dsw-alias-label-tertiary, rgb(129, 133, 140)), var(--dsw-alias-label-tertiary, rgb(129, 133, 140)));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-track {
   background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.08));

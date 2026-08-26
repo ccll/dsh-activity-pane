@@ -6,7 +6,7 @@ id: T-073
 
 # T-073 完成提醒改显式确认并跨端同步
 
-状态: active
+状态: completed
 关联: R-01-002、R-01-010 / 活动状态模型、窗格渲染器、完成确认宿主侧
 风险等级: standard
 
@@ -61,4 +61,14 @@ id: T-073
 
 ## 终态与证据
 
-（实现完成后填写）
+- 实现: `src/host.mjs` 新增宿主侧（storageDomain 声明式 domain 表 `acks`（sessionId → `{ lastTurnEnd, ackedAt }`）、`ctx.on('session/event')` 的 `turn/end` 登记（事件顶层 `time`）、`/dsh-activity-pane/api` 三路由——`GET /acks` 全量快照、`GET /acks/stream` SSE（连接即发全量、变更广播 `state` 事件）、`POST /ack` 写回 `ackedAt = Date.now()` 并广播；连接集合随卸载全数关闭）；`.dsh-plugin/index.mjs` 由 no-op 改为转发 `src/host.mjs`（免构建）；`package.json` 新增 `@deepseek-ai/dsh-storage-domain`/`zod` 依赖。`src/core.mjs`：删除 `updateCompletedHolds` 整套记账，`buildEntries`/`buildRecent` 入参 `heldIds` → `completions`（Map id → `{ lastTurnEnd, ackedAt }`），新增 `completionReminder`/`completionFor` 纯函数（成立 = 主会话 && `lastTurnEnd > ackedAt`；子代理排除；无登记不成立——升级不回溯补发），`isOwnActiveRow` 不再消费宿主 `completed` 边沿标志（C-030 唯一口径）。`src/client.mjs`：删除 `heldCompletedIds`/`prevActiveMainIds` 记账，新增 ack 通道（EventSource 订阅 `/acks/stream`，`state` 事件全量替换本地 Map 并重绘；`ackCompletion` 乐观更新 + 失败回滚，fetch 是 bundle 内唯一 HTTP 调用），「已完成」卡备注行行尾新增「知道了」确认按钮（click/keydown 双路径 `stopPropagation` 不触发跳转，`hidden` 门控仅 done 卡显示）；`.dsh-plugin/client.js` 已重建。`scripts/check.mjs`：响应保持测试组（约 20 处断言）重写为完成确认组（completionReminder 成立/边界/子代理排除、确认解除、委托周期抑制、阻塞优先、completed 边沿不参与判定——含 `recentSnap` 口径改写），bundle 契约新增按钮结构/SSE/fetch 唯一性/易失记账移除断言，host 契约断言（事件登记/路由/SSE/持久化/`node --check` 语法）与入口加载验证；`scripts/acceptance.mjs` 更新人工验收（打开/切走不解除、刷新恢复、按钮迁移不跳转、双窗口跨端同步）。
+- 测试: `pnpm build:client && pnpm check` 通过（test-anchored=125/125；完成确认组锚定 R-01-002/AC-03、AC-05、AC-10～AC-12 与 R-01-010/AC-06，`src/host.mjs` 经 `node --check` + 实际 import 加载验证，`node -e` 确认入口导出 apply/inject/name）；`python3 tools/agentmap_lint.py --report` 通过；跨端同步、刷新恢复与按钮交互的人机验收步骤已写入 acceptance.mjs，需人工 GUI 验收。
+- DESIGN 对照: PRD R-01-002 改写（AC-03/AC-05 语义变更，新增 AC-10 确认按钮、AC-11 跨端同步、AC-12 刷新/重连恢复）、R-01-010/AC-06 改写、NG-2 收窄；DOMAIN「响应保持」→「完成确认」+「确认按钮」+「完成确认宿主侧」新术语、不变量加确认写回例外；DESIGN 新增三视图图节（数据与领域模型/状态与生命周期/数据流与信任边界）、完成确认状态机与 ack 状态通道契约、「完成确认宿主侧」模块；DECISIONS 追加 C-030；map 与实现一致（含自查修正：显示过滤不再消费宿主 completed 边沿标志，DESIGN 同步）。
+- commit: 3154268bf1e44b237a24d630fe2a709308ad1a4e
+- 编号说明: 本任务以 T-073 立项（provisional）；另一个 worktree 亦使用 t073 分支名（t073-workspace-hue-separation），若其先于本任务合并并占用 T-073 编号，按未发布冲突规则在 reconciliation 中重排。
+- review:
+  - 审核方: 实现 agent 自查（子代理独立审核通道异常启动失败，经东家确认改由实现 agent 自查双轴后关闭）。
+  - 目的理解: 实现 R-01-002/AC-03、AC-05、AC-10～AC-12 与 R-01-010/AC-06——完成提醒状态改由宿主侧持久化（lastTurnEnd/ackedAt 游标 + SSE 通道）承载，显式确认按钮取代看过即确认，跨端同步与刷新恢复；删除易失内存记账；阻塞等待卡不加按钮；子代理不产生完成提醒；测试锚定 AC-ID。
+  - 执行方式: `code-review` skill 流程（Skills 双轴并行审核 + 聚合）；子代理基础实施四次启动均异常（无产出），经东家选择改由实现 agent 自查双轴；评审基线为 merge-base f8b85a412c2a523d0b96ddd3408fe7358f4ac42f，范围为提交 9cb40ad（T-073 工作单元，map+实现+测试原子提交）。
+  - 问题与修复: Standards 轴 0 项；Spec 轴 2 项——(1) `isOwnActiveRow` 仍消费宿主 `completed` 边沿标志，会使「宿主 completed=true 但无完成登记」的会话显示为无标识裸等待卡（违背 C-030 唯一口径）→ 移除该分支，`recentSnap`/活动卡测试改写为 completions 驱动并新增「completed 边沿不参与判定」断言，DESIGN 显示过滤同步；(2) `buildRecent` 中完成提醒判定先于子代理排除执行（结果无害但语义不精确）→ 调整顺序，子代理行先排除再判完成确认。另有文案残留「响应保持」两处（check.mjs 断言 message）修正。全部修复后重新 `pnpm build:client && pnpm check && lint` 通过。
+  - 复审结论: 自查双轴复审通过（两项 spec finding 全部修复、无新问题；文档与实现同步）。

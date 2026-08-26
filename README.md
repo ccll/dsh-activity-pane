@@ -12,7 +12,7 @@ DSH (DeepSeek Harness) 一大痛点是缺少活动会话与历史会话的管理
 本插件试图解决这些问题，提供了一个**活动会话总览窗格**：将正在运行的会话、子会话、轮次完成等待响应的会话、近期活跃过的历史会话，集中在一个窗格内进行整体展示。
 
 <p align="center">
-  <img src="assets/screenshot-desktop-dark.png" width="760" alt="活动会话总览窗格（深色主题）：与原生左边栏协同展示运行中、需要响应、子代理嵌套的会话卡片与最近历史">
+  <img src="assets/screenshot-desktop-dark.png" width="760" alt="活动会话总览窗格（深色主题）：与原生左边栏协同展示运行中、等待行动、子代理嵌套的会话卡片与最近历史">
 </p>
 
 ## 感谢与声明

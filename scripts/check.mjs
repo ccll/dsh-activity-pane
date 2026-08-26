@@ -11,8 +11,12 @@ import { fileURLToPath } from "node:url";
 import {
 	AWAIT_PERIOD_FAST_S,
 	AWAIT_PERIOD_SLOW_S,
+	ROUND_DONE_LABEL,
+	askQuestionPreview,
 	awaitBadgeStats,
+	awaitNoteText,
 	awaitPulsePeriod,
+	timelineQuestionPreview,
 	buildEntries,
 	buildRecent,
 	cardSignature,
@@ -343,9 +347,47 @@ assert.equal(pendingText("plan-review"), "待审查");
 assert.equal(pendingText("question"), "待回复");
 assert.equal(pendingText("approval"), "待确认");
 
-// ---- R-01-002/AC-03 完成主会话以"需要响应"呈现 ----
-// pendingText 兜底为"需要响应"；完成态判定见下方 buildEntries 断言（R-01-001/AC-01）。
-assert.equal(pendingText("unknown-kind"), "需要响应");
+// ---- R-01-002/AC-03 完成主会话以「已完成」呈现 ----
+// 未知阻塞种类兜底「待处理」（不冒充已知类型）；完成态判定见下方 buildEntries 断言（R-01-001/AC-01）。
+assert.equal(pendingText("unknown-kind"), "待处理");
+assert.equal(ROUND_DONE_LABEL, "已完成", "完成提醒/响应保持标识为「已完成」（C-028）");
+
+// ---- R-01-002/AC-09 等待卡备注行：动作+后果；待回复附问题首行；完成提醒固定文案 ----
+assert.equal(awaitNoteText("blocked", "approval"), "等待你确认授权后继续");
+assert.equal(awaitNoteText("blocked", "plan-review"), "等待你审查计划后继续");
+assert.equal(awaitNoteText("blocked", "question"), "等待你回答问题后继续", "问题正文不可得时回落动作说明");
+assert.equal(awaitNoteText("blocked", "question", "采用哪个方案方向？"), "等待你回答：采用哪个方案方向？", "待回复附问题正文首行");
+assert.equal(awaitNoteText("done", undefined), "本轮已完成，等你发送下一条指令");
+assert.equal(awaitNoteText("blocked", "unknown-kind"), "等待你处理后继续", "未知阻塞种类中性兜底（评审修正）");
+
+// ---- R-01-002/AC-09 提问正文提取：取参数首个问题的物理首行，结构不符返回 null ----
+assert.equal(
+	askQuestionPreview(JSON.stringify({ questions: [{ question: "采用哪个方案方向？", options: [] }] })),
+	"采用哪个方案方向？",
+);
+assert.equal(
+	askQuestionPreview(JSON.stringify({ questions: [{ question: "第一行\n第二行不应出现" }] })),
+	"第一行",
+	"多行问题取物理首行而非折叠拼接",
+);
+assert.equal(
+	askQuestionPreview(JSON.stringify({ questions: [{ header: "无正文" }, { question: "第二个问题" }] })),
+	"第二个问题",
+	"跳过无正文条目取首个有效问题",
+);
+assert.equal(askQuestionPreview("not-json"), null);
+assert.equal(askQuestionPreview(JSON.stringify({ questions: [] })), null);
+assert.equal(askQuestionPreview(undefined), null);
+// 提问正文穿透折叠分组上浮组行；无提问行时返回 null。
+assert.equal(
+	timelineQuestionPreview([
+		{ fold: true, label: "正在运行", question: null },
+		{ fold: true, label: "正在运行", question: "要合并回 main 吗？" },
+	]),
+	"要合并回 main 吗？",
+);
+assert.equal(timelineQuestionPreview([{ fold: true, label: "已思考" }]), null);
+assert.equal(timelineQuestionPreview(undefined), null);
 
 // ---- R-01-003/AC-03 工作区归属 ----
 const workspaces = [
@@ -543,7 +585,7 @@ const delegCompleted = {
 assert.deepEqual(
 	buildEntries(delegCompleted, []).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
 	[["root", "running", null], ["child", "subagent", null]],
-	"存在活动后代时 completed 不产出「需要响应」、卡片保持运行呈现（R-01-002/AC-03）",
+	"存在活动后代时 completed 不产出「已完成」、卡片保持运行呈现（R-01-002/AC-03）",
 );
 assert.deepEqual(
 	buildEntries(delegCompleted, [], {}, new Set(["root"])).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
@@ -551,9 +593,9 @@ assert.deepEqual(
 	"存在活动后代时响应保持不生效、卡片保持运行呈现（R-01-010/AC-06）",
 );
 assert.deepEqual(
-	buildEntries({ ids: ["root"], byId: { root: delegCompleted.byId.root }, current: null }, []).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
-	[["root", "awaiting", "需要响应"]],
-	"后代全部结束后完成提醒恢复显示（R-01-002/AC-03）",
+	buildEntries({ ids: ["root"], byId: { root: delegCompleted.byId.root }, current: null }, []).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null, entry.waitClass ?? null, entry.noteText ?? null]),
+	[["root", "awaiting", "已完成", "done", "本轮已完成，等你发送下一条指令"]],
+	"后代全部结束后完成提醒恢复显示（R-01-002/AC-03、AC-09）",
 );
 // ---- R-01-003/AC-05、R-01-009/AC-06 耗尽空窗（后代结束、settle 回合未启动）保持运行呈现 ----
 const drainGap = {
@@ -568,7 +610,7 @@ assert.deepEqual(
 );
 assert.deepEqual(
 	buildEntries(drainGap, [], {}, null).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
-	[["root", "awaiting", "需要响应"]],
+	[["root", "awaiting", "已完成"]],
 	"无委托周期记账时同一快照回到等待呈现（空窗保持来自渲染层 delegatingIds 注入）",
 );
 // 分区不变量：空窗内不入最近历史，周期结束后才入。
@@ -600,7 +642,7 @@ assert.equal(
 const snapshotOnly = { ids: [], byId: {}, current: null };
 assert.deepEqual(buildEntries(snapshotOnly, []), [], "空快照产出空条目");
 
-// ---- R-01-002/AC-01..02 等待优先于运行态 ----
+// ---- R-01-002/AC-01..02 等待优先于运行态 ｜ 阻塞等待条目携带 waitClass/pendingKind/noteText ----
 const pendingSnap = {
 	ids: ["sP"],
 	byId: {
@@ -611,30 +653,47 @@ const pendingSnap = {
 const pendingEntries = buildEntries(pendingSnap, []);
 assert.equal(pendingEntries[0].kind, "awaiting", "pending 覆盖 running");
 assert.equal(pendingEntries[0].pendingText, "待确认");
+assert.equal(pendingEntries[0].waitClass, "blocked", "待确认为阻塞等待（R-01-002/AC-08）");
+assert.equal(pendingEntries[0].pendingKind, "approval");
+assert.equal(pendingEntries[0].noteText, "等待你确认授权后继续", "阻塞等待备注行说明动作与后果（R-01-002/AC-09）");
+// 待回复卡：备注行附时间线末条 ask 工作项的提问正文首行（R-01-002/AC-09）。
+const questionSnap = {
+	ids: ["sQ"],
+	byId: { sQ: { id: "sQ", displayTitle: "主Q", running: false, pendingInteraction: "question" } },
+	current: null,
+};
+const questionEntries = buildEntries(questionSnap, [], {
+	sQ: { timeline: [{ fold: true, label: "正在运行", summary: "等待回答", question: "采用哪个方案方向？" }] },
+});
+assert.equal(questionEntries[0].pendingText, "待回复");
+assert.equal(questionEntries[0].pendingKind, "question");
+assert.equal(questionEntries[0].noteText, "等待你回答：采用哪个方案方向？", "待回复备注行附问题首行");
+const questionFallback = buildEntries(questionSnap, [], { sQ: { timeline: [] } });
+assert.equal(questionFallback[0].noteText, "等待你回答问题后继续", "问题正文不可得时回落动作说明");
 
-// ---- R-01-001/AC-05 徽标计数口径：只统计主会话，子代理不计入 ----
-assert.deepEqual(awaitBadgeStats([]), { waiting: 0, total: 0 }, "空列表为 0/0（R-01-001/AC-06）");
+// ---- R-01-001/AC-05 徽标计数口径：只统计主会话，子代理不计入 ｜ R-01-002/AC-06 阻塞计数 ----
+assert.deepEqual(awaitBadgeStats([]), { waiting: 0, blocked: 0, total: 0 }, "空列表为 0/0（R-01-001/AC-06）");
 assert.deepEqual(
 	awaitBadgeStats([
 		{ id: "a", kind: "running" },
-		{ id: "b", kind: "awaiting" },
-		{ id: "c", kind: "awaiting" },
+		{ id: "b", kind: "awaiting", waitClass: "blocked" },
+		{ id: "c", kind: "awaiting", waitClass: "done" },
 		{ id: "d", kind: "subagent" },
 	]),
-	{ waiting: 2, total: 3 },
-	"分子=awaiting 主会话数，分母=running+awaiting 主会话数",
+	{ waiting: 2, blocked: 1, total: 3 },
+	"分子=awaiting 主会话数，分母=running+awaiting 主会话数；blocked 只计阻塞等待",
 );
-// ---- R-01-002/AC-07 脉冲周期：随占比单调加快、两端封闭、非法输入不脉冲 ----
-assert.equal(awaitPulsePeriod(0, 3), null, "无等待返回 null：不脉冲");
+// ---- R-01-002/AC-07 脉冲周期：随阻塞等待占比单调加快、两端封闭、非法输入不脉冲 ----
+assert.equal(awaitPulsePeriod(0, 3), null, "无阻塞等待返回 null：不脉冲");
 assert.equal(awaitPulsePeriod(-1, 3), null, "负分子归一为不脉冲");
 assert.equal(awaitPulsePeriod(2, 1), null, "分子大于分母视为非法输入");
 assert.equal(awaitPulsePeriod(2, undefined), null, "非法分母归一为不脉冲");
-assert.equal(awaitPulsePeriod(1, 1), 0.5, "全部等待达到频率上限（最短周期）");
+assert.equal(awaitPulsePeriod(1, 1), 0.5, "全部阻塞等待达到频率上限（最短周期）");
 const periodQuarter = awaitPulsePeriod(1, 4);
 const periodHalf = awaitPulsePeriod(2, 4);
 const periodThreeQuarters = awaitPulsePeriod(3, 4);
-assert.ok(periodHalf < periodQuarter && periodThreeQuarters < periodHalf, "占比越高周期越短（频率单调加快）");
-assert.ok(periodThreeQuarters > 0.5 && periodQuarter < 1.6, "部分等待的周期落在封闭区间内");
+assert.ok(periodHalf < periodQuarter && periodThreeQuarters < periodHalf, "阻塞占比越高周期越短（频率单调加快）");
+assert.ok(periodThreeQuarters > 0.5 && periodQuarter < 1.6, "部分阻塞等待的周期落在封闭区间内");
 // ---- R-01-001/AC-01 可重复的确定性渲染（见下） ｜ R-02-003/AC-01 渲染签名去重 ----
 const e1 = buildEntries(snapshot, workspaces);
 const e2 = buildEntries(snapshot, workspaces);
@@ -1756,7 +1815,7 @@ const crossWindow = buildRecent(
 );
 assert.equal(crossWindow.length, 0, "宿主时间超窗的会话不入历史区（跨窗长回合缺口，C-020）");
 
-// ---- R-01-002/AC-05、R-01-010/AC-06 响应保持：打开的完成提醒会话仍为当前会话时，保持活动卡位置与"需要响应"呈现 ----
+// ---- R-01-002/AC-05、R-01-010/AC-06 响应保持：打开的完成提醒会话仍为当前会话时，保持活动卡位置与「已完成」呈现 ----
 const holdBase = { id: "sB", displayTitle: "旧B", running: false, updatedAt: NOW - 1_000 };
 // 帧间登记：上一帧完成提醒的会话成为当前会话（覆盖宿主同帧切换 current 并清除 completed 的原子时序）。
 let held = updateCompletedHolds(new Set(), { ids: ["sB"], byId: { sB: { ...holdBase, completed: true } }, current: "sA" }, []);
@@ -1769,18 +1828,18 @@ assert.deepEqual(
 	["sB"],
 	"completed 与 current 同帧命中同样登记保持",
 );
-// 保持期间：活动区以 awaiting「需要响应」呈现并高亮当前，历史区排除，分区不变量不破。
+// 保持期间：活动区以 awaiting「已完成」呈现并高亮当前，历史区排除，分区不变量不破。
 const holdSnap = { ids: ["sB"], byId: { sB: { ...holdBase, completed: false } }, current: "sB" };
 const heldEntries = buildEntries(holdSnap, [], {}, held);
 assert.deepEqual(
-	heldEntries.map((e) => [e.id, e.kind, e.pendingText, e.isCurrent]),
-	[["sB", "awaiting", "需要响应", true]],
-	"保持中会话以 awaiting「需要响应」留在活动区且保持当前高亮",
+	heldEntries.map((e) => [e.id, e.kind, e.pendingText, e.waitClass, e.isCurrent]),
+	[["sB", "awaiting", "已完成", "done", true]],
+	"保持中会话以 awaiting「已完成」留在活动区且保持当前高亮",
 );
 assert.deepEqual(
 	awaitBadgeStats(heldEntries),
-	{ waiting: 1, total: 1 },
-	"响应保持中会话计入徽标等待分子（n 统计口径含响应保持）",
+	{ waiting: 1, blocked: 0, total: 1 },
+	"响应保持中会话计入徽标等待分子但不计阻塞（n 统计口径含响应保持，R-01-002/AC-06）",
 );
 // 保持中发消息转 running：按运行中呈现。
 const holdRunning = buildEntries({ ids: ["sB"], byId: { sB: { ...holdBase, running: true } }, current: "sB" }, [], {}, held);
@@ -1838,8 +1897,8 @@ heldFocus = updateCompletedHolds(heldFocus, focusDone, ["sB"]);
 assert.deepEqual([...heldFocus], ["sB"], "当前焦点下运行结束即登记保持");
 assert.deepEqual(
 	buildEntries(focusDone, [], {}, heldFocus).map((e) => [e.id, e.kind, e.pendingText, e.isCurrent]),
-	[["sB", "awaiting", "需要响应", true]],
-	"焦点下结束的会话以「需要响应」留在活动区",
+	[["sB", "awaiting", "已完成", true]],
+	"焦点下结束的会话以「已完成」留在活动区",
 );
 assert.equal(buildRecent(focusDone, [], NOW, undefined, {}, [], heldFocus).length, 0, "焦点下结束的会话不入历史区");
 assert.deepEqual(
@@ -1955,23 +2014,33 @@ assert.equal(listLoadState({ phase: "ready" }), "ready", "phase 为 ready 才允
 assert.equal(listLoadState({ phase: "ready", state: "error" }), "error", "列表错误轴归一为 error");
 assert.equal(listLoadState({ phase: "ready", error: { code: "x" } }), "error", "携带 error 字段归一为 error");
 
-// ---- R-01-014/AC-06 数量标识在途显示加载指示而非冒充计数 ----
+// ---- R-01-014/AC-06 数量标识在途显示加载指示而非冒充计数 ｜ R-01-002/AC-06 脉冲门控 ----
 assert.deepEqual(
 	countBadgeState("loading", 0, 0),
-	{ mode: "loading", text: "", ariaText: "活动会话计数加载中", awaiting: false },
+	{ mode: "loading", text: "", ariaText: "活动会话计数加载中", awaiting: false, blocked: false },
 	"列表在途归一为加载指示，不冒充 0/0",
 );
 assert.equal(countBadgeState("loading", 1, 3).awaiting, false, "在途期即便有等待计数也不触发脉冲");
 assert.equal(countBadgeState("error", 0, 0).mode, "count", "错误轴不归一为加载指示");
 assert.deepEqual(
 	countBadgeState("ready", 0, 0),
-	{ mode: "count", text: "0/0", ariaText: "0 个活动会话", awaiting: false },
+	{ mode: "count", text: "0/0", ariaText: "0 个活动会话", awaiting: false, blocked: false },
 	"就绪空态仍显示 0/0（R-01-001/AC-06）",
 );
 assert.deepEqual(
-	countBadgeState("ready", 1, 3),
-	{ mode: "count", text: "1/3", ariaText: "3 个活动会话，1 个等待响应", awaiting: true },
-	"就绪后显示实际 n/m 与等待响应文案",
+	countBadgeState("ready", 1, 3, 1),
+	{ mode: "count", text: "1/3", ariaText: "3 个活动会话，1 个等待你答复", awaiting: true, blocked: true },
+	"存在阻塞等待：脉冲门控开启，aria 表达等你答复（R-01-002/AC-06）",
+);
+assert.deepEqual(
+	countBadgeState("ready", 2, 3, 1),
+	{ mode: "count", text: "2/3", ariaText: "3 个活动会话，1 个等待你答复，1 个已完成", awaiting: true, blocked: true },
+	"混合态 aria 同时携带阻塞与完成计数",
+);
+assert.deepEqual(
+	countBadgeState("ready", 2, 3, 0),
+	{ mode: "count", text: "2/3", ariaText: "3 个活动会话，2 个已完成", awaiting: true, blocked: false },
+	"仅完成提醒：琥珀底色保留但不脉冲（完成提醒只计数不催促，C-028）",
 );
 
 // ---- R-01-014/AC-05 补充数据失败降级为空字段并可重试 ----
@@ -2458,16 +2527,31 @@ assert.ok(bundle.includes('toggle.toggleAttribute("data-drawer-open", open)'), "
 
 // R-01-002/AC-04
 // 等待标识徽标改用主题协调的柔和底，不再使用突兀的橙金渐变。
-assert.ok(bundle.includes('.dap-badge {\n  flex: none; font-size: 10px; line-height: 14px; font-weight: 600;\n  color: color-mix(in srgb, currentColor 88%, transparent);\n  background: color-mix(in srgb, currentColor 12%, transparent);'), "等待标识徽标使用主题协调的柔和底色");
+assert.ok(bundle.includes('.dap-badge {\n  flex: none; display: inline-flex; align-items: center; gap: 3px;\n  font-size: 10px; line-height: 14px; font-weight: 600;\n  color: color-mix(in srgb, currentColor 88%, transparent);\n  background: color-mix(in srgb, currentColor 12%, transparent);'), "等待标识徽标使用主题协调的柔和底色");
 assert.ok(!bundle.includes('color: #221a10; background: linear-gradient(180deg, #ffd488, #e8a33d);'), "等待标识徽标不再使用橙金渐变");
-assert.ok(bundle.includes('.dap-badge.dap-badge-flash { animation: dap-pulse 1.2s ease-in-out infinite; }'), "「需要响应」徽标与标题圆点同款脉冲（R-01-002/AC-08）");
-assert.ok(bundle.includes('badge.classList.toggle("dap-badge-flash", flash)'), "仅「需要响应」文案触发徽标闪烁（R-01-002/AC-08）");
+// R-01-002/AC-01、AC-02 阻塞等待徽标前置类型图标；AC-08 脉冲归属阻塞等待、完成提醒静态降噪（C-028）
+assert.ok(
+	bundle.includes('badge.append(makeEl("span", "dap-badge-icon"), makeEl("span", "dap-badge-text"))'),
+	"等待徽标为图标+文本双段结构（R-01-002/AC-01、AC-02）",
+);
+assert.ok(bundle.includes("function createPendingIcon(kind)"), "阻塞等待类型图标工厂存在（对勾/文档/问号气泡）");
+assert.ok(bundle.includes('entry.waitClass === "blocked" && PENDING_ICON_KINDS.has(entry.pendingKind)'), "图标归属由 waitClass/pendingKind 结构化字段驱动，未知种类不给图标（R-01-002/AC-01、AC-02）");
+assert.ok(bundle.includes('.dap-badge.dap-badge-flash { animation: dap-pulse 1.2s ease-in-out infinite; }'), "阻塞等待徽标与标题圆点同款脉冲（R-01-002/AC-08）");
+assert.ok(bundle.includes('const flash = entry.waitClass === "blocked";'), "徽标闪烁仅属阻塞等待，完成提醒不闪（R-01-002/AC-08，C-028）");
+assert.ok(bundle.includes('badge.classList.toggle("dap-badge-flash", flash)'), "徽标闪烁由结构化字段驱动而非文案比较（R-01-002/AC-08）");
 assert.ok(bundle.includes('dot.style.animation = "none"'), "闪烁开启瞬间重启标题圆点动画对齐相位（R-01-002/AC-08）");
-// R-01-001/AC-04、AC-05、AC-06 徽标 n/m 计数；R-01-002/AC-06、AC-07 同色占比脉冲
+assert.ok(
+	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {') &&
+		bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-dot {\n  animation: none;\n  box-shadow: none;\n}'),
+	"完成提醒卡描边光晕弱化、状态点静止（R-01-002/AC-08，C-028）",
+);
+assert.ok(bundle.includes('rec.el.setAttribute("data-wait", entry.waitClass)'), "等待类别经 data-wait 属性承载（R-01-002/AC-08）");
+assert.ok(bundle.includes('entry.noteText ?? ""'), "备注行文案由核心单点派生（R-01-002/AC-09）");
+// R-01-001/AC-04、AC-05、AC-06 徽标 n/m 计数；R-01-002/AC-06、AC-07 同色阻塞占比脉冲
 assert.ok(bundle.includes("text: `${waiting}/${total}`,"), "数量徽标以 n/m 分数形式呈现");
 assert.ok(
-	bundle.includes("awaitBadgeStats(active)") && bundle.includes("awaitPulsePeriod(waiting, total)"),
-	"计数与脉冲周期由核心纯函数单点派生",
+	bundle.includes("awaitBadgeStats(active)") && bundle.includes("awaitPulsePeriod(blocked, total)"),
+	"计数与脉冲周期由核心纯函数单点派生（脉冲按阻塞等待占比）",
 );
 assert.ok(
 	bundle.includes("[data-dsh-activity-pane] .dap-count[data-awaiting] {\n  /* 底色/透明度与等待卡完全一致、无描边与外环") &&
@@ -2475,9 +2559,9 @@ assert.ok(
 	"数量徽标等待态底色/透明度与等待卡完全一致、无描边与外环（R-01-002/AC-06）",
 );
 assert.equal(
-	(bundle.match(/background: rgba\(35, 31, 25, 0\.97\);\n  animation: dap-await-pulse/g) ?? []).length,
+	(bundle.match(/\[data-awaiting\]\[data-blocked\]/g) ?? []).length,
 	3,
-	"三处镜像面等待态均为底色直连脉冲、无描边（R-01-002/AC-06）",
+	"列头/窄条/移动开关三处镜像面脉冲均由 data-blocked 门控：仅阻塞等待脉冲（R-01-002/AC-06，C-028）",
 );
 assert.ok(
 	!bundle.includes("box-shadow: 0 0 0 1px color-mix(in srgb, #e8a33d 35%, transparent);\n  animation: dap-await-pulse"),
@@ -2500,8 +2584,8 @@ assert.ok(
 	),
 	"浅色主题数量徽标覆盖声明体完整：仅等待卡浅色背景别名、无描边与外环（防空规则回归）",
 );
-assert.ok(bundle.includes("`${total} 个活动会话，${waiting} 个等待响应`"), "数量徽标 aria-label 携带语义化计数说明");
-assert.ok(bundle.includes("border-radius: 999px; padding: 0 7px;\n}\n/* 「需要响应」徽标闪烁"), "等待标识徽标规则正确闭合，后续为「需要响应」闪烁变体（R-01-002/AC-04 结构回归防护）");
+assert.ok(bundle.includes("`${total} 个活动会话，${blocked} 个等待你答复`"), "数量徽标 aria-label 携带阻塞等待计数说明（R-01-002/AC-06）");
+assert.ok(bundle.includes("border-radius: 999px; padding: 0 7px;\n}\n/* 徽标类型图标"), "等待标识徽标规则正确闭合，后续为类型图标与闪烁变体（R-01-002/AC-04 结构回归防护）");
 assert.ok(
 	bundle.includes("border-radius: 999px;\n  padding: 0 7px;\n}\n[data-dsh-activity-pane] .dap-count[data-awaiting] {"),
 	"数量徽标基态规则无描边、正确闭合，紧随其后为等待态变体（R-01-001/AC-04 结构回归防护）",

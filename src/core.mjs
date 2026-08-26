@@ -21,9 +21,24 @@ const PENDING_LABELS = {
 	question: "待回复",
 };
 
+/** 阻塞等待备注行动作说明（R-01-002/AC-09）：说明等待的具体动作与「不答就无法继续」的后果。 */
+const PENDING_NOTES = {
+	approval: "等待你确认授权后继续",
+	"plan-review": "等待你审查计划后继续",
+	question: "等待你回答问题后继续",
+};
+
+/** 未知阻塞种类的中性兜底（评审修正，C-028）： pendingInteraction 是宿主封闭集合，
+ *  未知值按阻塞对待（不答就无法继续），但文案/图标不冒充任何已知类型。 */
+const PENDING_UNKNOWN_LABEL = "待处理";
+const PENDING_UNKNOWN_NOTE = "等待你处理后继续";
+
 /** 完成提醒/响应保持的等待文案（R-01-002）：产出（pendingText 兜底、buildEntries）与
- *  呈现判定（渲染层闪烁、提示文案分流）共用同一常量，避免字面量多处比较漂移。 */
-export const NEEDS_RESPONSE_LABEL = "需要响应";
+ *  呈现判定共用同一常量，避免字面量多处比较漂移。 */
+export const ROUND_DONE_LABEL = "已完成";
+
+/** 完成提醒备注行（R-01-002/AC-09）：说清下一步是发送新指令，而非模糊的「处理」。 */
+export const ROUND_DONE_NOTE = "本轮已完成，等你发送下一条指令";
 
 /** 镜像原生 toolRowModel 的 classifyTool（dsh-client-ui-tool）：摘要参数键按 variant 分派（C-011）。 */
 const TOOL_VARIANTS = {
@@ -249,6 +264,24 @@ function askStatusSummary(root, status) {
 	return null;
 }
 
+/** 取 ask_user_question 参数中首个问题的正文首行（物理首行 + 截断，DOMAIN「物理首行」口径），
+ *  供待回复卡备注行直接展示（R-01-002/AC-09）；结构不符或为空返回 null，由调用方回落动作说明。 */
+export function askQuestionPreview(argsRaw, max = 60) {
+	if (typeof argsRaw !== "string" || argsRaw === "") return null;
+	let parsed;
+	try {
+		parsed = JSON.parse(argsRaw);
+	} catch {
+		return null;
+	}
+	if (!isRecord(parsed) || !Array.isArray(parsed.questions)) return null;
+	for (const item of parsed.questions) {
+		const question = firstPhysicalLine(isRecord(item) ? item.question : null, max);
+		if (question !== "") return question;
+	}
+	return null;
+}
+
 function timelineToolItem(root, fallbackView = null, cwd = "") {
 	if (!isRecord(root)) return null;
 	const call = isRecord(root.call) ? root.call : root;
@@ -295,6 +328,8 @@ function timelineToolItem(root, fallbackView = null, cwd = "") {
 		text: name,
 		summary: detail,
 		detail,
+		// 提问正文随工作项携带（R-01-002/AC-09）：待回复卡备注行直接展示问题首行。
+		question: name === "ask_user_question" ? askQuestionPreview(argsRaw) : null,
 		status,
 	};
 }
@@ -496,6 +531,8 @@ function foldMemberOf(item) {
 			summary: typeof item.summary === "string" ? item.summary : "",
 			text: "",
 			icon: typeof item.icon === "string" ? item.icon : undefined,
+			// 提问正文穿透折叠层（R-01-002/AC-09）：供待回复卡备注行从组行取回问题首行。
+			question: typeof item.question === "string" ? item.question : null,
 			status: item.status,
 		};
 	}
@@ -567,6 +604,8 @@ icon = "bash";
 		text: "",
 		summary,
 		detail: null,
+		// 组内末条提问正文上浮组行（R-01-002/AC-09）；无提问成员时为 null。
+		question: toolMembers.map((m) => m.question).filter(Boolean).pop() ?? null,
 		status,
 		icon,
 	};
@@ -812,45 +851,81 @@ export function usageSummary({ uncachedInputTokens = null, cacheReadTokens = nul
 
 /** 需要用户行动的种类的展示文案。 */
 export function pendingText(kind) {
-	return PENDING_LABELS[kind] ?? NEEDS_RESPONSE_LABEL;
+	return PENDING_LABELS[kind] ?? PENDING_UNKNOWN_LABEL;
 }
 
-/** 数量徽标统计：只统计主会话——分子为等待响应（awaiting，含响应保持）的主会话数，
+/** 等待卡备注行（R-01-002/AC-09）：阻塞等待说明动作与后果（待回复附问题正文首行，
+ *  不可得时回落动作说明）；完成提醒固定为「等你发送下一条指令」。
+ *  questionPreview 为时间线末条 ask 工作项携带的问题文本（可为 null）。 */
+export function awaitNoteText(waitClass, pendingKind, questionPreview = null) {
+	if (waitClass === "done") return ROUND_DONE_NOTE;
+	if (pendingKind === "question" && typeof questionPreview === "string" && questionPreview !== "")
+		return `等待你回答：${questionPreview}`;
+	return PENDING_NOTES[pendingKind] ?? PENDING_UNKNOWN_NOTE;
+}
+
+/** 时间线末条 ask_user_question 工作项携带的提问正文（折叠组行同样上浮该字段）；
+ *  不存在时返回 null（R-01-002/AC-09）。 */
+export function timelineQuestionPreview(timeline) {
+	const rows = Array.isArray(timeline) ? timeline : [];
+	for (let i = rows.length - 1; i >= 0; i -= 1) {
+		const question = rows[i]?.question;
+		if (typeof question === "string" && question !== "") return question;
+	}
+	return null;
+}
+
+/** 数量徽标统计：只统计主会话——分子为等待行动（awaiting，含响应保持）的主会话数，
  *  分母为其加运行中（running，含委托周期保持运行呈现）主会话之和；子代理不计入
- *  （R-01-001/AC-05）。空列表返回 { waiting: 0, total: 0 }，徽标恒以 n/m 呈现。 */
+ *  （R-01-001/AC-05）。blocked 为其中阻塞等待（待确认/待审查/待回复）的主会话数，
+ *  驱动计数徽标脉冲门控（R-01-002/AC-06）。空列表返回 { waiting: 0, blocked: 0, total: 0 }。 */
 export function awaitBadgeStats(entries) {
 	let waiting = 0;
+	let blocked = 0;
 	let total = 0;
 	for (const entry of Array.isArray(entries) ? entries : []) {
 		if (entry?.kind !== "running" && entry?.kind !== "awaiting") continue;
 		total += 1;
-		if (entry.kind === "awaiting") waiting += 1;
+		if (entry.kind === "awaiting") {
+			waiting += 1;
+			if (entry.waitClass === "blocked") blocked += 1;
+		}
 	}
-	return { waiting, total };
+	return { waiting, blocked, total };
 }
 
 /** 数量标识呈现态（R-01-014/AC-06）：列表在途（loading）时不冒充计数——归一为
  *  loading 呈现（加载指示 + 加载中 aria 文案，不等待、不脉冲）；否则归一为 count
- *  呈现（n/m 文本 + 计数 aria 文案，等待响应时 awaiting）。错误轴不算在途，维持计数呈现。 */
-export function countBadgeState(listState, waiting, total) {
-	if (listState === "loading") return { mode: "loading", text: "", ariaText: "活动会话计数加载中", awaiting: false };
+ *  呈现（n/m 文本 + 计数 aria 文案）。awaiting 表达「存在等待行动」（琥珀底色）；
+ *  blocked 表达「存在阻塞等待」（脉冲门控，R-01-002/AC-06）。错误轴不算在途，维持计数呈现。 */
+export function countBadgeState(listState, waiting, total, blocked = 0) {
+	if (listState === "loading") return { mode: "loading", text: "", ariaText: "活动会话计数加载中", awaiting: false, blocked: false };
 	const awaiting = waiting > 0;
+	const hasBlocked = blocked > 0;
+	const doneCount = waiting - (hasBlocked ? blocked : 0);
 	return {
 		mode: "count",
 		text: `${waiting}/${total}`,
-		ariaText: awaiting ? `${total} 个活动会话，${waiting} 个等待响应` : `${total} 个活动会话`,
+		ariaText: hasBlocked
+			? doneCount > 0
+				? `${total} 个活动会话，${blocked} 个等待你答复，${doneCount} 个已完成`
+				: `${total} 个活动会话，${blocked} 个等待你答复`
+			: awaiting
+				? `${total} 个活动会话，${waiting} 个已完成`
+				: `${total} 个活动会话`,
 		awaiting,
+		blocked: hasBlocked,
 	};
 }
 
-// 脉冲周期端点：全部等待时达到最快上限（R-01-002/AC-07）；单个等待起步时最慢。
+// 脉冲周期端点：全部阻塞等待时达到最快上限（R-01-002/AC-07）；单个阻塞等待起步时最慢。
 export const AWAIT_PERIOD_FAST_S = 0.5;
 export const AWAIT_PERIOD_SLOW_S = 1.6;
 
-/** 等待占比 → 徽标脉冲周期（秒）：随 r=n/m 单调加快、两端封闭——全部等待取
- *  AWAIT_PERIOD_FAST_S 上限频率；无等待或非法输入返回 null 表示不脉冲。 */
-export function awaitPulsePeriod(waiting, total) {
-	const n = Number.isFinite(waiting) ? Math.max(0, Math.floor(waiting)) : 0;
+/** 阻塞等待占比 → 徽标脉冲周期（秒）：随 r=n/m 单调加快、两端封闭——全部活动主会话
+ *  阻塞等待取 AWAIT_PERIOD_FAST_S 上限频率；无阻塞等待或非法输入返回 null 表示不脉冲。 */
+export function awaitPulsePeriod(blocked, total) {
+	const n = Number.isFinite(blocked) ? Math.max(0, Math.floor(blocked)) : 0;
 	const m = Number.isFinite(total) ? Math.max(0, Math.floor(total)) : 0;
 	if (n <= 0 || m <= 0 || n > m) return null;
 	return AWAIT_PERIOD_SLOW_S - (AWAIT_PERIOD_SLOW_S - AWAIT_PERIOD_FAST_S) * (n / m);
@@ -1015,7 +1090,7 @@ export function mainTitle(byId, id) {
  *   - 主会话 pendingInteraction / completed → 'awaiting'（等待用户行动）
  *   - 子代理 running / pending 或存在活动后代 → 'subagent'，自身与后代均不活动则不显示
  * heldIds（响应保持，R-01-002/AC-05、R-01-010/AC-06）：集合内主会话按 awaiting
- * 「需要响应」保留在活动区。delegatingIds（委托周期集合，渲染层由 progressAnchor
+ * 「已完成」保留在活动区。delegatingIds（委托周期集合，渲染层由 progressAnchor
  * 记账派生）：集合内会话视同处于委托周期——后代耗尽至 settle 处理回合启动的
  * 空窗内仍保持运行呈现、完成提醒与响应保持不生效；条目的 descendantActive 字段
  * 始终为当帧原始后代活性（供进度锚点记账判定耗尽），不受 delegatingIds 影响。
@@ -1085,6 +1160,8 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds
 			const workspace = m.isSub
 				? { title: "", key: "" }
 				: workspaceInfoForSession(id, workspaceItems ?? [], byId);
+			// 完成提醒/响应保持判定单点（R-01-002）：pendingText/waitClass/noteText 三字段共用。
+			const doneWait = !m.pending && (m.row.completed === true || m.held) && !m.running && !m.delegating;
 			entries.push({
 				id,
 				parentId: m.isSub ? String(parentId) : null,
@@ -1110,8 +1187,24 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds
 				isCurrent: current !== null && String(current) === String(id),
 				pendingText: m.pending
 					? pendingText(m.row.pendingInteraction)
-					: (m.row.completed === true || m.held) && !m.running && !m.delegating
-					? NEEDS_RESPONSE_LABEL
+					: doneWait
+					? ROUND_DONE_LABEL
+						: undefined,
+				// 等待双类（R-01-002）：blocked=阻塞等待（待确认/待审查/待回复），done=完成提醒/响应保持。
+				waitClass: m.pending
+					? "blocked"
+					: doneWait
+						? "done"
+						: undefined,
+				pendingKind: m.pending ? m.row.pendingInteraction : undefined,
+				noteText: m.pending
+					? awaitNoteText(
+							"blocked",
+							m.row.pendingInteraction,
+							m.row.pendingInteraction === "question" ? timelineQuestionPreview(timeline) : null,
+						)
+					: doneWait
+						? ROUND_DONE_NOTE
 						: undefined,
 			});
 		}
@@ -1203,6 +1296,8 @@ export function cardSignature(entries) {
 			entry.agentPreview ?? "",
 			entry.isCurrent,
 			entry.pendingText ?? null,
+			entry.waitClass ?? null,
+			entry.noteText ?? null,
 			entry.activityAt ?? null,
 			entry.progress ?? null,
 			entry.loadingModel ?? null,

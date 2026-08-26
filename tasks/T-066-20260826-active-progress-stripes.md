@@ -23,7 +23,7 @@ id: T-066
 
 ## 收敛方案
 
-- `src/client.mjs`：条纹背景与 `dap-stripes` 动画从 `[data-streaming]` 选择器移入 `.dap-fill` 基础规则（进度条仅存于运行卡骨架，运行即条纹）；删除 `[data-streaming]` 规则、`toggleAttribute("data-streaming")`、`entry.streaming` 派生与 `livenessFromSnapshot` 的 `streaming` 字段。
+- `src/client.mjs`：条纹背景与 `dap-stripes` 动画从 `[data-streaming]` 选择器移入 `.dap-fill` 基础规则（进度条仅存于运行卡骨架，运行即条纹）；删除 `[data-streaming]` 规则、`toggleAttribute("data-streaming")`、`entry.streaming` 派生；`livenessFromSnapshot` 随之收敛为仅归一 `startTime`（runningTool/runningArgs/reasoning 失唯一消费者后一并移除）。
 - `src/core.mjs`：`cardSignature` 移除 `streaming` 分量（条纹不再依赖属性翻转）。
 - `scripts/check.mjs`：AC-08 锚点改写——断言 `.dap-fill` 基础规则携带条纹渐变与动画、bundle 无 `data-streaming`/`entry.streaming` 残留。
 - 条纹配色、`@keyframes dap-stripes`、`prefers-reduced-motion` 语义不变；不新增依赖。

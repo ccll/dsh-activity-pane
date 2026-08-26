@@ -2197,7 +2197,7 @@ const CSS = `
   to { background-position: 40px 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  /* answer-pet 保留状态脉冲/流式条纹；仅关闭宽度过渡，避免状态反馈消失。 */
+  /* answer-pet 保留状态脉冲/进度条纹；仅关闭宽度过渡，避免状态反馈消失。 */
   [data-dsh-activity-pane] .dap-fill { transition: none; }
 }
 [data-dsh-activity-pane] .dap-empty {
@@ -2394,17 +2394,10 @@ function schedule(callback) {
 	}
 }
 
-/** 从原生会话快照归一为运行卡输入：工具名/参数/是否流式或推理/回合开始时间/流程节点。
+/** 从原生会话快照归一运行卡回合开始时间。
  *  elapsed 不在快照事件时固化——渲染期用 Date.now()-startTime 实时算，时长才能
  *  随 1s 时钟逐秒跳动（R-01-009/AC-03）。 */
 function livenessFromSnapshot(snap) {
-	const runningCalls = Array.isArray(snap?.runningCalls) ? snap.runningCalls : [];
-	const call = runningCalls[0];
-	const runningTool = call?.name ? String(call.name) : null;
-	const runningArgs = runningTool !== null ? call?.argsRaw : null;
-	const blocks = Array.isArray(snap?.partial?.blocks) ? snap.partial.blocks : [];
-	const live = snap?.partial != null && snap?.running !== false;
-	const reasoning = live && blocks.some((b) => b?.kind === "reasoning");
 	let startTime = null;
 	const timings = snap?.turnTimings;
 	if (timings instanceof Map) {
@@ -2419,12 +2412,7 @@ function livenessFromSnapshot(snap) {
 			}
 		}
 	}
-	return {
-		runningTool,
-		runningArgs,
-		reasoning,
-		startTime,
-	};
+	return { startTime };
 }
 
 function fmtRecentTime(ts) {

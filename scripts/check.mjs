@@ -2356,6 +2356,7 @@ assert.ok(bundle.includes(".dap-fill {\n  position: absolute; inset: 0 auto 0 0;
 assert.ok(bundle.includes("animation: dap-stripes 0.8s linear infinite;"), "进度条条纹持续向右滚动动画（R-01-009/AC-08）");
 assert.ok(!bundle.includes("data-streaming"), "条纹不再经 data-streaming 流式门控（R-01-009/AC-08）");
 assert.ok(!bundle.includes("entry.streaming"), "streaming 派生字段随条纹门控移除（R-01-009/AC-08）");
+assert.ok(bundle.indexOf('const track = makeEl("div", "dap-track");') > bundle.indexOf('return [head, row, makeEl("div", "dap-trace"), makeEl("div", "dap-note")];'), "进度条骨架仅属运行卡，非运行卡不呈现条纹（R-01-009/AC-08）");
 assert.ok(bundle.includes("animation: dap-pulse 1.15s ease-in-out infinite"), "运行中蓝色节点保留脉冲动画");
 assert.ok(bundle.includes("dataset.traceKey"), "同一流程节点复用 DOM，脉冲动画不因时钟刷新重置");
 assert.ok(!bundle.includes(".dap-trace-item[data-status=\"running\"]::before {\n    animation: none !important;"), "降低动效设置不关闭运行点脉冲");

@@ -640,19 +640,30 @@ export function foldedConversationTimeline(snapshot, limit = 4, cwd = "", descen
 		const merged = mergeLiveItems(items, snapshot, Number.MAX_SAFE_INTEGER, cwd);
 		const full = foldWorkGroups(settle ? settleWhenIdle(merged, true) : merged, Number.MAX_SAFE_INTEGER);
 		if (full.length >= max || want === Number.MAX_SAFE_INTEGER) {
-			const sliced = full.slice(-max);
-			const rows = settle ? sliced : promoteRunningTail(sliced, snapshot, descendantActive);
-			// 指令锚行（R-01-012/AC-12～AC-14）：窗口起点之前最近的一条非空文本用户输入行
-			// 标记 anchor 后前置到首行固定显示；该消息仍在窗口内时不标记（AC-13），不占窗口名额。
-			let anchor = null;
-			for (let i = full.length - sliced.length - 1; i >= 0; i -= 1) {
-				const row = full[i];
-				if (row?.kind === "user" && typeof row.text === "string" && row.text.trim() !== "") {
-					anchor = { ...row, anchor: true };
-					break;
+			// 指令锚行（R-01-012/AC-12～AC-15、C-023）：锚行计入总预算——锚行出现时窗口收缩为
+			// 最近 max-1 个显示行，总行数（含锚行）不超过 max；该消息仍在窗口内时不标记（AC-13）；
+			// 更近的用户输入行到达收缩窗口首行时直接顶替旧锚、不再叠加（总行数暂减一，AC-15）。
+			const isAnchorableUserRow = (row) => row?.kind === "user" && typeof row.text === "string" && row.text.trim() !== "";
+			const anchorableBefore = (end) => {
+				for (let i = end - 1; i >= 0; i -= 1) {
+					if (isAnchorableUserRow(full[i])) return full[i];
 				}
+				return null;
+			};
+			// settle/尾部提升出口归一为 finish（三种返回形状共用）。
+			const finish = (rows) => (settle ? rows : promoteRunningTail(rows, snapshot, descendantActive));
+			// 预扫无锚窗口（last-max）起点之前：不存在非空文本用户行则无锚，原样返回至多 max 行。
+			if (anchorableBefore(Math.max(0, full.length - max)) === null) {
+				return finish(full.slice(-max));
 			}
-			return anchor === null ? rows : [anchor].concat(rows);
+			const sliced = max > 1 ? full.slice(-(max - 1)) : [];
+			// AC-15 顶替：收缩窗口首行本身是非空文本用户行 → 直接顶替旧锚、不叠加（总行数暂为 max-1）。
+			if (isAnchorableUserRow(sliced[0])) {
+				return finish(sliced);
+			}
+			const anchorRow = anchorableBefore(full.length - sliced.length);
+			const rows = finish(sliced);
+			return anchorRow === null ? rows : [{ ...anchorRow, anchor: true }].concat(rows);
 		}
 	}
 	return [];

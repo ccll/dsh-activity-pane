@@ -820,7 +820,7 @@ const anchorNodes = new Map([
 const anchorBaseOrder = ["a-u1", "a-b1", "a-t1", "a-b2", "a-t2", "a-b3"];
 const anchored = foldedConversationTimeline({ chat: { order: anchorBaseOrder, nodes: { get: (key) => anchorNodes.get(key) } } });
 // AC-12：u1 被挤出最近 4 行窗口后作为指令锚行前置到首行
-assert.equal(anchored.length, 5, "指令锚行不占窗口名额：窗口仍为最近 4 个显示行 + 首部锚行（R-01-012/AC-12、R-01-017/AC-06）");
+assert.equal(anchored.length, 4, "锚行出现时窗口收缩为最近 3 个显示行，含锚行合计不超过 4（R-01-012/AC-12、R-01-017/AC-06）");
 assert.equal(anchored[0].anchor, true, "窗口之前的用户输入行以 anchor 标记前置（R-01-012/AC-12）");
 assert.equal(anchored[0].kind, "user", "锚行保留用户行语义供渲染层复用图标/标签/下划线（R-01-012/AC-12）");
 assert.equal(anchored[0].label, "用户", "锚行 label 为中文「用户」（R-01-012/AC-05）");
@@ -830,9 +830,38 @@ assert.ok(anchored.slice(1).every((row) => row.anchor !== true), "仅首行带�
 const laterNodes = new Map(anchorNodes);
 laterNodes.set("a-t3", { key: "a-t3", kind: "tool-call", anchorSeq: 7, data: { root: { kind: "tool-result", callId: "a-t3", call: { name: "bash", argsRaw: '{"command":"ls"}' }, isError: false } } });
 const anchoredLater = foldedConversationTimeline({ chat: { order: [...anchorBaseOrder, "a-t3"], nodes: { get: (key) => laterNodes.get(key) } } });
-assert.equal(anchoredLater.length, 5, "新动作进入后窗口仍为 4 行 + 锚行（R-01-012/AC-14）");
+assert.equal(anchoredLater.length, 4, "新动作进入后含锚行总行数仍为 4（R-01-012/AC-14）");
 assert.equal(anchoredLater[0].anchor, true, "新动作进入时锚行仍在首行（R-01-012/AC-14）");
 assert.equal(anchoredLater[0].text, "修复登录页", "新动作进入时锚行内容不变（R-01-012/AC-14）");
+// AC-15：更近的用户输入行到达收缩窗口首行时直接顶替旧锚（总行数暂为 3），随后新行回填恢复 4
+const replaceNodes = new Map(anchorNodes);
+replaceNodes.set("a-u2", { key: "a-u2", kind: "user", anchorSeq: 7, data: { content: [{ type: "text", text: "追加指令" }] } });
+replaceNodes.set("a-b4", { key: "a-b4", kind: "assistant-step", anchorSeq: 8, data: { status: "settled", turn: 2, step: 0, blocks: [{ kind: "text", text: "正文四" }] } });
+replaceNodes.set("a-b5", { key: "a-b5", kind: "assistant-step", anchorSeq: 9, data: { status: "settled", turn: 2, step: 1, blocks: [{ kind: "text", text: "正文五" }] } });
+const replaced = foldedConversationTimeline({ chat: { order: [...anchorBaseOrder, "a-u2", "a-b4", "a-b5"], nodes: { get: (key) => replaceNodes.get(key) } } });
+assert.equal(replaced.length, 3, "新指令到达收缩窗口首行时顶替旧锚，总行数暂减为 3（R-01-012/AC-15）");
+assert.equal(replaced[0].kind, "user", "顶替后首行为更近的用户输入行（R-01-012/AC-15）");
+assert.equal(replaced[0].text, "追加指令", "顶替行内容为新指令（R-01-012/AC-15）");
+assert.ok(!replaced.some((row) => row.text === "修复登录页"), "旧指令锚行随顶替消失（R-01-012/AC-15）");
+replaceNodes.set("a-b6", { key: "a-b6", kind: "assistant-step", anchorSeq: 10, data: { status: "settled", turn: 2, step: 2, blocks: [{ kind: "text", text: "正文六" }] } });
+const refilled = foldedConversationTimeline({ chat: { order: [...anchorBaseOrder, "a-u2", "a-b4", "a-b5", "a-b6"], nodes: { get: (key) => replaceNodes.get(key) } } });
+assert.equal(refilled.length, 4, "随后新行回填恢复总行数 4（R-01-012/AC-15）");
+assert.equal(refilled[0].anchor, true, "回填后更近指令以锚行固定于首行（R-01-012/AC-15）");
+assert.equal(refilled[0].text, "追加指令", "回填后锚行内容为更近指令（R-01-012/AC-14、AC-15）");
+// limit 边界：max=1 时窗口收缩为空、仅锚行一行（顶替分支不可达，不越界）
+const tinyWindow = foldedConversationTimeline({ chat: { order: anchorBaseOrder, nodes: { get: (key) => anchorNodes.get(key) } } }, 1);
+assert.equal(tinyWindow.length, 1, "max=1 时总行数 1：锚行独占、窗口收缩为空（R-01-012/AC-12）");
+assert.equal(tinyWindow[0].anchor, true, "max=1 时锚行仍前置（R-01-012/AC-12）");
+assert.equal(tinyWindow[0].text, "修复登录页", "max=1 时锚行内容正确（R-01-012/AC-12）");
+// AC-15 负向：空文本用户行到达收缩窗口首行时不触发顶替（非空文本口径），旧锚保留
+const emptyHeadNodes = new Map(anchorNodes);
+emptyHeadNodes.set("a-e2", { key: "a-e2", kind: "user", anchorSeq: 7, data: { content: [{ type: "text", text: "  " }] } });
+emptyHeadNodes.set("a-b4", { key: "a-b4", kind: "assistant-step", anchorSeq: 8, data: { status: "settled", turn: 2, step: 0, blocks: [{ kind: "text", text: "正文四" }] } });
+emptyHeadNodes.set("a-b5", { key: "a-b5", kind: "assistant-step", anchorSeq: 9, data: { status: "settled", turn: 2, step: 1, blocks: [{ kind: "text", text: "正文五" }] } });
+const emptyHead = foldedConversationTimeline({ chat: { order: [...anchorBaseOrder, "a-e2", "a-b4", "a-b5"], nodes: { get: (key) => emptyHeadNodes.get(key) } } });
+assert.equal(emptyHead.length, 4, "空文本用户行不触发顶替：旧锚 + 收缩窗口合计 4 行（R-01-012/AC-15）");
+assert.equal(emptyHead[0].text, "修复登录页", "空文本窗口首行时旧锚保留（R-01-012/AC-15）");
+assert.equal(emptyHead[1].kind, "user", "空文本用户行按普通窗口行显示（R-01-012/AC-12）");
 // AC-13：指令仍在窗口内时不出现锚行
 const inWindow = foldedConversationTimeline({ chat: { order: ["a-u1", "a-b1"], nodes: { get: (key) => anchorNodes.get(key) } } });
 assert.equal(inWindow.length, 2, "指令在窗口内时时间线即普通显示行（R-01-012/AC-13）");

@@ -945,9 +945,9 @@ export function workspaceInfoForSession(sessionId, workspaceItems, byId = {}) {
 
 /**
  * 工作区徽标色相（R-01-003/AC-08、AC-09）：以工作区身份为唯一输入的纯函数——
- * djb2 哈希取十二槽 30° 量化色相，叠加哈希低位 ±10° 抖动（5° 步进），输出
- * [0,360) 整数。同一身份恒得同一色相，与工作区列表顺序、会话状态及持久化
- * 存储无关，页面刷新后不变；空身份返回 null。
+ * djb2 哈希取十槽 30° 量化色相（槽位 40°–310°，弧段避开红色警戒区），叠加
+ * 哈希低位 ±10° 抖动（5° 步进），输出 [30,320] 整数。同一身份恒得同一色相，
+ * 与工作区列表顺序、会话状态及持久化存储无关，页面刷新后不变；空身份返回 null。
  */
 export function workspaceHue(key) {
 	const text = cleanText(key);
@@ -955,9 +955,9 @@ export function workspaceHue(key) {
 	let hash = 5381;
 	for (let i = 0; i < text.length; i += 1)
 		hash = ((hash << 5) + hash + text.charCodeAt(i)) >>> 0;
-	const slot = hash % 12;
+	const slot = hash % 10;
 	const jitter = (((hash >>> 4) % 5) - 2) * 5;
-	return (slot * 30 + jitter + 360) % 360;
+	return 40 + slot * 30 + jitter;
 }
 
 /** 主会话按左侧工作区顺序排序的权重；不在任何 workspace 的排在最后保持 lineage 顺序。 */

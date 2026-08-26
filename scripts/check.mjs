@@ -377,15 +377,19 @@ assert.equal(workspaceHue("  "), null, "空白身份不派生色相（R-01-003/A
 assert.equal(workspaceHue("/srv/ops"), workspaceHue("/srv/ops"), "同一工作区身份恒得同一色相（R-01-003/AC-08）");
 assert.notEqual(workspaceHue("/srv/ops"), workspaceHue("/srv/mail"), "不同工作区身份色相可区分（R-01-003/AC-08、AC-09）");
 const hueOps = workspaceHue("/srv/ops");
-assert.ok(Number.isInteger(hueOps) && hueOps >= 0 && hueOps < 360, "色相为 [0,360) 整数（R-01-003/AC-08）");
+assert.ok(Number.isInteger(hueOps), "色相为整数（R-01-003/AC-08）");
 assert.equal(workspaceHue("Solo"), workspaceHue(String("So" + "lo")), "派生只依赖身份字符串、与运行状态无关（R-01-003/AC-08）");
 
-// ---- R-01-003/AC-09 十二槽量化 + ±10° 抖动 ----
+// ---- R-01-003/AC-09 十槽避红弧量化（槽位 40°–310°）+ ±10° 抖动 ----
 for (const hueKey of ["/srv/ops", "/srv/mail", "/srv/web", "Solo", "/opt/alpha", "/opt/beta"]) {
 	const hue = workspaceHue(hueKey);
 	assert.ok(
-		Math.abs(hue - Math.round(hue / 30) * 30) <= 10 && hue % 5 === 0,
-		`色相 ${hue} 落在 30° 量化槽位的 ±10°（5° 步进）抖动范围内（R-01-003/AC-09）`,
+		hue >= 30 && hue <= 320,
+		`色相 ${hue} 落在避红弧 [30,320] 内，不落入红色警戒区（R-01-003/AC-09）`,
+	);
+	assert.ok(
+		Math.abs((hue - 40) - Math.round((hue - 40) / 30) * 30) <= 10 && hue % 5 === 0,
+		`色相 ${hue} 落在 40°–310° 十槽（30°/槽）的 ±10°（5° 步进）抖动范围内（R-01-003/AC-09）`,
 	);
 }
 

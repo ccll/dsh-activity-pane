@@ -6,7 +6,7 @@ id: T-063
 
 # T-063 迁移动画双向化与受影响卡片 FLIP 过渡
 
-状态: active
+状态: completed
 关联: R-01-010 → 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -65,4 +65,15 @@ id: T-063
 
 ## 终态与证据
 
-（待填写）
+- 实现: `src/core.mjs::movedToActiveIds`（反向迁移检测纯函数）；`src/client.mjs` 迁移计划泛化 `{ id, from, to }` 双向源/目标卡池、`prevRenderedRecentIds` 记账、`snapshotShiftRects`/`runShiftAnimations`/`cancelShift` 受影响卡片 FLIP、`.dap-shift` 过渡样式；清理路径覆盖 prune/dispose/窗格重建/平移重启。
+- 测试: `node scripts/check.mjs` 全绿——`movedToActiveIds` 四用例（R-01-010/AC-07），bundle 契约锚点覆盖反向接线、段头量取、FLIP 反向位移与 reflow 重启、transitionend 冒泡过滤、清理接线（R-01-010/AC-07、AC-10）；`scripts/acceptance.mjs` 补双向迁移与受影响卡片人工验收步骤。
+- DESIGN 对照: DESIGN「响应保持与迁移动画」关键机制、「迁移动画并发语义」（含冒泡过滤与重建清理）、产品契约「迁移动画」、窗格渲染器「响应保持登记与迁移检测」与 DOMAIN 生命周期行均已同步双向 + 受影响卡 FLIP 语义，与实现一致；需求追溯索引 R-01-010 行落点不变。
+- review:
+  - 审核方: code-review skill 双轴独立子代理（Standards / Spec）
+  - 目的理解: 会话卡跨区迁移动画双向化（历史→活动补 ghost 动画）且迁移帧内所有位置受影响卡片（含历史区段头）FLIP 平滑过渡而非瞬间跳变；关联 PRD R-01-010/AC-07（改写双向）、AC-10（新增）与 DESIGN 迁移动画各段；预期 reduced-motion 直接落位、动画不阻塞渲染循环；验证方式为 check.mjs 纯函数 + bundle 契约锚点与 acceptance 人工步骤。
+  - 执行方式: `code-review` skill，评审基线 `git diff main...HEAD`（fixed point=main，实现提交 64f583a），Standards 轴对照 AGENTS.md/CONVENTIONS.md + Fowler 气味基线，Spec 轴对照本任务书与 PRD/DESIGN。
+  - 问题与修复: Standards 轴 0 项硬性违规（3 项弱建议属沿用仓库既有约定，不处理）；Spec 轴 2 项——①transitionend 冒泡（.dap-fill width 过渡）空耗 once 监听致平移提前收口、卡片瞬时跳到终点（违背 AC-10）→ 修复为 target+propertyName 双过滤、命中后手动移除监听（316aa5f）；②窗格重建分支未清理 shiftCleanups → 修复为重建时逐元素 cancelShift（316aa5f）。
+  - 复审结论: 同一 Spec 轴审核方复审 316aa5f，两项发现均已消除、未引入新问题，复审通过。
+- commit: 70eec76c72986a1323d8aba465a96f9a9547ce30
+- commit: b4213af8e419f7424a294d5d54dd4d2d255563dd
+（70eec76c72986a1323d8aba465a96f9a9547ce30 为实现与 map 演进，b4213af8e419f7424a294d5d54dd4d2d255563dd 为审核修复）

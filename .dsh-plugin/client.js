@@ -2098,21 +2098,34 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   background: #778394;
 }
 /* 动作时间线：纵向竖线串起圆点（对齐 answer-pet 的 .ap-session-trace，并修正几何细节——
-   轨道列从卡片内容左边起步，和标题圆点/状态行/进度条共用左边界；轨道下放到每个
-   节点项自身。圆点盒子与 7px 标题圆点完全同盒（7px、left:0、圆心 x=3.5）：分数位
-   原点下 Chrome 对 5px 与 7px 圆盒的吸附取整相位不同，渲染质心可差出 0.5 设备像素，
-   同盒才能保证跨 DPR 渲染对齐；视觉上的 5px 圆点烘进径向渐变（实心核 0–2.5px），
+   轨道列从卡片内容左边起步，和标题圆点/状态行/进度条共用左边界；竖线回收为容器级
+   整条绘制，节点项只留圆点。圆点盒子与 7px 标题圆点完全同盒（7px、left:0、圆心 x=3.5）：
+   分数位原点下 Chrome 对 5px 与 7px 圆盒的吸附取整相位不同，渲染质心可差出 0.5 设备
+   像素，同盒才能保证跨 DPR 渲染对齐；视觉上的 5px 圆点烘进径向渐变（实心核 0–2.5px），
    半透明外环由渐变内半（2.5–3.5px）与 1px box-shadow 外半（3.5–4.5px）拼成，
-   整体视觉几何不变。1px 竖线 left:3px（圆心 x=3.5），与圆点严格同圆心。每项一段
-   竖线从项顶（容器顶）贯穿，使线穿过首个节点圆点并向上引出（表示更早历史被省略）、
-   末项不画竖线（终点没入最新动作圆点内部不外露）；圆点高处盖线、位于内容区内不被
-   子代理卡 overflow 裁切。 */
+   整体视觉几何不变。1px 竖线 left:3px（圆心 x=3.5），与圆点严格同圆心。竖线为容器
+   ::before 单元素整条绘制（对齐层级连接线 .dap-conn-track 的零拼接原则，T-033）：
+   逐项分段曾在接缝处双线叠加、半透明相加成亮带（T-069）。线从容器顶贯穿（穿过首个
+   节点圆点并向上引出，表示更早历史被省略），bottom:7px 使终点没入最末圆点内部不外露；
+   单项（含加载行）不画线；圆点高处盖线、位于内容区内不被子代理卡 overflow 裁切。 */
 [data-dsh-activity-pane] .dap-trace {
+  position: relative;   /* 容器级整条竖线的定位基准 */
   display: flex; flex-direction: column; gap: 3px;
   margin: 1px 0 2px;
   min-width: 0;
 }
 [data-dsh-activity-pane] .dap-trace:empty { display: none; }
+/* 单条连续竖线（z-index 低于圆点）：行恒 14px + 间距 3px，最末圆心距容器底 7.5px，
+   bottom:7px 使终点没入最末圆点实心核内不外露；:only-child 时无可连接的下一颗圆点，
+   沿用原末项不画线语义。 */
+[data-dsh-activity-pane] .dap-trace::before,
+[data-dsh-activity-pane] .dap-subtrace::before {
+  content: ""; position: absolute; left: 3px; top: 0; bottom: 7px;
+  width: 1px; z-index: 0;
+  background: rgba(126, 147, 177, .3);
+}
+[data-dsh-activity-pane] .dap-trace:has(> :only-child)::before,
+[data-dsh-activity-pane] .dap-subtrace:has(> :only-child)::before { content: none; }
 /* 用户消息行标识（C-019、C-022）：行下 1px 中性灰实线下划线，宽度仅为图标+文字的内容
  *  宽度（fit-content 收缩、超长仍按可用宽截断，不贯穿整行），深浅主题各自适配，
  *  不占用状态色（蓝=运行中、绿=完成、红=错误、橙=中断）；浅色主题在覆盖块中改色。
@@ -2154,16 +2167,8 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 [data-dsh-activity-pane] .dap-trace-item[data-status="stopped"]::before {
   background: radial-gradient(circle, #f5a524 0 2.5px, rgba(119, 131, 148, .14) 2.5px 3.5px, transparent 3.5px);
 }
-/* 每项一段竖线（末项不画，z-index 低于圆点）：从项顶（容器顶）贯穿本项、经圆点下方
-   继续延伸到下一颗圆点顶缘 —— 线穿过首个节点圆点并向上引出（省略的历史）、终点没入
-   最新动作圆点内部不外露。依赖 14px 行高 + 3px 间距；bottom 多 1px 让终点藏进
-   下一颗圆点。 */
-[data-dsh-activity-pane] .dap-trace-item::after {
-  content: ""; position: absolute; left: 3px; top: 0; bottom: -8px;
-  width: 1px; z-index: 0;
-  background: rgba(126, 147, 177, .3);
-}
-[data-dsh-activity-pane] .dap-trace-item:last-child::after { content: none; }
+/* 竖线不在节点项内分段自绘（接缝双线叠加成亮带，T-069），统一由上方容器 ::before
+   整条绘制。 */
 [data-dsh-activity-pane] .dap-trace-icon {
    width: 14px; height: 14px;   /* 真实 14px 盒：content-box 下 1px padding 会把盒撑成 16px、
                                    抬高时间线行并打破圆点/竖线的 14px 行高几何 */
@@ -2202,9 +2207,11 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 [data-dsh-activity-pane] .dap-trace-item[data-status="error"] .dap-trace-separator {
    background: currentColor;
 }
-/* 子代理：同一节点项几何（轨道/圆点/竖线在项内自绘）；去掉容器级 overflow/padding/
-   border，避免把左侧圆点裁掉。文本截断由 .dap-trace-main 自处理。 */
+/* 子代理：同一节点项几何（轨道/圆点在项内自绘，竖线由容器 ::before 整条绘制）；
+   去掉容器级 overflow/padding/border，避免把左侧圆点裁掉。文本截断由 .dap-trace-main
+   自处理。 */
 [data-dsh-activity-pane] .dap-subtrace {
+  position: relative;   /* 容器级整条竖线的定位基准 */
   min-width: 0;
   font-size: 10px; line-height: 14px;
   color: color-mix(in srgb, currentColor 72%, transparent);
@@ -2400,7 +2407,8 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-separator,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-history-separator {
   background: var(--dsw-alias-label-caption, rgb(173, 178, 184));
 }
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item::after {
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace::before,
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-subtrace::before {
   background: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.12));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item[data-icon="user"] .dap-trace-main {

@@ -2377,11 +2377,17 @@ assert.ok(bundle.includes('.dap-trace-summary[data-follow="end"] { text-overflow
 // 轨道列从卡片内容左边起步：圆点盒子与 7px 标题圆点完全同盒（7px、left:0、圆心 x=3.5）——
 // 分数位原点下 Chrome 对不同尺寸圆盒的吸附相位不同，同盒才能保证跨 DPR 渲染对齐；
 // 5px 视觉圆点烘进径向渐变（核 0–2.5px），外环由渐变内半 + 1px box-shadow 外半拼成；
-// 竖线 left 3px（圆心 x=3.5）与圆点严格同圆心，竖线贯穿首项圆点并向上引出，
+// 竖线 left 3px（圆心 x=3.5）与圆点严格同圆心，竖线贯穿首项圆点并向上引出；
+// 竖线为容器 ::before 单元素整条绘制（零拼接，对齐层级连接线 .dap-conn-track 原则）——
+// 逐项分段曾在接缝处双线叠加、半透明相加成亮带（T-069）；
 // reduced-motion 只关闭宽度 transition，不关闭 answer-pet 同款状态脉冲/进度条纹。
-assert.ok(bundle.includes(".dap-trace-item:last-child::after"), "时间线末项不画竖线（终点没入最末圆点）");
+assert.ok(bundle.includes(".dap-trace::before,\n[data-dsh-activity-pane] .dap-subtrace::before"), "时间线竖线为容器级单元素整条绘制（零拼接接缝，T-069）");
+assert.ok(!bundle.includes(".dap-trace-item::after"), "时间线不再逐项分段自绘竖线（接缝叠加成亮带，T-069）");
+assert.ok(!bundle.includes("bottom: -8px"), "逐项竖线下探 8px 的拼接几何已移除（T-069）");
+assert.ok(bundle.includes(".dap-trace:has(> :only-child)::before"), "单项时间线（含加载行）不画竖线（沿用原末项不画线语义）");
 assert.ok(bundle.includes("margin: 1px 0 2px;"), "时间线整体与卡片内容左边界对齐");
-assert.ok(bundle.includes("left: 3px; top: 0; bottom: -8px"), "1px 竖线（整数位）与圆点严格同圆心 x=3.5（对齐标题圆点）");
+assert.ok(bundle.includes("left: 3px; top: 0; bottom: 7px"), "1px 竖线（整数位）与圆点严格同圆心 x=3.5，终点没入最末圆点（对齐标题圆点）");
+assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace::before"), "浅色主题时间线竖线色覆盖迁移到容器级规则（T-069）");
 assert.ok(bundle.includes("color: #c7ced9; font-size: 10px; line-height: 14px;"), "工作项文字恢复原有 10px/14px 尺度");
 assert.ok(bundle.includes("width: 14px; height: 14px;") && !bundle.includes("width: 14px; height: 14px; padding: 1px;"), "工作项图标容器为真实 14px 盒、无占位的 padding 环（R-01-012、C-019）");
 assert.ok(bundle.includes("width: fit-content;\n  max-width: 100%;") && bundle.includes("linear-gradient(rgba(139, 152, 165, .55), rgba(139, 152, 165, .55))") && !bundle.includes("repeating-linear-gradient(90deg, rgba(139, 152, 165, .55)") && !bundle.includes("rgba(88, 201, 143, .1)") && !bundle.includes("border-bottom: 1px dashed"), "时间线用户消息行下划线改实线且宽度仅为图标+文字内容宽（背景渐变绘制、不占 14px 行高），无整行虚线与浅绿平底残留（R-01-012/AC-05、C-022）");
@@ -2394,7 +2400,7 @@ assert.ok(bundle.includes("radial-gradient(circle, #778394 0 2.5px, rgba(119, 13
 assert.ok(bundle.includes("box-shadow: 0 0 0 1px rgba(119, 131, 148, .14);"), "圆点半透明外环外半由 1px box-shadow 拼成（整体 2px 外环不变）");
 assert.ok(bundle.includes(".dap-dot {\n  width: 7px; height: 7px;"), "标题圆点保持 7px（圆心 x=3.5，时间线圆点对齐基准）");
 assert.ok(bundle.includes("padding-left: 14px"), "时间线文字轨道保持 14px 内缩");
-assert.ok(bundle.includes(".dap-subtrace {\n  min-width: 0;"), "子代理容器不再 padding/border/overflow 包裹（不裁切圆点）");
+assert.ok(bundle.includes(".dap-subtrace {\n  position: relative;   /* 容器级整条竖线的定位基准 */\n  min-width: 0;"), "子代理容器不再 padding/border/overflow 包裹（不裁切圆点），并为容器级整条竖线提供定位基准（T-069）");
 assert.ok(bundle.includes(".dap-fill { transition: none; }"), "降低动效设置不关闭状态动画（对齐 answer-pet）");
 // R-01-009/AC-08：进度条仅存于运行卡骨架，条纹挂在 .dap-fill 基础规则上——
 // 会话运行全程（含工具/思考阶段与委托周期母会话）持续向右滚动，不再经流式阶段门控。

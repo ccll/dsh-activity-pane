@@ -6,7 +6,7 @@ id: T-076
 
 # T-076 等待双类脉冲行为一致化
 
-状态: active
+状态: completed
 关联: R-01-002/AC-06、AC-07、AC-08 → 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -46,4 +46,13 @@ C-028 曾把等待行动按阻塞性分两类呈现：阻塞等待脉冲催促�
 
 ## 终态与证据
 
-（完成时填写）
+- 实现: `src/core.mjs` 的 `countBadgeState` 移除 `blocked` 返回字段（blocked 入参仅供 aria 计数说明），`awaitPulsePeriod` 入参语义改为等待行动数；新增核心纯函数 `awaitBadgeFlash(waitClass)` 单点承载两类等待徽标闪烁判定；`src/client.mjs` 删除 `[data-wait="done"]` 描边光晕弱化与状态点静止规则、三处徽标脉冲选择器改由 `data-awaiting` 承载并移除 `data-blocked` 写入，渲染层以 `awaitPulsePeriod(waiting, total)` 计周期；`.dsh-plugin/client.js` 已重建（HMR 热装生效，无需重启 dsh web）。
+- 测试: `pnpm build:client && pnpm check` 通过（闪烁判定四值行为断言、仅完成提醒时徽标脉冲、周期按等待行动占比单调加快、data-blocked 归零等 R-01-002/AC-06/07/08 锚点）；`python3 tools/agentmap_lint.py --report` 通过（requirements=22、acceptance-criteria=127、test-anchored=127）；`git diff --check` 通过；`node scripts/acceptance.mjs` 可生成完整 92 项验收清单。GUI 目验项（完成提醒卡脉冲观感与徽标频率）无 CDP 通道可由东家现场验收。
+- DESIGN 对照: `DESIGN.md` 徽标计数与脉冲紧迫度、等待双类呈现两节与实现一致——脉冲门控为任一等待行动、周期按 waiting/total 映射、完成提醒卡与阻塞等待卡脉冲/描边/光晕一致，`data-wait` 仅承载图标/文案/确认按钮差异；与 PRD R-01-002/AC-06、AC-07、AC-08 及 DOMAIN 不变量双向一致。
+- commit: ff30037d11eba69f4f2e1425ea291eb4ed99c20b
+- review:
+  - 审核方: Standards reviewer `5e832412-72f1-4673-86f9-03848510c11d`；Spec reviewer `8c26b526-79ad-46d5-86c9-3d9a2adc7ca3`
+  - 目的理解: 按 C-037 翻案 C-028，使完成提醒与阻塞等待的注意力信号完全一致（徽标/状态点同频同相脉冲、描边光晕同强度、任一等待行动触发徽标脉冲且频率按 waiting/total 映射），保留图标/文案/确认按钮与完成确认语义差异。
+  - 执行方式: `code-review` skill 双轴并行审核，评审基线 `HEAD~1...HEAD`（初始 57c0902，修复后 amend 为 ff30037d11eba69f4f2e1425ea291eb4ed99c20b 并复审）。
+  - 问题与修复: Spec 初审 1 项（周期测试注释/断言文案残留「阻塞等待占比」旧契约表述）→ 改写为「等待行动占比」canonical term，同一 reviewer 复审关闭；Standards 初审 3 项——①AC-08 仅有源码形状断言缺可执行行为证据 → 闪烁判定收敛为核心纯函数 `awaitBadgeFlash` 并补四值行为断言，②T-076 差距评估对旧门控位置陈述失实 → 修正为 client 侧 badge.blocked/data-blocked 门控的事实表述，③周期测试术语未同步 → 与 Spec finding 同一修复；同一 reviewer 复审确认三项全部关闭。
+  - 复审结论: 两轴最终均通过；无未解决 hard violation、smell、Spec 缺失或 scope creep。

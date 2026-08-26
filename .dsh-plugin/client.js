@@ -465,14 +465,15 @@ function mergeLiveItems(items, snapshot, max, cwd = "") {
 			// 镜像原生 ReasoningRow：流式思考显示尾部最新行，避免与已定案首行摘要漂移。
 			summary: partialReasoning ? latestLineOf(partialReasoning) : partialText,
 			status: "running",
+			live: true,
 		});
 	}
 	for (const call of Array.isArray(snapshot?.runningCalls) ? snapshot.runningCalls : []) {
 		const item = timelineToolItem(call, null, cwd);
 		if (!item) continue;
 		const existingIndex = items.findIndex((candidate) => candidate.id === item.id);
-		if (existingIndex >= 0) liveItems.push({ ...items.splice(existingIndex, 1)[0], ...item });
-		else liveItems.push(item);
+		if (existingIndex >= 0) liveItems.push({ ...items.splice(existingIndex, 1)[0], ...item, live: true });
+		else liveItems.push({ ...item, live: true });
 	}
 	return liveItems.length > 0
 		? items.slice(-Math.max(0, max - liveItems.length)).concat(liveItems).slice(-max)
@@ -528,7 +529,7 @@ function isFoldBoundary(item) {
 /** 分组成员归一：tool/context 直接映射，assistant 取其 reasoning（detail）为思考成员。 */
 function foldMemberOf(item) {
 	if (item.kind === "context") {
-		return { cat: "context", label: "上下文注入", summary: "", text: "", icon: "context", status: item.status };
+		return { cat: "context", label: "上下文注入", summary: "", text: "", icon: "context", status: item.status, live: item.live === true };
 	}
 	if (item.kind === "tool") {
 		return {
@@ -540,6 +541,7 @@ function foldMemberOf(item) {
 			// 提问正文穿透折叠层（R-01-002/AC-09）：供待回复卡备注行从组行取回问题首行。
 			question: typeof item.question === "string" ? item.question : null,
 			status: item.status,
+			live: item.live === true,
 		};
 	}
 	return {
@@ -549,6 +551,7 @@ function foldMemberOf(item) {
 		text: typeof item.detail === "string" ? item.detail : "",
 		icon: "assistant",
 		status: item.status,
+		live: item.live === true,
 	};
 }
 
@@ -613,6 +616,7 @@ icon = "bash";
 		// 组内末条提问正文上浮组行（R-01-002/AC-09）；无提问成员时为 null。
 		question: toolMembers.map((m) => m.question).filter(Boolean).pop() ?? null,
 		status,
+		live: members.some((member) => member.live === true),
 		icon,
 	};
 }
@@ -680,37 +684,44 @@ function isAnchorableUserRow(row) {
 	return row?.kind === "user" && typeof row.text === "string" && row.text.trim() !== "";
 }
 
-/** 在 rows 的 [0, end) 区间内反向找最近一条可锚用户行。 */
-function anchorableRowBefore(rows, end) {
-	for (let i = end - 1; i >= 0; i -= 1) {
-		if (isAnchorableUserRow(rows[i])) return rows[i];
+/** 当前活动行：优先取最新真实 live running，缺失 live 身份时回退最新 running。 */
+function currentActivityIndex(rows) {
+	let runningIndex = -1;
+	for (let i = rows.length - 1; i >= 0; i -= 1) {
+		const row = rows[i];
+		if (row?.status !== "running" || row.kind === "user") continue;
+		if (runningIndex < 0) runningIndex = i;
+		if (row.live === true) return i;
 	}
-	return null;
+	return runningIndex;
 }
 
-/** 指令锚行窗口选择（R-01-012/AC-12～AC-15、C-023）：锚行计入总预算——锚行出现时窗口
- *  收缩为最近 max-1 个显示行，总行数（含锚行）不超过 max；该消息仍在窗口内时不标记
- *  （AC-13）；更近的用户输入行到达收缩窗口首行时直接顶替旧锚、不再叠加（总行数暂减一，
- *  AC-15）。输入为折叠后的完整显示行序列，快照路径与冷 history 路径共用同一选择语义。 */
-function selectTimelineRows(full, max) {
-	// 预扫无锚窗口（last-max）起点之前：不存在非空文本用户行则无锚，原样返回至多 max 行。
-	if (anchorableRowBefore(full, Math.max(0, full.length - max)) === null) {
-		return full.slice(-max);
-	}
-	const sliced = max > 1 ? full.slice(-(max - 1)) : [];
-	// AC-15 顶替：收缩窗口首行本身是非空文本用户行 → 直接顶替旧锚、不叠加（总行数暂为 max-1）。
-	if (isAnchorableUserRow(sliced[0])) {
-		return sliced;
-	}
-	const anchorRow = anchorableRowBefore(full, full.length - sliced.length);
-	return anchorRow === null ? sliced : [{ ...anchorRow, anchor: true }].concat(sliced);
+/** 指令锚行与工作行统一选择（R-01-009/AC-11、R-01-012/AC-12～AC-15、C-035）：
+ *  锚行占一格；真实当前活动保留身份并置于末行；剩余名额由最近历史工作行填充。 */
+function selectTimelineRows(full, max, fallbackAnchor = null) {
+	const list = Array.isArray(full) ? full : [];
+	if (max <= 0) return [];
+	const userIndex = list.findLastIndex(isAnchorableUserRow);
+	const fallback = userIndex < 0 && isAnchorableUserRow(fallbackAnchor) ? fallbackAnchor : null;
+	const anchor = userIndex >= 0 ? list[userIndex] : fallback;
+	const anchorPinned = fallback !== null || (userIndex >= 0 && list.length - userIndex - 1 >= max - 1);
+	const anchorRow = anchor === null ? null : anchorPinned ? { ...anchor, anchor: true } : anchor;
+	const work = list.slice(userIndex + 1);
+	const workBudget = Math.max(0, max - (anchorRow === null ? 0 : 1));
+	if (workBudget === 0) return anchorRow === null ? [] : [anchorRow];
+	const activityIndex = currentActivityIndex(work);
+	const activity = activityIndex >= 0 ? work[activityIndex] : null;
+	const history = activityIndex < 0 ? work : work.filter((_, index) => index !== activityIndex);
+	const rows = history.slice(-Math.max(0, workBudget - (activity === null ? 0 : 1)));
+	if (activity !== null) rows.push(activity);
+	return anchorRow === null ? rows : [anchorRow].concat(rows);
 }
 
 /** 折叠分组时间线（R-01-017）：渲染层时间线的唯一来源——无条件折叠分组，不做任何探测切换。
  *  指数扩窗收集尾部原始项（分组数不足 limit 时 ×3 → ×8 → 全序）+ live 合并 + 分组 +
  *  尾部提升，长会话典型情况不触碰全序扫描。
  *  idle：渲染层判定的非执行呈现（等待响应/暂停，快照为冻结值、pending 不可得）——为 true 时残留 running 全部落定。 */
-function foldedConversationTimeline(snapshot, limit = 4, cwd = "", descendantActive = false, idle = false) {
+function foldedConversationTimeline(snapshot, limit = 4, cwd = "", descendantActive = false, idle = false, fallbackAnchor = null) {
 	const max = Math.max(0, limit);
 	if (max === 0) return [];
 	// 非执行呈现（渲染层 idle 判定或快照 pending）且非委托周期：落定在分组之前——
@@ -724,7 +735,7 @@ function foldedConversationTimeline(snapshot, limit = 4, cwd = "", descendantAct
 			// 指令锚行窗口选择与冷 history 路径共用（selectTimelineRows，R-01-012/AC-12～AC-15）；
 			// settle/尾部提升出口归一为 finish。
 			const finish = (rows) => (settle ? rows : promoteRunningTail(rows, snapshot, descendantActive));
-			return finish(selectTimelineRows(full, max));
+			return finish(selectTimelineRows(full, max, fallbackAnchor));
 		}
 	}
 	return [];
@@ -829,17 +840,6 @@ function historyInstructionAnchor(history) {
 	return null;
 }
 
-/** 快照窗口外锚行兜底（R-01-012/AC-12）：显示行序列不含任何可锚用户行（开放窗口够不到
- *  最近用户消息）时，把 history 提取的锚行前置并计入总预算（窗口收缩为最近 max-1 行）；
- *  序列已含用户行（AC-13 消息仍在窗口内）或无可用锚行时原样返回。 */
-function withInstructionAnchor(rows, anchorRow, limit = 4) {
-	const list = Array.isArray(rows) ? rows : [];
-	if (!isRecord(anchorRow) || list.some(isAnchorableUserRow)) return list;
-	const max = Math.max(0, limit);
-	if (max === 0) return [];
-	const sliced = max > 1 ? list.slice(-(max - 1)) : [];
-	return [{ ...anchorRow, anchor: true }].concat(sliced);
-}
 
 /** 开放回合起点缺口判定（R-01-009/AC-06 冷窗口兜底触发口径）：快照就绪、宿主判定运行中、
  *  轮内订阅已建立，但快照 turnTimings 无开放回合起点（liveStartTime 为 null）——超长回合
@@ -2411,24 +2411,25 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 [data-dsh-activity-pane] .dap-trace-item::before {
   content: ""; position: absolute; left: 0; top: 3px;
-  width: 7px; height: 7px; border-radius: 50%;
+  width: 7px; height: 7px;
+  box-sizing: border-box; border: 1px solid rgba(119, 131, 148, .14); border-radius: 50%;
   z-index: 1;           /* 圆点盖在竖线上：竖线从圆点中穿过被其遮盖 */
-  background: radial-gradient(circle, #778394 0 2.5px, rgba(119, 131, 148, .14) 2.5px 3.5px, transparent 3.5px);
+  background: #778394; background-clip: padding-box;
   box-shadow: 0 0 0 1px rgba(119, 131, 148, .14);
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="running"]::before {
-  background: radial-gradient(circle, #65a0ff 0 2.5px, rgba(101,160,255,.16) 2.5px 3.5px, transparent 3.5px);
+  background: #65a0ff; border-color: rgba(101,160,255,.16);
   box-shadow: 0 0 0 1px rgba(101,160,255,.16), 0 0 6px rgba(101,160,255,.65);
   animation: dap-pulse 1.15s ease-in-out infinite;
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="done"]::before {
-  background: radial-gradient(circle, #58c98f 0 2.5px, rgba(119, 131, 148, .14) 2.5px 3.5px, transparent 3.5px);
+  background: #58c98f;
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="error"]::before {
-  background: radial-gradient(circle, #f06a72 0 2.5px, rgba(119, 131, 148, .14) 2.5px 3.5px, transparent 3.5px);
+  background: #f06a72;
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="stopped"]::before {
-  background: radial-gradient(circle, #f5a524 0 2.5px, rgba(119, 131, 148, .14) 2.5px 3.5px, transparent 3.5px);
+  background: #f5a524;
 }
 /* 竖线不在节点项内分段自绘（接缝双线叠加成亮带，T-069），统一由上方容器 ::before
    整条绘制。 */
@@ -4411,6 +4412,10 @@ function apply(ctx) {
 			const live = liveRecord?.liveness ?? null;
 			const detail = sessionDetailsById.get(entry.id);
 			const detailSnapshot = liveRecord?.snapshot ?? detail?.snapshot ?? null;
+			if (detail && detail.memoHistoryAnchorOf !== (detail.history ?? null)) {
+				detail.memoHistoryAnchorOf = detail.history ?? null;
+				detail.memoHistoryAnchor = historyInstructionAnchor(detail.history);
+			}
 			if (detail && detailSnapshot) {
 				// 按快照引用 memo：引用不变（时钟 tick、无关推送）时命中缓存，
 				// 长会话不再每次渲染全序扫描。
@@ -4418,12 +4423,13 @@ function apply(ctx) {
 				// 等待/暂停呈现（pendingText 存在）且自身快照为冻结值时，残留 running 行全部落定；
 				// 存在活动后代时保留尾部提升的「agent 工作中」呈现（R-01-009/AC-10 委托周期语义）。
 				const entryIdle = (entry.pendingText ?? null) !== null && entry.descendantActive !== true;
-				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineDescendantActive !== (entry.descendantActive === true) || detail.memoTimelineIdle !== entryIdle) {
+				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineDescendantActive !== (entry.descendantActive === true) || detail.memoTimelineIdle !== entryIdle || detail.memoTimelineAnchor !== (detail.memoHistoryAnchor ?? null)) {
 					detail.memoTimelineOf = detailSnapshot;
 					detail.memoTimelineCwd = entryCwd;
 					detail.memoTimelineDescendantActive = entry.descendantActive === true;
 					detail.memoTimelineIdle = entryIdle;
-					detail.memoTimeline = foldedConversationTimeline(detailSnapshot, 4, entryCwd, entry.descendantActive === true, entryIdle);
+					detail.memoTimelineAnchor = detail.memoHistoryAnchor ?? null;
+					detail.memoTimeline = foldedConversationTimeline(detailSnapshot, 4, entryCwd, entry.descendantActive === true, entryIdle, detail.memoTimelineAnchor);
 					// 冷窗口兜底触发记账（R-01-012/AC-12）：窗口内有可锚用户行时锚行机制保证其
 					// 出现在输出（窗口行或锚行），反之需 history 补读。
 					detail.snapshotHasAnchorableUserRow = detail.memoTimeline.some(isAnchorableUserRow);
@@ -4433,12 +4439,7 @@ function apply(ctx) {
 				entry.timeline = detail?.timeline ?? entry.timeline ?? [];
 			}
 			if (detail) {
-				// history 兜底派生（按引用 memo）：指令锚行与开放回合起点
-				// （R-01-012/AC-12、R-01-009/AC-06 冷窗口兜底）。
-				if (detail.memoHistoryAnchorOf !== (detail.history ?? null)) {
-					detail.memoHistoryAnchorOf = detail.history ?? null;
-					detail.memoHistoryAnchor = historyInstructionAnchor(detail.history);
-				}
+				// history 开放回合起点兜底（R-01-009/AC-06）。
 				if (detail.memoOpenTurnStartHistoryOf !== (detail.history ?? null) || detail.memoOpenTurnStartSnapOf !== detailSnapshot) {
 					detail.memoOpenTurnStartHistoryOf = detail.history ?? null;
 					detail.memoOpenTurnStartSnapOf = detailSnapshot;
@@ -4453,7 +4454,6 @@ function apply(ctx) {
 					);
 					detail.memoOpenTurnStart = openTurnStartFromEvents(detail.history, hint);
 				}
-				entry.timeline = withInstructionAnchor(entry.timeline, detail.memoHistoryAnchor ?? null, 4);
 			}
 			if (detail?.model) {
 				entry.model = detail.model.model;

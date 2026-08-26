@@ -543,24 +543,25 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 [data-dsh-activity-pane] .dap-trace-item::before {
   content: ""; position: absolute; left: 0; top: 3px;
-  width: 7px; height: 7px; border-radius: 50%;
+  width: 7px; height: 7px;
+  box-sizing: border-box; border: 1px solid rgba(119, 131, 148, .14); border-radius: 50%;
   z-index: 1;           /* 圆点盖在竖线上：竖线从圆点中穿过被其遮盖 */
-  background: radial-gradient(circle, #778394 0 2.5px, rgba(119, 131, 148, .14) 2.5px 3.5px, transparent 3.5px);
+  background: #778394; background-clip: padding-box;
   box-shadow: 0 0 0 1px rgba(119, 131, 148, .14);
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="running"]::before {
-  background: radial-gradient(circle, #65a0ff 0 2.5px, rgba(101,160,255,.16) 2.5px 3.5px, transparent 3.5px);
+  background: #65a0ff; border-color: rgba(101,160,255,.16);
   box-shadow: 0 0 0 1px rgba(101,160,255,.16), 0 0 6px rgba(101,160,255,.65);
   animation: dap-pulse 1.15s ease-in-out infinite;
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="done"]::before {
-  background: radial-gradient(circle, #58c98f 0 2.5px, rgba(119, 131, 148, .14) 2.5px 3.5px, transparent 3.5px);
+  background: #58c98f;
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="error"]::before {
-  background: radial-gradient(circle, #f06a72 0 2.5px, rgba(119, 131, 148, .14) 2.5px 3.5px, transparent 3.5px);
+  background: #f06a72;
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="stopped"]::before {
-  background: radial-gradient(circle, #f5a524 0 2.5px, rgba(119, 131, 148, .14) 2.5px 3.5px, transparent 3.5px);
+  background: #f5a524;
 }
 /* 竖线不在节点项内分段自绘（接缝双线叠加成亮带，T-069），统一由上方容器 ::before
    整条绘制。 */
@@ -2543,6 +2544,10 @@ function apply(ctx) {
 			const live = liveRecord?.liveness ?? null;
 			const detail = sessionDetailsById.get(entry.id);
 			const detailSnapshot = liveRecord?.snapshot ?? detail?.snapshot ?? null;
+			if (detail && detail.memoHistoryAnchorOf !== (detail.history ?? null)) {
+				detail.memoHistoryAnchorOf = detail.history ?? null;
+				detail.memoHistoryAnchor = historyInstructionAnchor(detail.history);
+			}
 			if (detail && detailSnapshot) {
 				// 按快照引用 memo：引用不变（时钟 tick、无关推送）时命中缓存，
 				// 长会话不再每次渲染全序扫描。
@@ -2550,12 +2555,13 @@ function apply(ctx) {
 				// 等待/暂停呈现（pendingText 存在）且自身快照为冻结值时，残留 running 行全部落定；
 				// 存在活动后代时保留尾部提升的「agent 工作中」呈现（R-01-009/AC-10 委托周期语义）。
 				const entryIdle = (entry.pendingText ?? null) !== null && entry.descendantActive !== true;
-				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineDescendantActive !== (entry.descendantActive === true) || detail.memoTimelineIdle !== entryIdle) {
+				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineDescendantActive !== (entry.descendantActive === true) || detail.memoTimelineIdle !== entryIdle || detail.memoTimelineAnchor !== (detail.memoHistoryAnchor ?? null)) {
 					detail.memoTimelineOf = detailSnapshot;
 					detail.memoTimelineCwd = entryCwd;
 					detail.memoTimelineDescendantActive = entry.descendantActive === true;
 					detail.memoTimelineIdle = entryIdle;
-					detail.memoTimeline = foldedConversationTimeline(detailSnapshot, 4, entryCwd, entry.descendantActive === true, entryIdle);
+					detail.memoTimelineAnchor = detail.memoHistoryAnchor ?? null;
+					detail.memoTimeline = foldedConversationTimeline(detailSnapshot, 4, entryCwd, entry.descendantActive === true, entryIdle, detail.memoTimelineAnchor);
 					// 冷窗口兜底触发记账（R-01-012/AC-12）：窗口内有可锚用户行时锚行机制保证其
 					// 出现在输出（窗口行或锚行），反之需 history 补读。
 					detail.snapshotHasAnchorableUserRow = detail.memoTimeline.some(isAnchorableUserRow);
@@ -2565,12 +2571,7 @@ function apply(ctx) {
 				entry.timeline = detail?.timeline ?? entry.timeline ?? [];
 			}
 			if (detail) {
-				// history 兜底派生（按引用 memo）：指令锚行与开放回合起点
-				// （R-01-012/AC-12、R-01-009/AC-06 冷窗口兜底）。
-				if (detail.memoHistoryAnchorOf !== (detail.history ?? null)) {
-					detail.memoHistoryAnchorOf = detail.history ?? null;
-					detail.memoHistoryAnchor = historyInstructionAnchor(detail.history);
-				}
+				// history 开放回合起点兜底（R-01-009/AC-06）。
 				if (detail.memoOpenTurnStartHistoryOf !== (detail.history ?? null) || detail.memoOpenTurnStartSnapOf !== detailSnapshot) {
 					detail.memoOpenTurnStartHistoryOf = detail.history ?? null;
 					detail.memoOpenTurnStartSnapOf = detailSnapshot;
@@ -2585,7 +2586,6 @@ function apply(ctx) {
 					);
 					detail.memoOpenTurnStart = openTurnStartFromEvents(detail.history, hint);
 				}
-				entry.timeline = withInstructionAnchor(entry.timeline, detail.memoHistoryAnchor ?? null, 4);
 			}
 			if (detail?.model) {
 				entry.model = detail.model.model;

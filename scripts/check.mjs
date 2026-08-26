@@ -32,7 +32,6 @@ import {
 	foldedConversationTimeline,
 	foldedHistoryTimeline,
 	historyInstructionAnchor,
-	withInstructionAnchor,
 	openTurnStartFromEvents,
 	openTurnStartMissing,
 	escapeCssString,
@@ -1160,36 +1159,66 @@ assert.equal(historyInstructionAnchor([hUser(1, "  "), hAgent(2, "回复")]), nu
 assert.equal(historyInstructionAnchor([{ event: { type: "user/message", seq: 1, data: { source: { kind: "recall" }, content: [{ type: "text", text: "召回" }] } } }]), null, "非真实用户来源不作锚");
 assert.equal(historyInstructionAnchor([hAgent(1, "仅回复")]), null, "无用户消息返回 null");
 assert.equal(historyInstructionAnchor(null), null, "非数组输入归一 null");
-// withInstructionAnchor：快照窗口无任何用户行时以 history 锚行兜底前置（R-01-012/AC-12）
+// history fallback anchor 作为 foldedConversationTimeline 的显式输入（R-01-012/AC-12、C-035）。
 const anchorRow = historyInstructionAnchor([hUser(9, "兜底指令")]);
-const noUserRows = [
-	{ id: "f1", kind: "tool", fold: true, label: "运行了命令", text: "", summary: "make", status: "done" },
-	{ id: "b1", kind: "assistant", label: "助手", text: "正文一", status: "done" },
-];
-const withAnchor = withInstructionAnchor(noUserRows, anchorRow, 4);
-assert.equal(withAnchor.length, 3, "窗口无用户行时锚行前置、总行数 +1（预算内）");
-assert.equal(withAnchor[0].anchor, true, "兜底锚行带锚标记");
-assert.equal(withAnchor[0].text, "兜底指令", "兜底锚行内容为 history 最近用户消息");
-const fullNoUserRows = [
-	{ id: "f1", kind: "tool", fold: true, label: "运行了命令", text: "", summary: "a", status: "done" },
-	{ id: "f2", kind: "tool", fold: true, label: "运行了命令", text: "", summary: "b", status: "done" },
-	{ id: "f3", kind: "tool", fold: true, label: "运行了命令", text: "", summary: "c", status: "done" },
-	{ id: "f4", kind: "tool", fold: true, label: "运行了命令", text: "", summary: "d", status: "done" },
-];
-const shrunk = withInstructionAnchor(fullNoUserRows, anchorRow, 4);
-assert.equal(shrunk.length, 4, "锚行计入总预算：窗口收缩为最近 3 行（R-01-012/AC-12）");
-assert.equal(shrunk[1].id, "f2", "收缩窗口丢弃最旧行保留较新行");
-const hasUserRows = [
-	{ id: "u1", kind: "user", label: "用户", text: "窗口内指令", status: "done" },
-	{ id: "b1", kind: "assistant", label: "助手", text: "正文", status: "done" },
-];
-assert.equal(withInstructionAnchor(hasUserRows, anchorRow, 4), hasUserRows, "窗口已有用户行时不叠加兜底锚行（R-01-012/AC-13）");
-const newerUserRows = [
-	{ id: "u2", kind: "user", label: "用户", text: "新指令", status: "done" },
-	{ id: "b2", kind: "assistant", label: "助手", text: "新正文", status: "done" },
-];
-assert.equal(withInstructionAnchor(newerUserRows, anchorRow, 4), newerUserRows, "新指令进窗后兜底旧锚让位不叠加（R-01-012/AC-15）");
-assert.equal(withInstructionAnchor(noUserRows, null, 4), noUserRows, "无可用锚行时原样返回");
+
+// R-01-009/AC-11：history 锚行参与核心单次选择，真实 running 行即使位于四工作行首位也必须保留为末行。
+const fallbackActivityNodes = new Map([
+	["live-first", { key: "live-first", kind: "assistant-step", data: { status: "running", turn: 2, step: 0, blocks: [{ kind: "reasoning", text: "真正当前正在执行的内容" }] } }],
+	["done-1", { key: "done-1", kind: "assistant-step", data: { status: "settled", turn: 2, step: 1, blocks: [{ kind: "text", text: "较新完成消息一" }] } }],
+	["done-2", { key: "done-2", kind: "assistant-step", data: { status: "settled", turn: 2, step: 2, blocks: [{ kind: "text", text: "较新完成消息二" }] } }],
+	["done-3", { key: "done-3", kind: "assistant-step", data: { status: "settled", turn: 2, step: 3, blocks: [{ kind: "text", text: "较新完成消息三" }] } }],
+]);
+const fallbackActivity = foldedConversationTimeline(
+	{ chat: { order: [...fallbackActivityNodes.keys()], nodes: { get: (key) => fallbackActivityNodes.get(key) } }, running: true, pending: [] },
+	4,
+	"",
+	false,
+	false,
+	anchorRow,
+);
+assert.deepEqual(fallbackActivity.map((row) => row.id), [anchorRow.id, "done-2", "done-3", "fold:work:live-first"], "history 锚行 + 最近两条历史工作行 + 真实活动末行，总计 4 行（R-01-009/AC-11、R-01-012/AC-12）");
+assert.equal(fallbackActivity.at(-1)?.summary, "真正当前正在执行的内容", "末行保留真实活动文字，不由旧尾内容冒充（R-01-009/AC-11）");
+assert.equal(fallbackActivity.at(-1)?.status, "running", "真实当前活动末行保持 running 蓝闪状态（R-01-009/AC-11）");
+// 多个真实 live 显示行共存时，最新 live 分组占据末行，较早 live 行只参与剩余历史名额。
+const multiLiveNodes = new Map([
+	["multi-done-1", { key: "multi-done-1", kind: "assistant-step", data: { status: "settled", turn: 4, step: 1, blocks: [{ kind: "text", text: "多 live 前完成一" }] } }],
+	["multi-done-2", { key: "multi-done-2", kind: "assistant-step", data: { status: "settled", turn: 4, step: 2, blocks: [{ kind: "text", text: "多 live 前完成二" }] } }],
+]);
+const multiLive = foldedConversationTimeline(
+	{
+		chat: { order: [...multiLiveNodes.keys()], nodes: { get: (key) => multiLiveNodes.get(key) } },
+		partial: { turn: 4, step: 3, blocks: [{ kind: "text", text: "正在流式回复" }] },
+		runningCalls: [{ callId: "live-call", name: "bash", argsRaw: '{"command":"pnpm check"}', turn: 4, step: 4 }],
+		running: true,
+		pending: [],
+	},
+	4,
+	"",
+	false,
+	false,
+	anchorRow,
+);
+assert.equal(multiLive.length, 4, "多个 live 行与锚行仍遵守四行总预算（R-01-009/AC-11、R-01-012/AC-12）");
+assert.equal(multiLive.filter((row) => row.live === true && row.status === "running").length, 2, "partial 与 running call 的真实 live 身份穿透折叠层（R-01-009/AC-11）");
+assert.equal(multiLive.at(-1)?.id, "fold:work:live-call", "多个 live 行取最新 live 分组置于末行（R-01-009/AC-11）");
+assert.equal(multiLive.at(-1)?.summary, "pnpm check", "最新 live 分组末行保留当前调用内容（R-01-009/AC-11）");
+// 无真实 running 时仍保留 AC-10 尾部持续标志，但 history 锚行与工作预算由同一选择完成。
+const fallbackPromotedNodes = new Map(Array.from({ length: 4 }, (_, index) => {
+	const n = index + 1;
+	return [`fallback-done-${n}`, { key: `fallback-done-${n}`, kind: "assistant-step", data: { status: "settled", turn: 3, step: n, blocks: [{ kind: "text", text: `完成消息${n}` }] } }];
+}));
+const fallbackPromoted = foldedConversationTimeline(
+	{ chat: { order: [...fallbackPromotedNodes.keys()], nodes: { get: (key) => fallbackPromotedNodes.get(key) } }, running: true, pending: [] },
+	4,
+	"",
+	false,
+	false,
+	anchorRow,
+);
+assert.deepEqual(fallbackPromoted.map((row) => row.id), [anchorRow.id, "fallback-done-2", "fallback-done-3", "fallback-done-4"], "history 锚行占一格，最近三工作行回填（R-01-012/AC-12）");
+assert.equal(fallbackPromoted.at(-1)?.status, "running", "无真实活动行时仅提升所选末行作为持续标志（R-01-009/AC-10）");
+
 
 // ---- R-01-009/AC-04 工具动作摘要镜像主会话窗口 deriveSummary 语义（可含原始命令）----
 assert.equal(
@@ -2293,8 +2322,8 @@ assert.ok(
 	"开放回合起点 history 兜底进入 bundle（R-01-009/AC-06 冷窗口兜底）",
 );
 assert.ok(
-	bundle.includes("historyInstructionAnchor") && bundle.includes("withInstructionAnchor") && bundle.includes("foldedHistoryTimeline"),
-	"指令锚行 history 兜底与冷路径锚行选择进入 bundle（R-01-012/AC-12）",
+	bundle.includes("historyInstructionAnchor") && bundle.includes("memoTimelineAnchor") && bundle.includes("foldedHistoryTimeline") && !bundle.includes("withInstructionAnchor"),
+	"history 锚行作为核心时间线输入且 client 不再二次裁剪（R-01-009/AC-11、R-01-012/AC-12、C-035）",
 );
 assert.ok(!bundle.includes("renderSlot") && !bundle.includes("dap-slot"), "指令槽位渲染无残留（C-019）");
 assert.ok(!bundle.includes("rememberLastUser") && !bundle.includes("lastUserFromEvents") && !bundle.includes("foldedTimelineWithSlot") && !bundle.includes("foldWorkGroupsWithSlot"), "槽位派生家族无残留（C-019）");
@@ -2686,7 +2715,7 @@ assert.ok(bundle.includes('.dap-trace-summary[data-follow="end"] { text-overflow
 // ---- 回归锚点：时间线几何/状态动画（R-01-009/AC-08、AC-09 呈现细节）----
 // 轨道列从卡片内容左边起步：圆点盒子与 7px 标题圆点完全同盒（7px、left:0、圆心 x=3.5）——
 // 分数位原点下 Chrome 对不同尺寸圆盒的吸附相位不同，同盒才能保证跨 DPR 渲染对齐；
-// 5px 视觉圆点烘进径向渐变（核 0–2.5px），外环由渐变内半 + 1px box-shadow 外半拼成；
+// 5px 视觉圆点由 7px border-box 的实体背景 + 1px border 原生圆角裁剪，避免硬停色 gradient 八边形；
 // 竖线 left 3px（圆心 x=3.5）与圆点严格同圆心，竖线贯穿首项圆点并向上引出；
 // 竖线为容器 ::before 单元素整条绘制（零拼接，对齐层级连接线 .dap-conn-track 原则）——
 // 逐项分段曾在接缝处双线叠加、半透明相加成亮带（T-069）；
@@ -2706,7 +2735,10 @@ assert.ok(bundle.includes("anchor: true") && bundle.includes("isUserChatNode"), 
 assert.ok(bundle.includes("display: block; width: 12px; height: 12px;"), "工作项 SVG 保持 12px");
 assert.ok(bundle.includes('svg.setAttribute("width", String(width))'), "canonical 图标经 createInlineIcon 统一写入尺寸（默认 12px）");
 assert.ok(bundle.includes("left: 0; top: 3px;\n  width: 7px; height: 7px;"), "时间线圆点盒子与标题圆点同盒（7px、left:0，跨 DPR 渲染对齐）");
-assert.ok(bundle.includes("radial-gradient(circle, #778394 0 2.5px, rgba(119, 131, 148, .14) 2.5px 3.5px, transparent 3.5px)"), "5px 视觉圆点烘进径向渐变（实心核 0–2.5px + 外环内半）");
+assert.ok(bundle.includes("box-sizing: border-box; border: 1px solid rgba(119, 131, 148, .14); border-radius: 50%;"), "7px 同盒内以 1px border 留出 5px 视觉实心核并经原生圆角裁剪（R-01-009/AC-09、C-036）");
+assert.ok(bundle.includes("background: #778394; background-clip: padding-box;"), "时间线圆点使用实体背景与 padding-box 裁剪，不绕过 border-radius（R-01-009/AC-09）");
+assert.ok(bundle.includes("background: #65a0ff; border-color: rgba(101,160,255,.16);"), "running 圆点保留蓝色实心核与同色半透明内环（R-01-009/AC-09）");
+assert.ok(!bundle.includes("radial-gradient(circle,"), "时间线圆点不再使用 2.5px 硬停色 radial-gradient（R-01-009/AC-09、C-036）");
 assert.ok(bundle.includes("box-shadow: 0 0 0 1px rgba(119, 131, 148, .14);"), "圆点半透明外环外半由 1px box-shadow 拼成（整体 2px 外环不变）");
 assert.ok(bundle.includes(".dap-dot {\n  width: 7px; height: 7px;"), "标题圆点保持 7px（圆心 x=3.5，时间线圆点对齐基准）");
 assert.ok(bundle.includes("padding-left: 14px"), "时间线文字轨道保持 14px 内缩");

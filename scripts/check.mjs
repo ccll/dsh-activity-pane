@@ -2541,8 +2541,13 @@ assert.ok(
 );
 assert.ok(
 	bundle.includes('const topBtn = pane.querySelector(".dap-top");')
-		&& bundle.includes("if (topBtn !== null) topBtn.hidden = scroll.scrollTop <= TOP_THRESHOLD;"),
-	"滚动监听按 TOP_THRESHOLD 阈值同步按钮显隐（复用既有 scroll 监听，无新增监听）",
+		&& bundle.includes("if (topBtn !== null && scroll !== null) topBtn.hidden = scroll.scrollTop <= TOP_THRESHOLD;")
+		&& bundle.includes("syncTopBtn();"),
+	"按钮显隐收敛到 syncTopBtn 单点：scrollTop 超 TOP_THRESHOLD 显示、阈值内隐藏（复用既有 scroll 监听，无新增监听）",
+);
+assert.ok(
+	bundle.includes('pane.setAttribute("data-collapsed", "false");\n\t\t\tnotifyLayoutChange();\n\t\t\t// 折叠期间 display:none 可能令 scrollTop 归零而不派发 scroll 事件，展开时同步一次。\n\t\t\tsyncTopBtn();'),
+	"窄条展开时同步一次按钮显隐（折叠期 scrollTop 归零不一定派发 scroll 事件，R-01-018/AC-03）",
 );
 assert.ok(
 	bundle.includes('scroll?.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });'),

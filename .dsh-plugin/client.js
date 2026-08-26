@@ -2829,10 +2829,16 @@ function apply(ctx) {
 			event.preventDefault();
 			onHeaderActivate();
 		};
+		// 「回到顶部」按钮显隐单点（R-01-018/AC-01、AC-03）：scrollTop 超阈值显示、阈值内隐藏。
+		const syncTopBtn = () => {
+			if (topBtn !== null && scroll !== null) topBtn.hidden = scroll.scrollTop <= TOP_THRESHOLD;
+		};
 		const onRailClick = () => {
 			collapsed = false;
 			pane.setAttribute("data-collapsed", "false");
 			notifyLayoutChange();
+			// 折叠期间 display:none 可能令 scrollTop 归零而不派发 scroll 事件，展开时同步一次。
+			syncTopBtn();
 		};
 		// 桌面拖拽调宽（R-01-015）：pointer capture 跟踪 pointermove 实时夹取写入
 		// --dap-width（主会话经 flex 弹性同步让位），抬起/取消时持久化并通知布局。
@@ -2869,13 +2875,13 @@ function apply(ctx) {
 			resize.setPointerCapture(event.pointerId);
 		};
 		// 滚动条仅滚动时显示（R-01-004/AC-03）：滚动即置位，停滚 600ms 后隐藏。
-		// 同一监听承载「回到顶部」按钮显隐（R-01-018/AC-01、AC-03）：scrollTop 超阈值显示、
-		// 回到阈值内隐藏——回顶后的收口不经额外事件，由平滑滚动触发的 scroll 事件自然完成。
+		// 同一监听承载「回到顶部」按钮显隐（R-01-018/AC-01、AC-03）：回顶后的收口不经额外事件，
+		// 由平滑滚动触发的 scroll 事件自然完成。
 		let scrollHideTimer = null;
 		const onScroll = () => {
 			queueTrackSync(); // 滚动停在小数相位后重对齐轨道层（rAF 合帧）
 			scroll.setAttribute("data-scrolling", "");
-			if (topBtn !== null) topBtn.hidden = scroll.scrollTop <= TOP_THRESHOLD;
+			syncTopBtn();
 			if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);
 			scrollHideTimer = setTimeout(() => {
 				scrollHideTimer = null;

@@ -6,7 +6,7 @@ id: T-068
 
 # T-068 工作区徽标按工作区身份派生稳定色相着色
 
-状态: active
+状态: completed
 关联: R-01-003/AC-08、AC-09、AC-10 → 活动状态模型
 风险等级: standard
 
@@ -49,3 +49,13 @@ id: T-068
 
 ## 终态与证据
 
+- 实现: `src/core.mjs`——新增 `workspaceInfoForSession`（单一路径判定归属并返回 `{ title, key }`，key 路径优先、名称兜底，cwd 匹配同口径；`workspaceTitleForSession` 薄封装经审核删除）与 `workspaceHue`（djb2 哈希 → 十二槽 30° 量化 + 低位 ±10° 抖动，[0,360) 整数，空身份 null）；`buildEntries`/`buildRecent` 条目补 `workspaceKey`（子代理置空）；`cardSignature` 并入 `workspaceKey`。`src/client.mjs`——`renderCardInto` 显示徽标时写入、隐藏时移除 `--dap-workspace-hue`；`.dap-workspace` 基色改 `hsl(var(--dap-workspace-hue, 210) …)` 并经 color-mix 三层（文字 88% 混入 currentColor / 底 13% / 描边 30%）呈现，浅色主题校准基色明度（72%/40%）；胶囊几何、字号、图标未动。
+- 测试: 测试先行——`scripts/check.mjs` 先写 R-01-003/AC-08/09/10 锚点（旧实现下 SyntaxError 必红），实现后转绿：身份归一 deepEqual（路径优先/名称兜底/cwd 匹配/无归属皆空）、`workspaceHue` 纯函数性质（同身份恒同色、[0,360) 整数、空身份 null、两示例工作区可区分）、十二槽 ±10° 量化断言、条目携带 `workspaceKey`（活动/最近/子代理置空）、签名分量判别、bundle 接线与 CSS 层次断言；`scripts/acceptance.mjs` 新增色彩区分人工步骤。`pnpm build:client && pnpm check` 全绿；`python3 tools/agentmap_lint.py --report` 通过（22 需求 / 119 AC 全追溯、全锚定）；`git diff --check` 干净。集成按未发布冲突规则 rebase 至 canonical d1271eab0fcd48fdef7cbe7370c0bd786e5206ed，任务号由 T-065 重排为 T-068，重建 bundle 无漂移（与 T-066 条纹化合并后 check 全绿）。GUI 现场验收由东家按 `scripts/acceptance.mjs` 清单执行。
+- DESIGN 对照: 与 DESIGN「徽标色相不变量」「核心结构（workspaceKey）」「工作区归属归一」「工作区徽标着色」产品契约条目、窗格渲染器工作区徽标条目及需求追溯索引（R-01-003 → 活动状态模型）逐条一致；PRD R-01-003/AC-08～AC-10、DOMAIN「工作区色相」同口径；选型记录于 C-026，无差异。
+- commit: 0545fb750aac86d63d10b32b8490f134baab7513
+- review:
+  - 审核方: 独立 reviewer 双轴（Standards 子代理 572af4b4、Spec 子代理 f861972f，code-review skill 流程）
+  - 目的理解: 活动卡/最近卡工作区胶囊由一律继承 currentColor 改为按工作区身份（路径优先、名称兜底）纯函数派生稳定色相着色——同一工作区恒同色、不同工作区经十二槽量化尽量分散、跨刷新稳定、深浅主题经 color-mix 层次协调、胶囊几何字号不变；关联 PRD R-01-003/AC-08～AC-10、DESIGN 徽标色相不变量与产品契约、DECISIONS C-026（两轴均在审核前记录目的理解）。
+  - 执行方式: `code-review` skill，评审基线 `git diff main...HEAD`（merge-base 56b298d8738c445484d75c9572102d97c7ed009a；评审提交 de72528，修复后 73d8b0a，集成 rebase 重排后为 0545fb750aac86d63d10b32b8490f134baab7513，内容仅 T-ID 重排与 DESIGN 冲突收敛），范围含 src/core.mjs、src/client.mjs、scripts/check.mjs、scripts/acceptance.mjs、PRD/DESIGN/DOMAIN/DECISIONS、tasks/T-068 与 .dsh-plugin/client.js 构建产物一致性。
+  - 问题与修复: Standards 轴硬违规 1 项——DESIGN 核心结构条目「子代理继承母会话取值」与实现/测试/task 三处置空矛盾，已修正 DESIGN 为「无归属或子代理（徽标隐藏）为空」；判断性建议 2 项均已采纳修复——Middle Man（删除仅剩测试引用的 `workspaceTitleForSession` 薄封装，断言改用 `workspaceInfoForSession(...).title`）、Speculative Generality（删除渲染层 `workspaceKey ?? workspaceTitle` 兜底）。Spec 轴同一 DESIGN 矛盾（同源修复）+ 轻微 scope creep 观察（CSS 默认色相 210 为防御性写法，保留）。复审追加观察 2 项均已处理——task 收敛方案措辞同步删除薄封装、DESIGN 徽标色相不变量补 C-026 链接；终态 T-004 历史证据锚点随函数删除失效，属审计记录按纪律不动。
+  - 复审结论: 修复后双轴复审均通过（Standards 572af4b4、Spec f861972f 各自复核确认），无遗留 finding。

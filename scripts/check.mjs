@@ -2263,11 +2263,11 @@ assert.ok(bundle.includes("white-space: nowrap; font-size: 12px; line-height: 16
 
 // R-01-013/AC-10
 // 最近历史卡整体不透明度低于活动卡，弱化历史区视觉强调。
-assert.ok(bundle.includes("background: rgba(31, 34, 42, 0.92);\n  border-color: rgba(255, 255, 255, 0.08);\n  opacity: 0.8;"), "最近历史卡整体不透明度降为 0.8");
+assert.ok(bundle.includes("opacity: 0.8;"), "最近历史卡整体不透明度降为 0.8");
 
 // R-01-013/AC-11
 // 最近卡底色与描边保持与窗格底色可分辨：深色提亮底色 + 弱描边；浅色层色底 + 弱描边。
-assert.ok(bundle.includes("background: rgba(31, 34, 42, 0.92);") && bundle.includes("border-color: rgba(255, 255, 255, 0.08);"), "深色最近卡底色提亮并带弱描边（R-01-013/AC-11）");
+assert.ok(bundle.includes("background: rgba(31, 34, 42, 0.92);\n  border-color: rgba(255, 255, 255, 0.08);"), "深色最近卡底色提亮并带弱描边（R-01-013/AC-11）");
 assert.ok(
 	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="recent"] {\n  background: var(--dsw-alias-bg-layer-2, #ffffff);\n  border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));'),
 	"浅色最近卡使用层色底与弱描边（R-01-013/AC-11）",

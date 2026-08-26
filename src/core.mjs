@@ -1181,7 +1181,6 @@ export function cardSignature(entries) {
 			entry.pendingText ?? null,
 			entry.activityAt ?? null,
 			entry.progress ?? null,
-			entry.streaming ?? null,
 			entry.loadingModel ?? null,
 			entry.loadingTimeline ?? null,
 			entry.loadingPreviews ?? null,

@@ -563,15 +563,12 @@ const CSS = `
 [data-dsh-activity-pane] .dap-fill {
   position: absolute; inset: 0 auto 0 0; width: 0%;
   border-radius: 6px;
-  background: linear-gradient(90deg, #58c98f, #2fb27a);
-  box-shadow: 0 0 7px rgba(88, 201, 143, 0.5);
-  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
-}
-/* 流式阶段（data-streaming）：填充条切换为向右滚动的条纹动画（对齐 answer-pet
-   的 .ap-session-card[data-streaming] .ap-session-fill + ap-stripes）。 */
-[data-dsh-activity-pane] .dap-card[data-streaming] .dap-fill {
   background: repeating-linear-gradient(90deg, #58c98f 0 10px, #3fbf86 10px 20px);
   background-size: 200% 100%;
+  box-shadow: 0 0 7px rgba(88, 201, 143, 0.5);
+  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  /* 进度条仅存于运行卡骨架：会话运行全程持续向右滚动条纹，作为活动标志
+     （对齐 answer-pet 的 ap-stripes，R-01-009/AC-08）。 */
   animation: dap-stripes 0.8s linear infinite;
 }
 @keyframes dap-stripes {
@@ -786,7 +783,6 @@ function livenessFromSnapshot(snap) {
 	const runningArgs = runningTool !== null ? call?.argsRaw : null;
 	const blocks = Array.isArray(snap?.partial?.blocks) ? snap.partial.blocks : [];
 	const live = snap?.partial != null && snap?.running !== false;
-	const streaming = live && blocks.some((b) => b?.kind === "text");
 	const reasoning = live && blocks.some((b) => b?.kind === "reasoning");
 	let startTime = null;
 	const timings = snap?.turnTimings;
@@ -805,7 +801,6 @@ function livenessFromSnapshot(snap) {
 	return {
 		runningTool,
 		runningArgs,
-		streaming,
 		reasoning,
 		startTime,
 	};
@@ -2089,8 +2084,6 @@ function apply(ctx) {
 		rec.el.style.marginLeft = `${(entry.depth ?? 0) * INDENT_PX}px`;
 		rec.el.toggleAttribute("data-current", entry.isCurrent);
 		rec.el.toggleAttribute("data-awaiting", entry.kind === "awaiting");
-		// 流式阶段标记：驱动进度条向右滚动的条纹动画（answer-pet 对齐，R-01-009）。
-		rec.el.toggleAttribute("data-streaming", entry.streaming === true);
 		rec.el.setAttribute(
 			"aria-label",
 			`${entry.workspaceTitle ? entry.workspaceTitle + " - " : ""}${entry.title}${
@@ -2372,9 +2365,6 @@ function apply(ctx) {
 				const outputTokens = projection?.tokenUsage?.outputTokens ?? null;
 				Object.assign(entry, runtimeStats({ elapsedMs, outputTokens, rateTokS }));
 				Object.assign(entry, usageSummary(projection?.tokenUsage ?? {}));
-				// 流式阶段标记驱动 data-streaming（进度条条纹动画）；工具调用期间视作
-				// 非流式，与 answer-pet 的 phase==='stream' 判定一致。
-				entry.streaming = !live?.runningTool && live?.streaming === true;
 				// 回合进度：纯时间驱动 y = t/(t+k)，半衰期 k 随锚点捕获冻结，固定 k 下
 				// 单调性由函数本身保证（委托周期连续、周期外回合切换归零，R-01-009/AC-06，C-014、C-025）。
 				entry.progress = progressOf({ elapsedMs: elapsedMs ?? 0, halfLifeSec: anchor.halfLifeSec });

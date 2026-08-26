@@ -2332,7 +2332,7 @@ assert.ok(bundle.includes('.dap-trace-summary[data-follow="end"] { text-overflow
 // 分数位原点下 Chrome 对不同尺寸圆盒的吸附相位不同，同盒才能保证跨 DPR 渲染对齐；
 // 5px 视觉圆点烘进径向渐变（核 0–2.5px），外环由渐变内半 + 1px box-shadow 外半拼成；
 // 竖线 left 3px（圆心 x=3.5）与圆点严格同圆心，竖线贯穿首项圆点并向上引出，
-// reduced-motion 只关闭宽度 transition，不关闭 answer-pet 同款状态脉冲/流式条纹。
+// reduced-motion 只关闭宽度 transition，不关闭 answer-pet 同款状态脉冲/进度条纹。
 assert.ok(bundle.includes(".dap-trace-item:last-child::after"), "时间线末项不画竖线（终点没入最末圆点）");
 assert.ok(bundle.includes("margin: 1px 0 2px;"), "时间线整体与卡片内容左边界对齐");
 assert.ok(bundle.includes("left: 3px; top: 0; bottom: -8px"), "1px 竖线（整数位）与圆点严格同圆心 x=3.5（对齐标题圆点）");
@@ -2350,7 +2350,12 @@ assert.ok(bundle.includes(".dap-dot {\n  width: 7px; height: 7px;"), "标题圆�
 assert.ok(bundle.includes("padding-left: 14px"), "时间线文字轨道保持 14px 内缩");
 assert.ok(bundle.includes(".dap-subtrace {\n  min-width: 0;"), "子代理容器不再 padding/border/overflow 包裹（不裁切圆点）");
 assert.ok(bundle.includes(".dap-fill { transition: none; }"), "降低动效设置不关闭状态动画（对齐 answer-pet）");
-assert.ok(bundle.includes("animation: dap-stripes 0.8s linear infinite"), "流式进度条保留向右滚动条纹动画");
+// R-01-009/AC-08：进度条仅存于运行卡骨架，条纹挂在 .dap-fill 基础规则上——
+// 会话运行全程（含工具/思考阶段与委托周期母会话）持续向右滚动，不再经流式阶段门控。
+assert.ok(bundle.includes(".dap-fill {\n  position: absolute; inset: 0 auto 0 0; width: 0%;\n  border-radius: 6px;\n  background: repeating-linear-gradient(90deg, #58c98f 0 10px, #3fbf86 10px 20px);\n  background-size: 200% 100%;"), "进度条基础规则携带条纹渐变，运行全程呈现（R-01-009/AC-08）");
+assert.ok(bundle.includes("animation: dap-stripes 0.8s linear infinite;"), "进度条条纹持续向右滚动动画（R-01-009/AC-08）");
+assert.ok(!bundle.includes("data-streaming"), "条纹不再经 data-streaming 流式门控（R-01-009/AC-08）");
+assert.ok(!bundle.includes("entry.streaming"), "streaming 派生字段随条纹门控移除（R-01-009/AC-08）");
 assert.ok(bundle.includes("animation: dap-pulse 1.15s ease-in-out infinite"), "运行中蓝色节点保留脉冲动画");
 assert.ok(bundle.includes("dataset.traceKey"), "同一流程节点复用 DOM，脉冲动画不因时钟刷新重置");
 assert.ok(!bundle.includes(".dap-trace-item[data-status=\"running\"]::before {\n    animation: none !important;"), "降低动效设置不关闭运行点脉冲");

@@ -126,7 +126,7 @@ sequenceDiagram
 - 分区不变量：会话要么在活动区、要么在历史区，绝不同时出现；最近历史 = 当前非活动 && 宿主列表时间落在历史窗口（24h）内、**仅主会话（不含子代理）**，按最后活动时间倒序，最多 20 条；入区窗口判定以宿主列表时间为下界（回复结束时刻恒不早于它，精化只会使会话更“新”、不掉出窗口），宿主时间已超窗的会话不读取历史，跨窗长回合（宿主时间超窗、回合在窗内结束）不入区（C-020）；响应保持中会话仍归属活动区，解除后经移动动画迁入历史区（R-01-010）。
 - 轮内状态输入：`runtimeStats({ elapsedMs, outputTokens, rateTokS })`、`usageSummary(tokenUsage)`（计费输入=未缓存输入+缓存读+缓存写，缓存命中率=缓存读÷计费输入，对齐原生统计行口径）与 `conversationTimeline(snapshot)` 为纯函数，输入由渲染器从原生 `ConversationSnapshot`（`chat` / `runningCalls` / `partial` / `turnTimings` / `legacy.nodes`）与 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`）归一而来（R-01-009、R-01-012）。
 - 排序不变量：主会话按所在工作区侧栏顺序；未纳入任何工作区的排在全部工作区之后并保持出现顺序；子代理跟随母会话并缩进（R-01-001、R-01-003）。
-- 徽标色相不变量：`workspaceHue(key)` 是以工作区身份（`workspaceKey`）为唯一输入的纯函数——djb2 哈希取十槽 30° 量化色相（槽位 40°–310°，弧段避开红色警戒区）、叠加哈希低位 ±10° 抖动，输出 [30,320] 整数；同一身份恒得同一色相，与工作区列表顺序、会话状态及持久化存储无关，页面刷新后不变；不同身份的色相经量化槽位尽量分散（R-01-003/AC-08、AC-09，C-026、C-027）。
+- 徽标色相不变量：`workspaceHue(key)` 是以工作区身份（`workspaceKey`）为唯一输入的纯函数——djb2 哈希经雪崩终混（高位熵折入低位，消除 djb2 低位分布聚集）后在避开红色警戒区的色相弧 [30°,320°] 上均匀取色（30 + hash % 291），输出 [30,320] 整数；同一身份恒得同一色相，与工作区列表顺序、会话状态及持久化存储无关，页面刷新后不变；不同身份的色相在 291 个取值上分散（R-01-003/AC-08、AC-09，C-026、C-027、C-029）。
 - 稳定签名：`cardSignature` 对条目可见字段求签名（含 model/reasoning/timeline/userPreview/agentPreview/activityAt、progress/tokenStats）；签名相同的重复渲染必须跳过全部 DOM 写入（R-02-003）。
 - 响应保持为渲染器易失内存态：不写回宿主、不持久化；页面刷新后保持自然失效，会话按当帧快照判定归属（R-01-010/AC-06）。
 - 运行卡渲染期字段：渲染器为 running 条目补充 `progress`（阶段百分比）、`timeline`（主会话窗口最近工作项）与 `tokenStats`；不再派生独立 `status` 文案行；进度条条纹随运行卡骨架常驻，无需属性翻转。
@@ -204,7 +204,7 @@ sequenceDiagram
   - 卡片以 `data-wait="blocked"|"done"` 承载等待类别，两类视觉分裂全部由该属性驱动（R-01-002/AC-08）。
 - 迁移动画：渲染器比较相邻两帧派生的活动区/历史区 id 集合，id 由活动区消失且出现于历史区（或反向由历史区消失且出现于活动区）即判定一次迁移（id 彻底消失不播放）；动画以旧卡克隆 ghost 经 FLIP 平移并形变至目标区卡片矩形、到位后淡出，真卡同步淡入，`transitionend` 移除 ghost，时长约 300ms，多次迁移各自独立播放；同一渲染帧内位置受影响的其它卡片（含历史区段头）经 FLIP 反向位移后过渡到新位置，与 ghost 同向同步；`prefers-reduced-motion` 或目标矩形不可量取时降级为直接落位（R-01-010/AC-07、AC-10）。
 - 层级结构：子代理经 `parentId` 关联并以 `depth` 表达缩进；子代理标题优先取目录 label，其次显示标题；渲染层在缩进槽内绘制母会话到直属子代理的层级连接线（R-01-003/AC-01、AC-04）。
-- 工作区徽标着色：渲染层把 `活动状态模型#workspaceHue(entry.workspaceKey)` 派生的色相写入徽标元素 `--dap-workspace-hue`（无归属时徽标隐藏、不写入）；CSS 以 `hsl(var(--dap-workspace-hue) …)` 为基色、沿用 color-mix 透明度层次呈现图标、文字、底色与描边，明暗主题各自校准基色明度保持可辨；胶囊几何（圆角、padding、行高）与名称字号下限不变（R-01-003/AC-08、AC-09、AC-10）。
+- 工作区徽标着色：渲染层把 `活动状态模型#workspaceHue(entry.workspaceKey)` 派生的色相写入徽标元素 `--dap-workspace-hue`（无归属时徽标隐藏、不写入）；CSS 以 `hsl(var(--dap-workspace-hue) …)` 为基色、沿用 color-mix 透明度层次呈现图标、文字、底色与描边，并按单色系标签配色经验分主题校准——深色主题文字取高明度亮色（S 70 / L 68）、底色同色相 14% 透明铺底、描边 32%；浅色主题文字取低明度深色（S 72 / L 40）、底色 12%、描边 28%；前景与背景始终同色相、明度对比拉开（R-01-003/AC-11）；胶囊几何（圆角、padding、行高）与名称字号下限不变（R-01-003/AC-08、AC-09、AC-10）。
 - 窗口形态：桌面为左栏旁贴边列，可经「活动会话」标题行整体折叠为窄条（窄条竖排标题 + 计数，整条可点展开）；移动端（≤767px）为固定抽屉 + 左上角浮动开关（文案「活动」，抽屉打开时隐藏）（R-01-007、R-01-008、R-01-011）。桌面列宽可经右缘手柄拖拽在 200–480px 内调整，拖拽实时生效并令主会话弹性让位，结果存 localStorage 于启动时恢复（R-01-015）。
 - 交互面：点击或 Enter/Space 激活卡片 → 切换会话；当前会话卡片高亮（R-01-005、R-01-006）。
 - 折叠时间线：`活动状态模型#foldedConversationTimeline(snapshot, limit)` 是渲染层时间线的唯一来源（无条件折叠，不做任何探测切换）：先按指数扩窗收集尾部原始工作项并合并 live 项，再经 `#foldWorkGroups` 分组——用户输入项与含正文的 assistant 项为硬边界（其 reasoning 先并入当前分组，等价 splitThinkByBody 前置语义），连续 context 单独成组；组标题镜像 auto-collapse chip 优先级（正在运行→正在思考→运行了命令/编辑了文件/上下文注入→已思考），组摘要携带推理文本内容；状态聚合 running > error > stopped > done，尾部提升沿用 R-01-009/AC-10。冷会话 history 时间线经同一 `#foldWorkGroups` 分组。该派生不依赖 dsh-auto-collapse 存在；分组语义改编自 MIT 许可的 dsh-auto-collapse@0.1.3 `src/fold.ts`（数据层移植，不读其 DOM、无运行时依赖，C-016）（R-01-017）。指令锚行在同一派生内产出：窗口起点之前最近的一条非空文本用户输入行标记 `anchor` 后前置返回（空文本行不作锚），该消息仍在窗口内时不标记；锚行出现时窗口收缩为最近 limit-1 个显示行，时间线总行数（含锚行）不超过 limit；更近的非空文本用户输入行到达收缩窗口首行时直接顶替旧锚、不再叠加（总行数暂减一，随后续新行回填恢复，C-023）；收集阶段尾部反向扫描取够条数后以廉价结构检查继续前走至最近一个未收集的非空文本用户节点并单独转换，不为找锚做全序转换；渲染层把锚行按普通工作项行渲染，无独立 DOM 分支（R-01-012/AC-12～AC-15、R-01-017/AC-06）。
@@ -232,7 +232,7 @@ sequenceDiagram
   - `modelMetadata` 从 native models response（或同形状的模型目录 store 快照）提取当前模型名称与 reasoning level；缺失值保持空白。
   - 富卡辅助：`fmtTokens`（token 计数 K/M 紧凑缩写，镜像原生统计行 formatTokens）、`summarizeToolArguments`（镜像原生 `deriveSummary` 语义）、`progressOf`（回合进度）、`progressHalfLifeSec`（进度半衰期速率校准）、`runtimeStats`（时长/token/速率）与 `usageSummary`（计费输入/缓存命中率）为运行卡提供纯函数派生。
   - 排序由工作区索引 + lineage 稳定序共同决定。
-  - 工作区归属归一：`workspaceInfoForSession` 在单一路径上同时判定归属并返回 `{ title, key }`（key 为工作区身份：路径优先、名称兜底）；`workspaceHue(key)` 以 djb2 哈希派生十槽量化色相（30°/槽，槽位 40°–310°，避开红色警戒区）叠加低位 ±10° 抖动，输出 [30,320] 整数色相，供活动卡与最近卡徽标着色（R-01-003/AC-08、AC-09）。
+  - 工作区归属归一：`workspaceInfoForSession` 在单一路径上同时判定归属并返回 `{ title, key }`（key 为工作区身份：路径优先、名称兜底）；`workspaceHue(key)` 以 djb2 哈希经雪崩终混后在避红弧上均匀取色（30 + hash % 291），输出 [30,320] 整数色相，供活动卡与最近卡徽标着色（R-01-003/AC-08、AC-09）。
   - `cardSignature` 提供渲染去重签名；`trackRuns` 把活动条目压成母会话轨道运行（每个拥有可见直属子代理的母会话一条：全部可见直属子代理 id 与子级深度；直属性按母会话条目深度+1 判定，无 id 或非直属条目跳过）；`trackBoxes` 由测量矩形推导全部绘制盒并统一取整到 CSS 像素（竖轨：母会话底缘 → 末级子卡中心含收口行；横线：竖轨右缘 → 子卡左缘），供渲染层整体绘制。
 - 代码位置: src/core.mjs
 - 备注: 宽度夹取纯函数 `clampPaneWidth`（200–480px，非法输入回退默认 280px）亦属本模块，供渲染层拖拽与启动恢复共用（R-01-015/AC-02、AC-04）。

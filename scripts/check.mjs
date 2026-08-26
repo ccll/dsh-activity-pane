@@ -422,18 +422,29 @@ const hueOps = workspaceHue("/srv/ops");
 assert.ok(Number.isInteger(hueOps), "色相为整数（R-01-003/AC-08）");
 assert.equal(workspaceHue("Solo"), workspaceHue(String("So" + "lo")), "派生只依赖身份字符串、与运行状态无关（R-01-003/AC-08）");
 
-// ---- R-01-003/AC-09 十槽避红弧量化（槽位 40°–310°）+ ±10° 抖动 ----
+// ---- R-01-003/AC-09 全弧均匀取色：[30,320] 避红弧、291 个取值 ----
 for (const hueKey of ["/srv/ops", "/srv/mail", "/srv/web", "Solo", "/opt/alpha", "/opt/beta"]) {
 	const hue = workspaceHue(hueKey);
 	assert.ok(
 		hue >= 30 && hue <= 320,
 		`色相 ${hue} 落在避红弧 [30,320] 内，不落入红色警戒区（R-01-003/AC-09）`,
 	);
-	assert.ok(
-		Math.abs((hue - 40) - Math.round((hue - 40) / 30) * 30) <= 10 && hue % 5 === 0,
-		`色相 ${hue} 落在 40°–310° 十槽（30°/槽）的 ±10°（5° 步进）抖动范围内（R-01-003/AC-09）`,
-	);
 }
+// 长公共前缀的现实工作区身份两两可区分（djb2 低位聚集回归防护；
+// 样本取自 T-070 后东家复现「同显蓝色」的现场路径形态，非任意键，勿随意替换）
+const hueFamily = [
+	"/home/cailei/proj/dsh-activity-pane",
+	"/home/cailei/proj/dsh",
+	"/home/cailei/proj/answer-pet",
+	"/home/cailei/proj/blog",
+	"/home/cailei/proj/notes",
+];
+const familyHues = hueFamily.map((key) => workspaceHue(key));
+assert.equal(new Set(familyHues).size, hueFamily.length, "长公共前缀工作区色相两两不同（R-01-003/AC-09）");
+// 聚集回归（性质级）：50 个长公共前缀身份应广泛分散，而非挤进相邻取值
+const hueSpread = new Set();
+for (let i = 0; i < 50; i += 1) hueSpread.add(workspaceHue(`/home/user/proj/ws-${i}`));
+assert.ok(hueSpread.size >= 40, `50 个长前缀身份分散到 ${hueSpread.size} 个不同色相（≥40，R-01-003/AC-09）`);
 
 // ---- R-01-001/AC-01 活动卡片逐条显示 ｜ R-01-003/AC-01 子代理嵌套 ｜ R-01-003/AC-02 子代理结束即消失 ｜ R-01-006/AC-01 当前会话 ----
 const snapshot = {
@@ -2612,16 +2623,21 @@ assert.ok(bundle.includes("restoreTextField(workspaceText, entry.workspaceTitle)
 assert.ok(bundle.includes('workspace.append(workspaceIcon, makeEl("span", "dap-workspace-text"))'), "文件夹图标先于名称文本段加入胶囊（R-01-003/AC-06 顺序锚点）");
 assert.ok(bundle.includes("if (workspaceText !== null) restoreTextField(workspaceText, entry.workspaceTitle)"), "热装旧骨架无文本段时容空跳过，不中断渲染（R-01-003/AC-06 健壮性）");
 
-// R-01-003/AC-08、AC-09、AC-10
+// R-01-003/AC-08、AC-09、AC-10、AC-11
 // 工作区徽标按身份派生色相着色：渲染层写入 --dap-workspace-hue，CSS 以 hsl(var(--dap-workspace-hue) …)
-// 基色沿用 color-mix 透明度层次，浅色主题校准明度；胶囊几何与字号不变（沿用上方 AC-07 断言）。
+// 为基色沿用 color-mix 透明度层次，并按单色系标签配色分主题校准（深色高明度文字、浅色低明度文字、
+// 同色相铺底与描边）；胶囊几何与字号不变（沿用上方 AC-07 断言）。
 assert.ok(bundle.includes('style.setProperty("--dap-workspace-hue"'), "渲染层把派生色相写入徽标 --dap-workspace-hue（R-01-003/AC-08）");
 assert.ok(bundle.includes('style.removeProperty("--dap-workspace-hue")'), "徽标隐藏时移除色相变量，不留陈旧着色（R-01-003/AC-08）");
 assert.ok(bundle.includes("hsl(var(--dap-workspace-hue, 210)"), "徽标基色取自派生色相（R-01-003/AC-08、AC-09）");
-assert.ok(bundle.includes("color-mix(in srgb, var(--dap-workspace-color) 88%, currentColor)"), "徽标文字沿用 color-mix 透明度层次（R-01-003/AC-10）");
-assert.ok(bundle.includes("color-mix(in srgb, var(--dap-workspace-color) 13%, transparent)"), "徽标底色沿用 color-mix 透明度层次（R-01-003/AC-10）");
-assert.ok(bundle.includes("color-mix(in srgb, var(--dap-workspace-color) 30%, transparent)"), "徽标描边沿用 color-mix 透明度层次（R-01-003/AC-10）");
-assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {"), "浅色主题单独校准徽标基色明度（R-01-003/AC-10）");
+assert.ok(bundle.includes("color-mix(in srgb, var(--dap-workspace-color) 92%, currentColor)"), "徽标文字以基色为主混入 currentColor 保持主题协调（R-01-003/AC-10、AC-11）");
+assert.ok(bundle.includes("--dap-workspace-color: hsl(var(--dap-workspace-hue, 210) 70% 68%)"), "深色主题文字基色取同色相高明度亮色（R-01-003/AC-11）");
+assert.ok(bundle.includes("color-mix(in srgb, var(--dap-workspace-color) 14%, transparent)"), "深色主题底色为同色相低透明铺底（R-01-003/AC-11）");
+assert.ok(bundle.includes("color-mix(in srgb, var(--dap-workspace-color) 32%, transparent)"), "深色主题描边为同色相中透明（R-01-003/AC-11）");
+assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {"), "浅色主题单独校准徽标配色（R-01-003/AC-10、AC-11）");
+assert.ok(bundle.includes("--dap-workspace-color: hsl(var(--dap-workspace-hue, 210) 72% 40%)"), "浅色主题文字基色取同色相低明度深色（R-01-003/AC-11）");
+assert.ok(bundle.includes("color-mix(in srgb, var(--dap-workspace-color) 12%, transparent)"), "浅色主题底色更轻（R-01-003/AC-11）");
+assert.ok(bundle.includes("color-mix(in srgb, var(--dap-workspace-color) 28%, transparent)"), "浅色主题描边（R-01-003/AC-11）");
 
 // R-01-010/AC-01、R-01-010/AC-05
 // 两区分隔线上下各保留 10px 留白；历史区无内容时整段隐藏、分隔线不占位。

@@ -6,7 +6,7 @@ id: T-054
 
 # T-054 数量徽标去描边与外环
 
-状态: active
+状态: completed
 关联: R-01-002/AC-06 / 活动状态模型
 风险等级: standard
 
@@ -46,3 +46,14 @@ id: T-054
 | 副作用 | 适用：等待卡描边、`.dap-badge` 闪烁徽标、脉冲动画与占比周期不变 | `scripts/check.mjs#R-01-002/AC-06`、`src/client.mjs::CSS` |
 
 ## 终态与证据
+
+- 实现: `src/client.mjs` 三处徽标基态删常驻透明 `border`（`.dap-count` 防跳动注释一并移除）；三处等待态删 `border-color` 与 `box-shadow` 外环，`.dap-count[data-awaiting]` 注释改「底色/透明度与等待卡完全一致、无描边与外环」；浅色覆盖块删 `border-color` 与 `box-shadow: none` 仅留背景覆盖。底色、胶囊圆角、脉冲保留；等待卡描边与 `.dap-badge` 未动。`.dsh-plugin/client.js` 已重新生成。
+- 测试: `scripts/check.mjs` R-01-002/AC-06 断言改写（三处等待态底色直连脉冲×3、无 1px 外环负向断言、浅色块声明体、基态规则闭合结构），`scripts/acceptance.mjs` AC-06 人工步骤同步新口径；`pnpm build:client && pnpm check` 通过；`python3 tools/agentmap_lint.py --report` 通过。
+- DESIGN 对照: PRD R-01-002/AC-06 与 DESIGN「徽标计数与脉冲紧迫度」条目已按闸口确认文案改写，与实现一致；需求追溯索引既有行保持准确。
+- commit: d440ff3ed7d784832bb49b5191a0dfa907610658
+- review:
+  - 审核方: Standards 子代理 `7ed3f13c-180f-4996-bca9-fed8564743fb`；Spec 子代理 `74fb5360-25f3-4cf5-8837-63be11880f34`。
+  - 目的理解: 三处计数徽标（`.dap-count`/`.dap-rail-count`/`.dap-toggle-count`）基态与等待态整体去描边（含等待态橙色边框与 1px 外环），仅留底色与文字；脉冲、底色、圆角保留；关联 R-01-002/AC-06 改写口径与 DESIGN 徽标条目；等待卡描边与 `.dap-badge` 不在范围；预期行为与验证以 PRD 验收点 + check/acceptance 锁点为准（两轴均在审核前记录目的理解）。
+  - 执行方式: `code-review` skill；固定基线 `968d1dcefe42a56d921efe53b48ceba07531488c`，范围 `git diff 968d1dcefe42a56d921efe53b48ceba07531488c...HEAD` 的 T-054 工作单元（单提交 d440ff3ed7d784832bb49b5191a0dfa907610658）；Standards/Spec 双轴并行审核。
+  - 问题与修复: 无 finding。Standards 两条 judgement call（三处徽标 CSS 等待态形状重复、check.mjs 精确文本锁定断言脆弱）均为仓库既有模式，不属本次改动责任，不修。
+  - 复审结论: Standards 通过；Spec 通过，无遗留 finding，无需复审。

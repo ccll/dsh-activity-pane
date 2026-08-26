@@ -2525,7 +2525,41 @@ assert.ok(bundle.includes(".dap-scroll::-webkit-scrollbar-thumb {\n  background:
 assert.ok(bundle.includes(".dap-scroll[data-scrolling]::-webkit-scrollbar-thumb"), "滚动中经 data-scrolling 显示滚动条");
 assert.ok(bundle.includes("@supports not selector(::-webkit-scrollbar)") && bundle.includes("scrollbar-color: transparent transparent"), "Firefox 路径以 @supports 门隔离（防 Chromium 丢弃伪元素规则）");
 assert.ok(bundle.includes('scroll?.addEventListener("scroll", onScroll, { passive: true })'), "滚动监听置位 data-scrolling");
-assert.ok(bundle.includes('scroll?.removeEventListener("scroll", onScroll);\n\t\t\tif (scrollHideTimer !== null) clearTimeout(scrollHideTimer);'), "unbind 同步清理滚动监听与隐藏定时器（R-02-003/AC-02）");
+assert.ok(bundle.includes('scroll?.removeEventListener("scroll", onScroll);\n\t\t\ttopBtn?.removeEventListener("click", onTopClick);'), "unbind 同步清理滚动监听与隐藏定时器（R-02-003/AC-02）");
+
+// R-01-018 回到顶部悬浮按钮
+// R-01-018/AC-01、R-01-018/AC-03：骨架按钮默认 hidden，滚动监听按 TOP_THRESHOLD 阈值揭隐/隐藏；
+// R-01-018/AC-02：激活 scrollTo 回顶，reduced-motion 直接定位；R-01-018/AC-04：窄条态 CSS 隐藏。
+assert.ok(
+	bundle.includes('<button class="dap-top" type="button" hidden>↑ 回到顶部</button>'),
+	"窗格骨架含默认隐藏的「回到顶部」原生按钮（键盘激活与 click 同路径）",
+);
+assert.ok(
+	bundle.includes("[data-dsh-activity-pane] .dap-top {\n  position: absolute;\n  bottom: 12px;\n  left: 50%;\n  transform: translateX(-50%);"),
+	"回到顶部按钮悬浮定位于窗格底部居中",
+);
+assert.ok(
+	bundle.includes("[data-dsh-activity-pane] .dap-top[hidden] { display: none; }"),
+	"hidden 时按钮不占位不显示（未超阈值不显示）",
+);
+assert.ok(
+	bundle.includes('const topBtn = pane.querySelector(".dap-top");')
+		&& bundle.includes("if (topBtn !== null) topBtn.hidden = scroll.scrollTop <= TOP_THRESHOLD;"),
+	"滚动监听按 TOP_THRESHOLD 阈值同步按钮显隐（复用既有 scroll 监听，无新增监听）",
+);
+assert.ok(
+	bundle.includes('scroll?.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });'),
+	"激活回顶：reduced-motion 直接定位，否则平滑滚动（R-01-018/AC-02）",
+);
+assert.ok(
+	bundle.includes('[data-dsh-activity-pane][data-collapsed="true"] .dap-top { display: none; }'),
+	"桌面折叠窄条态不显示回到顶部按钮（R-01-018/AC-04）",
+);
+assert.ok(
+	bundle.includes('topBtn?.addEventListener("click", onTopClick);')
+		&& bundle.includes('topBtn?.removeEventListener("click", onTopClick);'),
+	"按钮 click 监听随 bindPaneControls 绑定并在 unbind 清理（R-02-003/AC-02）",
+);
 
 // ---- 回归锚点：浅色主题适配 ----
 // 外壳以 body[data-ds-dark-theme] 标记深色（缺省即浅色）并翻转整套 --dsw-alias-* 变量；

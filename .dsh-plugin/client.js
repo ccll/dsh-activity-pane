@@ -1656,6 +1656,8 @@ const CLOCK_MS = 1000;
 const HISTORY_MAX_PAGES = 3;
 /** 冷数据读取并发池上限：慢网下避免几十张卡片的 models/history 一次性挤占通道。 */
 const LOAD_CONCURRENCY = 3;
+/** 「回到顶部」悬浮按钮显隐阈值：scrollTop 超过该值（px）时显示（R-01-018/AC-01）。 */
+const TOP_THRESHOLD = 200;
 
 const CSS = `
 [data-dsh-activity-pane] {
@@ -1739,6 +1741,29 @@ const CSS = `
   [data-dsh-activity-pane] .dap-scroll[data-scrolling] {
     scrollbar-color: var(--dsh-scrollbar-thumb, color-mix(in srgb, currentColor 25%, transparent)) transparent;
   }
+}
+/* 「回到顶部」悬浮按钮（R-01-018）：窗格内底部居中胶囊，默认 hidden；
+   scrollTop 超阈值时由滚动监听揭隐。 */
+[data-dsh-activity-pane] .dap-top {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  padding: 4px 12px;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  color: inherit;
+  font-size: 11px;
+  line-height: 18px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+[data-dsh-activity-pane] .dap-top[hidden] { display: none; }
+[data-dsh-activity-pane] .dap-top:hover,
+[data-dsh-activity-pane] .dap-top:focus-visible {
+  background: color-mix(in srgb, currentColor 18%, transparent);
 }
 [data-dsh-activity-pane] .dap-list {
   display: flex;
@@ -1829,6 +1854,7 @@ const CSS = `
   [data-dsh-activity-pane][data-collapsed="true"] .dap-header,
   [data-dsh-activity-pane][data-collapsed="true"] .dap-scroll { display: none; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-resize { display: none; }
+  [data-dsh-activity-pane][data-collapsed="true"] .dap-top { display: none; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-rail { display: flex; cursor: pointer; }
   /* 与展开态标题行对等的可点反馈（R-01-011/AC-04）：悬停/聚焦高亮。 */
   [data-dsh-activity-pane][data-collapsed="true"] .dap-rail:hover,
@@ -2786,6 +2812,7 @@ function apply(ctx) {
 		const rail = pane.querySelector(".dap-rail");
 		const resize = pane.querySelector(".dap-resize");
 		const scroll = pane.querySelector(".dap-scroll");
+		const topBtn = pane.querySelector(".dap-top");
 		// 标题行整体即收起控件，两端断点一致：桌面折叠为窄条（R-01-011/AC-03）；
 		// 移动端断点解释为收起抽屉，而非折叠窄条（R-01-008/AC-02、R-01-011/AC-06）。
 		const onHeaderActivate = () => {
@@ -2843,26 +2870,36 @@ function apply(ctx) {
 			resize.setPointerCapture(event.pointerId);
 		};
 		// 滚动条仅滚动时显示（R-01-004/AC-03）：滚动即置位，停滚 600ms 后隐藏。
+		// 同一监听承载「回到顶部」按钮显隐（R-01-018/AC-01、AC-03）：scrollTop 超阈值显示、
+		// 回到阈值内隐藏——回顶后的收口不经额外事件，由平滑滚动触发的 scroll 事件自然完成。
 		let scrollHideTimer = null;
 		const onScroll = () => {
 			queueTrackSync(); // 滚动停在小数相位后重对齐轨道层（rAF 合帧）
 			scroll.setAttribute("data-scrolling", "");
+			if (topBtn !== null) topBtn.hidden = scroll.scrollTop <= TOP_THRESHOLD;
 			if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);
 			scrollHideTimer = setTimeout(() => {
 				scrollHideTimer = null;
 				scroll.removeAttribute("data-scrolling");
 			}, 600);
 		};
+		// 「回到顶部」激活（R-01-018/AC-02）：reduced-motion 直接定位，否则平滑滚动；
+		// 原生 <button> 的 Enter/Space 键盘激活与 click 同路径。
+		const onTopClick = () => {
+			scroll?.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+		};
 		header?.addEventListener("click", onHeaderActivate);
 		header?.addEventListener("keydown", onHeaderKeydown);
 		rail?.addEventListener("click", onRailClick);
 		scroll?.addEventListener("scroll", onScroll, { passive: true });
+		topBtn?.addEventListener("click", onTopClick);
 		resize?.addEventListener("pointerdown", onResizeDown);
 		return () => {
 			header?.removeEventListener("click", onHeaderActivate);
 			header?.removeEventListener("keydown", onHeaderKeydown);
 			rail?.removeEventListener("click", onRailClick);
 			scroll?.removeEventListener("scroll", onScroll);
+			topBtn?.removeEventListener("click", onTopClick);
 			if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);
 			resize?.removeEventListener("pointerdown", onResizeDown);
 		};
@@ -2894,6 +2931,7 @@ function apply(ctx) {
 						<div class="dap-recent-head"><span>最近历史 · 24h</span></div>
 					</div>
 				</div>
+				<button class="dap-top" type="button" hidden>↑ 回到顶部</button>
 				<button class="dap-rail" type="button" aria-label="展开活动会话窗格">
 					<span class="dap-rail-title" aria-hidden="true">活动会话</span>
 					<span class="dap-rail-count" role="status" aria-live="polite"></span>

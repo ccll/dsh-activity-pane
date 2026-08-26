@@ -179,6 +179,7 @@ sequenceDiagram
 | R-01-014 | 窗格渲染器 | 加载状态模型与渐进呈现 | src/core.mjs、src/client.mjs |
 | R-01-016 | 活动状态模型 | 等待卡时间线 | src/client.mjs |
 | R-01-017 | 活动状态模型 | 折叠分组派生（唯一时间线形态） | src/core.mjs、src/client.mjs |
+| R-01-018 | 窗格渲染器 | 回到顶部悬浮按钮 | src/client.mjs |
 ## 产品契约
 
 - 活动卡片集合：`活动状态模型#buildEntries(snapshot, workspaceItems)` 产出已排序的活动卡片条目数组（R-01-001）；`heldIds` 入参使响应保持中会话以 awaiting「需要响应」条目保留在活动区（R-01-002/AC-05、R-01-010/AC-06）。
@@ -233,7 +234,7 @@ sequenceDiagram
 
 ### 窗格渲染器
 - 职责:
-  - 窗格结构与交互：挂载窗格、双区绘制、独立滚动、卡片激活跳转、桌面折叠、移动端抽屉、真实布局参与（实现 R-01-004、R-01-005、R-01-006、R-01-007、R-01-008、R-01-011）
+  - 窗格结构与交互：挂载窗格、双区绘制、独立滚动、回到顶部悬浮按钮、卡片激活跳转、桌面折叠、移动端抽屉、真实布局参与（实现 R-01-004、R-01-005、R-01-006、R-01-007、R-01-008、R-01-011、R-01-018）
   - 内容呈现与加载：轮内状态订阅生命周期、加载状态模型与渐进呈现、重挂载自愈（实现 R-01-009、R-01-010、R-01-012、R-01-013、R-01-014、R-01-016、R-02-002、R-02-004）
   - 桌面调宽：右缘拖拽手柄实时调宽、范围夹取与 localStorage 持久化（实现 R-01-015）
 - 关键内部结构:
@@ -255,5 +256,6 @@ sequenceDiagram
   - 桌面调宽手柄：右缘 6px 命中区，`pointerdown` 后经 `setPointerCapture` 跟踪 `pointermove` 实时写入 `--dap-width`（经核心 `clampPaneWidth` 夹取 200–480px，拖拽期间经 rAF 合帧派发 resize 通知），`pointerup`/`pointercancel` 持久化 localStorage；折叠窄条态与移动断点下经 CSS 隐藏手柄；卸载移除手柄与监听（R-01-015）。
   - 抽屉开合状态经 `togglePane` 单点写入，同步 `data-open`、透明遮罩显隐与浮动开关显隐（抽屉打开时开关隐藏、关闭恢复，R-01-008/AC-05）；遮罩为 `position:fixed` 透明层（z-index 介于主会话与抽屉之间），点击经 `bindBackdropDismiss` 收起抽屉；触摸轻点经浏览器 tap→click 合成事件覆盖（与 ×/卡片交互一致，仅绑 click，不额外绑 touch 事件避免双触发与滑动误收起）；桌面断点外由媒体查询直接隐藏，无需 JS 断点监听（R-01-008/AC-03）。抽屉打开且处于移动断点时，激活当前会话对应的卡片（click 与 Enter/Space 同路径）经 `shouldDismissDrawerOnActivation` 纯函数判定转为 `togglePane(false)` 收起抽屉直达会话，不发起会话切换；分流前先按最新激活意图取消过期打开重试链（R-01-005），桌面断点、抽屉未打开或激活非当前卡片时维持既有切换行为（R-01-008/AC-06）。
   - 每张 card 在创建时注册自身的 `click` / `keydown` handler，直接读取当前 card 的 `data-session-id`；外部菜单与 pane 空白不进入卡片处理，配列表就绪重试。
+  - 回到顶部悬浮按钮：`.dap-top` 为窗格内 `position:absolute` 的胶囊按钮（底部居中），随窗格骨架创建、默认 `hidden`；滚动监听在 `scrollTop` 超过阈值 `TOP_THRESHOLD`（200px）时显示、回到阈值内隐藏；激活时 `scrollTo({ top: 0 })`，`prefersReducedMotion()` 命中用 `auto` 直接定位、否则 `smooth` 平滑滚动，滚动回顶经同一滚动监听自然收口隐藏；桌面折叠窄条态经 CSS 隐藏，移动端抽屉形态同样适用（抽屉即同一窗格）；监听随 `bindPaneControls` 的 unbind 清理，按钮随窗格骨架移除（R-01-018、R-02-003）。
 - 代码位置: src/client.mjs
 - 实现: 单端（浏览器 client bundle）

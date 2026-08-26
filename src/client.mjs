@@ -285,6 +285,13 @@ const CSS = `
   box-shadow: 0 0 0 1px color-mix(in srgb, #e8a33d 35%, transparent), 0 6px 16px rgba(0,0,0,.3);
   background: rgba(35, 31, 25, 0.97);
 }
+/* 等待卡同为当前会话时描边/光晕回归蓝色高亮（R-01-006/AC-01）：基态 [data-current]
+   与 [data-kind="awaiting"] 同优先级且定义在前，深色下被橙色描边顶掉；组合选择器
+   （0-4-0）压过两者，深浅主题同值。等待状态仍由圆点、「需要响应」徽标与底色承载。 */
+[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-current] {
+  border-color: color-mix(in srgb, #65a0ff 75%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #65a0ff 45%, transparent), 0 0 12px color-mix(in srgb, #65a0ff 30%, transparent);
+}
 /* 所有卡片统一提供可见的悬停反馈；不覆盖当前/等待态自身的颜色语义。 */
 [data-dsh-activity-pane] .dap-card:hover {
   filter: brightness(1.12);

@@ -2336,6 +2336,12 @@ assert.ok(
 		&& lightCurrentAt > bundle.indexOf('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="recent"] {'),
 	"浅色 [data-current] 重声明位于 :hover 与 [data-kind=recent] 覆盖之后（同优先级后定义者胜）",
 );
+// R-01-006/AC-01 等待卡同为当前会话时仍以蓝色描边/光晕高亮：[data-current] 基态规则
+// 与 [data-kind="awaiting"] 同优先级且定义在前，须由组合选择器（0-4-0）重声明。
+assert.ok(
+	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-current] {\n  border-color: color-mix(in srgb, #65a0ff 75%, transparent);\n  box-shadow: 0 0 0 1px color-mix(in srgb, #65a0ff 45%, transparent), 0 0 12px color-mix(in srgb, #65a0ff 30%, transparent);\n}'),
+	"等待当前卡重声明蓝色描边与光晕（组合选择器压过等待态橙色）",
+);
 
 
 console.log("check: all assertions passed");

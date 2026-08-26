@@ -42,7 +42,7 @@ import {
 	isActiveRow,
 	shouldSubscribeToSession,
 	activeSessionIds,
-	updateCompletedHolds,
+	completionReminder,
 	trackBoxes,
 	trackRuns,
 	isSubagentRow,
@@ -371,7 +371,7 @@ assert.equal(pendingText("approval"), "待确认");
 // ---- R-01-002/AC-03 完成主会话以「已完成」呈现 ----
 // 未知阻塞种类兜底「待处理」（不冒充已知类型）；完成态判定见下方 buildEntries 断言（R-01-001/AC-01）。
 assert.equal(pendingText("unknown-kind"), "待处理");
-assert.equal(ROUND_DONE_LABEL, "已完成", "完成提醒/响应保持标识为「已完成」（C-028）");
+assert.equal(ROUND_DONE_LABEL, "已完成", "完成提醒标识为「已完成」（C-028）");
 
 // ---- R-01-002/AC-09 等待卡备注行：动作+后果；待回复附问题首行；完成提醒固定文案 ----
 assert.equal(awaitNoteText("blocked", "approval"), "等待你确认授权后继续");
@@ -482,7 +482,7 @@ const snapshot = {
 		sA: { entries: [{ id: "sA-c1", label: "子代理一号" }] },
 	},
 };
-const entries = buildEntries(snapshot, workspaces);
+const entries = buildEntries(snapshot, workspaces, {}, new Map([["sB", { lastTurnEnd: 1000, ackedAt: null }]]));
 assert.deepEqual(
 	entries.map((e) => [e.id, e.kind, e.depth, e.title]),
 	[
@@ -605,11 +605,11 @@ assert.equal(
 	false,
 	"委托周期母会话不建立轮内状态订阅（宿主 running 为准，R-02-004/AC-01）",
 );
-// ---- R-01-002/AC-03、R-01-010/AC-06 委托周期压制完成提醒与响应保持 ----
+// ---- R-01-002/AC-03、R-01-010/AC-06 委托周期压制完成提醒 ----
 const delegCompleted = {
 	ids: ["root", "child"],
 	byId: {
-		root: { id: "root", displayTitle: "母会话", running: false, completed: true, updatedAt: 1900 },
+		root: { id: "root", displayTitle: "母会话", running: false, updatedAt: 1900 },
 		child: { id: "child", displayTitle: "活动子会话", running: true, parentId: "root" },
 	},
 	current: null,
@@ -617,22 +617,22 @@ const delegCompleted = {
 assert.deepEqual(
 	buildEntries(delegCompleted, []).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
 	[["root", "running", null], ["child", "subagent", null]],
-	"存在活动后代时 completed 不产出「已完成」、卡片保持运行呈现（R-01-002/AC-03）",
+	"存在活动后代时完成确认不产出「已完成」、卡片保持运行呈现（R-01-002/AC-03）",
 );
 assert.deepEqual(
-	buildEntries(delegCompleted, [], {}, new Set(["root"])).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
+	buildEntries(delegCompleted, [], {}, null, new Set(["root"])).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
 	[["root", "running", null], ["child", "subagent", null]],
-	"存在活动后代时响应保持不生效、卡片保持运行呈现（R-01-010/AC-06）",
+	"存在活动后代时完成提醒不生效、卡片保持运行呈现（R-01-010/AC-06）",
 );
 assert.deepEqual(
-	buildEntries({ ids: ["root"], byId: { root: delegCompleted.byId.root }, current: null }, []).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null, entry.waitClass ?? null, entry.noteText ?? null]),
+	buildEntries({ ids: ["root"], byId: { root: delegCompleted.byId.root }, current: null }, [], {}, new Map([["root", { lastTurnEnd: 1500, ackedAt: null }]])).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null, entry.waitClass ?? null, entry.noteText ?? null]),
 	[["root", "awaiting", "已完成", "done", "本轮已完成，等你发送下一条指令"]],
 	"后代全部结束后完成提醒恢复显示（R-01-002/AC-03、AC-09）",
 );
 // ---- R-01-003/AC-05、R-01-009/AC-06 耗尽空窗（后代结束、settle 回合未启动）保持运行呈现 ----
 const drainGap = {
 	ids: ["root"],
-	byId: { root: { id: "root", displayTitle: "母会话", running: false, completed: true, updatedAt: 1900 } },
+	byId: { root: { id: "root", displayTitle: "母会话", running: false, updatedAt: 1900 } },
 	current: null,
 };
 assert.deepEqual(
@@ -641,7 +641,7 @@ assert.deepEqual(
 	"耗尽空窗内委托周期保持运行呈现、完成提醒不生效；descendantActive 仍为当帧原始后代活性（R-01-003/AC-05、R-01-002/AC-03）",
 );
 assert.deepEqual(
-	buildEntries(drainGap, [], {}, null).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
+	buildEntries(drainGap, [], {}, new Map([["root", { lastTurnEnd: 1500, ackedAt: null }]]), null).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
 	[["root", "awaiting", "已完成"]],
 	"无委托周期记账时同一快照回到等待呈现（空窗保持来自渲染层 delegatingIds 注入）",
 );
@@ -1780,7 +1780,8 @@ assert.notEqual(
 // ---- R-01-010/AC-01 非活动且 24h 内→最近历史区 ----
 const NOW = 2_000_000_000_000; // 固定时钟便于确定性断言
 // 注意：completed:true 的主会话是"待打开"的活动卡（在活动区），不属历史区；
-// 真实"最近历史"是已打开/已处理的非活动会话（running:false 且 completed:false）。
+// 真实"最近历史"是已处理（running:false 且无未确认完成）的非活动会话；
+// 「待打开E」为宿主 completed 边沿标志但无完成登记——按 C-030 口径不受活动判定。
 const recentSnap = {
 	ids: ["sA", "sB", "sOld", "sBlank", "sAwait"],
 	byId: {
@@ -1792,11 +1793,24 @@ const recentSnap = {
 	},
 	current: null,
 };
-const recent = buildRecent(recentSnap, [], NOW);
+// R-01-001/AC-01、R-01-002/AC-03（C-030）：宿主 completed 边沿标志本身不再驱动显示——
+// 无完成登记（completions 无记录）时 completed 行视为不活动，落入历史区。
+const recentUncompleted = buildRecent(recentSnap, [], NOW);
+assert.deepEqual(
+	recentUncompleted.map((e) => e.id),
+	["sAwait", "sB"],
+	"completed 边沿标志不参与活动/历史判定；无完成登记时按历史窗口入历史区（C-030）",
+);
+// 完成登记存在时（未确认完成）：待开 E 显示为完成提醒并排除出历史区（AC-03、R-01-010/AC-06）。
+const recentAcks = new Map([
+	["sAwait", { lastTurnEnd: NOW - 1_000, ackedAt: null }],
+	["sAwait2", { lastTurnEnd: NOW - 900, ackedAt: NOW - 2_000 }],
+]);
+const recent = buildRecent(recentSnap, [], NOW, undefined, {}, [], recentAcks);
 assert.deepEqual(
 	recent.map((e) => e.id),
 	["sB"],
-	"仅 24h 内已处理会话进入历史区；运行/待打开/超期/空白被过滤",
+	"完成登记表中未确认完成的会话留在活动区、排除出历史区；已确认的不再排除（仍按窗口入区）",
 );
 assert.deepEqual(
 	[recent[0].model, recent[0].reasoning, recent[0].userPreview, recent[0].agentPreview],
@@ -1816,7 +1830,7 @@ const recentWithPreviews = buildRecent(recentSnap, [], NOW, undefined, {
 		model: { model: "Model M", reasoning: "High" },
 		previews: { userPreview: "用户首行", agentPreview: "回复首行" },
 	},
-});
+}, [], recentAcks);
 assert.deepEqual(
 	recentWithPreviews[0],
 	{
@@ -1863,7 +1877,7 @@ const viaRunToIdle = buildEntries(
 	[],
 );
 assert.deepEqual(viaRunToIdle.map((e) => e.id), ["sB"], "运行中会话在活动区");
-const recentAfterIdle = buildRecent(recentSnap, [], NOW);
+const recentAfterIdle = buildRecent(recentSnap, [], NOW, undefined, {}, [], recentAcks);
 assert.ok(recentAfterIdle.some((e) => e.id === "sB"), "转为非活动后进入历史区");
 
 // ---- R-01-010/AC-03 历史区按最后活动时间从新到旧 ----
@@ -1965,121 +1979,77 @@ const crossWindow = buildRecent(
 );
 assert.equal(crossWindow.length, 0, "宿主时间超窗的会话不入历史区（跨窗长回合缺口，C-020）");
 
-// ---- R-01-002/AC-05、R-01-010/AC-06 响应保持：打开的完成提醒会话仍为当前会话时，保持活动卡位置与「已完成」呈现 ----
+// ---- R-01-002/AC-03、AC-05、AC-10～AC-12、R-01-010/AC-06 完成确认：未确认完成提醒保留活动卡；
+//     显式确认（按钮）或新回合隐式更替后解除；打开/切走/刷新不解除（C-030）----
 const holdBase = { id: "sB", displayTitle: "旧B", running: false, updatedAt: NOW - 1_000 };
-// 帧间登记：上一帧完成提醒的会话成为当前会话（覆盖宿主同帧切换 current 并清除 completed 的原子时序）。
-let held = updateCompletedHolds(new Set(), { ids: ["sB"], byId: { sB: { ...holdBase, completed: true } }, current: "sA" }, []);
-assert.deepEqual([...held], [], "完成提醒会话未被打开时不登记保持");
-held = updateCompletedHolds(held, { ids: ["sB"], byId: { sB: { ...holdBase, completed: false } }, current: "sB" }, ["sB"]);
-assert.deepEqual([...held], ["sB"], "完成提醒会话被打开即登记保持（宿主原子帧时序）");
-// 同帧登记：宿主先切 current、completed 尚未清除的时序。
+const acks = (lastTurnEnd, ackedAt = null) => new Map([["sB", { lastTurnEnd, ackedAt }]]);
+// completionReminder 成立判定：仅主会话、lastTurnEnd > ackedAt（无 ackedAt 视同未确认）。
+assert.equal(completionReminder(holdBase, { lastTurnEnd: 1000, ackedAt: null }, false), true, "有未确认完成即成立");
+assert.equal(completionReminder(holdBase, { lastTurnEnd: 1000, ackedAt: 999 }, false), true, "ackedAt 早于 lastTurnEnd 仍成立");
+assert.equal(completionReminder(holdBase, { lastTurnEnd: 1000, ackedAt: 1000 }, false), false, "ackedAt 齐平 lastTurnEnd 不成立");
+assert.equal(completionReminder(holdBase, { lastTurnEnd: 1000, ackedAt: 2000 }, false), false, "ackedAt 晚于 lastTurnEnd 不成立");
+assert.equal(completionReminder(holdBase, null, false), false, "无完成登记不成立（升级不回溯补发提醒）");
+assert.equal(completionReminder(holdBase, { lastTurnEnd: 0, ackedAt: null }, false), false, "lastTurnEnd 非法不作数");
+assert.equal(completionReminder({ id: "m-c1", parentId: "m", displayTitle: "子S" }, { lastTurnEnd: 1000, ackedAt: null }, true), false, "子代理不产生完成提醒");
+// 打开/切换当前会话不解除（AC-05）：完成提醒成立与 current 无关。
+// R-01-002/AC-05 打开或切换当前会话不解除完成提醒：判定与 current 无关（C-030）。
+const holdSnap = { ids: ["sB"], byId: { sB: holdBase }, current: "sA" };
+const confirmEntries = buildEntries(holdSnap, [], {}, acks(1000));
 assert.deepEqual(
-	[...updateCompletedHolds(new Set(), { ids: ["sB"], byId: { sB: { ...holdBase, completed: true } }, current: "sB" }, [])],
-	["sB"],
-	"completed 与 current 同帧命中同样登记保持",
+	confirmEntries.map((e) => [e.id, e.kind, e.pendingText, e.waitClass, e.isCurrent]),
+	[["sB", "awaiting", "已完成", "done", false]],
+	"未确认完成提醒以 awaiting「已完成」留在活动区，是否当前会话无关",
 );
-// 保持期间：活动区以 awaiting「已完成」呈现并高亮当前，历史区排除，分区不变量不破。
-const holdSnap = { ids: ["sB"], byId: { sB: { ...holdBase, completed: false } }, current: "sB" };
-const heldEntries = buildEntries(holdSnap, [], {}, held);
 assert.deepEqual(
-	heldEntries.map((e) => [e.id, e.kind, e.pendingText, e.waitClass, e.isCurrent]),
-	[["sB", "awaiting", "已完成", "done", true]],
-	"保持中会话以 awaiting「已完成」留在活动区且保持当前高亮",
-);
-assert.deepEqual(
-	awaitBadgeStats(heldEntries),
+	awaitBadgeStats(confirmEntries),
 	{ waiting: 1, blocked: 0, total: 1 },
-	"响应保持中会话计入徽标等待分子但不计阻塞（n 统计口径含响应保持，R-01-002/AC-06）",
+	"完成提醒计入徽标等待分子但不计阻塞（R-01-002/AC-06）",
 );
-// 保持中发消息转 running：按运行中呈现。
-const holdRunning = buildEntries({ ids: ["sB"], byId: { sB: { ...holdBase, running: true } }, current: "sB" }, [], {}, held);
-assert.equal(holdRunning[0].kind, "running", "保持中会话开始运行时按运行中呈现");
-// 用户一直停留在该会话：保持不解除；current 暂缺（导航瞬时态）同样不解除。
-held = updateCompletedHolds(held, holdSnap, []);
-assert.deepEqual([...held], ["sB"], "当前会话不变时保持不解除");
-held = updateCompletedHolds(held, { ...holdSnap, current: null }, []);
-assert.deepEqual([...held], ["sB"], "current 暂缺时不解除保持");
-// 当前会话切走：解除保持，会话落入历史区。
-held = updateCompletedHolds(
-	held,
-	{ ids: ["sA", "sB"], byId: { sA: { id: "sA", displayTitle: "主A", running: true }, sB: { ...holdBase, completed: false } }, current: "sA" },
-	[],
-);
-assert.deepEqual([...held], [], "当前会话切走后解除保持");
 assert.deepEqual(
-	buildRecent(holdSnap, [], NOW, undefined, {}, [], held).map((e) => e.id),
+	buildRecent(holdSnap, [], NOW, undefined, {}, [], acks(1000)).map((e) => e.id),
+	[],
+	"未确认完成提醒不入历史区（分区不变量）",
+);
+// running 抑制：完成提醒在运行期间按运行卡呈现（C-030 呈现层抑制条件不变）。
+const confirmRunning = buildEntries({ ids: ["sB"], byId: { sB: { ...holdBase, running: true } }, current: null }, [], {}, acks(1000));
+assert.equal(confirmRunning[0].kind, "running", "完成提醒在运行期间被呈现抑制");
+// 显式确认（AC-10）：ackedAt 前移即解除，会话退出活动区、转入历史区。
+const ackedMap = acks(1000, 1500);
+assert.deepEqual(
+	buildEntries(holdSnap, [], {}, ackedMap).map((e) => [e.id, e.kind]),
+	[],
+	"确认后完成提醒解除、退出活动区",
+);
+assert.deepEqual(
+	buildRecent(holdSnap, [], NOW, undefined, {}, [], ackedMap).map((e) => e.id),
 	["sB"],
-	"解除保持后会话进入历史区",
+	"确认后会话进入历史区",
 );
-// 会话行消失：保持记账清理。
-assert.deepEqual([...updateCompletedHolds(new Set(["sB"]), { ids: [], byId: {}, current: null }, [])], [], "会话行消失时保持记账清理");
-// 列表快照在途/缺失（loading）时保持记账原样保留，不因瞬时 byId 缺失误解除。
-assert.deepEqual([...updateCompletedHolds(new Set(["sB"]), undefined, [])], ["sB"], "列表快照缺失时保持记账保留");
-assert.deepEqual([...updateCompletedHolds(new Set(["sB"]), { phase: "pending" }, [])], ["sB"], "列表快照在途时保持记账保留");
-// 子代理不进入保持（完成提醒语义仅主会话）。
+// 新回合隐式更替：lastTurnEnd 前移后旧确认游标不再覆盖新回合（仍未确认则对新回合成立）。
+assert.equal(completionReminder(holdBase, { lastTurnEnd: 2000, ackedAt: 1500 }, false), true, "新回合完成后提醒针对新回合重新成立");
+// 委托周期抑制：后代活动期间完成提醒不生效（呈现不依赖宿主 completed）。
+const delegDoneMix = { ids: ["root", "root-c1"], byId: { root: holdBase, "root-c1": { id: "root-c1", displayTitle: "子S", parentId: "root", running: true } }, current: null };
 assert.deepEqual(
-	[
-		...updateCompletedHolds(
-			new Set(),
-			{ ids: ["m", "m-c1"], byId: { m: { id: "m", displayTitle: "主M", running: false }, "m-c1": { id: "m-c1", displayTitle: "子S", running: false, completed: true, parentId: "m" } }, current: "m-c1" },
-			[],
-		),
-	],
-	[],
-	"子代理 completed 同帧命中也不登记保持",
+	buildEntries(delegDoneMix, [], {}, acks(1000), new Set(["root"])).map((e) => [e.id, e.pendingText ?? null]),
+	[["root", null], ["root-c1", null]],
+	"委托周期中完成提醒不生效",
+);
+// 阻塞等待优先：pendingInteraction 时按对应文案呈现而非「已完成」。
+const pendingMixSnap = { ids: ["sB"], byId: { sB: { ...holdBase, pendingInteraction: "approval" } }, current: null };
+assert.deepEqual(
+	buildEntries(pendingMixSnap, [], {}, acks(1000)).map((e) => [e.id, e.kind, e.pendingText, e.waitClass]),
+	[["sB", "awaiting", "待确认", "blocked"]],
+	"阻塞等待优先于完成提醒呈现",
 );
 
 // ---- R-01-016/AC-01 等待卡条目承载会话最后已知工作项时间线（数据路径）----
 const settledTrace = [{ id: "w1", kind: "tool", label: "Bash", summary: "pnpm check", status: "done" }];
-const awaitingTraceEntries = buildEntries(holdSnap, [], { sB: { timeline: settledTrace } }, new Set(["sB"]));
-assert.equal(awaitingTraceEntries[0].kind, "awaiting", "响应保持中会话以 awaiting 卡呈现");
+const awaitingTraceEntries = buildEntries(holdSnap, [], { sB: { timeline: settledTrace } }, acks(1000));
+assert.equal(awaitingTraceEntries[0].kind, "awaiting", "完成提醒中会话以 awaiting 卡呈现");
 assert.deepEqual(awaitingTraceEntries[0].timeline, settledTrace, "awaiting 条目承载会话最近工作项时间线（R-01-016/AC-01）");
 const pendingTraceEntries = buildEntries(pendingSnap, [], { sP: { timeline: settledTrace } });
 assert.equal(pendingTraceEntries[0].kind, "awaiting", "待确认会话以 awaiting 卡呈现");
 assert.deepEqual(pendingTraceEntries[0].timeline, settledTrace, "待确认 awaiting 条目同样承载时间线（R-01-016/AC-01）");
-
-// ---- R-01-010/AC-06 响应保持扩展：当前焦点下运行结束（宿主不置 completed）同样保持 ----
-const focusRun = { ids: ["sB"], byId: { sB: { ...holdBase, running: true, completed: false } }, current: "sB" };
-let heldFocus = updateCompletedHolds(new Set(), focusRun, ["sB"]);
-assert.deepEqual([...heldFocus], [], "仍在运行时不登记保持（isOwnActiveRow 守卫）");
-const focusDone = { ids: ["sB"], byId: { sB: { ...holdBase, running: false, completed: false } }, current: "sB" };
-heldFocus = updateCompletedHolds(heldFocus, focusDone, ["sB"]);
-assert.deepEqual([...heldFocus], ["sB"], "当前焦点下运行结束即登记保持");
-assert.deepEqual(
-	buildEntries(focusDone, [], {}, heldFocus).map((e) => [e.id, e.kind, e.pendingText, e.isCurrent]),
-	[["sB", "awaiting", "已完成", true]],
-	"焦点下结束的会话以「已完成」留在活动区",
-);
-assert.equal(buildRecent(focusDone, [], NOW, undefined, {}, [], heldFocus).length, 0, "焦点下结束的会话不入历史区");
-assert.deepEqual(
-	[...updateCompletedHolds(new Set(), { ids: ["sB"], byId: { sB: { ...holdBase, running: false, completed: true } }, current: "sA" }, ["sB"])],
-	[],
-	"非当前会话结束不登记保持（走宿主 completed 完成提醒路径）",
-);
-// 等待项（待确认/待审查）在焦点下被解除转空闲：同属自身活动变为非活动，同样登记保持。
-const pendingWait = { ids: ["sB"], byId: { sB: { ...holdBase, running: false, completed: false, pendingInteraction: { kind: "approval" } } }, current: "sB" };
-let heldPending = updateCompletedHolds(new Set(), pendingWait, ["sB"]);
-assert.deepEqual([...heldPending], [], "等待未解除时不登记保持（isOwnActiveRow 守卫）");
-heldPending = updateCompletedHolds(heldPending, focusDone, ["sB"]);
-assert.deepEqual([...heldPending], ["sB"], "焦点下解除等待转空闲同样登记保持");
-assert.deepEqual(
-	[
-		...updateCompletedHolds(
-			new Set(),
-			{
-				ids: ["m", "m-c1"],
-				byId: {
-					m: { id: "m", displayTitle: "主M", running: false },
-					"m-c1": { id: "m-c1", displayTitle: "子S", running: false, parentId: "m" },
-				},
-				current: "m-c1",
-			},
-			["m-c1"],
-		),
-	],
-	[],
-	"子代理在焦点下结束不登记保持",
-);
 
 // ---- R-01-010/AC-07 活动区→历史区迁移判定 ----
 assert.deepEqual(
@@ -2416,8 +2386,25 @@ assert.ok(
 assert.ok(bundle.includes("function activeSessionIds(byId = {})"), "活动子代理沿 parentId 链补齐活动祖先");
 // ---- R-01-016/AC-01 等待卡保留最近工作项时间线 ----
 assert.ok(
-	bundle.includes('return [head, row, makeEl("div", "dap-trace"), makeEl("div", "dap-note")];'),
-	"awaiting 骨架在标题行与 note 之间含时间线容器（R-01-016/AC-01）",
+	bundle.includes('return [head, row, makeEl("div", "dap-trace"), noteRow];'),
+	"awaiting 骨架在标题行与备注行之间含时间线容器（R-01-016/AC-01）",
+);
+// ---- R-01-002/AC-10 完成提醒卡确认按钮 ----
+assert.ok(
+	bundle.includes('noteRow.append(makeEl("div", "dap-note"), makeConfirmButton());'),
+	"awaiting 备注行容器含确认按钮（R-01-002/AC-10）",
+);
+assert.ok(bundle.includes('button.className = "dap-confirm"') && bundle.includes('button.textContent = "知道了"'), "确认按钮以「知道了」文案与独立类呈现（R-01-002/AC-10）");
+assert.ok(
+	bundle.includes('confirm.addEventListener("click"') && bundle.includes("event.stopPropagation()") && bundle.includes("confirm.addEventListener(\"keydown\", (event) => event.stopPropagation())") && bundle.includes('ackCompletion(id)'),
+	"按钮点击/键盘激活写回 ack 且阻断卡片跳转（R-01-002/AC-10）",
+);
+assert.ok(bundle.includes('confirm.hidden = entry.waitClass !== "done"'), "仅「已完成」卡显示确认按钮，阻塞等待卡不显示（R-01-002/AC-10）");
+assert.ok(bundle.includes("new window.EventSource(`${ACK_API_BASE}/acks/stream`)"), "完成确认状态经 SSE 通道订阅（R-01-002/AC-11、AC-12）");
+assert.ok(bundle.includes("fetch(`${ACK_API_BASE}/ack`"), "确认写回经宿主侧 ack 路由（R-01-002/AC-10、AC-11）");
+assert.ok(
+	!bundle.includes("updateCompletedHolds") && !bundle.includes("heldCompletedIds") && !bundle.includes("prevActiveMainIds"),
+	"响应保持易失记账全套移除（C-030）",
 );
 // ---- R-01-003/AC-05 委托周期保持运行呈现：parent 卡形态已废除 ----
 assert.ok(
@@ -2548,9 +2535,12 @@ assert.ok(
 	!bundle.includes("ctx.get(\"dsh-answer-pet\")"),
 	"不得以服务方式依赖第三方宠物插件",
 );
+// R-02-004/AC-02（演进，C-030）：完成确认写回是唯一 HTTP 请求——自家宿主侧路由、
+// 用户操作触发的一次性 POST，非状态轮询；轮内状态仍只来自原生订阅推送与 SSE 推送。
+// fetch 唯一性由下条断言钉住：轮询需要重复请求，唯一 fetch 即排除轮询形态。
 assert.ok(
-	!bundle.includes("fetch("),
-	"bundle 不得发起任何状态路由请求或状态轮询（R-02-004/AC-02）",
+	(bundle.match(/fetch\(/g) ?? []).length === 1 && bundle.includes("fetch(`${ACK_API_BASE}/ack`"),
+	"唯一的 fetch 调用是完成确认写回，指向宿主侧自家路由（R-01-002/AC-10、C-030）",
 );
 
 // ---- R-02-003/AC-02 卸载时清理注入元素、样式与监听 ----
@@ -2639,7 +2629,7 @@ assert.ok(bundle.includes(".dap-fill {\n  position: absolute; inset: 0 auto 0 0;
 assert.ok(bundle.includes("animation: dap-stripes 0.8s linear infinite;"), "进度条条纹持续向右滚动动画（R-01-009/AC-08）");
 assert.ok(!bundle.includes("data-streaming"), "条纹不再经 data-streaming 流式门控（R-01-009/AC-08）");
 assert.ok(!bundle.includes("entry.streaming"), "streaming 派生字段随条纹门控移除（R-01-009/AC-08）");
-assert.ok(bundle.indexOf('const track = makeEl("div", "dap-track");') > bundle.indexOf('return [head, row, makeEl("div", "dap-trace"), makeEl("div", "dap-note")];'), "进度条骨架仅属运行卡，非运行卡不呈现条纹（R-01-009/AC-08）");
+assert.ok(bundle.indexOf('const track = makeEl("div", "dap-track");') > bundle.indexOf('return [head, row, makeEl("div", "dap-trace"), noteRow];'), "进度条骨架仅属运行卡，非运行卡不呈现条纹（R-01-009/AC-08）");
 assert.ok(bundle.includes("animation: dap-pulse 1.15s ease-in-out infinite"), "运行中蓝色节点保留脉冲动画");
 assert.ok(bundle.includes("dataset.traceKey"), "同一流程节点复用 DOM，脉冲动画不因时钟刷新重置");
 assert.ok(!bundle.includes(".dap-trace-item[data-status=\"running\"]::before {\n    animation: none !important;"), "降低动效设置不关闭运行点脉冲");
@@ -2935,6 +2925,22 @@ assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-current] {\n  border-color: color-mix(in srgb, #65a0ff 75%, transparent);\n  box-shadow: 0 0 0 1px color-mix(in srgb, #65a0ff 45%, transparent), 0 0 12px color-mix(in srgb, #65a0ff 30%, transparent);\n}'),
 	"等待当前卡重声明蓝色描边与光晕（组合选择器压过等待态橙色）",
 );
+
+
+// ---- R-01-002/AC-10～AC-12 宿主侧完成确认契约（C-030）----
+// R-01-002/AC-12 刷新/重连恢复：状态由宿主侧持久化承载，不依赖客户端在线观测。
+const hostSource = await readFile(join(root, "src/host.mjs"), "utf8");
+const hostEntry = await readFile(join(root, ".dsh-plugin/index.mjs"), "utf8");
+execFileSync(process.execPath, ["--check", join(root, "src/host.mjs")], { stdio: "pipe" });
+execFileSync(process.execPath, ["--check", join(root, ".dsh-plugin/index.mjs")], { stdio: "pipe" });
+assert.ok(hostEntry.includes("from '../src/host.mjs'") && hostEntry.includes("export { apply, inject, name }"), "宿主侧入口转发 src/host.mjs（免构建）");
+assert.ok(hostSource.includes("ctx.on('session/event'") && hostSource.includes("event?.type !== 'turn/end'"), "宿主侧订阅 session/event 并过滤 turn/end（AC-03）");
+assert.ok(hostSource.includes("event.time"), "以事件顶层 time 登记回合结束时刻");
+assert.ok(hostSource.includes("storageDomain.open(domainSpec)") && hostSource.includes("acks: domainTable(ackRecord)"), "完成确认状态持久化于 storageDomain 表（AC-12）");
+assert.ok(hostSource.includes("const API_PATH = '/dsh-activity-pane/api'") && hostSource.includes("path: API_PATH"), "宿主侧路由挂载于 /dsh-activity-pane/api");
+assert.ok(hostSource.includes("'/acks/stream'") && hostSource.includes("text/event-stream"), "SSE 推送通道（AC-11、AC-12）");
+assert.ok(hostSource.includes("'/ack'") && hostSource.includes("ackedAt: Date.now()"), "ack 写回路由（AC-10～AC-12）");
+assert.ok(hostSource.includes("streamClients") && hostSource.includes("for (const res of streamClients)"), "SSE 连接集合随卸载全数关闭");
 
 
 console.log("check: all assertions passed");

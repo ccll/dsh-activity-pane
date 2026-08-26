@@ -22,6 +22,10 @@
     "README.md",
     "LICENSE"
   ],
+  "dependencies": {
+    "@deepseek-ai/dsh-storage-domain": "0.1.0-rc.6",
+    "zod": "^4.4.3"
+  },
   "scripts": {
     "build:client": "node scripts/build-client.mjs",
     "check": "node scripts/check.mjs",

@@ -39,7 +39,7 @@ const PENDING_NOTES = {
 const PENDING_UNKNOWN_LABEL = "待处理";
 const PENDING_UNKNOWN_NOTE = "等待你处理后继续";
 
-/** 完成提醒/响应保持的等待文案（R-01-002）：产出（pendingText 兜底、buildEntries）与
+/** 完成提醒的等待文案（R-01-002）：产出（pendingText 兜底、buildEntries）与
  *  呈现判定共用同一常量，避免字面量多处比较漂移。 */
 const ROUND_DONE_LABEL = "已完成";
 
@@ -963,7 +963,7 @@ function timelineQuestionPreview(timeline) {
 	return null;
 }
 
-/** 数量徽标统计：只统计主会话——分子为等待行动（awaiting，含响应保持）的主会话数，
+/** 数量徽标统计：只统计主会话——分子为等待行动（awaiting，含完成提醒）的主会话数，
  *  分母为其加运行中（running，含委托周期保持运行呈现）主会话之和；子代理不计入
  *  （R-01-001/AC-05）。blocked 为其中阻塞等待（待确认/待审查/待回复）的主会话数，
  *  驱动计数徽标脉冲门控（R-01-002/AC-06）。空列表返回 { waiting: 0, blocked: 0, total: 0 }。 */
@@ -1191,13 +1191,14 @@ function mainTitle(byId, id) {
  *   - 主会话 running（且无 pending）或处于委托周期（含后代耗尽空窗）→ 'running'
  *   - 主会话 pendingInteraction / completed → 'awaiting'（等待用户行动）
  *   - 子代理 running / pending 或存在活动后代 → 'subagent'，自身与后代均不活动则不显示
- * heldIds（响应保持，R-01-002/AC-05、R-01-010/AC-06）：集合内主会话按 awaiting
- * 「已完成」保留在活动区。delegatingIds（委托周期集合，渲染层由 progressAnchor
+ * completions（完成确认，R-01-002/AC-05、R-01-010/AC-06）：Map id → { lastTurnEnd, ackedAt }，
+ * 由渲染层从宿主侧 ack 状态通道注入；其中完成提醒成立（completionReminder）的主会话按
+ * awaiting「已完成」保留在活动区。delegatingIds（委托周期集合，渲染层由 progressAnchor
  * 记账派生）：集合内会话视同处于委托周期——后代耗尽至 settle 处理回合启动的
- * 空窗内仍保持运行呈现、完成提醒与响应保持不生效；条目的 descendantActive 字段
+ * 空窗内仍保持运行呈现、完成提醒不生效；条目的 descendantActive 字段
  * 始终为当帧原始后代活性（供进度锚点记账判定耗尽），不受 delegatingIds 影响。
  */
-function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds = null, delegatingIds = null) {
+function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
@@ -1206,7 +1207,7 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds = null
 		: {};
 	const rank = workspaceRank(workspaceItems ?? []);
 	const descendantIds = descendantActiveIds(byId);
-	// 第一遍：层级关系 + 显示判定（show = 自身活动 || 委托周期 || 响应保持，单点实现避免漂移）。
+	// 第一遍：层级关系 + 显示判定（show = 自身活动 || 委托周期 || 完成提醒，单点实现避免漂移）。
 	const rootIds = [];
 	const childIds = new Map();
 	const meta = new Map();
@@ -1224,14 +1225,14 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds = null
 		const running = row.running === true;
 		const pending = row.pendingInteraction !== undefined;
 		const isSub = hasParent;
-		// 响应保持（R-01-002/AC-05、R-01-010/AC-06）：保持中主会话按自身活动计入。
-		const held = !isSub && heldIds instanceof Set && heldIds.has(String(id));
+		// 完成确认（R-01-002/AC-03、AC-05、R-01-010/AC-06）：未确认的完成提醒按自身活动计入。
+		const done = completionReminder(row, completionFor(id, completions), isSub);
 		// 子代理完成且没有活动后代时消失；主会话完成后保留为"等待打开"；母会话在委托周期保持运行呈现（R-01-003/AC-05）。
 		const selfActive = isOwnActiveRow(row, byId);
 		const descendantActive = descendantIds.has(String(id));
 		const delegating = descendantActive || (delegatingIds instanceof Set && delegatingIds.has(String(id)));
-		const show = selfActive || delegating || held;
-		meta.set(id, { row, running, pending, isSub, show, held, descendantActive, delegating, depth: 0 });
+		const show = selfActive || delegating || done;
+		meta.set(id, { row, running, pending, isSub, show, done, descendantActive, delegating, depth: 0 });
 	}
 
 	// 主会话按 workspace 顺序排序；未归入任何工作区的主会话保持在 lineage 中靠后。
@@ -1262,8 +1263,8 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds = null
 			const workspace = m.isSub
 				? { title: "", key: "" }
 				: workspaceInfoForSession(id, workspaceItems ?? [], byId);
-			// 完成提醒/响应保持判定单点（R-01-002）：pendingText/waitClass/noteText 三字段共用。
-			const doneWait = !m.pending && (m.row.completed === true || m.held) && !m.running && !m.delegating;
+			// 完成确认判定单点（R-01-002）：pendingText/waitClass/noteText 三字段共用。
+			const doneWait = !m.pending && m.done && !m.running && !m.delegating;
 			entries.push({
 				id,
 				parentId: m.isSub ? String(parentId) : null,
@@ -1292,7 +1293,7 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, heldIds = null
 					: doneWait
 					? ROUND_DONE_LABEL
 						: undefined,
-				// 等待双类（R-01-002）：blocked=阻塞等待（待确认/待审查/待回复），done=完成提醒/响应保持。
+				// 等待双类（R-01-002）：blocked=阻塞等待（待确认/待审查/待回复），done=完成提醒。
 				waitClass: m.pending
 					? "blocked"
 					: doneWait
@@ -1432,13 +1433,15 @@ function isSubagentRow(row, byId = {}) {
 	return id !== undefined && id !== null && isRecord(byId[id]);
 }
 
-/** 会话行是否满足自身状态的活动判定，不含后代活动继承。 */
+/** 会话行是否满足自身状态的活动判定，不含后代活动继承。
+ *  完成提醒（未确认完成）的显示与否不在此判定：由 buildEntries 经 completionReminder
+ *  单点派生（C-030 唯一口径，不消费宿主 completed 边沿标志）。 */
 function isOwnActiveRow(row, byId = {}) {
 	if (!isRecord(row)) return false;
 	const running = row.running === true;
 	const pending = row.pendingInteraction !== undefined;
 	if (isSubagentRow(row, byId)) return running || pending;
-	return running || pending || row.completed === true;
+	return running || pending;
 }
 
 /** 沿自身活动会话的有效 parentId 链上溯收集会话 id：includeSelf 含活动会话自身，
@@ -1480,35 +1483,28 @@ function isActiveRow(row, byId = {}, activeIds = null) {
 	return activeIds instanceof Set && row?.id != null && activeIds.has(String(row.id));
 }
 
+/** 取某会话的完成确认记账（R-01-002/AC-03）：completions 为 Map id → { lastTurnEnd, ackedAt }，
+ *  恒为普通对象或 null；不抛错、不信任入参形状。 */
+function completionFor(id, completions) {
+	if (!(completions instanceof Map)) return null;
+	return isRecord(completions.get(String(id))) ? completions.get(String(id)) : null;
+}
+
 /**
- * 响应保持记账（R-01-002/AC-05、R-01-010/AC-06）：主会话结束一轮后仍为当前会话期间，
- * 由本记账让会话以 awaiting 留在活动区。登记（单点）：上一帧自身活动（running/awaiting）
- * 的主会话在当前焦点下变为非活动——覆盖完成提醒卡被激活（宿主同帧切换 current 并清除
- * completed 的原子时序）与当前焦点下运行结束（宿主不置 completed）两条路径；同帧
- * `completed && current` 兜底（宿主先切 current 后清 completed 的时序）。
- * 解除：当前会话非空且切走、或会话行消失。仅主会话参与；返回新集合，不改入参。
+ * 完成确认判定（R-01-002/AC-03、AC-05、R-01-010/AC-06）：会话存在 `lastTurnEnd > ackedAt`
+ * 的未确认完成时成立——解除仅经显式确认（ackedAt 前移）或新回合完成（lastTurnEnd 前移，
+ * 旧提醒被新回合更替）；打开会话、切换当前会话与页面刷新均不解除。仅主会话参与；
+ * 成立与否只依赖宿主持久状态，不依赖客户端在线观测。running/阻塞等待/委托周期的
+ * 呈现抑制由调用方（buildEntries 的 doneWait）处理。
  */
-function updateCompletedHolds(heldIds, snapshot, prevActiveIds = []) {
-	const next = new Set(heldIds instanceof Set ? heldIds : []);
-	// 列表快照在途（缺失/无 byId）时原样保留保持记账：瞬时 loading 不得误解除。
-	if (!isRecord(snapshot) || !isRecord(snapshot.byId)) return next;
-	const byId = snapshot.byId;
-	const current = snapshot?.current ?? null;
-	const isCurrent = (id) => current !== null && String(current) === id;
-	for (const id of Array.isArray(prevActiveIds) ? prevActiveIds : []) {
-		const key = String(id);
-		if (!isCurrent(key)) continue;
-		const row = byId[key];
-		if (isRecord(row) && !isSubagentRow(row, byId) && !isOwnActiveRow(row, byId)) next.add(key);
-	}
-	for (const [id, row] of Object.entries(byId)) {
-		if (row?.completed === true && isCurrent(String(id)) && !isSubagentRow(row, byId)) next.add(String(id));
-	}
-	for (const id of next) {
-		if (!isRecord(byId[id])) next.delete(id);
-		else if (current !== null && String(current) !== id) next.delete(id);
-	}
-	return next;
+function completionReminder(row, completion, isSub = false) {
+	if (isSub || !isRecord(row)) return false;
+	const record = isRecord(completion) ? completion : null;
+	const lastTurnEnd = record === null ? null : Number(record.lastTurnEnd);
+	const ackedAt = record === null ? null : Number(record.ackedAt);
+	if (!Number.isFinite(lastTurnEnd)) return false; // 无 turn/end 登记即无提醒（升级不回溯补发）
+	if (!Number.isFinite(ackedAt)) return true;
+	return lastTurnEnd > ackedAt;
 }
 
 /**
@@ -1572,12 +1568,12 @@ function lastTurnEndFromTimings(turnTimings) {
  * （子代理是临时工作单元，不入最近历史；故需同时排除表白会话与已结束子代理），
  * 按最后活动时间从新到旧，最多 HISTORY_MAX 条。blank 会话不出现（从未用过）；
  * 归档会话不出现——原生 runtime 会立即清空对归档会话的选中，列出它只会得到
- * 一张点了回落到新会话界面的死卡。响应保持中的会话留在活动区，不入历史区；
+ * 一张点了回落到新会话界面的死卡。完成确认中的会话留在活动区，不入历史区；
  * 委托周期（含耗尽空窗）中的会话同样留在活动区（delegatingIds，分区不变量）。
  * 窗口候选判定用宿主列表时间（下界）；turnEnds（id → 已知回合结束时刻）驱动
  * 时间精化：条目 activityAt 取宿主列表时间与回合结束时刻的较新者（R-01-010/AC-08、AC-09）。
  */
-function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS, detailsById = {}, archivedIds = [], heldIds = null, delegatingIds = null, turnEnds = null) {
+function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS, detailsById = {}, archivedIds = [], completions = null, delegatingIds = null, turnEnds = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
@@ -1591,9 +1587,9 @@ function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS
 		if (!isRecord(row)) continue;
 		if (row.blank === true) continue;
 		if (archived.has(id)) continue; // 归档会话不可选中，不入最近历史
-		if (heldIds instanceof Set && heldIds.has(String(id))) continue; // 响应保持中，留在活动区
+		if (isSubagentRow(row, byId)) continue; // 子代理（含已结束）不入最近历史；也无完成提醒语义
+		if (completionReminder(row, completionFor(id, completions), false)) continue; // 完成确认中，留在活动区
 		if (delegatingIds instanceof Set && delegatingIds.has(String(id))) continue; // 委托周期中（含耗尽空窗），留在活动区
-		if (isSubagentRow(row, byId)) continue; // 子代理（含已结束）不入最近历史
 		if (isActiveRow(row, byId, activeIds)) continue;
 		const updatedAt = Number(row.updatedAt);
 		if (!Number.isFinite(updatedAt)) continue;
@@ -1861,6 +1857,8 @@ const INSTANCE_KEY = "__dshActivityPaneCleanup";
 /** 拖拽调宽的 localStorage 持久化键（R-01-015/AC-04）。 */
 const WIDTH_STORAGE_KEY = "dsh-activity-pane:width";
 const COLLAPSED_WIDTH = 34;
+/** 宿主侧完成确认 API 前缀（C-030）：acks 快照 / SSE 推送 / ack 写回，同源受信。 */
+const ACK_API_BASE = "/dsh-activity-pane/api";
 // 缩进槽宽：与连接线 CSS 几何耦合（left:-8px = INDENT_PX/2 缩进槽中线，
 // top:-6px/bottom:-2px 对应 .dap-list 的 gap:6px），改任一数值须三处同步；
 // scripts/check.mjs 有钉住断言。
@@ -2277,6 +2275,24 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 11px; line-height: 15px;
   color: color-mix(in srgb, currentColor 62%, transparent);
+}
+/* 等待卡备注行容器：「已完成」卡在备注文本旁容纳确认按钮（R-01-002/AC-10）。 */
+[data-dsh-activity-pane] .dap-note-row {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+}
+[data-dsh-activity-pane] .dap-note-row .dap-note { flex: 1 1 auto; }
+[data-dsh-activity-pane] .dap-confirm {
+  flex: none; padding: 0 7px; margin: 1px 0;
+  font-size: 10.5px; line-height: 16px;
+  color: color-mix(in srgb, currentColor 76%, transparent);
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 5px;
+  cursor: pointer;
+}
+[data-dsh-activity-pane] .dap-confirm:hover {
+  color: color-mix(in srgb, currentColor 92%, transparent);
+  background: color-mix(in srgb, currentColor 14%, transparent);
 }
 /* 运行卡富化（对齐 answer-pet 卡片；MIT 参考，见 README）。 */
 [data-dsh-activity-pane] .dap-pct {
@@ -2740,11 +2756,9 @@ function apply(ctx) {
 	let paneWidth = readStoredPaneWidth();
 	/** 用户最近一次激活的卡片 id；打开重试链被更新的激活意图取代即取消。 */
 	let lastActivatedId = null;
-	/** 响应保持（R-01-002/AC-05、R-01-010/AC-06）：主会话结束一轮后仍为当前会话期间，
-	 *  保持其活动卡位置与「已完成」呈现；易失内存态，不写回宿主、不持久化。 */
-	let heldCompletedIds = new Set();
-	/** 上一帧自身活动（running/awaiting）的主会话条目 id：供保持登记覆盖宿主原子帧时序。 */
-	let prevActiveMainIds = [];
+	/** 完成确认状态（R-01-002/AC-03、AC-10～AC-12）：id → { lastTurnEnd, ackedAt }，
+	 *  来自宿主侧 ack 通道（SSE 全量快照），随每次推送整体替换。 */
+	const completeAcksById = new Map();
 	/** 上一帧已提交渲染的活动区 id 集合：活动区→历史区迁移检测（R-01-010/AC-07）。 */
 	let prevRenderedActiveIds = new Set();
 	/** 上一帧已提交渲染的历史区 id 集合：历史区→活动区迁移检测（R-01-010/AC-07）。 */
@@ -2894,6 +2908,59 @@ function apply(ctx) {
 			syncScheduled = false;
 			if (!disposed) render();
 		});
+	}
+
+	// ---- 完成确认通道（R-01-002/AC-10～AC-12、R-01-010/AC-06，C-030） ----
+	// SSE 订阅宿主侧 ack 状态：连接即收全量快照（刷新/重连恢复），此后每次变更
+	// （任一客户端的确认、任一回合结束）推送新全量。无 EventSource 环境静默降级
+	// 为无完成提醒（宿主侧不可用时插件其余功能不受影响）。
+	let acksSource = null;
+	try {
+		if (typeof window.EventSource === "function") {
+			acksSource = new window.EventSource(`${ACK_API_BASE}/acks/stream`);
+			acksSource.addEventListener("state", (event) => {
+				if (disposed) return;
+				let state = null;
+				try {
+					state = JSON.parse(event.data ?? "");
+				} catch {
+					state = null;
+				}
+				if (state === null || typeof state !== "object") return;
+				completeAcksById.clear();
+				for (const [id, record] of Object.entries(state)) {
+					const lastTurnEnd = Number(record?.lastTurnEnd);
+					if (Number.isFinite(lastTurnEnd) && lastTurnEnd > 0) {
+						completeAcksById.set(String(id), { lastTurnEnd, ackedAt: Number(record.ackedAt) || null });
+					}
+				}
+				queueSync();
+			});
+		}
+	} catch {
+		acksSource = null;
+	}
+
+	/** 确认写回（R-01-002/AC-10～AC-12）：乐观更新本地游标（签名驱动即时解除），
+	 *  再 POST 宿主侧持久化并广播；写回失败回滚本地游标（提醒恢复），不吞异常。 */
+	async function ackCompletion(sessionId) {
+		const id = String(sessionId);
+		const prev = completeAcksById.get(id) ?? null;
+		completeAcksById.set(id, { lastTurnEnd: prev?.lastTurnEnd ?? null, ackedAt: Date.now() });
+		queueSync();
+		try {
+			const response = await fetch(`${ACK_API_BASE}/ack`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ sessionId: id }),
+			});
+			if (!response.ok) throw new Error(`HTTP ${response.status}`);
+		} catch (error) {
+			console.warn(`[dsh-activity-pane] 完成确认写回失败（${id}）:`, error);
+			if (prev !== null) completeAcksById.set(id, prev);
+			else completeAcksById.delete(id);
+			queueSync();
+		}
 	}
 
 	function apiValue(response) {
@@ -3234,6 +3301,17 @@ function apply(ctx) {
 		return node;
 	}
 
+	/** 「已完成」卡确认按钮（R-01-002/AC-10）：默认隐藏，仅完成提醒卡显示；
+	 *  文案本身即可访问名称；点击与键盘激活均不得触发卡片跳转（激活锚点在渲染期绑定）。 */
+	function makeConfirmButton() {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "dap-confirm";
+		button.hidden = true;
+		button.textContent = "知道了";
+		return button;
+	}
+
 	/** 静态骨架卡片；动态文本一律走 textContent，规避 HTML 注入。 */
 	function cardChildren(kind) {
 		const head = makeEl("div", "dap-card-head");
@@ -3277,7 +3355,10 @@ function apply(ctx) {
 				makeEl("span", "dap-title"),
 				badge,
 			);
-			return [head, row, makeEl("div", "dap-trace"), makeEl("div", "dap-note")];
+			// 备注行容器：备注文本 + 「已完成」卡确认按钮（R-01-002/AC-10）。
+			const noteRow = makeEl("div", "dap-note-row");
+			noteRow.append(makeEl("div", "dap-note"), makeConfirmButton());
+			return [head, row, makeEl("div", "dap-trace"), noteRow];
 		}
 		// 运行卡：上下文 + 标题 + 最近工作项 + 进度条 + token 底行。
 		const row = makeEl("div", "dap-row");
@@ -3765,6 +3846,23 @@ function apply(ctx) {
 		if (entry.kind === "awaiting") {
 			const traceContainer = el.querySelector(".dap-trace");
 			if (traceContainer !== null) renderTimelineArea(traceContainer, entry);
+			const confirm = el.querySelector(".dap-confirm");
+			if (confirm !== null) {
+				// 激活锚点：只在结构重建时绑一次（卡片按 id 复用，kind 变化会重建骨架）。
+				if (confirm.dataset.bound !== "true") {
+					confirm.dataset.bound = "true";
+					confirm.addEventListener("click", (event) => {
+						event.preventDefault();
+						event.stopPropagation(); // 阻断卡片激活（R-01-002/AC-10）
+						const id = el.dataset.sessionId;
+						if (id) ackCompletion(id);
+					});
+					// Enter/Space 由按钮原生合成 click；此处阻断其冒泡到卡片 keydown 激活。
+					confirm.addEventListener("keydown", (event) => event.stopPropagation());
+				}
+				// 仅完成提醒（done）卡显示确认按钮；阻塞等待卡隐藏（其解除是真正回答）。
+				confirm.hidden = entry.waitClass !== "done";
+			}
 		}
 
 		const note = el.querySelector(".dap-note");
@@ -4263,16 +4361,13 @@ function apply(ctx) {
 		const archivedSessionIds = workspaceSnapshot?.archivedSessionIds ?? [];
 		const now = Date.now();
 
-		// 响应保持登记/解除先于派生（R-01-002/AC-05、R-01-010/AC-06）。
-		heldCompletedIds = updateCompletedHolds(heldCompletedIds, snapshot, prevActiveMainIds);
 		// 委托周期集合（R-01-003/AC-05）：由上一帧 progressAnchor 记账派生——后代耗尽
 		// 至 settle 处理回合启动的空窗内，母会话保持运行呈现且不入历史区（分区不变量）。
 		const delegatingIds = new Set();
 		for (const [id, state] of progressAnchorById) {
 			if (delegationActive(state, now)) delegatingIds.add(id);
 		}
-		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById, heldCompletedIds, delegatingIds);
-		prevActiveMainIds = active.filter((entry) => entry.kind === "running" || entry.kind === "awaiting").map((entry) => entry.id);
+		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById, completeAcksById, delegatingIds);
 		// 轮内订阅仅对"运行中"会话建立（主会话 + 运行中的子代理），保持在运行中的订阅
 		// 数量 == 运行中会话数量（R-02-004/AC-01）；暂停等待的子代理只显示标题。
 		const runLikeIds = new Set(
@@ -4382,7 +4477,7 @@ function apply(ctx) {
 			}
 			if (detail.memoTurnEnd != null) turnEnds[id] = detail.memoTurnEnd;
 		}
-		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds, heldCompletedIds, delegatingIds, turnEnds);
+		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds, completeAcksById, delegatingIds, turnEnds);
 		// 预览只对 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
 		for (const entry of recent) {
 			const detail = sessionDetailsById.get(entry.id);
@@ -4681,6 +4776,9 @@ function apply(ctx) {
 		disposed = true;
 		sessionUnsubscribe?.();
 		workspaceUnsubscribe?.();
+		acksSource?.close();
+		acksSource = null;
+		completeAcksById.clear();
 		if (clockTimer !== null) clearInterval(clockTimer);
 		for (const [, rec] of livenessById) {
 			try {

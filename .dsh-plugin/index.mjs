@@ -1,8 +1,5 @@
-// Host half intentionally does nothing. dsh-activity-pane only augments the
-// web client; every data source (sessions / workspaces client services) is
-// provided by DSH itself, so there is no host route of its own.
-export const name = 'dsh-activity-pane'
+// dsh-activity-pane 宿主侧入口（C-030）：转发到 src/host.mjs 的实现。
+// 本文件保持静态、免构建；实现改动只发生在 src/host.mjs。
+import { apply, inject, name } from '../src/host.mjs'
 
-export function apply() {
-  return () => {}
-}
+export { apply, inject, name }

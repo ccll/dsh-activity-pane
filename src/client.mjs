@@ -23,6 +23,8 @@ const INSTANCE_KEY = "__dshActivityPaneCleanup";
 /** 拖拽调宽的 localStorage 持久化键（R-01-015/AC-04）。 */
 const WIDTH_STORAGE_KEY = "dsh-activity-pane:width";
 const COLLAPSED_WIDTH = 34;
+/** 宿主侧完成确认 API 前缀（C-030）：acks 快照 / SSE 推送 / ack 写回，同源受信。 */
+const ACK_API_BASE = "/dsh-activity-pane/api";
 // 缩进槽宽：与连接线 CSS 几何耦合（left:-8px = INDENT_PX/2 缩进槽中线，
 // top:-6px/bottom:-2px 对应 .dap-list 的 gap:6px），改任一数值须三处同步；
 // scripts/check.mjs 有钉住断言。
@@ -439,6 +441,24 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 11px; line-height: 15px;
   color: color-mix(in srgb, currentColor 62%, transparent);
+}
+/* 等待卡备注行容器：「已完成」卡在备注文本旁容纳确认按钮（R-01-002/AC-10）。 */
+[data-dsh-activity-pane] .dap-note-row {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+}
+[data-dsh-activity-pane] .dap-note-row .dap-note { flex: 1 1 auto; }
+[data-dsh-activity-pane] .dap-confirm {
+  flex: none; padding: 0 7px; margin: 1px 0;
+  font-size: 10.5px; line-height: 16px;
+  color: color-mix(in srgb, currentColor 76%, transparent);
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 5px;
+  cursor: pointer;
+}
+[data-dsh-activity-pane] .dap-confirm:hover {
+  color: color-mix(in srgb, currentColor 92%, transparent);
+  background: color-mix(in srgb, currentColor 14%, transparent);
 }
 /* 运行卡富化（对齐 answer-pet 卡片；MIT 参考，见 README）。 */
 [data-dsh-activity-pane] .dap-pct {
@@ -902,11 +922,9 @@ function apply(ctx) {
 	let paneWidth = readStoredPaneWidth();
 	/** 用户最近一次激活的卡片 id；打开重试链被更新的激活意图取代即取消。 */
 	let lastActivatedId = null;
-	/** 响应保持（R-01-002/AC-05、R-01-010/AC-06）：主会话结束一轮后仍为当前会话期间，
-	 *  保持其活动卡位置与「已完成」呈现；易失内存态，不写回宿主、不持久化。 */
-	let heldCompletedIds = new Set();
-	/** 上一帧自身活动（running/awaiting）的主会话条目 id：供保持登记覆盖宿主原子帧时序。 */
-	let prevActiveMainIds = [];
+	/** 完成确认状态（R-01-002/AC-03、AC-10～AC-12）：id → { lastTurnEnd, ackedAt }，
+	 *  来自宿主侧 ack 通道（SSE 全量快照），随每次推送整体替换。 */
+	const completeAcksById = new Map();
 	/** 上一帧已提交渲染的活动区 id 集合：活动区→历史区迁移检测（R-01-010/AC-07）。 */
 	let prevRenderedActiveIds = new Set();
 	/** 上一帧已提交渲染的历史区 id 集合：历史区→活动区迁移检测（R-01-010/AC-07）。 */
@@ -1056,6 +1074,59 @@ function apply(ctx) {
 			syncScheduled = false;
 			if (!disposed) render();
 		});
+	}
+
+	// ---- 完成确认通道（R-01-002/AC-10～AC-12、R-01-010/AC-06，C-030） ----
+	// SSE 订阅宿主侧 ack 状态：连接即收全量快照（刷新/重连恢复），此后每次变更
+	// （任一客户端的确认、任一回合结束）推送新全量。无 EventSource 环境静默降级
+	// 为无完成提醒（宿主侧不可用时插件其余功能不受影响）。
+	let acksSource = null;
+	try {
+		if (typeof window.EventSource === "function") {
+			acksSource = new window.EventSource(`${ACK_API_BASE}/acks/stream`);
+			acksSource.addEventListener("state", (event) => {
+				if (disposed) return;
+				let state = null;
+				try {
+					state = JSON.parse(event.data ?? "");
+				} catch {
+					state = null;
+				}
+				if (state === null || typeof state !== "object") return;
+				completeAcksById.clear();
+				for (const [id, record] of Object.entries(state)) {
+					const lastTurnEnd = Number(record?.lastTurnEnd);
+					if (Number.isFinite(lastTurnEnd) && lastTurnEnd > 0) {
+						completeAcksById.set(String(id), { lastTurnEnd, ackedAt: Number(record.ackedAt) || null });
+					}
+				}
+				queueSync();
+			});
+		}
+	} catch {
+		acksSource = null;
+	}
+
+	/** 确认写回（R-01-002/AC-10～AC-12）：乐观更新本地游标（签名驱动即时解除），
+	 *  再 POST 宿主侧持久化并广播；写回失败回滚本地游标（提醒恢复），不吞异常。 */
+	async function ackCompletion(sessionId) {
+		const id = String(sessionId);
+		const prev = completeAcksById.get(id) ?? null;
+		completeAcksById.set(id, { lastTurnEnd: prev?.lastTurnEnd ?? null, ackedAt: Date.now() });
+		queueSync();
+		try {
+			const response = await fetch(`${ACK_API_BASE}/ack`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ sessionId: id }),
+			});
+			if (!response.ok) throw new Error(`HTTP ${response.status}`);
+		} catch (error) {
+			console.warn(`[dsh-activity-pane] 完成确认写回失败（${id}）:`, error);
+			if (prev !== null) completeAcksById.set(id, prev);
+			else completeAcksById.delete(id);
+			queueSync();
+		}
 	}
 
 	function apiValue(response) {
@@ -1396,6 +1467,17 @@ function apply(ctx) {
 		return node;
 	}
 
+	/** 「已完成」卡确认按钮（R-01-002/AC-10）：默认隐藏，仅完成提醒卡显示；
+	 *  文案本身即可访问名称；点击与键盘激活均不得触发卡片跳转（激活锚点在渲染期绑定）。 */
+	function makeConfirmButton() {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "dap-confirm";
+		button.hidden = true;
+		button.textContent = "知道了";
+		return button;
+	}
+
 	/** 静态骨架卡片；动态文本一律走 textContent，规避 HTML 注入。 */
 	function cardChildren(kind) {
 		const head = makeEl("div", "dap-card-head");
@@ -1439,7 +1521,10 @@ function apply(ctx) {
 				makeEl("span", "dap-title"),
 				badge,
 			);
-			return [head, row, makeEl("div", "dap-trace"), makeEl("div", "dap-note")];
+			// 备注行容器：备注文本 + 「已完成」卡确认按钮（R-01-002/AC-10）。
+			const noteRow = makeEl("div", "dap-note-row");
+			noteRow.append(makeEl("div", "dap-note"), makeConfirmButton());
+			return [head, row, makeEl("div", "dap-trace"), noteRow];
 		}
 		// 运行卡：上下文 + 标题 + 最近工作项 + 进度条 + token 底行。
 		const row = makeEl("div", "dap-row");
@@ -1927,6 +2012,23 @@ function apply(ctx) {
 		if (entry.kind === "awaiting") {
 			const traceContainer = el.querySelector(".dap-trace");
 			if (traceContainer !== null) renderTimelineArea(traceContainer, entry);
+			const confirm = el.querySelector(".dap-confirm");
+			if (confirm !== null) {
+				// 激活锚点：只在结构重建时绑一次（卡片按 id 复用，kind 变化会重建骨架）。
+				if (confirm.dataset.bound !== "true") {
+					confirm.dataset.bound = "true";
+					confirm.addEventListener("click", (event) => {
+						event.preventDefault();
+						event.stopPropagation(); // 阻断卡片激活（R-01-002/AC-10）
+						const id = el.dataset.sessionId;
+						if (id) ackCompletion(id);
+					});
+					// Enter/Space 由按钮原生合成 click；此处阻断其冒泡到卡片 keydown 激活。
+					confirm.addEventListener("keydown", (event) => event.stopPropagation());
+				}
+				// 仅完成提醒（done）卡显示确认按钮；阻塞等待卡隐藏（其解除是真正回答）。
+				confirm.hidden = entry.waitClass !== "done";
+			}
 		}
 
 		const note = el.querySelector(".dap-note");
@@ -2425,16 +2527,13 @@ function apply(ctx) {
 		const archivedSessionIds = workspaceSnapshot?.archivedSessionIds ?? [];
 		const now = Date.now();
 
-		// 响应保持登记/解除先于派生（R-01-002/AC-05、R-01-010/AC-06）。
-		heldCompletedIds = updateCompletedHolds(heldCompletedIds, snapshot, prevActiveMainIds);
 		// 委托周期集合（R-01-003/AC-05）：由上一帧 progressAnchor 记账派生——后代耗尽
 		// 至 settle 处理回合启动的空窗内，母会话保持运行呈现且不入历史区（分区不变量）。
 		const delegatingIds = new Set();
 		for (const [id, state] of progressAnchorById) {
 			if (delegationActive(state, now)) delegatingIds.add(id);
 		}
-		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById, heldCompletedIds, delegatingIds);
-		prevActiveMainIds = active.filter((entry) => entry.kind === "running" || entry.kind === "awaiting").map((entry) => entry.id);
+		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById, completeAcksById, delegatingIds);
 		// 轮内订阅仅对"运行中"会话建立（主会话 + 运行中的子代理），保持在运行中的订阅
 		// 数量 == 运行中会话数量（R-02-004/AC-01）；暂停等待的子代理只显示标题。
 		const runLikeIds = new Set(
@@ -2544,7 +2643,7 @@ function apply(ctx) {
 			}
 			if (detail.memoTurnEnd != null) turnEnds[id] = detail.memoTurnEnd;
 		}
-		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds, heldCompletedIds, delegatingIds, turnEnds);
+		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds, completeAcksById, delegatingIds, turnEnds);
 		// 预览只对 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
 		for (const entry of recent) {
 			const detail = sessionDetailsById.get(entry.id);
@@ -2843,6 +2942,9 @@ function apply(ctx) {
 		disposed = true;
 		sessionUnsubscribe?.();
 		workspaceUnsubscribe?.();
+		acksSource?.close();
+		acksSource = null;
+		completeAcksById.clear();
 		if (clockTimer !== null) clearInterval(clockTimer);
 		for (const [, rec] of livenessById) {
 			try {

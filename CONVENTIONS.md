@@ -43,7 +43,7 @@ owner: agent 主笔，项目属主审批
 
 - 本地开发安装（在 profile 中挂载；pnpm `link:` 使 profile 内为指向本仓库的符号链接）：`dsh plugin --profile web add ./dsh-activity-pane`。
 - `pnpm build:client` 生成 `.dsh-plugin/client.js`；`pnpm check` 做 core 单元检查 + bundle 校验；`pnpm dev:watch` 监视 `src/*.mjs`，变化即重建 bundle。
-- 热更开发：DSH 通过 `dsh-client-hmr` 监视已安装插件的 client bundle 文件，内容一变就推送 `rebuilt` 帧，浏览器单独热装该插件——不需要整页刷新，也不需要重启 `dsh web`（host 侧改动除外，本项目 host 侧为空）。
+- 热更开发：DSH 通过 `dsh-client-hmr` 监视已安装插件的 client bundle 文件，内容一变就推送 `rebuilt` 帧，浏览器单独热装该插件——不需要整页刷新，也不需要重启 `dsh web`（host 侧改动除外：本插件自 T-073 起 host 侧承载完成确认状态，改动 `src/host.mjs` 后需重启 `dsh web` 生效）。
 - 本插件以 `link:` 依赖装入 profile（符号链接），且 `scripts/build-client.mjs` 采用原子写入（临时文件 + rename），流程是：
   1. `dsh plugin --profile web add ./dsh-activity-pane`，然后重启一次 `dsh web`（新增 bundle 需重启才进入加载名单；之后的热更无需再重启）。
   2. 在本仓库运行 `pnpm dev:watch`（或 `node scripts/watch.mjs`）。

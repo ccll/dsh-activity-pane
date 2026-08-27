@@ -58,4 +58,16 @@ id: T-080
 
 ## 终态与证据
 
-待关闭时填写。
+状态: completed
+
+- 实现: `src/host.mjs`——acks 记录扩展 `{ lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }`（四字段 `.nullable().optional()` 兼容升级前旧记录，storageDomain 打开时按记录 parse、必填键缺失会 invalid-record 使 domain 不可用）；turn/end 登记读取 `data.reason.kind`（缺失/非法归一 `unknown`）、error 回合以 `reason.error.message`（仅字符串契约）经 `truncateErrorNote` 截断登记、非 error 回合清空；POST /ack 写回保留新字段；全量快照/SSE 下发新字段。`src/core.mjs`——新增 `errorReminder`（主会话 && `lastTurnEndKind === 'error'` 成立、不消费 ack 游标、随新回合结束覆盖）、`entryErrorNote`（错误信息/回落 `ERROR_NOTE_FALLBACK`）、导出 `truncateErrorNote`（按码点截断、省略号不计上限）；`buildEntries` 派生 `waitClass='error'`（错误优先于完成）、`buildRecent` 排除错误提醒会话、`awaitBadgeTone` 按 错误>阻塞>完成 优先级取色；`ROUND_DONE_NOTE` 改「继续对话，或移入历史」（语义由「已完成」胶囊承载）。`src/client.mjs`——等待卡末行改「胶囊行（圆底类型图标+类型文字）+ 正文行」两段结构（`migrateAwaitingFoot` 负责旧版行尾徽标骨架热装就地迁移、confirm 按钮节点复用）；金色 `#f5c542`（深色底 `rgba(46,42,26,.97)` 与旧琥珀一眼可辨）、错误红 `#f06a72`（与时间线错误红同源）；胶囊与正文同频同相闪烁（data-wait 驱动器 + 跨类转换相位重启）、「移入历史」按钮不闪且仅完成卡提供；数量徽标三处镜像面 tone=error 红/tone=done 绿/默认金。
+- 测试: 测试先行改红再转绿；`scripts/check.mjs` 新增 R-01-002/AC-13 锚点组（errorReminder 成立/ack 无关/子代理排除、buildEntries 错误条目 waitClass/noteText、错误信息回落、tone 错误>阻塞>完成优先级、awaitBadgeStats 计分子、buildRecent 排除、错误优先于完成、运行/委托周期抑制、新回合覆盖→完成提醒/已确认退出）与 truncateErrorNote 断言（不超限/恰上限/超限省略号/代理对/非字符串），并重写胶囊结构/三色卡面/闪烁选择器/相位重启的 bundle 契约锚点；`scripts/acceptance.mjs` 新增错误提醒人工条目并改写三类胶囊/三色/徽标条目；`pnpm build:client && pnpm check` 多轮全绿；`agentmap_lint passed`（22/22 需求、128/128 验收点锚定）；`git diff --check` 干净。GUI 目验（三类卡胶囊与正文同步闪烁、金色/红色卡面、按钮仅完成卡、刷新恢复、429 场景错误信息上卡）由东家现场验收。
+- DESIGN 对照: DESIGN「等待三类呈现」段落（三色语义、胶囊+正文结构、ERROR_NOTE_FALLBACK 与 truncateErrorNote 契约、徽标优先级）、错误提醒判定（errorReminder）、ack 通道契约（{ lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }）、状态与生命周期图（错误提醒两支覆盖边）、核心数据（waitClass 三值、lastTurnEndKind 枚举含 unknown）与实现逐条对齐；PRD R-01-002/AC-01～AC-13 措辞与实现一致；DOMAIN 阻塞等待/完成提醒/错误提醒词条同步；DECISIONS 追加 C-043（append-only）。
+- commit: e6bc2ce
+- commit: d886462
+- review:
+  - 审核方: code-review skill 双轴独立子代理（Standards 轴 2e4af831、Spec 轴 4b2d9657）
+  - 目的理解: 两轴 reviewer 均先读取 PRD R-01-002（演进后含 AC-13）、DECISIONS C-043、DESIGN 等待三类呈现契约与宿主侧描述、DOMAIN 词条与本任务文件，明确被审代码目的为「等待三类语义统一：金色阻塞胶囊、绿色完成提醒、红色错误提醒（新增宿主侧 turn/end reason 登记与 acks 通道扩展），末行统一胶囊+正文结构并同频闪烁」，预期行为与验证方式（check.mjs 锚点断言、acceptance 人工条目、bundle 契约）记录于各自报告。
+  - 执行方式: `code-review` skill 双轴并行子代理审核，评审基线 4c60a53，范围 e6bc2ce + d886462 全量 diff（工作区修复后复审同基线复核）；复审由同一审核方分别进行。
+  - 问题与修复: Standards 轴首轮 2 项硬违规（DESIGN 状态机图错误提醒覆盖边与实现不符——补「→完成提醒（未确认）」与「→无完成（已确认）」两条边；lastTurnEndKind 枚举缺 unknown——补齐并与模块条目一致）+ 判断项（host message 对象放宽收紧为仅字符串；countBadgeState/client 注释锈蚀同步；entryErrorNote 去冗余参数；task 尾换行）全部修复闭环，复审确认无残留硬违规，3 条轻微措辞建议处理：truncateErrorNote 去 max 参数并改述 JSDoc、其余记录在案。Spec 轴首轮 4 项（旧 acks 记录无新字段使 storageDomain 打开失败、登记永久挂起——ackRecord 四字段放宽 .nullable().optional() 实测旧形状 safeParse 通过；截断契约无锚点——truncateErrorNote 下沉 core 导出并补 5 条断言与 DESIGN 契约；[object Object] 正确性疑问——收紧字符串契约；截断按码点并明示省略号不计上限）全数闭环；范围蔓延项（migrateAwaitingFoot 热装兼容、aria-label 错误信息、浅色金色硬编码）复审确认接受为已知取舍；复审残留 1 条注释级（snapshot doc 注释缺新字段）已随手修复。
+  - 复审结论: 双轴复审均通过：Standards 轴硬违规与判断项全部闭环、Spec 轴全部 finding 闭环（含升级破坏问题），无残留阻塞项；已知取舍均经审核方确认可接受，不构成回归。

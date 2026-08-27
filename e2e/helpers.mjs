@@ -3,13 +3,18 @@
 
 export const POLL_INTERVAL_MS = 200;
 
-/** 轮询直到 fn() 返回真值或超时；超时抛错并附最后一次观测值。 */
+/** 轮询直到 fn() 返回真值或超时；超时抛错并附最后一次观测值。E2E_TRACE=1 时打印各段耗时。 */
 export async function until(label, fn, timeoutMs = 10_000) {
 	const deadline = Date.now() + timeoutMs;
+	const start = Date.now();
 	let last;
 	for (;;) {
 		last = await fn();
-		if (last) return last;
+		if (process.env.E2E_TRACE === "2") console.error(`[poll] ${label}: ${JSON.stringify(last)?.slice(0, 120)} @${Date.now() - start}ms`);
+		if (last) {
+			if (process.env.E2E_TRACE) console.error(`[trace] ${label}: ${Date.now() - start}ms`);
+			return last;
+		}
 		if (Date.now() > deadline) throw new Error(`等待超时：${label}（最后观测：${JSON.stringify(last)}）`);
 		await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
 	}
@@ -43,10 +48,10 @@ export async function dismissNotice(page) {
 
 /** 打开应用并等待窗格数据就绪。
  *  宿主 sessions 服务偶发首推挂起（窗格滞留「加载中…」，见 TODO 缺陷线索）：
- *  停滞超过 12s 则重载一次——重载触发新连接世代重新拉取（实测即时恢复）；
- *  重载后仍停滞则抛错（真失败，不作无限掩盖）。 */
+ *  停滞超过 12s 则重载（新连接世代触发重拉，实测可恢复），至多重载两次；
+ *  仍停滞则抛错交 run.mjs 换全新环境（真失败不作无限掩盖）。 */
 export async function openApp(page, url) {
-	for (let attempt = 0; attempt < 2; attempt += 1) {
+	for (let attempt = 0; attempt < 3; attempt += 1) {
 		await page.goto(url, { waitUntil: "networkidle" });
 		await dismissNotice(page);
 		const ready = await until("窗格数据就绪", async () => {
@@ -56,7 +61,9 @@ export async function openApp(page, url) {
 		}, 12_000).catch(() => false);
 		if (ready) return;
 	}
-	throw new Error("窗格数据停滞：重载后仍滞留「加载中…」（宿主 sessions 首推挂起未自愈）");
+	const error = new Error("窗格数据停滞：重载后仍滞留「加载中…」（宿主 sessions 首推挂起未自愈）");
+	error.code = ERR_PANE_STALL;
+	throw error;
 }
 
 /** 主会话区（窗格右缘以右）是否可见地出现指定文字（叶子节点匹配，默认子串）。 */
@@ -105,11 +112,25 @@ export async function cardVisibleInPane(page, text) {
 
 const HERO_PLACEHOLDER = "Describe what you want to build";
 
-/** 在 hero 首页 composer 填入消息并发送（调用前 hero 必须已在场）；
+/** mock LLM 固定输出（与 e2e/mock-llm.mjs 剧本一致），spec 断言复用避免多处硬编码。 */
+export const MOCK_FAST_REPLY = "E2E 快速回合已完成。";
+/** 隔离环境卡面显示的模型名（boot.mjs 种子为小写 id，显示名经宿主模型目录映射）。 */
+export const MOCK_MODEL = "DeepSeek-V4-Flash";
+
+/** 窗格数据停滞错误签名：run.mjs 据此换环境重试，不靠文案子串耦合。 */
+export const ERR_PANE_STALL = "E2E_PANE_STALL";
+
+/** 在 hero 首页 composer 填入消息并发送；
+ *  宿主偶发在启动时直接恢复进会话视图（无 hero）——先点 New session 回 hero。
  *  二次水合可能清空输入，填入后校验、被清空则重填；发送成功以 hero 消失为准。 */
 export async function sendHeroMessage(page, text) {
 	const hero = page.locator(`textarea[placeholder="${HERO_PLACEHOLDER}"]`);
-	await hero.waitFor();
+	for (let attempt = 0; ; attempt += 1) {
+		const visible = await hero.waitFor({ timeout: 8_000 }).then(() => true).catch(() => false);
+		if (visible) break;
+		if (attempt >= 1) throw new Error("hero composer 未出现（New session 后仍无）");
+		await page.getByRole("button", { name: "New session" }).first().click();
+	}
 	await until(`发送消息「${text}」`, async () => {
 		await hero.fill(text).catch(() => {});
 		await page.waitForTimeout(400);
@@ -128,4 +149,35 @@ export async function newSessionWithMessage(page, text) {
 		return (await hero.count()) > 0 ? true : null;
 	});
 	await sendHeroMessage(page, text);
+}
+
+/** 在指定包围盒中心滚动滚轮。 */
+export async function wheelOver(page, box, deltaY, times) {
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+	for (let i = 0; i < times; i += 1) {
+		await page.mouse.wheel(0, deltaY);
+		await page.waitForTimeout(60);
+	}
+}
+
+/** 点击窗格内指定卡片上的按钮：以标题叶子与按钮包围盒的纵向邻近度定位同一张卡
+ *  （避免依赖卡片内部结构类名）。 */
+export async function clickCardButton(page, cardTitle, buttonName) {
+	const buttons = page.getByRole("button", { name: buttonName, exact: true });
+	const titleBox = await page
+		.locator("[data-dsh-activity-pane]")
+		.getByText(cardTitle, { exact: false })
+		.first()
+		.boundingBox();
+	if (!titleBox) throw new Error(`找不到卡片标题「${cardTitle}」`);
+	const count = await buttons.count();
+	for (let i = 0; i < count; i += 1) {
+		const box = await buttons.nth(i).boundingBox();
+		// 同一卡片内：按钮在标题下方且纵向距离在一个卡高以内。
+		if (box && box.y >= titleBox.y && box.y - titleBox.y < 200) {
+			await buttons.nth(i).click();
+			return;
+		}
+	}
+	throw new Error(`卡片「${cardTitle}」上找不到按钮「${buttonName}」`);
 }

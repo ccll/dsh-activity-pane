@@ -10,6 +10,7 @@
 // 用法：`node e2e/mock-llm.mjs`（监听 127.0.0.1 随机端口，就绪后向 stdout
 // 打印一行 JSON {"url": "http://127.0.0.1:<port>/v1"}）；或被 boot.mjs
 // import 调用 startMockLlm()。
+import { MOCK_FAST_REPLY } from "./helpers.mjs";
 
 import http from "node:http";
 
@@ -116,7 +117,7 @@ async function playAsk(res, model) {
 
 /** 立即完成剧本：短文本直接 stop。 */
 async function playFast(res, model) {
-	send(res, chunk(model, { role: "assistant", content: "E2E 快速回合已完成。\n" }));
+	send(res, chunk(model, { role: "assistant", content: `${MOCK_FAST_REPLY}\n` }));
 	send(res, chunk(model, {}, "stop"));
 	send(res, usageChunk(model, 6));
 	res.write("data: [DONE]\n\n");

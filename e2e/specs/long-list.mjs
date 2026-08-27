@@ -2,7 +2,7 @@
 // 长列表：活动卡片超出窗格可视高度时窗格内可滚动查看全部卡片；
 // 窗格内滚动时主会话内容滚动位置不变（滚动隔离）。
 
-import { openApp, cardVisibleInPane, mainAreaBox, mainAreaHas, newSessionWithMessage, paneBox, sendHeroMessage, until } from "../helpers.mjs";
+import { cardVisibleInPane, mainAreaBox, mainAreaHas, newSessionWithMessage, openApp, paneBox, sendHeroMessage, until, wheelOver } from "../helpers.mjs";
 
 const SESSION_COUNT = 10;
 const title = (n) => `e2e:fast 长列表探针${String(n).padStart(2, "0")}`;
@@ -30,15 +30,6 @@ async function paneScrollTops(page) {
 			.filter((el) => el.scrollHeight > el.clientHeight + 4)
 			.map((el) => el.scrollTop);
 	});
-}
-
-/** 在指定包围盒中心滚动滚轮。 */
-async function wheelOver(page, box, deltaY, times) {
-	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-	for (let i = 0; i < times; i += 1) {
-		await page.mouse.wheel(0, deltaY);
-		await page.waitForTimeout(60);
-	}
 }
 
 export default async function longList({ page, url, assert }) {

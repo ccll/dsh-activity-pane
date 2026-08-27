@@ -1143,7 +1143,21 @@ assert.ok(emptyUserAnchor.every((row) => row.anchor !== true), "空文本用户�
 // 冷 history 路径同口径指令锚行（R-01-012/AC-12）：页内全部事件折叠后套用同一窗口/锚行选择
 const hUser = (seq, text) => ({ event: { type: "user/message", seq, data: { source: { kind: "user" }, content: [{ type: "text", text }] } } });
 const hAgent = (seq, text) => ({ event: { type: "assistant/message", seq, data: { message: { content: [{ type: "text", text }] } } } });
-const hToolDone = (seq) => ({ event: { type: "tool/result", seq, data: { callId: `hc${seq}`, name: "bash", arguments: "{}", isError: false } } });
+const hToolCall = (seq, callId, name = "bash", argsRaw = "{}") => ({ event: { type: "tool/call", seq, data: { turn: 1, step: 0, callId, name, arguments: argsRaw } } });
+// canonical tool/result 事件形状（dsh-tool-cordis SessionEvent 契约）：data = { turn, step, message: ToolResultMessage, error? }。
+const hToolResult = (seq, callId, { isError = false, error = null, text = "ok" } = {}) => ({
+	event: {
+		type: "tool/result",
+		seq,
+		data: {
+			turn: 1,
+			step: 0,
+			message: { source: { kind: "tool", callId }, content: [{ type: "tool-result", toolCallId: callId, content: [{ type: "text", text }], isError }] },
+			...(error === null ? {} : { error }),
+		},
+	},
+});
+const hToolDone = (seq) => hToolResult(seq, `hc${seq}`);
 const histAnchored = foldedHistoryTimeline([hUser(1, "冷指令"), hAgent(2, "回复一"), hToolDone(3), hToolDone(4), hAgent(5, "回复二"), hToolDone(6)]);
 assert.equal(histAnchored.length, 4, "冷 history 路径锚行计入总预算：含锚行合计不超过 4（R-01-012/AC-12）");
 assert.equal(histAnchored[0].anchor, true, "窗口之前的用户消息以锚行前置（R-01-012/AC-12）");
@@ -1154,6 +1168,23 @@ const histInWindow = foldedHistoryTimeline([hUser(1, "近指令"), hAgent(2, "�
 assert.equal(histInWindow.length, 2, "冷路径用户消息在窗口内时按普通显示行（R-01-012/AC-13）");
 assert.ok(histInWindow.every((row) => row.anchor !== true), "冷路径消息未被挤出窗口时不出现锚行（R-01-012/AC-13）");
 assert.ok(foldedHistoryTimeline([hAgent(1, "仅回复"), hToolDone(2)]).every((row) => row.anchor !== true), "history 无用户消息时不造锚行");
+// ---- R-01-016/AC-01 回归：冷 history 路径 tool/result 按 canonical 形状落定同 callId 的 tool/call 项——
+//     已完成会话的等待卡时间线不残留 running 行（修复前 call 项永久 running，被活动保留逻辑钉为尾行蓝闪，
+//     违反 R-01-009/AC-09「仅执行中行闪烁」与 AC-10「非运行中不适用尾部提升」的呈现前提）----
+const coldPair = conversationTimelineFromHistory([hToolCall(1, "hc1"), hToolResult(2, "hc1")], 10);
+assert.equal(coldPair.length, 1, "history 中同 callId 的 call/result 配对为一项，不产生重复行");
+assert.equal(coldPair[0].status, "done", "结果到达后调用项落定 done，不残留 running");
+assert.equal(coldPair[0].label, "Bash", "配对项沿用 call 事件的工具名（result 事件不携带 name/arguments）");
+const coldDoneCard = foldedHistoryTimeline([hUser(1, "任务"), hToolCall(2, "hc2"), hToolResult(3, "hc2"), hAgent(4, "完成")]);
+assert.ok(coldDoneCard.length > 0 && coldDoneCard.every((row) => row.status !== "running"), "已完成会话冷时间线无 running 行：等待卡尾行不蓝闪（R-01-016/AC-01）");
+const coldError = conversationTimelineFromHistory([hToolCall(1, "hc3"), hToolResult(2, "hc3", { isError: true, text: "boom\nstack" })], 10);
+assert.equal(coldError[0].status, "error", "isError 结果落定 error");
+assert.equal(coldError[0].summary, "boom", "error 摘要取结果内容首行（原生 resultText 语义）");
+const coldInterrupted = conversationTimelineFromHistory([hToolCall(1, "hc4"), hToolResult(2, "hc4", { error: { name: "Error", code: "interrupted" }, text: "" })], 10);
+assert.equal(coldInterrupted[0].status, "stopped", "interrupted 结果落定 stopped 而非 error");
+const coldOrphan = conversationTimelineFromHistory([hToolResult(1, "hc9")], 10);
+assert.equal(coldOrphan.length, 1, "call 在窗口外的孤儿 result 仍成行（信息不丢失）");
+assert.equal(coldOrphan[0].status, "done", "孤儿 result 落定 done，不造 running 行");
 // historyInstructionAnchor：尾扫最近一条非空文本真实用户消息（R-01-012/AC-12 快照窗口外兜底）
 assert.equal(historyInstructionAnchor([hUser(1, "旧指令"), hAgent(2, "回复"), hUser(3, "新指令")])?.text, "新指令", "锚行取最近一条用户消息");
 assert.equal(historyInstructionAnchor([hUser(1, "  "), hAgent(2, "回复")]), null, "空文本用户消息不作锚");

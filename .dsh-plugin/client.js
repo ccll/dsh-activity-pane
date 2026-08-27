@@ -756,9 +756,36 @@ function timelineItemFromEvent(entry, cwd = "") {
 		return timelineToolItem({ kind: "tool-call", callId: data.callId, name: data.name, argsRaw: data.arguments, callView: entry?.view?.for === "call" ? entry.view.view : null }, null, cwd);
 	}
 	if (event.type === "tool/result") {
-		return timelineToolItem({ kind: "tool-result", callId: data.callId, call: data.name ? { name: data.name, argsRaw: data.arguments ?? "" } : null, isError: data.isError, resultView: entry?.view?.for === "result" ? entry.view.view : null }, null, cwd);
+		return timelineToolItem(historyToolResultRoot(data, entry?.view?.for === "result" ? entry.view.view : null), null, cwd);
 	}
 	return null;
+}
+
+/** tool/result 事件的结果内容块（canonical message.content 中 type === 'tool-result' 者）。 */
+function toolResultBlockOf(data) {
+	const content = isRecord(data?.message) && Array.isArray(data.message.content) ? data.message.content : [];
+	return content.find((block) => isRecord(block) && block.type === "tool-result") ?? null;
+}
+
+/** tool/result 事件的 callId：canonical 契约保证 message.source.callId 存在（dsh-tool-cordis ToolMessageSource）。 */
+function toolResultCallId(data) {
+	const callId = isRecord(data?.message) && isRecord(data.message.source) ? data.message.source.callId : null;
+	return typeof callId === "string" && callId !== "" ? callId : undefined;
+}
+
+/** tool/result 事件 → timelineToolItem root（canonical 形状单点读取：data = { turn, step, message, error? }）；
+ *  result 事件不携带 name/arguments，配对路径经 callInfo 由 call 事件补齐身份与 callView。 */
+function historyToolResultRoot(data, resultView, callInfo = null) {
+	const block = toolResultBlockOf(data);
+	return {
+		kind: "tool-result",
+		callId: toolResultCallId(data),
+		...(callInfo === null ? {} : { call: callInfo.call, callView: callInfo.callView ?? undefined }),
+		resultView,
+		isError: block?.isError === true,
+		error: data.error,
+		content: block?.content,
+	};
 }
 
 /** 判断 session window 是否尚未 hydrate，需用 native history 补齐。 */
@@ -805,12 +832,37 @@ async function pagedHistoryEvents({ fetchPage, maxPages = Infinity, requireOpenT
 
 /** 冷会话 history 的扁平工作项映射：供没有 ChatSnapshot 的活动/历史会话折叠分组使用。
  *  native `sessions.history` 响应只含 `{events, hasMore, projections?}`（in-flight
- *  partial 以 chunk 事件携带，不做逐 chunk 折叠），故只从事件流取尾部工作项。 */
+ *  partial 以 chunk 事件携带，不做逐 chunk 折叠），故只从事件流取尾部工作项。
+ *  tool/result 落定同 callId 的 call 项（原位替换，name/arguments/callView 由 call 事件补齐）：
+ *  history 是冻结过去，call 事件单独留存会成为永久 running 幽灵行（R-01-016/AC-01）。 */
 function conversationTimelineFromHistory(history, limit = 4, cwd = "") {
 	const items = [];
+	const inflightCalls = new Map(); // callId → { index, data, callView }：等待结果落定的 tool/call 事件
 	for (const entry of Array.isArray(history) ? history : []) {
+		const event = eventOf(entry);
+		const data = isRecord(event?.data) ? event.data : {};
+		if (event?.type === "tool/result") {
+			const callId = toolResultCallId(data);
+			const pending = callId !== undefined ? inflightCalls.get(callId) : undefined;
+			if (pending !== undefined) {
+				inflightCalls.delete(callId);
+				items[pending.index] = timelineToolItem(
+					historyToolResultRoot(data, entry?.view?.for === "result" ? entry.view.view : null, {
+						call: { name: typeof pending.data.name === "string" ? pending.data.name : "", argsRaw: typeof pending.data.arguments === "string" ? pending.data.arguments : "" },
+						callView: pending.callView,
+					}),
+					null,
+					cwd,
+				);
+				continue;
+			}
+		}
 		const item = timelineItemFromEvent(entry, cwd);
-		if (item) items.push(item);
+		if (!item) continue;
+		if (event?.type === "tool/call" && item.callId !== "") {
+			inflightCalls.set(item.callId, { index: items.length, data, callView: entry?.view?.for === "call" ? entry.view.view : null });
+		}
+		items.push(item);
 	}
 	const max = Math.max(0, limit);
 	return max === 0 ? [] : items.slice(-max);

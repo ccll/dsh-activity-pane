@@ -17,7 +17,7 @@
 // - R-01-005/AC-01、R-01-006/AC-01 → e2e/specs/navigation.mjs
 // - R-01-015/AC-01、AC-02、AC-04、AC-03 桌面折叠态 → e2e/specs/resize.mjs（AC-03 移动端残留人工）
 // - R-01-018/AC-01、AC-03、AC-04、AC-05、AC-02 点击/reduced-motion → e2e/specs/back-to-top.mjs（AC-02 键盘激活与平滑观感残留人工）
-// - R-01-003/AC-03、R-01-012/AC-01、AC-05、AC-09、R-01-013/AC-01..05、AC-07、AC-08 → e2e/specs/card-content.mjs
+// - R-01-003/AC-03、R-01-012/AC-01、AC-05、AC-09、R-01-013/AC-01、AC-03..05、AC-07、AC-08 → e2e/specs/card-content.mjs（AC-02 结构断言已迁，「标题随宿主更新」半句仍人工）
 //
 // 用法：`node scripts/acceptance.mjs` 打印清单。
 

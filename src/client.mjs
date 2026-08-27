@@ -455,7 +455,9 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 [data-dsh-activity-pane] .dap-model:empty { display: none; }
 [data-dsh-activity-pane] .dap-note {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* 多行提示（R-01-002/AC-09）：待回复卡的 Q 行列表以 \n 换行呈现（pre-line 保留
+     换行符、折叠其余空白）；完成提醒等单行提示不受影响（无换行符时不产生新行）。 */
+  min-width: 0; overflow: hidden; white-space: pre-line;
   font-size: 11px; line-height: 15px;
   color: color-mix(in srgb, currentColor 62%, transparent);
 }
@@ -1979,7 +1981,7 @@ function apply(ctx) {
 			const pending = entry.pendingText ?? "";
 			const badgeText = badge.querySelector(".dap-badge-text");
 			if (badgeText !== null && badgeText.textContent !== pending) badgeText.textContent = pending;
-			// 阻塞等待徽标前置类型图标（待确认=对勾 / 待审查=文档 / 待回复=问号气泡）；
+			// 阻塞等待徽标前置类型图标（待确认=对勾 / 待审查=文档 / 问题=问号气泡）；
 			// 完成提醒卡整枚徽标由 CSS data-wait 隐藏（C-040）。
 			const iconHolder = badge.querySelector(".dap-badge-icon");
 			const iconKind =

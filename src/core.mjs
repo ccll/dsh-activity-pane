@@ -18,7 +18,7 @@
 const PENDING_LABELS = {
 	approval: "待确认",
 	"plan-review": "待审查",
-	question: "待回复",
+	question: "问题",
 };
 
 /** 阻塞等待备注行动作说明（R-01-002/AC-09）：说明等待的具体动作与「不答就无法继续」的后果。 */
@@ -261,11 +261,12 @@ function askStatusSummary(root, status) {
 	return null;
 }
 
-/** 取 ask_user_question 参数中第一条提问的展示标题（R-01-002/AC-09，C-040）：
- *  首问 `header` 短标题优先（原生提问卡头字段），未给出或为空时回落问题正文物理首行
- *  （DOMAIN「物理首行」口径 + 截断）；只看第一条提问，不跳到后续问题。结构不符、
- *  首问两字段均不可得返回 null，由调用方回落动作说明。 */
-export function askQuestionPreview(argsRaw, max = 60) {
+/** 取 ask_user_question 参数中各条提问的展示文本（R-01-002/AC-09）：逐条取问题正文
+ *  物理首行（正文缺失时回落 header，仍不可得则跳过该条），并剥除行尾多余冒号
+ *  （如「…随便点）：」→「…随便点）」）；以「Q1: …\nQ2: …」多行文本输出，仅一条
+ *  问题时前缀简化为「Q：」不带编号；最多输出 3 条，其后仍有未展示问题时以省略行
+ *  「…」收尾。结构不符或全部问题均不可得返回 null，由调用方回落动作说明。 */
+export function askQuestionsPreview(argsRaw, max = 60) {
 	if (typeof argsRaw !== "string" || argsRaw === "") return null;
 	let parsed;
 	try {
@@ -274,9 +275,23 @@ export function askQuestionPreview(argsRaw, max = 60) {
 		return null;
 	}
 	if (!isRecord(parsed) || !Array.isArray(parsed.questions)) return null;
-	const item = parsed.questions[0];
-	if (!isRecord(item)) return null;
-	return firstPhysicalLine(item.header, max) || firstPhysicalLine(item.question, max) || null;
+	const single = parsed.questions.length === 1;
+	const items = [];
+	for (let i = 0; i < parsed.questions.length; i += 1) {
+		const item = parsed.questions[i];
+		if (!isRecord(item)) continue;
+		const text = firstPhysicalLine(item.question, max) || firstPhysicalLine(item.header, max);
+		const stripped = text.replace(/[：:]+\s*$/, "");
+		if (stripped === "") continue;
+		items.push({ index: i, text: stripped });
+	}
+	if (items.length === 0) return null;
+	const lines = [];
+	for (const { index, text } of items.slice(0, 3)) {
+		lines.push(`${single ? "Q：" : `Q${index + 1}: `}${text}`);
+	}
+	if (items.length > 3) lines.push("…");
+	return lines.join("\n");
 }
 
 function timelineToolItem(root, fallbackView = null, cwd = "") {
@@ -325,8 +340,8 @@ function timelineToolItem(root, fallbackView = null, cwd = "") {
 		text: name,
 		summary: detail,
 		detail,
-		// 提问正文随工作项携带（R-01-002/AC-09）：待回复卡备注行直接展示问题首行。
-		question: name === "ask_user_question" ? askQuestionPreview(argsRaw) : null,
+		// 提问正文随工作项携带（R-01-002/AC-09）：待回复卡备注行直接展示全部问题的 Q 行列表。
+		question: name === "ask_user_question" ? askQuestionsPreview(argsRaw) : null,
 		status,
 	};
 }
@@ -529,7 +544,7 @@ function foldMemberOf(item) {
 			summary: typeof item.summary === "string" ? item.summary : "",
 			text: "",
 			icon: typeof item.icon === "string" ? item.icon : undefined,
-			// 提问正文穿透折叠层（R-01-002/AC-09）：供待回复卡备注行从组行取回问题首行。
+			// 提问正文穿透折叠层（R-01-002/AC-09）：供待回复卡备注行从组行取回 Q 行列表。
 			question: typeof item.question === "string" ? item.question : null,
 			status: item.status,
 			live: item.live === true,
@@ -1042,10 +1057,10 @@ export function pendingText(kind) {
 	return PENDING_LABELS[kind] ?? PENDING_UNKNOWN_LABEL;
 }
 
-/** 等待卡末行提示（R-01-002/AC-09，C-040）：阻塞等待说明动作与后果（待回复直出第一条
- *  提问的展示文本——header 优先、回落正文首行，不带前缀，提示即回答入口）；完成提醒
- *  固定引导新指令或移入历史。questionPreview 为时间线末条 ask 工作项携带的该展示文本
- * （可为 null）。 */
+/** 等待卡末行提示（R-01-002/AC-09，C-040）：阻塞等待说明动作与后果（待回复直出
+ *  提问的 Q 行多行列表——每条问题正文、单条为「Q：」前缀、最多 3 条省略行收尾、
+ *  行尾多余冒号剥除）；完成提醒固定引导新指令或移入历史。questionPreview 为时间线
+ *  末条 ask 工作项携带的该展示文本（可为 null）。 */
 export function awaitNoteText(waitClass, pendingKind, questionPreview = null) {
 	if (waitClass === "done") return ROUND_DONE_NOTE;
 	if (pendingKind === "question" && typeof questionPreview === "string" && questionPreview !== "")
@@ -1066,8 +1081,8 @@ export function awaitBadgeTone(entries) {
 	return tone;
 }
 
-/** 时间线末条 ask_user_question 工作项携带的第一条提问展示文本（header 优先、回落正文
- *  首行；折叠组行同样上浮该字段）；不存在时返回 null（R-01-002/AC-09）。 */
+/** 时间线末条 ask_user_question 工作项携带的提问展示文本（多行 Q 列表；折叠组行
+ *  同样上浮该字段）；不存在时返回 null（R-01-002/AC-09）。 */
 export function timelineQuestionPreview(timeline) {
 	const rows = Array.isArray(timeline) ? timeline : [];
 	for (let i = rows.length - 1; i >= 0; i -= 1) {

@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import {
 	AWAIT_PERIOD_FAST_S,
 	AWAIT_PERIOD_SLOW_S,
-	askQuestionPreview,
+	askQuestionsPreview,
 	awaitBadgeStats,
 	awaitBadgeTone,
 	awaitNoteText,
@@ -362,10 +362,10 @@ assert.equal(
 	false,
 	"空目标 id 不误判收起",
 );
-// ---- R-01-002/AC-01 待确认 ｜ R-01-002/AC-02 待审查/待回复 ----
+// ---- R-01-002/AC-01 待确认 ｜ R-01-002/AC-02 待审查/问题 ----
 assert.equal(pendingText("approval"), "待确认");
 assert.equal(pendingText("plan-review"), "待审查");
-assert.equal(pendingText("question"), "待回复");
+assert.equal(pendingText("question"), "问题");
 assert.equal(pendingText("approval"), "待确认");
 
 // ---- R-01-002/AC-03 完成提醒以绿色成功卡面呈现（C-040） ----
@@ -373,11 +373,11 @@ assert.equal(pendingText("approval"), "待确认");
 // 完成提醒卡不再显示类型徽标：pendingText 仅为阻塞等待承载（C-040）。
 assert.equal(pendingText("unknown-kind"), "待处理");
 
-// ---- R-01-002/AC-09 等待卡末行提示：动作+后果；待回复为提问标题；完成提醒固定文案 ----
+// ---- R-01-002/AC-09 等待卡末行提示：动作+后果；待回复为提问 Q 行列表；完成提醒固定文案 ----
 assert.equal(awaitNoteText("blocked", "approval"), "等待你确认授权后继续");
 assert.equal(awaitNoteText("blocked", "plan-review"), "等待你审查计划后继续");
 assert.equal(awaitNoteText("blocked", "question"), "等待你回答问题后继续", "问题不可得时回落动作说明");
-assert.equal(awaitNoteText("blocked", "question", "采用哪个方案方向？"), "采用哪个方案方向？", "待回复末行为提问标题正文，不带前缀");
+assert.equal(awaitNoteText("blocked", "question", "Q：采用哪个方案方向？"), "Q：采用哪个方案方向？", "待回复末行为提问 Q 行列表，不带「等待你回答：」前缀");
 assert.equal(awaitNoteText("done", undefined), "已完成，继续对话，或移入历史");
 // 宽度上界回归（R-01-002/AC-09）：done 末行须与「移入历史」按钮同排在默认 280px 窗格
 // 单行完整可见——内容区约 258px，按钮+gap 约占 66px，留文字约 192px；11px 全角字宽
@@ -391,48 +391,58 @@ assert.equal(awaitNoteText("done", undefined), "已完成，继续对话，或�
 }
 assert.equal(awaitNoteText("blocked", "unknown-kind"), "等待你处理后继续", "未知阻塞种类中性兜底（评审修正）");
 
-// ---- R-01-002/AC-09 提问标题提取：首问 header 优先、回落问题正文物理首行（C-040） ----
+// ---- R-01-002/AC-09 提问 Q 行列表：逐条取问题正文首行、剥尾冒号、单条 Q：/多条 Qn: 前缀、最多 3 行 ----
 assert.equal(
-	askQuestionPreview(JSON.stringify({ questions: [{ header: "方案确认", question: "采用哪个方案方向？", options: [] }] })),
-	"方案确认",
-	"第一条提问的 header 短标题优先",
+	askQuestionsPreview(JSON.stringify({ questions: [{ header: "方案确认", question: "采用哪个方案方向？", options: [] }] })),
+	"Q：采用哪个方案方向？",
+	"单条问题的正文以「Q：」前缀展示（不显示 header，header 仅作正文缺失时回落）",
 );
 assert.equal(
-	askQuestionPreview(JSON.stringify({ questions: [{ question: "采用哪个方案方向？" }] })),
-	"采用哪个方案方向？",
+	askQuestionsPreview(JSON.stringify({ questions: [{ header: "演示选择", question: "这是一个测试用的单项选择题，你会看到哪种效果？" }, { header: "多选演示", question: "再多试一个可多选的问题（可以都不选直接跳过吗？不行的话随便点）：" }] })),
+	"Q1: 这是一个测试用的单项选择题，你会看到哪种效果？\nQ2: 再多试一个可多选的问题（可以都不选直接跳过吗？不行的话随便点）",
+	"多条问题逐条以「Qn: 」前缀分行展示；行尾多余冒号剥除",
+);
+assert.equal(
+	askQuestionsPreview(JSON.stringify({ questions: [{ question: "采用哪个方案方向？" }] })),
+	"Q：采用哪个方案方向？",
 	"未给出 header 时回落问题正文首行",
 );
 assert.equal(
-	askQuestionPreview(JSON.stringify({ questions: [{ header: "", question: "空 header 回落正文" }] })),
-	"空 header 回落正文",
+	askQuestionsPreview(JSON.stringify({ questions: [{ header: "", question: "空 header 回落正文" }] })),
+	"Q：空 header 回落正文",
 	"空字符串 header 视同缺失",
 );
 assert.equal(
-	askQuestionPreview(JSON.stringify({ questions: [{ question: "第一行\n第二行不应出现" }] })),
-	"第一行",
+	askQuestionsPreview(JSON.stringify({ questions: [{ question: "第一行\n第二行不应出现" }] })),
+	"Q：第一行",
 	"多行问题取物理首行而非折叠拼接",
 );
 assert.equal(
-	askQuestionPreview(JSON.stringify({ questions: [{ header: "短标题\n长描述不应混入" }] })),
-	"短标题",
-	"header 同样只取物理首行",
+	askQuestionsPreview(JSON.stringify({ questions: [{ header: "短标题\n长描述不应混入" }] })),
+	"Q：短标题",
+	"header 同样只取物理首行（仅作正文缺失回落）",
 );
 assert.equal(
-	askQuestionPreview(JSON.stringify({ questions: [{ header: "无正文" }, { question: "第二个问题" }] })),
-	"无正文",
-	"只取第一条提问：其 header 存在即用，不跳到后续问题",
+	askQuestionsPreview(JSON.stringify({ questions: [{ header: "仅头问题" }, { question: "第二题" }] })),
+	"Q1: 仅头问题\nQ2: 第二题",
+	"多条问题逐条展示：header 仅作该条正文缺失时的回落",
 );
-assert.equal(askQuestionPreview(JSON.stringify({ questions: [{ options: [] }] })), null, "首问既无 header 也无正文时返回 null，由调用方回落动作说明");
-assert.equal(askQuestionPreview("not-json"), null);
-assert.equal(askQuestionPreview(JSON.stringify({ questions: [] })), null);
-assert.equal(askQuestionPreview(undefined), null);
-// 提问正文穿透折叠分组上浮组行；无提问行时返回 null。
+assert.equal(
+	askQuestionsPreview(JSON.stringify({ questions: [{ question: "问1" }, { question: "问2" }, { question: "问3" }, { question: "问4" }] })),
+	"Q1: 问1\nQ2: 问2\nQ3: 问3\n…",
+	"最多展示 3 条问题，其后以省略行收尾",
+);
+assert.equal(askQuestionsPreview(JSON.stringify({ questions: [{ options: [] }] })), null, "各条均无 header 也无正文时返回 null，由调用方回落动作说明");
+assert.equal(askQuestionsPreview("not-json"), null);
+assert.equal(askQuestionsPreview(JSON.stringify({ questions: [] })), null);
+assert.equal(askQuestionsPreview(undefined), null);
+// 提问 Q 行列表穿透折叠分组上浮组行；无提问行时返回 null。
 assert.equal(
 	timelineQuestionPreview([
 		{ fold: true, label: "正在运行", question: null },
-		{ fold: true, label: "正在运行", question: "要合并回 main 吗？" },
+		{ fold: true, label: "正在运行", question: "Q1: 要合并回 main 吗？\nQ2: 需要先跑测试吗？" },
 	]),
-	"要合并回 main 吗？",
+	"Q1: 要合并回 main 吗？\nQ2: 需要先跑测试吗？",
 );
 assert.equal(timelineQuestionPreview([{ fold: true, label: "已思考" }]), null);
 assert.equal(timelineQuestionPreview(undefined), null);
@@ -758,18 +768,31 @@ assert.equal(pendingEntries[0].pendingText, "待确认");
 assert.equal(pendingEntries[0].waitClass, "blocked", "待确认为阻塞等待（R-01-002/AC-08）");
 assert.equal(pendingEntries[0].pendingKind, "approval");
 assert.equal(pendingEntries[0].noteText, "等待你确认授权后继续", "阻塞等待备注行说明动作与后果（R-01-002/AC-09）");
-// 待回复卡：备注行附时间线末条 ask 工作项的提问正文首行（R-01-002/AC-09）。
+// 待回复卡：备注行附时间线末条 ask 工作项的提问 Q 行列表（R-01-002/AC-09）。
 const questionSnap = {
 	ids: ["sQ"],
 	byId: { sQ: { id: "sQ", displayTitle: "主Q", running: false, pendingInteraction: "question" } },
 	current: null,
 };
 const questionEntries = buildEntries(questionSnap, [], {
-	sQ: { timeline: [{ fold: true, label: "正在运行", summary: "等待回答", question: "采用哪个方案方向？" }] },
+	sQ: {
+		timeline: [
+			{
+				fold: true,
+				label: "正在运行",
+				summary: "等待回答",
+				question: "Q1: 这是一个测试用的单项选择题，你会看到哪种效果？\nQ2: 再多试一个可多选的问题（可以都不选直接跳过吗？不行的话随便点）",
+			},
+		],
+	},
 });
-assert.equal(questionEntries[0].pendingText, "待回复");
+assert.equal(questionEntries[0].pendingText, "问题");
 assert.equal(questionEntries[0].pendingKind, "question");
-assert.equal(questionEntries[0].noteText, "采用哪个方案方向？", "待回复末行为提问正文/标题，不带「等待你回答：」前缀");
+assert.equal(
+	questionEntries[0].noteText,
+	"Q1: 这是一个测试用的单项选择题，你会看到哪种效果？\nQ2: 再多试一个可多选的问题（可以都不选直接跳过吗？不行的话随便点）",
+	"待回复末行为提问 Q 行列表，不带「等待你回答：」前缀",
+);
 const questionFallback = buildEntries(questionSnap, [], { sQ: { timeline: [] } });
 assert.equal(questionFallback[0].noteText, "等待你回答问题后继续", "问题不可得时回落动作说明");
 

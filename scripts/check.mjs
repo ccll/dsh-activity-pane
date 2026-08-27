@@ -3392,4 +3392,63 @@ assert.ok(hostSource.includes("'/ack'") && hostSource.includes("ackedAt: Date.no
 assert.ok(hostSource.includes("streamClients") && hostSource.includes("for (const res of streamClients)"), "SSE 连接集合随卸载全数关闭");
 
 
+// ---- E2E 基建：mock LLM 剧本服务行为断言（C-045，T-082）----
+// 浏览器 spec 只驱动 slow 剧本；三剧本的 SSE 形状与分流规则在此做 Node 级行为验证。
+const { startMockLlm } = await import("../e2e/mock-llm.mjs");
+const mock = await startMockLlm();
+try {
+	/** 请求 mock 并解析 SSE 负载序列（[DONE] 收尾）。 */
+	async function requestScenario(text, extraMessages = []) {
+		const res = await fetch(`${mock.url}/chat/completions`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				model: "deepseek-v4-flash",
+				stream: true,
+				messages: [...extraMessages, { role: "user", content: text }],
+			}),
+		});
+		assert.equal(res.status, 200, "mock 接受 chat/completions 请求");
+		const raw = await res.text();
+		const events = raw.split("\n\n").filter(Boolean);
+		assert.equal(events.at(-1), "data: [DONE]", "SSE 以 [DONE] 收尾（dsh-llm-deepseek 协议期望）");
+		return events.slice(0, -1).map((line) => JSON.parse(line.replace(/^data: /, "")));
+	}
+
+	// fast：无关键词走默认剧本（单文本块 + stop + 尾随 usage）；显式 e2e:fast 同路径。
+	const fast = await requestScenario("随便聊聊");
+	assert.ok(fast[0].choices[0].delta.content.length > 0, "fast 首块携带文本");
+	assert.equal(fast.at(-2).choices[0].finish_reason, "stop", "fast 以 stop 收尾");
+	assert.ok(fast.at(-1).usage.completion_tokens > 0, "尾随 usage-only 块");
+	await requestScenario("e2e:fast 探针");
+
+	// slow：24 个内容块分帧到达（会话保持运行）。
+	const slow = await requestScenario("e2e:slow 探针");
+	const slowContent = slow.filter((e) => e.choices?.[0]?.delta?.content);
+	assert.equal(slowContent.length, 24, "slow 分 24 块流式输出");
+	assert.equal(slow.at(-2).choices[0].finish_reason, "stop", "slow 以 stop 收尾");
+
+	// ask：tool_calls 增量可重组为合法 ask_user_question 参数，finish_reason 为 tool_calls。
+	const ask = await requestScenario("e2e:ask 探针");
+	const askArgs = ask.flatMap((e) => e.choices?.[0]?.delta?.tool_calls ?? []).map((c) => c.function?.arguments ?? "").join("");
+	const parsed = JSON.parse(askArgs);
+	assert.ok(parsed.questions[0].question.length > 0 && parsed.questions[0].options.length === 2, "ask 工具参数重组为合法提问负载");
+	assert.equal(ask.at(-2).choices[0].finish_reason, "tool_calls", "ask 以 tool_calls 收尾");
+
+	// 分流规则：含 tool 结果的回合一律 fast 收口，忽略历史消息里的关键词。
+	const afterTool = await requestScenario("继续", [
+		{ role: "user", content: "e2e:slow 历史指令" },
+		{ role: "tool", tool_call_id: "call_e2e_ask", content: "继续" },
+	]);
+	assert.ok(afterTool.length <= 4 && afterTool.at(-2).choices[0].finish_reason === "stop", "tool 结果回合直接 fast 收口");
+
+	// 默认剧本：无关键词走 fast；非 chat/completions 路径 404。
+	assert.deepEqual(mock.scenarioLog, ["fast", "fast", "slow", "ask", "fast"], "scenarioLog 记录分流结果（默认/显式 fast、slow、ask、tool 收口）");
+	const wrongPath = await fetch(`${mock.url}/models`);
+	assert.equal(wrongPath.status, 404, "非 chat/completions 路径返回 404");
+} finally {
+	await mock.close();
+}
+
+
 console.log("check: all assertions passed");

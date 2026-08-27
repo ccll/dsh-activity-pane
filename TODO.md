@@ -17,7 +17,6 @@ owner: 双方
 - [维护想法] 窗格宽度拖拽与折叠把手：v1 为固定宽度，后续可贴合外壳 details 槽语义增强（见 DESIGN 边界与对外契约）。
 - [需求候选] 允许用户在限定范围内拖放调节 pane 的宽度。
 - [维护想法] 运行卡时长实时计算位于 DOM 层、无 Node 锚点；后续抽 `elapsedAt(startTime, now)` 纯函数或引入浏览器 E2E（独立审核提示，见 T-001 review）。
-- [维护想法] GUI 交互验收暂以 scripts/acceptance.mjs 人工清单承接；待引入浏览器 E2E 基建后迁移为自动化测试（见 DESIGN 可派生验证）。
 - [需求候选] 移动端抽屉内激活卡片跳转会话后自动收起抽屉（现行行为保持展开，需东家确认预期）
 - [维护想法] 上架 dsh-market：目录在 awesome-dsh-plugin 仓库（PR 一条 data/plugins/ccll__dsh-activity-pane.yml，需仓库满 1 天、≥10 commits、加 dsh-plugin topic）；可选发布 npm（需移除 private:true 并补 repository 字段）。
 - [维护想法] buildRecent 位置参数已达 9 个（调用点出现 undefined/{}/[]/null/null 占位串）；后续可将后 6 个归并为 options 对象（T-057 独立审核提示，既有模式延续、不阻塞）。

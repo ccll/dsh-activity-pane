@@ -333,3 +333,13 @@ flowchart LR
   - 回到顶部悬浮按钮：`.dap-top` 为窗格内 `position:absolute` 的圆形图标按钮（右下角 `bottom:12px; right:12px`，纯向上箭头图标无文字、`aria-label` 提供可访问名称，不透明底色——深色纯色 `#1d1f25`、浅色经外壳 layer-2 别名覆盖），随窗格骨架创建、默认 `hidden`；滚动监听在 `scrollTop` 超过阈值 `TOP_THRESHOLD`（200px）时显示、回到阈值内隐藏；激活时 `scrollTo({ top: 0 })`，`prefersReducedMotion()` 命中用 `auto` 直接定位、否则 `smooth` 平滑滚动，滚动回顶经同一滚动监听自然收口隐藏；桌面折叠窄条态经 CSS 隐藏，移动端抽屉形态同样适用（抽屉即同一窗格）；监听随 `bindPaneControls` 的 unbind 清理，按钮随窗格骨架移除（R-01-018、R-02-003）。
 - 代码位置: src/client.mjs
 - 实现: 单端（浏览器 client bundle）
+
+### E2E 验证基建
+- 职责: 以真实浏览器对最终页面行为做端到端回归验证，为交互类验收点提供自动化锚点（T-082 首条 spec 锚定 R-01-001、R-01-002、R-01-010；R-01-005、R-01-008、R-02-002 等人工-only 验收点由 T-083 迁移承接；不承担任何产品行为）
+- 关键内部结构:
+  - 隔离测试环境：`$DSH_HOME` 临时目录 + 预置 settings.yaml（provider 指向 mock LLM）+ `dsh web --port 0`；插件经 `dsh plugin --profile web add` 以 link: 装入；是否缓存环境模板由 T-082 实测冷启动成本决定。
+  - mock LLM 剧本服务：OpenAI 兼容 `POST /chat/completions` SSE 端点，按用户消息关键词选择 E2E 剧本——慢速流式（运行中）、ask_user_question tool_call（待回复）、立即 finish（完成提醒）。
+  - 驱动：Playwright 经真实 composer UI 发起会话，断言窗格可观察行为；不断言内部 DOM 结构，结构断言仅限宿主槽座等显式契约边界。
+  - 门禁归属：`.githooks/pre-push.d/` 重门禁，pre-commit 快检查不变。
+- 代码位置: e2e/（T-082 创建）
+- 实现: 单端（Node，测试期进程）

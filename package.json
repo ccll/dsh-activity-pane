@@ -30,6 +30,7 @@
     "build:client": "node scripts/build-client.mjs",
     "check": "node scripts/check.mjs",
     "test": "node scripts/check.mjs",
+    "test:e2e": "node e2e/run.mjs",
     "dev:watch": "node scripts/watch.mjs",
     "accept:manual": "node scripts/acceptance.mjs",
     "lint": "python3 tools/agentmap_lint.py --report"
@@ -51,5 +52,8 @@
     "session-pane",
     "multi-session"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
 }

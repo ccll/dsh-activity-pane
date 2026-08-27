@@ -51,6 +51,16 @@ const ERROR_NOTE_MAX = 120;
 /** 错误提醒正文回落文案（R-01-002/AC-13，C-043）：error 回合无可用错误信息时使用。 */
 const ERROR_NOTE_FALLBACK = "回合以错误结束，请检查会话";
 
+/** 错误信息截断（R-01-002/AC-13，C-043）：按 Unicode 码点截断至 ERROR_NOTE_MAX（省略号
+ *  不计入上限、属展示截断信号）；非字符串返回空串（宿主侧仅字符串入参，防御性边界）。
+ *  截断在宿主登记时执行一次、渲染侧直接消费已截断的 lastTurnEndError；共享核心承载便于
+ *  单一事实源与可执行验证（Spec 轴审核：截断须有测试锚点）。 */
+function truncateErrorNote(text) {
+	if (typeof text !== "string") return "";
+	const chars = [...text];
+	return chars.length <= ERROR_NOTE_MAX ? text : `${chars.slice(0, ERROR_NOTE_MAX).join("")}…`;
+}
+
 /** 镜像原生 toolRowModel 的 classifyTool（dsh-client-ui-tool）：摘要参数键按 variant 分派（C-011）。 */
 const TOOL_VARIANTS = {
 	bash: "bash",
@@ -1130,8 +1140,9 @@ function awaitBadgeStats(entries) {
 
 /** 数量标识呈现态（R-01-014/AC-06）：列表在途（loading）时不冒充计数——归一为
  *  loading 呈现（加载指示 + 加载中 aria 文案，不等待、不脉冲）；否则归一为 count
- *  呈现（n/m 文本 + 计数 aria 文案）。awaiting 表达「存在等待行动」——琥珀底色与
- *  脉冲门控同一信号：任一等待行动（阻塞等待或完成提醒）即脉冲（R-01-002/AC-06，C-037）。
+ *  呈现（n/m 文本 + 计数 aria 文案）。awaiting 表达「存在等待行动」——底色经
+ *  awaitBadgeTone（错误 > 阻塞 > 完成，红/金/绿）与脉冲门控同一信号：任一等待行动
+ *  （阻塞等待、完成提醒或错误提醒）即脉冲（R-01-002/AC-06，C-037、C-043）。
  *  blocked 入参只用于 aria 文案的计数说明，不再驱动门控。错误轴不算在途，维持计数呈现。 */
 function countBadgeState(listState, waiting, total, blocked = 0) {
 	if (listState === "loading") return { mode: "loading", text: "", ariaText: "活动会话计数加载中", awaiting: false };
@@ -1444,7 +1455,7 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 			// 错误提醒（C-043）优先于完成提醒（同一回合登记只能有一个 lastTurnEndKind）。
 			const doneWait = !m.pending && m.done && !m.running && !m.delegating;
 			const errWait = !m.pending && m.err && !m.running && !m.delegating;
-			const errorNote = entryErrorNote(m.err, completionFor(id, completions));
+			const errorNote = entryErrorNote(completionFor(id, completions));
 			entries.push({
 				id,
 				parentId: m.isSub ? String(parentId) : null,
@@ -1702,9 +1713,9 @@ function errorReminder(row, completion, isSub = false) {
 }
 
 /** 错误提醒正文（R-01-002/AC-09、AC-13，C-043）：宿主登记的 lastTurnEndError（截断后
- *  的错误信息）；非字符串或空串时回落固定文案，不冒充具体错误。 */
-function entryErrorNote(err, completion) {
-	if (err !== true) return "";
+ *  的错误信息）或回落固定文案；不冒充具体错误。调用方（buildEntries 的 errWait 判定）
+ *  已保证错误提醒成立，本函数只做文本取舍。 */
+function entryErrorNote(completion) {
 	const record = isRecord(completion) ? completion : null;
 	const message = record?.lastTurnEndError;
 	return typeof message === "string" && message !== "" ? message : ERROR_NOTE_FALLBACK;
@@ -2466,7 +2477,7 @@ const CSS = `
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"] .dap-foot :is(.dap-capsule, .dap-note) {
   animation: dap-pulse 1.2s ease-in-out infinite;
 }
-/* 复审修复（C-040）：状态点光晕两类同强度、仅换色相——阻塞琥珀光晕与完成绿光晕一致。 */
+/* 复审修复（C-040、C-043）：状态点光晕三类同强度、仅换色相——阻塞金、完成绿与错误红光晕一致。 */
 /* 工作区徽标「图标+文本」双段：文件夹图标与左边栏工作区条目同源（R-01-003/AC-06）；
    名称字号不低于 10.5px（AC-07），行高保持 14px 以维持胶囊与卡片高度。
    着色（AC-08～AC-11）：核心映射提供 OKLCH hue；深色主题文字取高明度中高彩度，

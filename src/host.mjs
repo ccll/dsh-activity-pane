@@ -17,7 +17,7 @@
 
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import { z } from 'zod'
-import { ERROR_NOTE_MAX } from './core.mjs'
+import { truncateErrorNote } from './core.mjs'
 
 export const name = 'dsh-activity-pane'
 export const inject = ['storageDomain', 'webServer']
@@ -26,12 +26,15 @@ const API_PATH = '/dsh-activity-pane/api'
 
 /** 每会话完成/错误登记：lastTurnEnd 最后回合结束时刻（事件 time，毫秒）、
  *  lastTurnEndKind 回合结束原因（completed/blocked/max-tokens/aborted/error/unknown）、
- *  lastTurnEndError error 回合的错误信息（截断，非 error 回合为 null）、ackedAt 确认时刻。 */
+ *  lastTurnEndError error 回合的错误信息（截断，非 error 回合为 null）、ackedAt 确认时刻。
+ *  字段全部可选/可空：容纳升级前仅含 { lastTurnEnd, ackedAt } 的旧记录——
+ *  dsh-storage-domain 打开时对每条记录做 valueSchema.parse，缺失必填键会以 invalid-record
+ *  使整个 domain 打开失败、登记与确认写回永久挂起（C-043 Spec 轴审核发现）；写入侧恒写全字段。 */
 const ackRecord = z.object({
-	lastTurnEnd: z.number().nullable(),
-	lastTurnEndKind: z.string().nullable(),
-	lastTurnEndError: z.string().nullable(),
-	ackedAt: z.number().nullable(),
+	lastTurnEnd: z.number().nullable().optional(),
+	lastTurnEndKind: z.string().nullable().optional(),
+	lastTurnEndError: z.string().nullable().optional(),
+	ackedAt: z.number().nullable().optional(),
 })
 
 const domainSpec = defineDomain({
@@ -70,11 +73,6 @@ export function apply(ctx) {
 	/** SSE 连接集合：广播时逐个写 `event: state`。 */
 	const streamClients = new Set()
 
-	/** 错误信息截断（C-043）：与 core.mjs 的 ERROR_NOTE_MAX 同口径，超限以省略号收尾。 */
-	function truncateError(text) {
-		return text.length <= ERROR_NOTE_MAX ? text : `${text.slice(0, ERROR_NOTE_MAX)}…`
-	}
-
 	ctx.inject(['storageDomain'], async (domainCtx) => {
 		const domain = await domainCtx.storageDomain.open(domainSpec)
 		ctx.effect(() => () => domain.close(), 'dsh-activity-pane: domainClose')
@@ -82,7 +80,8 @@ export function apply(ctx) {
 		resolveDomain()
 	})
 
-	/** 全量快照：{ [sessionId]: { lastTurnEnd, ackedAt } }。acks 未就绪时返回空对象。 */
+	/** 全量快照：{ [sessionId]: { lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt } }。
+ *  acks 未就绪时返回空对象。旧记录缺新字段时按 null/undefined 下发（客户端判定恒安全）。 */
 	function snapshot() {
 		const out = {}
 		if (acks === null) return out
@@ -117,14 +116,14 @@ export function apply(ctx) {
 				? event.data.reason
 				: null
 			const kind = typeof reason?.kind === 'string' ? reason.kind : 'unknown'
-			const errorMessage = kind === 'error' && (typeof reason?.error?.message === 'string' || typeof reason?.error?.message === 'object')
-				? String(reason.error.message)
-				: ''
+			// 错误信息契约仅为字符串（agent-loop 的 LlmError failure.message）；非字符串不展示，
+			// 避免界面出现 "[object Object]"（C-043 复审收紧）。
+			const errorMessage = kind === 'error' && typeof reason?.error?.message === 'string' ? reason.error.message : ''
 			const current = acks.get(id)
 			await acks.put(id, {
 				lastTurnEnd: time,
 				lastTurnEndKind: kind,
-				lastTurnEndError: kind === 'error' && errorMessage !== '' ? truncateError(errorMessage) : null,
+				lastTurnEndError: kind === 'error' && errorMessage !== '' ? truncateErrorNote(errorMessage) : null,
 				ackedAt: current?.ackedAt ?? null,
 			})
 			broadcast()

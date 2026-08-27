@@ -52,7 +52,7 @@ id: T-080
 | 维度 | 适用性/理由 | 可执行证据 |
 |---|---|---|
 | 成功 | 适用：三类 waitClass 派生、胶囊文字/图标、noteText（动作说明/Q 行列表/ROUND_DONE_NOTE/错误信息）、徽标 tone 优先级 | `scripts/check.mjs#R-01-002/AC-01`、`scripts/check.mjs#R-01-002/AC-02`、`scripts/check.mjs#R-01-002/AC-09`、`scripts/check.mjs#R-01-002/AC-13`、`src/core.mjs::errorReminder`、`src/core.mjs::buildEntries`、`src/core.mjs::awaitBadgeTone`、`src/host.mjs::apply` |
-| 异常 | 适用：reason 缺失/非法 kind 归一 unknown、error 无 message 回落、错误信息截断、旧 acks 记录无新字段兼容 | `scripts/check.mjs#R-01-002/AC-13`、`src/core.mjs::entryErrorNote`、`src/core.mjs::ERROR_NOTE_FALLBACK`、`src/host.mjs::truncateError` |
+| 异常 | 适用：reason 缺失/非法 kind 归一 unknown、error 无 message 回落、错误信息截断、旧 acks 记录无新字段兼容 | `scripts/check.mjs#R-01-002/AC-13`、`src/core.mjs::truncateErrorNote`、`src/core.mjs::ERROR_NOTE_FALLBACK`、`src/core.mjs::entryErrorNote`、`src/host.mjs::apply` |
 | 边界配置 | 适用：error 与 done 优先级（lastTurnEndKind 单值）、错误卡无按钮、后代抑制错误提醒、新回合覆盖解除、刷新恢复 | `scripts/check.mjs#R-01-002/AC-13`、`scripts/check.mjs#R-01-002/AC-12`、`src/core.mjs::completionReminder`、`src/client.mjs::migrateAwaitingFoot` |
 | 副作用 | 适用：完成提醒绿卡与按钮不闪不变；Q 行列表/pre-line 不变；时间线错误红独立于卡片红；不可恢复错误不再误报绿色完成 | `scripts/check.mjs#R-01-002/AC-08`、`scripts/check.mjs#R-01-002/AC-10`、`scripts/check.mjs#R-01-002/AC-06`、`scripts/acceptance.mjs#R-01-002/AC-13`、`src/client.mjs::renderCardInto`、`src/core.mjs::awaitNoteText` |
 

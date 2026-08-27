@@ -45,6 +45,7 @@ import {
 	errorReminder,
 	ERROR_NOTE_MAX,
 	ERROR_NOTE_FALLBACK,
+	truncateErrorNote,
 	trackBoxes,
 	trackRuns,
 	isSubagentRow,
@@ -2374,6 +2375,15 @@ assert.deepEqual(
 );
 assert.ok(ERROR_NOTE_MAX > 0, "错误信息截断上限为正数");
 assert.equal(ERROR_NOTE_FALLBACK, "回合以错误结束，请检查会话");
+assert.equal(truncateErrorNote("短错误"), "短错误", "不超限原样返回");
+assert.equal(truncateErrorNote("x".repeat(ERROR_NOTE_MAX)), "x".repeat(ERROR_NOTE_MAX), "恰在上限时原样返回、不加省略号");
+assert.equal(
+	truncateErrorNote("x".repeat(ERROR_NOTE_MAX + 1)),
+	`${"x".repeat(ERROR_NOTE_MAX)}…`,
+	"超限截断至上限字符并以省略号收尾（省略号不计入上限）",
+);
+assert.equal(truncateErrorNote("😀".repeat(ERROR_NOTE_MAX + 1)), `${"😀".repeat(ERROR_NOTE_MAX)}…`, "按 Unicode 码点截断，代理对字符不被劈开");
+assert.equal(truncateErrorNote(null), "", "非字符串入参返回空串（防御性边界）");
 assert.deepEqual(
 	awaitBadgeStats(errEntries),
 	{ waiting: 1, blocked: 0, total: 1 },

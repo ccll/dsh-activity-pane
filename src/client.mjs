@@ -428,7 +428,7 @@ const CSS = `
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"] .dap-foot :is(.dap-capsule, .dap-note) {
   animation: dap-pulse 1.2s ease-in-out infinite;
 }
-/* 复审修复（C-040）：状态点光晕两类同强度、仅换色相——阻塞琥珀光晕与完成绿光晕一致。 */
+/* 复审修复（C-040、C-043）：状态点光晕三类同强度、仅换色相——阻塞金、完成绿与错误红光晕一致。 */
 /* 工作区徽标「图标+文本」双段：文件夹图标与左边栏工作区条目同源（R-01-003/AC-06）；
    名称字号不低于 10.5px（AC-07），行高保持 14px 以维持胶囊与卡片高度。
    着色（AC-08～AC-11）：核心映射提供 OKLCH hue；深色主题文字取高明度中高彩度，

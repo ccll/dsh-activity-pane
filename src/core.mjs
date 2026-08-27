@@ -33,12 +33,8 @@ const PENDING_NOTES = {
 const PENDING_UNKNOWN_LABEL = "待处理";
 const PENDING_UNKNOWN_NOTE = "等待你处理后继续";
 
-/** 完成提醒的等待文案（R-01-002）：产出（pendingText 兜底、buildEntries）与
- *  呈现判定共用同一常量，避免字面量多处比较漂移。 */
-export const ROUND_DONE_LABEL = "已完成";
-
-/** 完成提醒备注行（R-01-002/AC-09）：说清下一步是发送新指令，而非模糊的「处理」。 */
-export const ROUND_DONE_NOTE = "本轮已完成，等你发送下一条指令";
+/** 完成提醒备注行（R-01-002/AC-09，C-040）：说清下一步——给新指令或移入历史。 */
+export const ROUND_DONE_NOTE = "本轮任务已完成，请给出新的指令，或将会话移入历史";
 
 /** 镜像原生 toolRowModel 的 classifyTool（dsh-client-ui-tool）：摘要参数键按 variant 分派（C-011）。 */
 const TOOL_VARIANTS = {
@@ -264,8 +260,10 @@ function askStatusSummary(root, status) {
 	return null;
 }
 
-/** 取 ask_user_question 参数中首个问题的正文首行（物理首行 + 截断，DOMAIN「物理首行」口径），
- *  供待回复卡备注行直接展示（R-01-002/AC-09）；结构不符或为空返回 null，由调用方回落动作说明。 */
+/** 取 ask_user_question 参数中第一条提问的展示标题（R-01-002/AC-09，C-040）：
+ *  首问 `header` 短标题优先（原生提问卡头字段），未给出或为空时回落问题正文物理首行
+ *  （DOMAIN「物理首行」口径 + 截断）；只看第一条提问，不跳到后续问题。结构不符、
+ *  首问两字段均不可得返回 null，由调用方回落动作说明。 */
 export function askQuestionPreview(argsRaw, max = 60) {
 	if (typeof argsRaw !== "string" || argsRaw === "") return null;
 	let parsed;
@@ -275,11 +273,9 @@ export function askQuestionPreview(argsRaw, max = 60) {
 		return null;
 	}
 	if (!isRecord(parsed) || !Array.isArray(parsed.questions)) return null;
-	for (const item of parsed.questions) {
-		const question = firstPhysicalLine(isRecord(item) ? item.question : null, max);
-		if (question !== "") return question;
-	}
-	return null;
+	const item = parsed.questions[0];
+	if (!isRecord(item)) return null;
+	return firstPhysicalLine(item.header, max) || firstPhysicalLine(item.question, max) || null;
 }
 
 function timelineToolItem(root, fallbackView = null, cwd = "") {
@@ -1045,20 +1041,27 @@ export function pendingText(kind) {
 	return PENDING_LABELS[kind] ?? PENDING_UNKNOWN_LABEL;
 }
 
-/** 等待卡备注行（R-01-002/AC-09）：阻塞等待说明动作与后果（待回复附问题正文首行，
- *  不可得时回落动作说明）；完成提醒固定为「等你发送下一条指令」。
+/** 等待卡末行提示（R-01-002/AC-09，C-040）：阻塞等待说明动作与后果（待回复直出第一条
+ *  提问的标题/正文首行，不带前缀——提示即回答入口）；完成提醒固定引导新指令或移入历史。
  *  questionPreview 为时间线末条 ask 工作项携带的问题文本（可为 null）。 */
 export function awaitNoteText(waitClass, pendingKind, questionPreview = null) {
 	if (waitClass === "done") return ROUND_DONE_NOTE;
 	if (pendingKind === "question" && typeof questionPreview === "string" && questionPreview !== "")
-		return `等待你回答：${questionPreview}`;
+		return questionPreview;
 	return PENDING_NOTES[pendingKind] ?? PENDING_UNKNOWN_NOTE;
 }
 
-/** 等待徽标闪烁判定（R-01-002/AC-08，C-037）：阻塞等待与完成提醒两类均与标题状态点
- *  同频同相脉冲；未知/无等待类别不闪烁。 */
-export function awaitBadgeFlash(waitClass) {
-	return waitClass === "blocked" || waitClass === "done";
+/** 计数徽标底色跟随等待构成（R-01-002/AC-06，C-040）：存在任一阻塞等待主会话即取
+ *  `'blocked'`（琥珀催促），等待全部为完成提醒时取 `'done'`（绿=已完成不急）；无等待行动
+ *  或仅运行卡时返回 null。子代理不计入。 */
+export function awaitBadgeTone(entries) {
+	let tone = null;
+	for (const entry of Array.isArray(entries) ? entries : []) {
+		if (entry?.kind !== "awaiting") continue;
+		if (entry.waitClass === "blocked") return "blocked";
+		tone = "done";
+	}
+	return tone;
 }
 
 /** 时间线末条 ask_user_question 工作项携带的提问正文（折叠组行同样上浮该字段）；
@@ -1426,11 +1429,8 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 				userPreview: previews.userPreview ?? "",
 				agentPreview: previews.agentPreview ?? "",
 				isCurrent: current !== null && String(current) === String(id),
-				pendingText: m.pending
-					? pendingText(m.row.pendingInteraction)
-					: doneWait
-					? ROUND_DONE_LABEL
-						: undefined,
+				// 完成提醒卡不显示类型徽标（C-040）：pendingText 仅为阻塞等待承载。
+				pendingText: m.pending ? pendingText(m.row.pendingInteraction) : undefined,
 				// 等待双类（R-01-002）：blocked=阻塞等待（待确认/待审查/待回复），done=完成提醒。
 				waitClass: m.pending
 					? "blocked"

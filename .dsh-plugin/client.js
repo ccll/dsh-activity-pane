@@ -39,12 +39,8 @@ const PENDING_NOTES = {
 const PENDING_UNKNOWN_LABEL = "待处理";
 const PENDING_UNKNOWN_NOTE = "等待你处理后继续";
 
-/** 完成提醒的等待文案（R-01-002）：产出（pendingText 兜底、buildEntries）与
- *  呈现判定共用同一常量，避免字面量多处比较漂移。 */
-const ROUND_DONE_LABEL = "已完成";
-
-/** 完成提醒备注行（R-01-002/AC-09）：说清下一步是发送新指令，而非模糊的「处理」。 */
-const ROUND_DONE_NOTE = "本轮已完成，等你发送下一条指令";
+/** 完成提醒备注行（R-01-002/AC-09，C-040）：说清下一步——给新指令或移入历史。 */
+const ROUND_DONE_NOTE = "本轮任务已完成，请给出新的指令，或将会话移入历史";
 
 /** 镜像原生 toolRowModel 的 classifyTool（dsh-client-ui-tool）：摘要参数键按 variant 分派（C-011）。 */
 const TOOL_VARIANTS = {
@@ -270,8 +266,10 @@ function askStatusSummary(root, status) {
 	return null;
 }
 
-/** 取 ask_user_question 参数中首个问题的正文首行（物理首行 + 截断，DOMAIN「物理首行」口径），
- *  供待回复卡备注行直接展示（R-01-002/AC-09）；结构不符或为空返回 null，由调用方回落动作说明。 */
+/** 取 ask_user_question 参数中第一条提问的展示标题（R-01-002/AC-09，C-040）：
+ *  首问 `header` 短标题优先（原生提问卡头字段），未给出或为空时回落问题正文物理首行
+ *  （DOMAIN「物理首行」口径 + 截断）；只看第一条提问，不跳到后续问题。结构不符、
+ *  首问两字段均不可得返回 null，由调用方回落动作说明。 */
 function askQuestionPreview(argsRaw, max = 60) {
 	if (typeof argsRaw !== "string" || argsRaw === "") return null;
 	let parsed;
@@ -281,11 +279,9 @@ function askQuestionPreview(argsRaw, max = 60) {
 		return null;
 	}
 	if (!isRecord(parsed) || !Array.isArray(parsed.questions)) return null;
-	for (const item of parsed.questions) {
-		const question = firstPhysicalLine(isRecord(item) ? item.question : null, max);
-		if (question !== "") return question;
-	}
-	return null;
+	const item = parsed.questions[0];
+	if (!isRecord(item)) return null;
+	return firstPhysicalLine(item.header, max) || firstPhysicalLine(item.question, max) || null;
 }
 
 function timelineToolItem(root, fallbackView = null, cwd = "") {
@@ -1051,20 +1047,27 @@ function pendingText(kind) {
 	return PENDING_LABELS[kind] ?? PENDING_UNKNOWN_LABEL;
 }
 
-/** 等待卡备注行（R-01-002/AC-09）：阻塞等待说明动作与后果（待回复附问题正文首行，
- *  不可得时回落动作说明）；完成提醒固定为「等你发送下一条指令」。
+/** 等待卡末行提示（R-01-002/AC-09，C-040）：阻塞等待说明动作与后果（待回复直出第一条
+ *  提问的标题/正文首行，不带前缀——提示即回答入口）；完成提醒固定引导新指令或移入历史。
  *  questionPreview 为时间线末条 ask 工作项携带的问题文本（可为 null）。 */
 function awaitNoteText(waitClass, pendingKind, questionPreview = null) {
 	if (waitClass === "done") return ROUND_DONE_NOTE;
 	if (pendingKind === "question" && typeof questionPreview === "string" && questionPreview !== "")
-		return `等待你回答：${questionPreview}`;
+		return questionPreview;
 	return PENDING_NOTES[pendingKind] ?? PENDING_UNKNOWN_NOTE;
 }
 
-/** 等待徽标闪烁判定（R-01-002/AC-08，C-037）：阻塞等待与完成提醒两类均与标题状态点
- *  同频同相脉冲；未知/无等待类别不闪烁。 */
-function awaitBadgeFlash(waitClass) {
-	return waitClass === "blocked" || waitClass === "done";
+/** 计数徽标底色跟随等待构成（R-01-002/AC-06，C-040）：存在任一阻塞等待主会话即取
+ *  `'blocked'`（琥珀催促），等待全部为完成提醒时取 `'done'`（绿=已完成不急）；无等待行动
+ *  或仅运行卡时返回 null。子代理不计入。 */
+function awaitBadgeTone(entries) {
+	let tone = null;
+	for (const entry of Array.isArray(entries) ? entries : []) {
+		if (entry?.kind !== "awaiting") continue;
+		if (entry.waitClass === "blocked") return "blocked";
+		tone = "done";
+	}
+	return tone;
 }
 
 /** 时间线末条 ask_user_question 工作项携带的提问正文（折叠组行同样上浮该字段）；
@@ -1432,11 +1435,8 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 				userPreview: previews.userPreview ?? "",
 				agentPreview: previews.agentPreview ?? "",
 				isCurrent: current !== null && String(current) === String(id),
-				pendingText: m.pending
-					? pendingText(m.row.pendingInteraction)
-					: doneWait
-					? ROUND_DONE_LABEL
-						: undefined,
+				// 完成提醒卡不显示类型徽标（C-040）：pendingText 仅为阻塞等待承载。
+				pendingText: m.pending ? pendingText(m.row.pendingInteraction) : undefined,
 				// 等待双类（R-01-002）：blocked=阻塞等待（待确认/待审查/待回复），done=完成提醒。
 				waitClass: m.pending
 					? "blocked"
@@ -2067,9 +2067,15 @@ const CSS = `
 [data-dsh-activity-pane] .dap-count[data-awaiting] {
   /* 底色/透明度与等待卡完全一致、无描边与外环（R-01-002/AC-06）；脉冲走亮度呼吸而非整体
      不透明度——半透明会让底色透进列头背景；周期由 --dap-await-period 驱动（AC-07）。
-     任一等待行动即脉冲：阻塞等待与完成提醒行为一致（C-037）。 */
+     任一等待行动即脉冲：阻塞等待与完成提醒行为一致（C-037）。
+     底色跟随等待构成（C-040）：默认琥珀（阻塞在即），tone=done 时取完成提醒同款暗绿。 */
   background: rgba(35, 31, 25, 0.97);
   animation: dap-await-pulse var(--dap-await-period, 1.6s) ease-in-out infinite;
+}
+[data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="done"],
+[data-dsh-activity-pane] .dap-rail-count[data-awaiting][data-tone="done"],
+[data-dsh-activity-pane] .dap-toggle[data-awaiting][data-tone="done"] .dap-toggle-count {
+  background: rgba(35, 60, 44, 0.97);
 }
 @keyframes dap-await-pulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
 /* 单一滚动区：活动区与最近历史同一容器滚动；touch-action/overscroll 防止
@@ -2291,10 +2297,18 @@ const CSS = `
   border-color: color-mix(in srgb, #65a0ff 75%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, #65a0ff 45%, transparent), 0 0 12px color-mix(in srgb, #65a0ff 30%, transparent);
 }
-[data-dsh-activity-pane] .dap-card[data-kind="awaiting"] {
+/* 等待双类卡面按色彩语义分野（R-01-002/AC-03、AC-04，C-040）：阻塞等待保持琥珀暖色
+   催促尽快响应；完成提醒改用绿色成功色系——深色取宿主 success 三级背景同款暗绿
+   （green-900），描边与光晕强度与阻塞等待卡一致，仅换色相。 */
+[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] {
   border-color: color-mix(in srgb, #e8a33d 55%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, #e8a33d 35%, transparent), 0 6px 16px rgba(0,0,0,.3);
   background: rgba(35, 31, 25, 0.97);
+}
+[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {
+  border-color: color-mix(in srgb, #58c98f 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #58c98f 35%, transparent), 0 6px 16px rgba(0,0,0,.3);
+  background: rgba(35, 60, 44, 0.97);
 }
 /* 等待卡同为当前会话时描边/光晕回归蓝色高亮（R-01-006/AC-01）：基态 [data-current]
    与 [data-kind="awaiting"] 同优先级且定义在前，深色下被橙色描边顶掉；组合选择器
@@ -2325,9 +2339,18 @@ const CSS = `
   animation: dap-pulse 1.2s ease-in-out infinite;
 }
 @keyframes dap-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+/* 等待卡标题状态点静止（R-01-002/AC-08，C-040）：闪烁提醒已统一移至卡片末行，
+   标题区不再抢眼；状态点只按等待类别着色——阻塞琥珀、完成绿。 */
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"] .dap-dot {
+  animation: none;
+}
+[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] .dap-dot {
   background: #e8a33d;
   box-shadow: 0 0 8px rgba(232,163,61,.85);
+}
+[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-dot {
+  background: #58c98f;
+  box-shadow: none;
 }
 [data-dsh-activity-pane] .dap-card[data-kind="recent"] .dap-dot {
   background: #8a94a3;
@@ -2355,9 +2378,18 @@ const CSS = `
 [data-dsh-activity-pane] .dap-badge-icon { width: 12px; height: 12px; display: inline-flex; align-items: center; }
 [data-dsh-activity-pane] .dap-badge-icon:empty { display: none; }
 [data-dsh-activity-pane] .dap-badge-icon svg { display: block; width: 12px; height: 12px; }
-/* 等待徽标闪烁：与标题圆点同款脉冲（dap-pulse 1.2s），开启瞬间由渲染层重启圆点动画对齐相位；
-   阻塞等待与完成提醒两类均闪烁（R-01-002/AC-08，C-037）。 */
-[data-dsh-activity-pane] .dap-badge.dap-badge-flash { animation: dap-pulse 1.2s ease-in-out infinite; }
+/* 等待双类的末行脉冲（R-01-002/AC-08，C-040）：闪烁载体为卡片末行——阻塞等待的
+   提示文字与行尾类型徽标同频同相闪烁，完成提醒整行提示文字闪烁；「移入历史」按钮
+   不闪。两组规则在同一帧随 data-wait 属性生效，动画自然同相位；标题状态点已静止
+   （见上），无需 JS 相位重启。 */
+[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] :is(.dap-note, .dap-badge),
+[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-note {
+  animation: dap-pulse 1.2s ease-in-out infinite;
+}
+/* 完成提醒卡无类型徽标（C-040）：徽标元素仍在骨架中（按类别复用），直接隐藏。 */
+[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-badge {
+  display: none;
+}
 /* 工作区徽标「图标+文本」双段：文件夹图标与左边栏工作区条目同源（R-01-003/AC-06）；
    名称字号不低于 10.5px（AC-07），行高保持 14px 以维持胶囊与卡片高度。
    着色（AC-08～AC-11）：核心映射提供 OKLCH hue；深色主题文字取高明度中高彩度，
@@ -2402,11 +2434,13 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   font-size: 11px; line-height: 15px;
   color: color-mix(in srgb, currentColor 62%, transparent);
 }
-/* 等待卡备注行容器：「已完成」卡在备注文本旁容纳确认按钮（R-01-002/AC-10）。 */
+/* 等待卡末行容器（R-01-002/AC-08、AC-10，C-040）：提示文字铺满，行尾为阻塞等待的
+   类型徽标与完成提醒卡的「移入历史」按钮——徽标随文字同闪，按钮不闪。 */
 [data-dsh-activity-pane] .dap-note-row {
   display: flex; align-items: center; gap: 6px; min-width: 0;
 }
 [data-dsh-activity-pane] .dap-note-row .dap-note { flex: 1 1 auto; }
+[data-dsh-activity-pane] .dap-note-row .dap-badge { flex: none; }
 [data-dsh-activity-pane] .dap-confirm {
   flex: none; padding: 0 7px; margin: 1px 0;
   font-size: 10.5px; line-height: 16px;
@@ -2740,14 +2774,24 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current] 
   box-shadow: 0 0 0 1px color-mix(in srgb, #65a0ff 45%, transparent), 0 0 12px color-mix(in srgb, #65a0ff 30%, transparent);
 }
 
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"] {
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] {
   background: var(--dsw-alias-state-warn-tertiary, rgb(254, 245, 231));
 }
-/* 数量徽标等待态浅色主题覆盖：底色取等待卡浅色背景别名（R-01-002/AC-06，无描边与外环）。 */
+/* 完成提醒卡浅色主题取宿主 success 三级背景别名（R-01-002/AC-04，C-040）：淡绿成功底。 */
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {
+  background: var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237));
+}
+/* 数量徽标等待态浅色主题覆盖：琥珀默认跟随阻塞卡、tone=done 跟随完成卡别名
+  （R-01-002/AC-06，无描边与外环）。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting],
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting],
 body:not([data-ds-dark-theme]) .dap-toggle[data-awaiting] .dap-toggle-count {
   background: var(--dsw-alias-state-warn-tertiary, rgb(254, 245, 231));
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="done"],
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting][data-tone="done"],
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-toggle[data-awaiting][data-tone="done"] .dap-toggle-count {
+  background: var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-pct {
   color: var(--dsw-alias-state-success-primary, #22c55e);
@@ -3456,14 +3500,14 @@ function apply(ctx) {
 		return node;
 	}
 
-	/** 「已完成」卡确认按钮（R-01-002/AC-10）：默认隐藏，仅完成提醒卡显示；
+	/** 完成提醒卡「移入历史」按钮（R-01-002/AC-10，C-040）：默认隐藏，仅完成提醒卡显示；
 	 *  文案本身即可访问名称；点击与键盘激活均不得触发卡片跳转（激活锚点在渲染期绑定）。 */
 	function makeConfirmButton() {
 		const button = document.createElement("button");
 		button.type = "button";
 		button.className = "dap-confirm";
 		button.hidden = true;
-		button.textContent = "知道了";
+		button.textContent = "移入历史";
 		return button;
 	}
 
@@ -3501,18 +3545,14 @@ function apply(ctx) {
 		}
 		if (kind === "awaiting") {
 			const row = makeEl("div", "dap-row");
-			// 徽标「图标+文本」双段：阻塞等待前置类型图标（R-01-002/AC-01、AC-02），
-			// 完成提醒图标盒留空不占位（CSS :empty 隐藏）。
+			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
+			// 等待双类末行结构（R-01-002/AC-08、AC-10，C-040）：类型徽标位于末行行尾随提示文字
+			// 同频闪烁（仅阻塞等待显示，done 经 CSS 隐藏），完成提醒卡在其后提供「移入历史」按钮。
 			const badge = makeEl("span", "dap-badge");
 			badge.append(makeEl("span", "dap-badge-icon"), makeEl("span", "dap-badge-text"));
-			row.append(
-				makeEl("span", "dap-dot"),
-				makeEl("span", "dap-title"),
-				badge,
-			);
-			// 备注行容器：备注文本 + 「已完成」卡确认按钮（R-01-002/AC-10）。
+			// 备注行容器：备注文本 + 类型徽标 + 「移入历史」按钮（R-01-002/AC-10）。
 			const noteRow = makeEl("div", "dap-note-row");
-			noteRow.append(makeEl("div", "dap-note"), makeConfirmButton());
+			noteRow.append(makeEl("div", "dap-note"), badge, makeConfirmButton());
 			return [head, row, makeEl("div", "dap-trace"), noteRow];
 		}
 		// 运行卡：上下文 + 标题 + 最近工作项 + 进度条 + token 底行。
@@ -3914,26 +3954,13 @@ function apply(ctx) {
 			const badgeText = badge.querySelector(".dap-badge-text");
 			if (badgeText !== null && badgeText.textContent !== pending) badgeText.textContent = pending;
 			// 阻塞等待徽标前置类型图标（待确认=对勾 / 待审查=文档 / 待回复=问号气泡）；
-			// 完成提醒与未知阻塞种类无图标（评审修正：图标不冒充已知类型）。
+			// 完成提醒卡整枚徽标由 CSS data-wait 隐藏（C-040）。
 			const iconHolder = badge.querySelector(".dap-badge-icon");
 			const iconKind =
 				entry.waitClass === "blocked" && PENDING_ICON_KINDS.has(entry.pendingKind) ? entry.pendingKind : "";
 			if (iconHolder !== null && (iconHolder.dataset.kind ?? "") !== iconKind) {
 				iconHolder.dataset.kind = iconKind;
 				iconHolder.replaceChildren(...(iconKind === "" ? [] : [createPendingIcon(iconKind)]));
-			}
-			// 两类等待行动同频同相闪烁（R-01-002/AC-08，C-037）：与标题圆点同款脉冲。
-			const flash = awaitBadgeFlash(entry.waitClass);
-			const wasFlashing = badge.classList.contains("dap-badge-flash");
-			badge.classList.toggle("dap-badge-flash", flash);
-			if (flash && !wasFlashing) {
-				// 开启瞬间重启标题圆点动画：同款同期 keyframes 从同一帧起步，相位不再漂移。
-				const dot = el.querySelector(".dap-dot");
-				if (dot !== null) {
-					dot.style.animation = "none";
-					void dot.offsetWidth;
-					dot.style.animation = "";
-				}
 			}
 		}
 
@@ -4304,15 +4331,15 @@ function apply(ctx) {
 		rec.el.style.marginLeft = `${(entry.depth ?? 0) * INDENT_PX}px`;
 		rec.el.toggleAttribute("data-current", entry.isCurrent);
 		rec.el.toggleAttribute("data-awaiting", entry.kind === "awaiting");
-		// 等待双类（R-01-002/AC-08）：blocked=阻塞等待（类型图标徽标），done=完成提醒（无图标）；
-		// 两类脉冲与描边光晕一致（C-037），data-wait 只承载图标/文案/确认按钮差异。
+		// 等待双类（R-01-002/AC-08，C-040）：blocked=阻塞等待（末行行尾类型徽标随文字同闪，
+		// 琥珀催促卡面），done=完成提醒（无类型徽标，绿色成功卡面、整行末行提示闪烁）。
 		if (entry.waitClass === "blocked" || entry.waitClass === "done") rec.el.setAttribute("data-wait", entry.waitClass);
 		else rec.el.removeAttribute("data-wait");
 		rec.el.setAttribute(
 			"aria-label",
 			`${entry.workspaceTitle ? entry.workspaceTitle + " - " : ""}${entry.title}${
 				entry.pendingText ? "，" + entry.pendingText : ""
-			}`,
+			}${entry.kind === "awaiting" && entry.noteText ? "，" + entry.noteText : ""}`,
 		);
 		renderCardInto(rec.el, entry, hueByWorkspace);
 		// 只有顺序/归属真正变化时才移动 DOM：每次渲染无条件 appendChild 会把所有
@@ -4731,16 +4758,20 @@ function apply(ctx) {
 		// 计数与折叠：n/m 只统计主会话——分子为等待行动数、分母为其加运行中主会话之和
 		// （R-01-001/AC-04、AC-05）；空态同样显示 0/0（AC-06）。列表在途时不冒充计数，
 		// 三处数量标识显示加载指示（R-01-014/AC-06）。脉冲由 data-awaiting 承载：
-		// 任一等待行动（阻塞等待或完成提醒）即脉冲（R-01-002/AC-06，C-037）。
+		// 任一等待行动（阻塞等待或完成提醒）即脉冲（R-01-002/AC-06，C-037）；
+		// 底色经 data-tone 跟随等待构成——有阻塞即琥珀、全为完成提醒则绿（C-040）。
 		const count = pane.querySelector(".dap-count");
 		const railCount = pane.querySelector(".dap-rail-count");
 		const { waiting, blocked, total } = awaitBadgeStats(active);
 		const badge = countBadgeState(listState, waiting, total, blocked);
 		const awaitPeriod = badge.awaiting ? awaitPulsePeriod(waiting, total) : null;
+		const badgeTone = awaitBadgeTone(active);
 		for (const el of [count, railCount])
 			if (el !== null) {
 				setCountBadgeContent(el, badge);
 				el.toggleAttribute("data-awaiting", badge.awaiting);
+				if (badge.awaiting && badgeTone !== null) el.setAttribute("data-tone", badgeTone);
+				else el.removeAttribute("data-tone");
 				if (el.getAttribute("aria-label") !== badge.ariaText) el.setAttribute("aria-label", badge.ariaText);
 				setAwaitPulsePeriod(el, awaitPeriod);
 			}
@@ -4748,6 +4779,8 @@ function apply(ctx) {
 		if (toggleCount !== null) {
 			setCountBadgeContent(toggleCount, badge);
 			toggle.toggleAttribute("data-awaiting", badge.awaiting);
+			if (badge.awaiting && badgeTone !== null) toggle.setAttribute("data-tone", badgeTone);
+			else toggle.removeAttribute("data-tone");
 			setAwaitPulsePeriod(toggleCount, awaitPeriod);
 		}
 		pane.toggleAttribute("data-collapsed", collapsed);

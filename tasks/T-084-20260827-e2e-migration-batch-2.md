@@ -6,7 +6,7 @@ id: T-084
 
 # T-084 第二批 acceptance E2E 迁移（导航/调宽/回到顶部/卡面内容）
 
-状态: active
+状态: completed
 关联: C-045 → E2E 验证基建（依赖 T-082、T-083）
 风险等级: standard
 
@@ -56,10 +56,10 @@ T-083 迁移了 11 个人工-only AC。本 task 继续迁移「可机器判定�
 - 实现: 4 条新 spec（navigation/resize/back-to-top/card-content）锚定 15 个 AC 的真实行为断言；helpers 增加停滞/直进会话两级自愈与共享辅助；run.mjs 按 ERR_PANE_STALL 换环境重试；acceptance.mjs 移除 3 步、修剪 4 步为观感残留。
 - 测试: `node e2e/run.mjs` 连续 4 轮 9/9 全绿（含停滞自愈触发后恢复）；`pnpm check` 全绿；`agentmap_lint --report` test-anchored 128/128 不下降；`git diff --check` 干净。
 - DESIGN 对照: DESIGN「E2E 验证基建」职责行已同步第二批范围；其余设计不变（验收点语义未变，仅验证方式迁移）。
-- commit: 518bc68（实现）；关闭提交见 git log。
+- commit: 0b6eaebfe42eea2e46791b13d05a0852a76c8b85
 - review:
   - 审核方: 独立 reviewer 双轴（Standards 43d00171、Spec 5a34b7a4，code-review skill 子代理）
   - 目的理解: 已核实——T-084 第二批 acceptance E2E 迁移（跳转/高亮/调宽/回顶/卡面内容）+ 52096f6 宿主首推停滞自愈；关联约束 PRD 对应 AC 原文、CONVENTIONS 断言纪律、DESIGN「E2E 验证基建」。
   - 执行方式: `code-review` skill，基线 98d3fb3，范围含 52096f6 与 T-084 全部改动（含未提交工作区）。
   - 问题与修复: Standards 7 项判断性问题（错误文案签名→ERR_PANE_STALL code；150ms 定时断言→click 后立即断言；硬编码→MOCK_* 常量；弱断言→定值/几何强化；2 项记录取舍后放行）；Spec 8 项（AC-05 范围文本修正；五层结构改定值行索引断言；补右上角/右下角几何断言；补抽屉内点击回顶；补拖拽中途实时采样；acceptance 注释锚点修正）。
-  - 复审结论: （待复审回填）
+  - 复审结论: 双轴复审均通过（Standards 43d00171：原 7 项全关，新增 2 项注释级瑕疵已随手修；Spec 5a34b7a4：原 8 项全关，新增 3 项轻微问题已修——MOCK_MODEL 注释、最坏时长记录、AC-11 锚点补注）。

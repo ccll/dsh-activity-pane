@@ -696,25 +696,76 @@ function currentActivityIndex(rows) {
 	return runningIndex;
 }
 
-/** 指令锚行与工作行统一选择（R-01-009/AC-11、R-01-012/AC-12～AC-15、C-035）：
- *  锚行占一格；真实当前活动保留身份并置于末行；剩余名额由最近历史工作行填充。 */
+/** 指令锚行与工作行统一选择（R-01-009/AC-11、R-01-012/AC-12～AC-15、C-039）：
+ *  可锚用户行作为普通显示行参与尾部窗口滚动，滚动至显示第一行时停留为指令锚行
+ *  （满窗几何为其后显示行数 ≥ max-1；时间线不足一窗时自然窗口首行的可锚用户行直接停留）。
+ *  已存在停留锚行（窗口内停留锚行或 fallbackAnchor 充当窗口外停留锚行）时，滚动至显示
+ *  第二行的可锚用户行取代旧锚升上首行，其后各行上移、暂减一行，不从窗口之外回填旧行。
+ *  fallbackAnchor 与窗口内任一可锚用户行同文本时判为同一消息，不充当停留锚行。
+ *  工作行选取保留最新真实当前活动行于末行，其余名额按最新顺序填满。 */
 function selectTimelineRows(full, max, fallbackAnchor = null) {
 	const list = Array.isArray(full) ? full : [];
 	if (max <= 0) return [];
+	const workRows = (rows, budget) => {
+		if (budget <= 0) return [];
+		const activityIndex = currentActivityIndex(rows);
+		const activity = activityIndex >= 0 ? rows[activityIndex] : null;
+		const history = activityIndex < 0 ? rows : rows.filter((_, index) => index !== activityIndex);
+		const picked = history.slice(-Math.max(0, budget - (activity === null ? 0 : 1)));
+		if (activity !== null) picked.push(activity);
+		return picked;
+	};
+	const pin = (row) => ({ ...row, anchor: true });
+	const after = (index) => list.length - index - 1;
 	const userIndex = list.findLastIndex(isAnchorableUserRow);
-	const fallback = userIndex < 0 && isAnchorableUserRow(fallbackAnchor) ? fallbackAnchor : null;
-	const anchor = userIndex >= 0 ? list[userIndex] : fallback;
-	const anchorPinned = fallback !== null || (userIndex >= 0 && list.length - userIndex - 1 >= max - 1);
-	const anchorRow = anchor === null ? null : anchorPinned ? { ...anchor, anchor: true } : anchor;
-	const work = list.slice(userIndex + 1);
-	const workBudget = Math.max(0, max - (anchorRow === null ? 0 : 1));
-	if (workBudget === 0) return anchorRow === null ? [] : [anchorRow];
-	const activityIndex = currentActivityIndex(work);
-	const activity = activityIndex >= 0 ? work[activityIndex] : null;
-	const history = activityIndex < 0 ? work : work.filter((_, index) => index !== activityIndex);
-	const rows = history.slice(-Math.max(0, workBudget - (activity === null ? 0 : 1)));
-	if (activity !== null) rows.push(activity);
-	return anchorRow === null ? rows : [anchorRow].concat(rows);
+	if (userIndex < 0) {
+		// 窗口内无可锚用户行：history 提取的最近用户消息充当停留锚行（快照窗口外兜底）。
+		return isAnchorableUserRow(fallbackAnchor) ? [pin(fallbackAnchor), ...workRows(list, max - 1)] : workRows(list, max);
+	}
+	// fallbackAnchor 与窗口内可锚用户行同文本时判为同一消息，不充当停留锚行（避免同一指令双行）。
+	const fallback = isAnchorableUserRow(fallbackAnchor) && !list.some((row) => isAnchorableUserRow(row) && row.text === fallbackAnchor.text) ? fallbackAnchor : null;
+	// 链起点：fallback 充当的窗口外停留锚行；否则最早滚动触顶（after ≥ max-1）的用户行；
+	// 均无且时间线不足一窗时，自然窗口首行的可锚用户行直接停留（空时间线首条指令占据第一行）。
+	let anchorIndex = -1;
+	if (fallback === null) {
+		for (let i = 0; i <= userIndex; i += 1) {
+			if (isAnchorableUserRow(list[i]) && after(i) >= max - 1) {
+				anchorIndex = i;
+				break;
+			}
+		}
+		if (anchorIndex < 0 && list.length <= max) {
+			const head = workRows(list, max)[0] ?? null;
+			anchorIndex = head !== null && isAnchorableUserRow(head) ? list.indexOf(head) : -1;
+		}
+		if (anchorIndex < 0) return workRows(list, max);
+	}
+	// 逐次顶替：滚动至显示第二行（停留锚行之后窗口的首行）的可锚用户行取代旧锚成为新停留锚行。
+	while (true) {
+		const source = anchorIndex >= 0 ? list.slice(anchorIndex + 1) : list;
+		if (source.length >= max - 1) {
+			// 满窗：到达过第二行（after ≥ max-2）的最近可锚用户行为停留锚行。
+			let next = -1;
+			for (let i = list.length - 1; i > anchorIndex; i -= 1) {
+				if (isAnchorableUserRow(list[i]) && after(i) >= max - 2) {
+					next = i;
+					break;
+				}
+			}
+			if (next < 0) break;
+			anchorIndex = next;
+		} else {
+			// 短窗：第二行为停留锚行之后的首个历史行；为可锚用户行即顶替。
+			const second = workRows(source, max - 1)[0] ?? null;
+			if (!isAnchorableUserRow(second)) break;
+			const next = list.indexOf(second);
+			if (next < 0) break;
+			anchorIndex = next;
+		}
+	}
+	return anchorIndex >= 0
+		? [pin(list[anchorIndex]), ...workRows(list.slice(anchorIndex + 1), max - 1)]
+		: [pin(fallback), ...workRows(list, max - 1)];
 }
 
 /** 折叠分组时间线（R-01-017）：渲染层时间线的唯一来源——无条件折叠分组，不做任何探测切换。
@@ -869,8 +920,8 @@ function conversationTimelineFromHistory(history, limit = 4, cwd = "") {
 }
 
 /** 冷 history 折叠分组时间线（R-01-017、R-01-012/AC-12～AC-15）：页内全部事件映射折叠后
- *  套用与快照路径同一窗口/锚行选择（selectTimelineRows），最近用户消息被挤出窗口时
- *  钉为首行锚行。 */
+ *  套用与快照路径同一窗口/锚行选择（selectTimelineRows），最近用户消息滚动触顶后停留为
+ *  首行锚行。 */
 function foldedHistoryTimeline(history, limit = 4, cwd = "") {
 	const max = Math.max(0, limit);
 	if (max === 0) return [];

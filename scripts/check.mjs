@@ -1024,7 +1024,7 @@ assert.equal(manyGroups[0].text, "正文一", "正文行内容保留");
 const groupIdStable = foldWorkGroups(manyFlat, 4)[3];
 assert.equal(groupIdStable.id, manyGroups[3].id, "分组 id 稳定供渲染层 DOM 复用");
 
-// ---- R-01-012/AC-12～AC-14 指令锚行：窗口之前最近的用户输入行钉为时间线首行 ----
+// ---- R-01-012/AC-12～AC-15 指令锚行：末尾进入、触顶停留、第二行顶替（C-039）----
 const anchorNodes = new Map([
 	["a-u1", { key: "a-u1", kind: "user", anchorSeq: 1, data: { content: [{ type: "text", text: "修复登录页" }] } }],
 	["a-b1", { key: "a-b1", kind: "assistant-step", anchorSeq: 2, data: { status: "settled", turn: 1, step: 0, blocks: [{ kind: "text", text: "正文一" }] } }],
@@ -1034,54 +1034,76 @@ const anchorNodes = new Map([
 	["a-b3", { key: "a-b3", kind: "assistant-step", anchorSeq: 6, data: { status: "settled", turn: 1, step: 2, blocks: [{ kind: "text", text: "正文三" }] } }],
 ]);
 const anchorBaseOrder = ["a-u1", "a-b1", "a-t1", "a-b2", "a-t2", "a-b3"];
-const anchored = foldedConversationTimeline({ chat: { order: anchorBaseOrder, nodes: { get: (key) => anchorNodes.get(key) } } });
-// AC-12：u1 被挤出最近 4 行窗口后作为指令锚行前置到首行
-assert.equal(anchored.length, 4, "锚行出现时窗口收缩为最近 3 个显示行，含锚行合计不超过 4（R-01-012/AC-12、R-01-017/AC-06）");
-assert.equal(anchored[0].anchor, true, "窗口之前的用户输入行以 anchor 标记前置（R-01-012/AC-12）");
-assert.equal(anchored[0].kind, "user", "锚行保留用户行语义供渲染层复用图标/标签/下划线（R-01-012/AC-12）");
-assert.equal(anchored[0].label, "用户", "锚行 label 为中文「用户」（R-01-012/AC-05）");
-assert.equal(anchored[0].text, "修复登录页", "锚行内容为本轮指令文本（R-01-012/AC-12）");
-assert.ok(anchored.slice(1).every((row) => row.anchor !== true), "仅首行带锚标记（R-01-012/AC-12）");
-// AC-14：新工作项进入时间线，锚行位置与内容保持不变
+const anchorTimeline = (order, nodes = anchorNodes, limit = 4) =>
+	foldedConversationTimeline({ chat: { order, nodes: { get: (key) => nodes.get(key) } } }, limit);
+const anchorIds = (rows) => rows.map((row) => row.id);
+// AC-12：时间线为空时首条用户消息直接占据第一行并停留为锚行
+const firstOnly = anchorTimeline(["a-u1"]);
+assert.deepEqual(anchorIds(firstOnly), ["a-u1"], "空时间线首条用户消息独占第一行（R-01-012/AC-12）");
+assert.equal(firstOnly[0].anchor, true, "空时间线首条用户消息直接停留为指令锚行（R-01-012/AC-12）");
+assert.equal(firstOnly[0].kind, "user", "锚行保留用户行语义供渲染层复用图标/标签/下划线（R-01-012/AC-12）");
+assert.equal(firstOnly[0].label, "用户", "锚行 label 为中文「用户」（R-01-012/AC-05）");
+assert.equal(firstOnly[0].text, "修复登录页", "锚行内容为指令文本（R-01-012/AC-12）");
+// AC-13：用户消息随新行到达滚动至第一行时停留为锚行，不再参与后续滚动
+const shortPin = anchorTimeline(["a-u1", "a-b1", "a-t1"]);
+assert.deepEqual(anchorIds(shortPin), ["a-u1", "a-b1", "fold:work:a-t1"], "短窗口内用户消息位于第一行即停留（R-01-012/AC-13）");
+assert.equal(shortPin[0].anchor, true, "第一行用户消息以锚行停留（R-01-012/AC-13）");
+const touchTop = anchorTimeline(["a-u1", "a-b1", "a-t1", "a-b2"]);
+assert.deepEqual(anchorIds(touchTop), ["a-u1", "a-b1", "fold:work:a-t1", "a-b2"], "滚动触顶瞬间行位置不变（R-01-012/AC-13）");
+assert.equal(touchTop[0].anchor, true, "触顶用户行停留为锚行（R-01-012/AC-13）");
+const anchored = anchorTimeline(anchorBaseOrder);
+assert.deepEqual(anchorIds(anchored), ["a-u1", "a-b2", "fold:work:a-t2", "a-b3"], "触顶后锚行停留首行、其后为最近 3 个工作显示行（R-01-012/AC-13、R-01-017/AC-06）");
+assert.equal(anchored[0].anchor, true, "停留行以 anchor 标记前置语义（R-01-012/AC-13）");
+assert.ok(anchored.slice(1).every((row) => row.anchor !== true), "仅首行带锚标记（R-01-012/AC-13）");
+// AC-14：新工作项进入时间线，锚行位置与内容保持不变，仅推动其后工作显示行
 const laterNodes = new Map(anchorNodes);
 laterNodes.set("a-t3", { key: "a-t3", kind: "tool-call", anchorSeq: 7, data: { root: { kind: "tool-result", callId: "a-t3", call: { name: "bash", argsRaw: '{"command":"ls"}' }, isError: false } } });
-const anchoredLater = foldedConversationTimeline({ chat: { order: [...anchorBaseOrder, "a-t3"], nodes: { get: (key) => laterNodes.get(key) } } });
-assert.equal(anchoredLater.length, 4, "新动作进入后含锚行总行数仍为 4（R-01-012/AC-14）");
-assert.equal(anchoredLater[0].anchor, true, "新动作进入时锚行仍在首行（R-01-012/AC-14）");
-assert.equal(anchoredLater[0].text, "修复登录页", "新动作进入时锚行内容不变（R-01-012/AC-14）");
-// AC-15：更近的用户输入行到达收缩窗口首行时直接顶替旧锚（总行数暂为 3），随后新行回填恢复 4
-const replaceNodes = new Map(anchorNodes);
-replaceNodes.set("a-u2", { key: "a-u2", kind: "user", anchorSeq: 7, data: { content: [{ type: "text", text: "追加指令" }] } });
-replaceNodes.set("a-b4", { key: "a-b4", kind: "assistant-step", anchorSeq: 8, data: { status: "settled", turn: 2, step: 0, blocks: [{ kind: "text", text: "正文四" }] } });
-replaceNodes.set("a-b5", { key: "a-b5", kind: "assistant-step", anchorSeq: 9, data: { status: "settled", turn: 2, step: 1, blocks: [{ kind: "text", text: "正文五" }] } });
-const replaced = foldedConversationTimeline({ chat: { order: [...anchorBaseOrder, "a-u2", "a-b4", "a-b5"], nodes: { get: (key) => replaceNodes.get(key) } } });
-assert.equal(replaced.length, 3, "新指令到达收缩窗口首行时顶替旧锚，总行数暂减为 3（R-01-012/AC-15）");
-assert.equal(replaced[0].kind, "user", "顶替后首行为更近的用户输入行（R-01-012/AC-15）");
+assert.deepEqual(anchorIds(anchorTimeline([...anchorBaseOrder, "a-t3"], laterNodes)), ["a-u1", "fold:work:a-t2", "a-b3", "fold:work:a-t3"], "新动作进入时锚行不变、仅其后工作行滚动（R-01-012/AC-14）");
+// AC-12 核心回归：回合结束后新指令作为普通显示行追加在时间线末尾，已有内容不清空
+const turn2Nodes = new Map(anchorNodes);
+turn2Nodes.set("a-u2", { key: "a-u2", kind: "user", anchorSeq: 7, data: { content: [{ type: "text", text: "追加指令" }] } });
+const arrived = anchorTimeline([...anchorBaseOrder, "a-u2"], turn2Nodes);
+assert.deepEqual(anchorIds(arrived), ["a-u1", "fold:work:a-t2", "a-b3", "a-u2"], "新指令到达末尾时旧锚停留、工作行保留不清空（R-01-012/AC-12、AC-14）");
+assert.equal(arrived.at(-1).kind, "user", "新指令为时间线末行普通用户行（R-01-012/AC-12）");
+assert.equal(arrived.at(-1).anchor ?? false, false, "新指令尚未滚动至第二行，不带锚标记（R-01-012/AC-15）");
+// AC-12：新指令随后续新行到达向上滚动
+turn2Nodes.set("a-b4", { key: "a-b4", kind: "assistant-step", anchorSeq: 8, data: { status: "settled", turn: 2, step: 0, blocks: [{ kind: "text", text: "正文四" }] } });
+const scrolled = anchorTimeline([...anchorBaseOrder, "a-u2", "a-b4"], turn2Nodes);
+assert.deepEqual(anchorIds(scrolled), ["a-u1", "a-b3", "a-u2", "a-b4"], "新指令随新行到达向上滚动一行（R-01-012/AC-12）");
+// AC-15：新指令滚动至第二行时取代旧锚行成为第一行，其后各行上移一行、暂减一行
+turn2Nodes.set("a-b5", { key: "a-b5", kind: "assistant-step", anchorSeq: 9, data: { status: "settled", turn: 2, step: 1, blocks: [{ kind: "text", text: "正文五" }] } });
+const replaced = anchorTimeline([...anchorBaseOrder, "a-u2", "a-b4", "a-b5"], turn2Nodes);
+assert.deepEqual(anchorIds(replaced), ["a-u2", "a-b4", "a-b5"], "新指令到第二行时顶替旧锚、其后各行上移且暂减一行（R-01-012/AC-15）");
+assert.equal(replaced[0].anchor, true, "顶替后新指令停留为第一行锚行（R-01-012/AC-15）");
 assert.equal(replaced[0].text, "追加指令", "顶替行内容为新指令（R-01-012/AC-15）");
 assert.ok(!replaced.some((row) => row.text === "修复登录页"), "旧指令锚行随顶替消失（R-01-012/AC-15）");
-replaceNodes.set("a-b6", { key: "a-b6", kind: "assistant-step", anchorSeq: 10, data: { status: "settled", turn: 2, step: 2, blocks: [{ kind: "text", text: "正文六" }] } });
-const refilled = foldedConversationTimeline({ chat: { order: [...anchorBaseOrder, "a-u2", "a-b4", "a-b5", "a-b6"], nodes: { get: (key) => replaceNodes.get(key) } } });
-assert.equal(refilled.length, 4, "随后新行回填恢复总行数 4（R-01-012/AC-15）");
-assert.equal(refilled[0].anchor, true, "回填后更近指令以锚行固定于首行（R-01-012/AC-15）");
-assert.equal(refilled[0].text, "追加指令", "回填后锚行内容为更近指令（R-01-012/AC-14、AC-15）");
-// limit 边界：max=1 时窗口收缩为空、仅锚行一行（顶替分支不可达，不越界）
+// AC-15：顶替后新行到达恢复总预算，不从窗口之外回填旧行
+turn2Nodes.set("a-b6", { key: "a-b6", kind: "assistant-step", anchorSeq: 10, data: { status: "settled", turn: 2, step: 2, blocks: [{ kind: "text", text: "正文六" }] } });
+const refilled = anchorTimeline([...anchorBaseOrder, "a-u2", "a-b4", "a-b5", "a-b6"], turn2Nodes);
+assert.deepEqual(anchorIds(refilled), ["a-u2", "a-b4", "a-b5", "a-b6"], "顶替后新行到达恢复 4 行（R-01-012/AC-15）");
+// AC-15 短窗同口径：时间线不足一窗时，更近用户消息位于显示第二行即顶替（按行位置而非窗口计数）
+const shortReplace = anchorTimeline(["a-u1", "a-u2", "a-b1"], turn2Nodes);
+assert.deepEqual(anchorIds(shortReplace), ["a-u2", "a-b1"], "短窗口内新指令位于第二行即顶替旧锚（R-01-012/AC-15）");
+assert.equal(shortReplace[0].anchor, true, "顶替后新指令停留为第一行锚行（R-01-012/AC-15）");
+const shortNoReplace = anchorTimeline(["a-u1", "a-b1", "a-u2"], turn2Nodes);
+assert.deepEqual(anchorIds(shortNoReplace), ["a-u1", "a-b1", "a-u2"], "新指令位于第三行时旧锚停留、不顶替（R-01-012/AC-15）");
+assert.equal(shortNoReplace[0].anchor, true, "旧锚停留至新指令滚动至第二行（R-01-012/AC-15）");
+assert.equal(refilled[0].anchor, true, "恢复后新指令保持第一行锚行（R-01-012/AC-15）");
+// limit 边界：max=1 时窗口收缩为空、仅锚行一行
 const tinyWindow = foldedConversationTimeline({ chat: { order: anchorBaseOrder, nodes: { get: (key) => anchorNodes.get(key) } } }, 1);
-assert.equal(tinyWindow.length, 1, "max=1 时总行数 1：锚行独占、窗口收缩为空（R-01-012/AC-12）");
-assert.equal(tinyWindow[0].anchor, true, "max=1 时锚行仍前置（R-01-012/AC-12）");
-assert.equal(tinyWindow[0].text, "修复登录页", "max=1 时锚行内容正确（R-01-012/AC-12）");
-// AC-15 负向：空文本用户行到达收缩窗口首行时不触发顶替（非空文本口径），旧锚保留
+assert.equal(tinyWindow.length, 1, "max=1 时总行数 1：锚行独占、窗口收缩为空（R-01-012/AC-13）");
+assert.equal(tinyWindow[0].anchor, true, "max=1 时锚行仍停留首行（R-01-012/AC-13）");
+assert.equal(tinyWindow[0].text, "修复登录页", "max=1 时锚行内容正确（R-01-012/AC-13）");
+// AC-15 负向：空文本用户行不参与停留与顶替，仅作为普通显示行滚动
 const emptyHeadNodes = new Map(anchorNodes);
 emptyHeadNodes.set("a-e2", { key: "a-e2", kind: "user", anchorSeq: 7, data: { content: [{ type: "text", text: "  " }] } });
 emptyHeadNodes.set("a-b4", { key: "a-b4", kind: "assistant-step", anchorSeq: 8, data: { status: "settled", turn: 2, step: 0, blocks: [{ kind: "text", text: "正文四" }] } });
-emptyHeadNodes.set("a-b5", { key: "a-b5", kind: "assistant-step", anchorSeq: 9, data: { status: "settled", turn: 2, step: 1, blocks: [{ kind: "text", text: "正文五" }] } });
-const emptyHead = foldedConversationTimeline({ chat: { order: [...anchorBaseOrder, "a-e2", "a-b4", "a-b5"], nodes: { get: (key) => emptyHeadNodes.get(key) } } });
-assert.equal(emptyHead.length, 4, "空文本用户行不触发顶替：旧锚 + 收缩窗口合计 4 行（R-01-012/AC-15）");
-assert.equal(emptyHead[0].text, "修复登录页", "空文本窗口首行时旧锚保留（R-01-012/AC-15）");
-assert.equal(emptyHead[1].kind, "user", "空文本用户行按普通窗口行显示（R-01-012/AC-12）");
-// AC-13：指令仍在窗口内时不出现锚行
-const inWindow = foldedConversationTimeline({ chat: { order: ["a-u1", "a-b1"], nodes: { get: (key) => anchorNodes.get(key) } } });
-assert.equal(inWindow.length, 2, "指令在窗口内时时间线即普通显示行（R-01-012/AC-13）");
-assert.ok(inWindow.every((row) => row.anchor !== true), "指令未被挤出窗口时不出现锚行（R-01-012/AC-13）");
+const emptyScroll = anchorTimeline([...anchorBaseOrder, "a-e2", "a-b4"], emptyHeadNodes);
+assert.deepEqual(anchorIds(emptyScroll), ["a-u1", "a-b3", "a-e2", "a-b4"], "空文本用户行作为普通行滚动、不顶替旧锚（R-01-012/AC-15）");
+assert.equal(emptyScroll[0].text, "修复登录页", "空文本行到达后旧锚保留（R-01-012/AC-15）");
+const emptyShort = anchorTimeline(["a-e2", "a-b1"], emptyHeadNodes);
+assert.deepEqual(anchorIds(emptyShort), ["a-e2", "a-b1"], "空文本用户行在时间线内按普通显示行（R-01-012/AC-15）");
+assert.ok(emptyShort.every((row) => row.anchor !== true), "空文本用户行永不停留为锚行（R-01-012/AC-15）");
 // ×3 扩窗收集不足时经廉价前走命中窗口前的用户节点（不做全序转换）
 const longNodes = new Map([["L-u1", { key: "L-u1", kind: "user", anchorSeq: 0, data: { content: [{ type: "text", text: "深层指令" }] } }]]);
 const longOrder = ["L-u1"];
@@ -1104,8 +1126,8 @@ const steeringAnchor = foldedConversationTimeline({
 			: anchorNodes.get(key) },
 	},
 });
-assert.equal(steeringAnchor[0]?.anchor, true, "steering 消息按用户输入行归一参与锚行（R-01-012/AC-12）");
-assert.equal(steeringAnchor[0]?.text, "插话补充", "steering 锚行内容正确（R-01-012/AC-12）");
+assert.equal(steeringAnchor[0]?.anchor, true, "steering 消息按用户输入行归一参与锚行停留（R-01-012/AC-13）");
+assert.equal(steeringAnchor[0]?.text, "插话补充", "steering 锚行内容正确（R-01-012/AC-13）");
 // hidden 用户节点不入锚
 const hiddenAnchor = foldedConversationTimeline({
 	chat: {
@@ -1116,7 +1138,7 @@ const hiddenAnchor = foldedConversationTimeline({
 	},
 });
 assert.ok(hiddenAnchor.every((row) => row.anchor !== true), "hidden 用户节点不作为指令锚行（R-01-012/AC-12）");
-// AC-14 取代分支：更近的用户输入行移出窗口后取代旧锚行
+// AC-13 触顶停留：更近的用户输入行滚动触顶后停留为首行锚行，旧指令行不再出现
 const switchNodes = new Map();
 const switchOrder = ["w-u1"];
 switchNodes.set("w-u1", { key: "w-u1", kind: "user", anchorSeq: 1, data: { content: [{ type: "text", text: "第一轮指令" }] } });
@@ -1127,9 +1149,9 @@ switchOrder.push("w-u2");
 for (let n = 5; n <= 9; n += 1) switchNodes.set(`w-b${n}`, { key: `w-b${n}`, kind: "assistant-step", anchorSeq: n + 2, data: { status: "settled", turn: 1, step: n, blocks: [{ kind: "text", text: `正文${n}` }] } });
 switchOrder.push("w-b5", "w-b6", "w-b7", "w-b8", "w-b9");
 const switchedAnchor = foldedConversationTimeline({ chat: { order: switchOrder, nodes: { get: (key) => switchNodes.get(key) } } });
-assert.equal(switchedAnchor[0]?.anchor, true, "更近的用户输入行移出窗口后成为新锚行（R-01-012/AC-14）");
-assert.equal(switchedAnchor[0]?.text, "第二轮指令", "新锚行内容为更近的用户输入行（R-01-012/AC-14）");
-assert.ok(!switchedAnchor.some((row) => row.text === "第一轮指令"), "被取代的旧指令行不再出现（R-01-012/AC-14）");
+assert.equal(switchedAnchor[0]?.anchor, true, "更近的用户输入行滚动触顶后停留为新锚行（R-01-012/AC-13）");
+assert.equal(switchedAnchor[0]?.text, "第二轮指令", "新锚行内容为更近的用户输入行（R-01-012/AC-13）");
+assert.ok(!switchedAnchor.some((row) => row.text === "第一轮指令"), "被取代的旧指令行不再出现（R-01-012/AC-13）");
 // 空文本用户输入行不作锚（前缀扫描与前走同口径）
 const emptyUserAnchor = foldedConversationTimeline({
 	chat: {
@@ -1139,7 +1161,7 @@ const emptyUserAnchor = foldedConversationTimeline({
 			: anchorNodes.get(key) },
 	},
 });
-assert.ok(emptyUserAnchor.every((row) => row.anchor !== true), "空文本用户输入行不作为指令锚行（R-01-012/AC-12）");
+assert.ok(emptyUserAnchor.every((row) => row.anchor !== true), "空文本用户输入行不作为指令锚行（R-01-012/AC-15）");
 // 冷 history 路径同口径指令锚行（R-01-012/AC-12）：页内全部事件折叠后套用同一窗口/锚行选择
 const hUser = (seq, text) => ({ event: { type: "user/message", seq, data: { source: { kind: "user" }, content: [{ type: "text", text }] } } });
 const hAgent = (seq, text) => ({ event: { type: "assistant/message", seq, data: { message: { content: [{ type: "text", text }] } } } });
@@ -1159,14 +1181,14 @@ const hToolResult = (seq, callId, { isError = false, error = null, text = "ok" }
 });
 const hToolDone = (seq) => hToolResult(seq, `hc${seq}`);
 const histAnchored = foldedHistoryTimeline([hUser(1, "冷指令"), hAgent(2, "回复一"), hToolDone(3), hToolDone(4), hAgent(5, "回复二"), hToolDone(6)]);
-assert.equal(histAnchored.length, 4, "冷 history 路径锚行计入总预算：含锚行合计不超过 4（R-01-012/AC-12）");
-assert.equal(histAnchored[0].anchor, true, "窗口之前的用户消息以锚行前置（R-01-012/AC-12）");
+assert.equal(histAnchored.length, 4, "冷 history 路径锚行计入总预算：含锚行合计不超过 4（R-01-012/AC-13）");
+assert.equal(histAnchored[0].anchor, true, "冷路径最近用户消息滚动触顶后停留为首行锚行（R-01-012/AC-13）");
 assert.equal(histAnchored[0].kind, "user", "冷路径锚行保留用户行语义（R-01-012/AC-12）");
-assert.equal(histAnchored[0].text, "冷指令", "冷路径锚行内容为最近用户消息（R-01-012/AC-12）");
-assert.ok(histAnchored.slice(1).every((row) => row.anchor !== true), "冷路径仅首行带锚标记（R-01-012/AC-12）");
+assert.equal(histAnchored[0].text, "冷指令", "冷路径锚行内容为最近用户消息（R-01-012/AC-13）");
+assert.ok(histAnchored.slice(1).every((row) => row.anchor !== true), "冷路径仅首行带锚标记（R-01-012/AC-13）");
 const histInWindow = foldedHistoryTimeline([hUser(1, "近指令"), hAgent(2, "回复")]);
-assert.equal(histInWindow.length, 2, "冷路径用户消息在窗口内时按普通显示行（R-01-012/AC-13）");
-assert.ok(histInWindow.every((row) => row.anchor !== true), "冷路径消息未被挤出窗口时不出现锚行（R-01-012/AC-13）");
+assert.equal(histInWindow.length, 2, "冷路径短时间线全量展示（R-01-012/AC-12）");
+assert.equal(histInWindow[0].anchor, true, "冷路径用户消息占据第一行即停留为锚行（R-01-012/AC-13）");
 assert.ok(foldedHistoryTimeline([hAgent(1, "仅回复"), hToolDone(2)]).every((row) => row.anchor !== true), "history 无用户消息时不造锚行");
 // ---- R-01-016/AC-01 回归：冷 history 路径 tool/result 按 canonical 形状落定同 callId 的 tool/call 项——
 //     已完成会话的等待卡时间线不残留 running 行（修复前 call 项永久 running，被活动保留逻辑钉为尾行蓝闪，
@@ -1191,8 +1213,53 @@ assert.equal(historyInstructionAnchor([hUser(1, "  "), hAgent(2, "回复")]), nu
 assert.equal(historyInstructionAnchor([{ event: { type: "user/message", seq: 1, data: { source: { kind: "recall" }, content: [{ type: "text", text: "召回" }] } } }]), null, "非真实用户来源不作锚");
 assert.equal(historyInstructionAnchor([hAgent(1, "仅回复")]), null, "无用户消息返回 null");
 assert.equal(historyInstructionAnchor(null), null, "非数组输入归一 null");
-// history fallback anchor 作为 foldedConversationTimeline 的显式输入（R-01-012/AC-12、C-035）。
+// history fallback anchor 作为 foldedConversationTimeline 的显式输入（R-01-012/AC-12、C-035、C-039）。
 const anchorRow = historyInstructionAnchor([hUser(9, "兜底指令")]);
+// C-039：快照窗口内有新指令但旧锚已滚出尾窗时，fallbackAnchor 充当停留锚行，新指令自末尾参与滚动
+const fallScrollNodes = new Map(anchorNodes);
+fallScrollNodes.set("a-u2", { key: "a-u2", kind: "user", anchorSeq: 7, data: { content: [{ type: "text", text: "追加指令" }] } });
+const fallScroll = foldedConversationTimeline(
+	{ chat: { order: ["a-b1", "a-t1", "a-b2", "a-u2"], nodes: { get: (key) => fallScrollNodes.get(key) } }, running: true, pending: [] },
+	4,
+	"",
+	false,
+	false,
+	anchorRow,
+);
+assert.deepEqual(fallScroll.map((row) => row.id), [anchorRow.id, "fold:work:a-t1", "a-b2", "a-u2"], "窗口外旧锚经 fallback 停留首行，新指令末尾进入不清空（R-01-012/AC-12、AC-14）");
+assert.equal(fallScroll.at(-1).anchor ?? false, false, "新指令未达第二行前不带锚标记（R-01-012/AC-15）");
+// fallback 与窗口内最近用户行同文本时判为同一消息：不双行、不顶替
+const sameTextAnchor = historyInstructionAnchor([hUser(9, "追加指令")]);
+const fallDedup = foldedConversationTimeline(
+	{ chat: { order: ["a-b1", "a-t1", "a-b2", "a-u2"], nodes: { get: (key) => fallScrollNodes.get(key) } }, running: true, pending: [] },
+	4,
+	"",
+	false,
+	false,
+	sameTextAnchor,
+);
+assert.deepEqual(fallDedup.map((row) => row.id), ["a-b1", "fold:work:a-t1", "a-b2", "a-u2"], "fallback 与窗口内用户行同消息时不产生双行（R-01-012/AC-15）");
+assert.ok(fallDedup.every((row) => row.anchor !== true), "同消息 fallback 不造锚行（R-01-012/AC-15）");
+// fallback 充当的停留锚行同样被滚动至第二行的新指令顶替（AC-15 统一口径）
+const fallReplaced = foldedConversationTimeline(
+	{ chat: { order: ["a-b1", "a-t1", "a-u2", "a-b2", "a-b3"], nodes: { get: (key) => fallScrollNodes.get(key) } }, running: true, pending: [] },
+	4,
+	"",
+	false,
+	false,
+	anchorRow,
+);
+assert.deepEqual(fallReplaced.map((row) => row.id), ["a-u2", "a-b2", "a-b3"], "fallback 停留锚行被滚动至第二行的新指令顶替、暂减一行（R-01-012/AC-15）");
+assert.equal(fallReplaced[0].anchor, true, "顶替 fallback 的新指令停留为第一行锚行（R-01-012/AC-15）");
+// R-01-009/AC-11 与自然窗口共存：首行用户行停留为锚行，真实 running 行保留末行
+const natLiveNodes = new Map(anchorNodes);
+natLiveNodes.set("a-live", { key: "a-live", kind: "assistant-step", anchorSeq: 7, data: { status: "running", turn: 2, step: 0, blocks: [{ kind: "reasoning", text: "正在执行的内容" }] } });
+const natLive = foldedConversationTimeline(
+	{ chat: { order: ["a-u1", "a-b1", "a-live"], nodes: { get: (key) => natLiveNodes.get(key) } }, running: true, pending: [] },
+);
+assert.equal(natLive[0]?.anchor, true, "自然窗口首行用户行停留为锚行（R-01-012/AC-13）");
+assert.equal(natLive.at(-1)?.status, "running", "真实 running 行保留末行（R-01-009/AC-11）");
+assert.equal(natLive.at(-1)?.summary, "正在执行的内容", "末行保留真实活动文字（R-01-009/AC-11）");
 
 // R-01-009/AC-11：history 锚行参与核心单次选择，真实 running 行即使位于四工作行首位也必须保留为末行。
 const fallbackActivityNodes = new Map([

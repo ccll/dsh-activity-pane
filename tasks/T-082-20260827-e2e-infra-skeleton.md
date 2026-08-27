@@ -6,7 +6,7 @@ id: T-082
 
 # T-082 E2E 基建骨架：隔离环境启动器 + mock LLM 剧本服务 + 首条 spec
 
-状态: active
+状态: completed
 关联: C-045 → E2E 验证基建
 风险等级: standard
 
@@ -50,4 +50,13 @@ C-045 决策引入浏览器 E2E：Playwright 驱动隔离测试环境中的真�
 
 ## 终态与证据
 
-（待关闭时填写）
+- 实现: `e2e/mock-llm.mjs`（OpenAI 兼容 SSE 剧本服务：slow 24 块×150ms 流式 / ask 的 ask_user_question tool_calls 增量 / fast 立即 stop；关键词取最后一条带 `e2e:` 前缀的用户消息，tool 结果回合一律 fast 收口；`scenarioLog` 记录分流）；`e2e/boot.mjs`（mkdtemp `$DSH_HOME` + 预置 settings.yaml 指向 mock + `seedWorkspace` 预置工作区存储 + `dsh plugin --profile web add` link 装入 + `dsh web --port 0` detached 进程组 + 就绪轮询；`cleanup` 进程组 SIGTERM/SIGKILL + mock 关闭 + 临时目录删除；`timings` 分阶段计时）；`e2e/run.mjs`（套件运行器，`PLAYWRIGHT_BROWSERS_PATH ??= "0"`，spec 失败截图 `e2e/fail-*.png`，finally 保证清理）；`e2e/specs/session-lifecycle.mjs`（首条 spec：空态 → composer 发送 e2e:slow → 活动区出现条目且无「已完成」→ 完成提醒与「移入历史」按钮 → 确认不跳转且条目迁入历史区，锚定 R-01-001/AC-01、AC-02，R-01-002/AC-03、AC-10，R-01-010/AC-01、AC-02）。
+- 测试: `node e2e/run.mjs` 通过（spec 7.0s，真实 3.6s 慢速流式期间观测运行卡）；`scripts/check.mjs` 新增 mock 三剧本 Node 级行为断言（SSE 形状、[DONE] 收尾、tool_calls 增量重组、tool 结果收口、默认 fast、404、scenarioLog 分流序列）；失败注入实测（假 dsh 二进制）：bootE2e 抛出可读错误、临时目录与 mock 无残留；并行两套隔离环境端口/目录不冲突实测；SIGINT 清理与重启恢复实测；`pnpm check`、`python3 tools/agentmap_lint.py --report`（128/128 锚定）、`git diff --check` 全绿。
+- DESIGN 对照: `DESIGN.md`「E2E 验证基建」条目与实现一致——隔离测试环境四要素、mock 三剧本、Playwright 真实 composer 驱动、断言边界约定均已落地；职责行注明 T-082 实际锚点（R-01-001/002/010）与 T-083 承接范围（R-01-005/008、R-02-002）；「是否缓存环境模板由 T-082 实测决定」已裁决：冷启动 2-4s 远低于 2 分钟阈值，不做模板缓存。
+- commit: c3c5defc117f818bd5938cd4714223166c80a0e9
+- review:
+  - 审核方: Standards reviewer（subagent 初审 + 同一复审）；Spec reviewer（subagent 初审 + 同一复审）
+  - 目的理解: 为窗格交互层建立浏览器 E2E 防线——mock LLM 剧本（OpenAI 兼容 SSE）驱动确定性会话活动，隔离测试环境（$DSH_HOME 临时目录 + 随机端口 dsh web + link: 装插件）承载，Playwright 经真实 composer 驱动并只断言可观察呈现；关联 C-045 与 R-01-001/R-01-002/R-01-010 验收点锚定。
+  - 执行方式: `code-review` skill 双轴并行审核，评审基线 `HEAD~1...HEAD`（初始 2dcdf8a，修复后 amend 为 dc385f3 并复审，措辞修复后最终 amend 为 c3c5def）。
+  - 问题与修复: Standards 初审 2 硬违规（①头注「进程组清理」失真 → detached + killWebGroup 进程组终止；②验证矩阵证据占位 → 六行全部改 e2e/ 真实锚点）+ 2 气味关闭（spec 改写消除 read() 重复、DESIGN 口径收敛）；Spec 初审 5 项（进程组清理同①；三剧本仅 slow 被驱动 → check.mjs Node 级三剧本断言；浏览器安装命令入 CONVENTIONS；自写 runner/seedWorkspace/tool-fast 取舍补记收敛方案；内部 DOM 断言 → 改写为区域文字/按钮/URL 断言并补 AC-10 不跳转折言）；复审后措辞级建议 2 项（默认剧本改为无关键词直接断言、补记措辞放宽至宿主驱动入口元素）均已修复。
+  - 复审结论: 两轴复审均通过，无未解决 hard violation、spec 偏差或 scope creep。

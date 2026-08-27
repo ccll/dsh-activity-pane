@@ -442,6 +442,11 @@ assert.equal(
 	"Q1: 问1\nQ3: 问3\nQ4: 问4",
 	"中间问题不可得时跳过且不占号，编号按原数组位置延续",
 );
+assert.equal(
+	askQuestionsPreview(JSON.stringify({ questions: [{ options: [] }, { question: "问2" }] })),
+	"Q2: 问2",
+	"原始多余 1 条时即使展示仅 1 行也保留 Qn: 前缀（C-042：单条前缀按原始条数判定）",
+);
 assert.equal(askQuestionsPreview(JSON.stringify({ questions: [{ options: [] }] })), null, "各条均无 header 也无正文时返回 null，由调用方回落动作说明");
 assert.equal(askQuestionsPreview("not-json"), null);
 assert.equal(askQuestionsPreview(JSON.stringify({ questions: [] })), null);

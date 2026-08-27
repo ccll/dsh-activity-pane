@@ -432,6 +432,16 @@ assert.equal(
 	"Q1: 问1\nQ2: 问2\nQ3: 问3\n…",
 	"最多展示 3 条问题，其后以省略行收尾",
 );
+assert.equal(
+	askQuestionsPreview(JSON.stringify({ questions: [{ question: "问1" }, { question: "问2" }, { question: "问3" }] })),
+	"Q1: 问1\nQ2: 问2\nQ3: 问3",
+	"恰 3 条问题全部展示、不加省略行",
+);
+assert.equal(
+	askQuestionsPreview(JSON.stringify({ questions: [{ question: "问1" }, { options: [] }, { question: "问3" }, { question: "问4" }] })),
+	"Q1: 问1\nQ3: 问3\nQ4: 问4",
+	"中间问题不可得时跳过且不占号，编号按原数组位置延续",
+);
 assert.equal(askQuestionsPreview(JSON.stringify({ questions: [{ options: [] }] })), null, "各条均无 header 也无正文时返回 null，由调用方回落动作说明");
 assert.equal(askQuestionsPreview("not-json"), null);
 assert.equal(askQuestionsPreview(JSON.stringify({ questions: [] })), null);
@@ -2979,6 +2989,12 @@ assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] :is(.dap-note, .dap-badge)') &&
 		bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-note'),
 	"末行提示文字与阻塞等待类型徽标的脉冲由 data-wait 结构化属性驱动（R-01-002/AC-08，C-040）",
+);
+// 多行承载（R-01-002/AC-09，C-041）：末行提示以 pre-line 保留 Q 行列表换行符；
+// 完成提醒/recent 单行提示无换行符，行为不受影响。
+assert.ok(
+	bundle.includes('[data-dsh-activity-pane] .dap-note {\n  /* 多行提示（R-01-002/AC-09）：待回复卡的 Q 行列表以 \\n 换行呈现（pre-line 保留\n     换行符、折叠其余空白）；完成提醒等单行提示不受影响（无换行符时不产生新行）。 */\n  min-width: 0; overflow: hidden; white-space: pre-line;'),
+	"末行提示文字以 pre-line 承载提问 Q 行列表多行（R-01-002/AC-09，C-041）",
 );
 assert.ok(!bundle.includes("dap-badge-flash") && !bundle.includes("awaitBadgeFlash"), "标题区徽标闪烁机制整体移除：闪烁不再出现在卡片标题行（R-01-002/AC-08，C-040）");
 assert.ok(

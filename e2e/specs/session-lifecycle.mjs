@@ -1,62 +1,23 @@
-// R-01-001/AC-01、AC-02、R-01-002/AC-03、AC-10、R-01-010/AC-01、AC-02
+// R-01-001/AC-01、R-01-001/AC-02、R-01-002/AC-03、R-01-002/AC-10、R-01-010/AC-01、R-01-010/AC-02、R-01-010/AC-04
 // 会话生命周期端到端：空态 → e2e:slow 剧本运行卡 → 完成提醒卡 → 确认移入历史区。
 // 只断言用户可观察的呈现（区域文字、按钮、页面 URL），不依赖内部 DOM 结构（C-045）。
 
-const POLL_INTERVAL_MS = 200;
+import { dismissNotice, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
+
 const TITLE = "e2e:slow 慢速任务探针";
-
-/** 轮询直到 fn() 返回真值或超时；超时抛错并附最后一次观测值。 */
-async function until(label, fn, timeoutMs = 10_000) {
-	const deadline = Date.now() + timeoutMs;
-	let last;
-	for (;;) {
-		last = await fn();
-		if (last) return last;
-		if (Date.now() > deadline) throw new Error(`等待超时：${label}（最后观测：${JSON.stringify(last)}）`);
-		await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-	}
-}
-
-/** 读取窗格可见文字，按「最近历史」区段标题切成活动区/历史区两段。 */
-async function paneRegions(page) {
-	return page.evaluate(() => {
-		const pane = document.querySelector("[data-dsh-activity-pane]");
-		if (!pane) return null;
-		const text = pane.innerText;
-		const marker = text.indexOf("最近历史");
-		return {
-			active: marker === -1 ? text : text.slice(0, marker),
-			recent: marker === -1 ? "" : text.slice(marker),
-		};
-	});
-}
 
 export default async function sessionLifecycle({ page, url, mock, assert }) {
 	await page.goto(url, { waitUntil: "networkidle" });
+	await dismissNotice(page);
 
-	// 首跑公告弹窗仅在首次出现，存在则关掉。
-	const notice = page.getByRole("button", { name: "Continue" });
-	if (await notice.isVisible().catch(() => false)) await notice.click();
-
-	// R-01-001/AC-02 无活动会话时为空态。
+	// R-01-001/AC-02、R-01-010/AC-04：无活动会话时活动区显示明确空态而非空白。
 	await until("窗格挂载并显示空态", async () => {
 		const regions = await paneRegions(page);
 		return regions && regions.active.includes("暂无活动会话") ? regions : null;
-	});
+	}, 20_000);
 
 	// 经真实 composer 发送 e2e:slow 指令（R-01-001/AC-01 的驱动路径）。
-	// hero 页首渲染后可能二次水合清空输入，填入后校验、必要时重填。
-	const composer = page.locator('textarea[placeholder="Describe what you want to build"]');
-	await composer.waitFor();
-	for (let attempt = 0; attempt < 3; attempt += 1) {
-		await composer.fill(TITLE);
-		await page.waitForTimeout(500);
-		if ((await composer.inputValue()) === TITLE) break;
-	}
-	assert.equal(await composer.inputValue(), TITLE, "composer 填入后应保持文本");
-	await page.keyboard.press("Enter");
-	// 提交成功的标志：会话页出现（hero composer 消失）。
-	await until("消息提交并进入会话页", async () => ((await composer.count()) === 0 ? true : null));
+	await sendHeroMessage(page, TITLE);
 
 	// R-01-001/AC-01：慢速剧本流式期间（约 3.6s）活动区出现该会话条目，
 	// 且不呈现完成提醒文案。

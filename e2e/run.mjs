@@ -24,18 +24,17 @@ if (specFiles.length === 0) {
 	process.exit(1);
 }
 
-const env = await bootE2e();
-console.error(`e2e: 隔离环境就绪 ${env.url}（冷启动 ${JSON.stringify(env.timings)}）`);
-
-let browser;
 let failed = 0;
-try {
-	browser = await chromium.launch();
-	for (const name of specFiles) {
+for (const name of specFiles) {
+	// 每条 spec 独立隔离环境：会话状态互不可见（冷启动约 2-4s，可接受）。
+	const env = await bootE2e();
+	let browser;
+	const start = Date.now();
+	try {
 		const spec = (await import(pathToFileURL(join(specDir, name)).href)).default;
+		browser = await chromium.launch();
 		const context = await browser.newContext();
 		const page = await context.newPage();
-		const start = Date.now();
 		try {
 			await spec({ page, url: env.url, mock: env.mock, assert });
 			console.error(`e2e: PASS ${name}（${Date.now() - start}ms）`);
@@ -46,10 +45,13 @@ try {
 		} finally {
 			await context.close();
 		}
+	} catch (error) {
+		failed += 1;
+		console.error(`e2e: FAIL ${name}（环境启动失败）\n${error?.stack ?? error}`);
+	} finally {
+		await browser?.close();
+		await env.cleanup();
 	}
-} finally {
-	await browser?.close();
-	await env.cleanup();
 }
 
 if (failed > 0) {

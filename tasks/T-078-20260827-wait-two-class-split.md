@@ -6,7 +6,7 @@ id: T-078
 
 # T-078 等待双类差异化呈现
 
-状态: active
+状态: completed
 关联: R-01-002/AC-03、AC-04、AC-06、AC-08、AC-09、AC-10 → 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -55,4 +55,14 @@ C-037 落地后两类等待卡视觉几乎同构（琥珀卡面 + 标题区圆�
 
 ## 终态与证据
 
-（关闭时填写）
+- 实现: `src/core.mjs`——`askQuestionPreview` 取首问 header 优先、回落正文物理首行；`ROUND_DONE_NOTE` 新引导文案；`awaitNoteText("blocked","question")` 去前缀直出；删除 `awaitBadgeFlash` 与 `ROUND_DONE_LABEL`；新增 `awaitBadgeTone` 纯函数（有 blocked 即 blocked，全 done 则 done）。`src/client.mjs`——类型徽标自标题行迁入 `.dap-note-row` 行尾；双类卡面 CSS（深色琥珀/暗绿静态值、浅色 warn/success 别名覆盖），状态点两类静止且着色/光晕同强度仅换色相；末行脉冲由 data-wait 属性驱动，原地跨类转换时渲染层同步重启 note+badge 动画对齐相位；「移入历史」按钮文案与条件呈现（done 独有）；三处计数徽标 data-tone 跟随等待构成；done 卡 aria 追加 noteText 播报。host.mjs 与 ack 协议零改动。
+- 测试: 测试先行（先红后绿）；`scripts/check.mjs` R-01-002 锚点按新契约重写并新增 awaitBadgeTone/双类卡面/末行闪烁/跨类重启锚点，`scripts/acceptance.mjs` 人工条目全部同步并补原地翻转验收点；三轮 `pnpm build:client && pnpm check` 全绿；`agentmap_lint passed`（22/22 需求、127/127 验收点锚定）；`git diff --check` 干净。GUI 目验项（双色卡面、末行同闪、「移入历史」行为）由东家现场验收。
+- DESIGN 对照: DESIGN 产品契约「等待双类呈现」（C-040 版：双色语义、末行脉冲载体、data-wait 驱动 + 跨类转换一次性同步重启）、核心数据不变量「等待优先」、徽标计数段与实现一致；DOMAIN 阻塞等待/完成提醒/确认按钮词条已改写互洽；复审修复后无 DESIGN-实现偏差。
+- commit: 07012fab24ad66c008c46da8c833e3e86a70818d
+- commit: 8dd67c49e0a5e5caa6a50bd238fa0ff3fd88e591
+- review:
+  - 审核方: code-review skill 双轴独立子代理（Standards 轴 401a244d、Spec 轴 b89a72ba）
+  - 目的理解: 两轴 reviewer 均先读取 PRD R-01-002（演进后）、DECISIONS C-040、DESIGN 等待双类呈现契约、DOMAIN 词条与本任务文件，明确被审代码目的为「把两类等待语义以色彩（琥珀催促/绿色成功）区分、闪烁载体移至卡片末行、完成提醒改新引导文案与『移入历史』按钮、计数徽标底色跟随等待构成」，预期行为与验证方式（check.mjs 锚点断言、acceptance 人工条目）记录于各自首轮报告。
+  - 执行方式: `code-review` skill 双轴并行子代理审核，评审基线 a358f39f1779ae5e07b18024351697812a2e5707，范围为 07012fab24ad66c008c46da8c833e3e86a70818d + 8dd67c49e0a5e5caa6a50bd238fa0ff3fd88e591 全量 diff；两轮提交由同一审核方分别复审。
+  - 问题与修复: Standards 轴首轮 1 项硬违规（DESIGN 残留旧相位重启描述与实现对冲——8dd67c49e0a5e5caa6a50bd238fa0ff3fd88e591 改写为实际机制）+ 3 项判断项（T-078 收敛方案与实际不符——已同步；PRD AC-08 悬空措辞——已重写；core JSDoc 过时——已同步）；Spec 轴首轮 1 项实现缺口（原地 done↔blocked 转换时徽标经 display 切换归零而提示文字中程续跑致永久失相——8dd67c49e0a5e5caa6a50bd238fa0ff3fd88e591 实现跨类转换时 note/badge 动画一并同步重启并补 check 锚点）+ 2 项范围蔓延判断（aria noteText 全 awaiting 追加——收窄为仅 done 播报；done 状态点缺光晕——补齐与琥珀侧同强度仅换色相）；复审遗留弱建议 2 条（DESIGN 超长句拆子列表、acceptance 补原地翻转验收点——均已在关闭提交落掉）。复审结论均无新增问题。
+  - 复审结论: 双轴复审均通过，四项 Standards findings 与三项 Spec findings 全部闭环。

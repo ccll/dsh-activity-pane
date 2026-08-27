@@ -2551,6 +2551,20 @@ assert.ok(
 );
 assert.ok(bundle.includes('confirm.hidden = entry.waitClass !== "done"'), "仅「已完成」卡显示确认按钮，阻塞等待卡不显示（R-01-002/AC-10）");
 assert.ok(bundle.includes("new window.EventSource(`${ACK_API_BASE}/acks/stream`)"), "完成确认状态经 SSE 通道订阅（R-01-002/AC-11、AC-12）");
+// R-01-002/AC-12 缺陷回归：移动 PWA 后台恢复后 ack 通道必须自愈（EventSource CLOSED/半开
+// 不再自动重连），否则完成等待中的会话被误判入历史区直至整页重载。
+assert.ok(
+	bundle.includes('document.addEventListener("visibilitychange", onVisibilityResume)') && bundle.includes('window.addEventListener("pageshow", onPageShow)'),
+	"回到前台/bfcache 还原触发 ack 通道自愈（R-01-002/AC-12）",
+);
+assert.ok(
+	bundle.includes("function resumeAcksChannel()") && bundle.includes("function connectAcksStream()") && bundle.includes("acksSource?.close()"),
+	"ack 通道自愈经无条件重建 SSE 连接收敛（连接即收全量快照，R-01-002/AC-12）",
+);
+assert.ok(
+	bundle.includes('document.removeEventListener("visibilitychange", onVisibilityResume)') && bundle.includes('window.removeEventListener("pageshow", onPageShow)'),
+	"卸载时移除 ack 通道自愈监听（R-01-002/AC-12）",
+);
 assert.ok(bundle.includes("fetch(`${ACK_API_BASE}/ack`"), "确认写回经宿主侧 ack 路由（R-01-002/AC-10、AC-11）");
 assert.ok(
 	!bundle.includes("updateCompletedHolds") && !bundle.includes("heldCompletedIds") && !bundle.includes("prevActiveMainIds"),

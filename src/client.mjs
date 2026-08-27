@@ -1061,32 +1061,61 @@ function apply(ctx) {
 	// SSE 订阅宿主侧 ack 状态：连接即收全量快照（刷新/重连恢复），此后每次变更
 	// （任一客户端的确认、任一回合结束）推送新全量。无 EventSource 环境静默降级
 	// 为无完成提醒（宿主侧不可用时插件其余功能不受影响）。
+	// 移动 PWA 退后台时系统掐断连接，恢复时 EventSource 常以 CLOSED 终态落地不再
+	// 自动重连（或半开死连接看似 OPEN 却不再收到广播），本地 ack 状态随之永久停滞；
+	// 故回到前台时无条件重建连接——连接即收全量快照，各失效形态一并收敛
+	// （R-01-002/AC-12 缺陷回归：完成等待中的会话曾被误判入历史区直至整页重载）。
 	let acksSource = null;
-	try {
-		if (typeof window.EventSource === "function") {
-			acksSource = new window.EventSource(`${ACK_API_BASE}/acks/stream`);
-			acksSource.addEventListener("state", (event) => {
-				if (disposed) return;
-				let state = null;
-				try {
-					state = JSON.parse(event.data ?? "");
-				} catch {
-					state = null;
-				}
-				if (state === null || typeof state !== "object") return;
-				completeAcksById.clear();
-				for (const [id, record] of Object.entries(state)) {
-					const lastTurnEnd = Number(record?.lastTurnEnd);
-					if (Number.isFinite(lastTurnEnd) && lastTurnEnd > 0) {
-						completeAcksById.set(String(id), { lastTurnEnd, ackedAt: Number(record.ackedAt) || null });
-					}
-				}
-				queueSync();
-			});
+
+	/** SSE 全量快照应用：解析成功才整体替换本地状态并重绘；坏帧静默丢弃。 */
+	function applyAcksState(raw) {
+		if (disposed) return;
+		let state = null;
+		try {
+			state = JSON.parse(raw);
+		} catch {
+			state = null;
 		}
-	} catch {
-		acksSource = null;
+		if (state === null || typeof state !== "object") return;
+		completeAcksById.clear();
+		for (const [id, record] of Object.entries(state)) {
+			const lastTurnEnd = Number(record?.lastTurnEnd);
+			if (Number.isFinite(lastTurnEnd) && lastTurnEnd > 0) {
+				completeAcksById.set(String(id), { lastTurnEnd, ackedAt: Number(record.ackedAt) || null });
+			}
+		}
+		queueSync();
 	}
+
+	/** （重）建 SSE 连接：先关闭旧连接再新建；连接即收宿主侧全量快照。 */
+	function connectAcksStream() {
+		try {
+			acksSource?.close();
+		} catch {}
+		acksSource = null;
+		if (disposed || typeof window.EventSource !== "function") return;
+		try {
+			const source = new window.EventSource(`${ACK_API_BASE}/acks/stream`);
+			source.addEventListener("state", (event) => applyAcksState(event.data ?? ""));
+			acksSource = source;
+		} catch {
+			acksSource = null;
+		}
+	}
+
+	/** 回到前台（含 bfcache 还原）时 ack 通道自愈：重建 SSE，借连接全量快照收敛。 */
+	function resumeAcksChannel() {
+		if (!disposed) connectAcksStream();
+	}
+	const onVisibilityResume = () => {
+		if (document.visibilityState === "visible") resumeAcksChannel();
+	};
+	const onPageShow = (event) => {
+		if (event?.persisted === true) resumeAcksChannel();
+	};
+	document.addEventListener("visibilitychange", onVisibilityResume);
+	window.addEventListener("pageshow", onPageShow);
+	connectAcksStream();
 
 	/** 确认写回（R-01-002/AC-10～AC-12）：乐观更新本地游标（签名驱动即时解除），
 	 *  再 POST 宿主侧持久化并广播；写回失败回滚本地游标（提醒恢复），不吞异常。 */
@@ -2926,6 +2955,8 @@ function apply(ctx) {
 		workspaceUnsubscribe?.();
 		acksSource?.close();
 		acksSource = null;
+		document.removeEventListener("visibilitychange", onVisibilityResume);
+		window.removeEventListener("pageshow", onPageShow);
 		completeAcksById.clear();
 		if (clockTimer !== null) clearInterval(clockTimer);
 		for (const [, rec] of livenessById) {

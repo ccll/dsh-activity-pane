@@ -37,7 +37,7 @@ owner: agent 主笔，项目属主审批
 - `.githooks/pre-commit.d/20-agentmap-lint.sh`：AgentMap 结构、追溯与派生报告。
 - `.githooks/pre-commit.d/30-dsh-activity-pane-check.sh`：dsh-activity-pane 单测与 client bundle 契约校验（`node scripts/check.mjs`）。
 - `.githooks/pre-push.d/20-agentmap-lint.sh`：校验待推送历史的 AgentMap 不可变契约。
-- `.githooks/pre-push.d/30-dsh-activity-pane-e2e.sh`：dsh-activity-pane 浏览器 E2E 套件（`node e2e/run.mjs`，隔离环境 + mock LLM，约 1 分钟）。
+- `.githooks/pre-push.d/30-dsh-activity-pane-e2e.sh`：dsh-activity-pane 浏览器 E2E 套件（`node e2e/run.mjs`，每 spec 独立隔离环境 + mock LLM + 共享浏览器进程，9 条 spec 实测约 2 分钟；宿主首推停滞触发自愈重试时更长）。
 - 扫描来源：`.`
 
 ## 构建与开发工作流

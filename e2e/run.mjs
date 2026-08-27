@@ -25,6 +25,8 @@ if (specFiles.length === 0) {
 }
 
 let failed = 0;
+// 全套件共享一个浏览器进程（每条 spec 独立 context 保证存储隔离），省去逐条冷启动。
+const sharedBrowser = await chromium.launch();
 for (const name of specFiles) {
 	// 每条 spec 独立隔离环境：会话状态互不可见（冷启动约 2-4s，可接受）。
 	const spec = (await import(pathToFileURL(join(specDir, name)).href)).default;
@@ -64,6 +66,7 @@ for (const name of specFiles) {
 	if (lastError !== null) failed += 1;
 }
 
+await sharedBrowser.close();
 if (failed > 0) {
 	console.error(`e2e: ${failed} 个 spec 失败`);
 	process.exit(1);

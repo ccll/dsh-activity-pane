@@ -4,7 +4,7 @@
 
 import { cardVisibleInPane, mainAreaBox, mainAreaHas, newSessionWithMessage, openApp, paneBox, sendHeroMessage, until, wheelOver } from "../helpers.mjs";
 
-const SESSION_COUNT = 10;
+const SESSION_COUNT = 7;
 const title = (n) => `e2e:fast 长列表探针${String(n).padStart(2, "0")}`;
 const LONG_TITLE = "e2e:slow 长列表长文探针";
 

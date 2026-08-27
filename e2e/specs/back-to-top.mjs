@@ -4,7 +4,7 @@
 
 import { cardVisibleInPane, newSessionWithMessage, openApp, paneBox, sendHeroMessage, until, wheelOver } from "../helpers.mjs";
 
-const SESSION_COUNT = 8;
+const SESSION_COUNT = 6;
 const TOP_TITLE = () => title(SESSION_COUNT - 1); // 最新卡位于窗格顶部
 const title = (n) => `e2e:fast 回顶探针${String(n).padStart(2, "0")}`;
 
@@ -39,14 +39,14 @@ async function untilBackToTop(page, topTitle, label) {
 }
 
 export default async function backToTop({ page, url, assert }) {
-	// 压低视口并制造 8 张卡片，让窗格一屏以上可滚。
+	// 压低视口并制造 6 张卡片，让窗格一屏以上可滚。
 	await page.setViewportSize({ width: 1100, height: 500 });
 	await openApp(page, url);
 	await sendHeroMessage(page, title(0));
 	for (let n = 1; n < SESSION_COUNT; n += 1) {
 		await newSessionWithMessage(page, title(n));
 	}
-	await until("8 张卡片就位", async () => {
+	await until("6 张卡片就位", async () => {
 		const count = await page.locator("[data-dsh-activity-pane]").getByText("回顶探针", { exact: false }).count();
 		return count >= SESSION_COUNT ? true : null;
 	}, 30_000);

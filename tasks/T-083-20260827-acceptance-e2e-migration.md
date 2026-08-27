@@ -6,7 +6,7 @@ id: T-083
 
 # T-083 acceptance 条目 E2E 迁移与 pre-push 门禁登记
 
-状态: active
+状态: completed
 关联: C-045 → E2E 验证基建（依赖 T-082）
 风险等级: standard
 
@@ -48,4 +48,13 @@ T-082 打通 E2E 基建后，本 task 把 `scripts/acceptance.mjs` 人工清单�
 
 ## 终态与证据
 
-（待关闭时填写）
+- 实现: 新增 `e2e/specs/auto-update.mjs`（R-01-001/AC-03 四类状态变化——出现/完成/等待出现/等待解除，等待类经 e2e:ask 剧本 + 主会话区选项提交驱动；R-01-010/AC-04 空态；R-01-017/AC-01 无 dsh-auto-collapse 下折叠分组呈现；R-02-002/AC-01 会话切换/导航后窗格单实例恢复；R-02-002/AC-02 goto 前挂接控制台与 pageerror 监听全程零错误）、`e2e/specs/desktop-layout.mjs`（R-01-007/AC-01 左侧通高贴边、AC-02 主会话可操作、R-01-011/AC-05 折叠展开控件同位）、`e2e/specs/mobile-drawer.mjs`（R-01-008/AC-01 移动视口窗格屏外隐藏 + 浮动开关出现）、`e2e/specs/long-list.mjs`（R-01-004/AC-01 十卡超高滚动可达底卡、AC-02 双向滚动隔离）；`e2e/helpers.mjs` 共享驱动与断言谓词（until/paneRegions/paneBox/mainAreaHas/mainAreaBox/cardVisibleInPane/sendHeroMessage/newSessionWithMessage）；`e2e/run.mjs` 改为每条 spec 独立隔离环境；`.githooks/pre-push.d/30-dsh-activity-pane-e2e.sh` 注册并登记 CONVENTIONS 验证门禁与测试锚点路径（`e2e/specs/*.mjs`）；`scripts/acceptance.mjs` 移除 10 个已迁移步骤、恢复 R-02-002/AC-02 槽座延迟人工残留、文件头记录分工映射。
+- 测试: `node e2e/run.mjs` 连续两次全绿（5 spec，套件约 50-60s + 每 spec 冷启动 2-4s，远低于 2 分钟阈值）；失败路径退出码非零（此前 spec 失败时进程 exit 1 实测），pre-push dispatcher 在首个失败处停止（沿用既有 hook 序例）；`pnpm check` 绿；`agentmap_lint --report` test-anchored 128→128 不下降；`git diff --check` 绿；`node scripts/acceptance.mjs` 打印保留条目正常。
+- DESIGN 对照: `DESIGN.md`「E2E 验证基建」职责行已注明 T-083 承接范围（R-01-005、R-01-008、R-02-002 等人工-only 验收点），本次迁移落地其中 R-01-008/AC-01、R-02-002/AC-01、AC-02 等 11 项；「门禁归属：pre-push.d 重门禁」由 30 号 hook 兑现；PRD 验收点语义不变（仅验证方式迁移），无需 PRD 变更。
+- commit: c8faabe9c3f4546055f45d48be32f6e201189850
+- review:
+  - 审核方: Standards reviewer（subagent 初审 + 同一复审）；Spec reviewer（subagent 初审 + 同一复审）
+  - 目的理解: 把人工验收清单中可机器判定的条目迁移为 Playwright spec 并注册 pre-push 门禁，使交互回归推送前自动拦截；承接 11 个人工-only AC 的真实行为断言（非仅注释锚点），观感/视觉/真实设备类保留人工；关联 C-045 与 R-01-001/R-01-004/R-01-007/R-01-008/R-01-010/R-01-011/R-01-017/R-02-002。
+  - 执行方式: `code-review` skill 双轴并行审核，评审基线 `HEAD~1...HEAD`（初始 2748cb1，修复后 amend 为 c8faabe 并复审）。
+  - 问题与修复: Standards 初审 0 硬违规 + 4 气味（叶子匹配重复 → helpers 上收 mainAreaHas/mainAreaBox/cardVisibleInPane；magic numbers → 命名常量；合成主区包围盒 → mainAreaBox；AC-04 锚点映射不一致 → 如实列两处）全部关闭；Spec 初审 4 项承接不足（R-02-002/AC-02 → goto 前挂接 + pageerror 零容忍 + 槽座延迟人工残留；R-01-001/AC-03 → e2e:ask 等待出现/解除断言补齐四类变化；R-01-007/AC-01 → 通高贴边断言；R-01-017/AC-01 → 全套件无 auto-collapse 环境通过作不降级证据）+ 2 项 scope 补记（每 spec 独立 boot、反向滚动隔离入收敛方案），复审全部关闭；复审后微调（选项行改 getByText 驱动、首挂载等待超时 20s）使套件连续两次全绿。
+  - 复审结论: 两轴复审均通过，无未解决硬违规、spec 偏差或未记录 scope 变更。

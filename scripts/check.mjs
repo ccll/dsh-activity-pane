@@ -42,6 +42,9 @@ import {
 	shouldSubscribeToSession,
 	activeSessionIds,
 	completionReminder,
+	errorReminder,
+	ERROR_NOTE_MAX,
+	ERROR_NOTE_FALLBACK,
 	trackBoxes,
 	trackRuns,
 	isSubagentRow,
@@ -378,7 +381,7 @@ assert.equal(awaitNoteText("blocked", "approval"), "等待你确认授权后继�
 assert.equal(awaitNoteText("blocked", "plan-review"), "等待你审查计划后继续");
 assert.equal(awaitNoteText("blocked", "question"), "等待你回答问题后继续", "问题不可得时回落动作说明");
 assert.equal(awaitNoteText("blocked", "question", "Q：采用哪个方案方向？"), "Q：采用哪个方案方向？", "待回复末行为提问 Q 行列表，不带「等待你回答：」前缀");
-assert.equal(awaitNoteText("done", undefined), "已完成，继续对话，或移入历史");
+assert.equal(awaitNoteText("done", undefined), "继续对话，或移入历史");
 // 宽度上界回归（R-01-002/AC-09）：done 末行须与「移入历史」按钮同排在默认 280px 窗格
 // 单行完整可见——内容区约 258px，按钮+gap 约占 66px，留文字约 192px；11px 全角字宽
 // 即 11px/字符，故文案（含标点）不得超过 17 个全角字符。改长必触发省略号吃掉行动引导。
@@ -721,7 +724,7 @@ assert.deepEqual(
 );
 assert.deepEqual(
 	buildEntries({ ids: ["root"], byId: { root: delegCompleted.byId.root }, current: null }, [], {}, new Map([["root", { lastTurnEnd: 1500, ackedAt: null }]])).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null, entry.waitClass ?? null, entry.noteText ?? null]),
-	[["root", "awaiting", null, "done", "已完成，继续对话，或移入历史"]],
+	[["root", "awaiting", null, "done", "继续对话，或移入历史"]],
 	"后代全部结束后完成提醒恢复显示（R-01-002/AC-03、AC-09）",
 );
 // ---- R-01-003/AC-05、R-01-009/AC-06 耗尽空窗（后代结束、settle 回合未启动）保持运行呈现 ----
@@ -811,15 +814,30 @@ assert.equal(
 const questionFallback = buildEntries(questionSnap, [], { sQ: { timeline: [] } });
 assert.equal(questionFallback[0].noteText, "等待你回答问题后继续", "问题不可得时回落动作说明");
 
-// ---- R-01-002/AC-06 计数徽标底色跟随等待构成（C-040）：有阻塞即琥珀，全为完成提醒则绿 ----
+// ---- R-01-002/AC-06 计数徽标底色跟随等待构成（C-040、C-043）：错误 > 阻塞 > 完成 ----
 assert.equal(awaitBadgeTone([]), null, "无等待行动无 tone");
 assert.equal(awaitBadgeTone([{ kind: "running" }]), null, "运行卡不参与 tone");
 assert.equal(awaitBadgeTone([{ kind: "awaiting", waitClass: "done" }]), "done", "全部等待为完成提醒时取绿色调");
 assert.equal(awaitBadgeTone([{ kind: "subagent", waitClass: "blocked" }]), null, "子代理不计入 tone");
+assert.equal(awaitBadgeTone([{ kind: "awaiting", waitClass: "error" }]), "error", "存在错误提醒即取红色调（最紧迫）");
 assert.equal(
 	awaitBadgeTone([{ kind: "awaiting", waitClass: "done" }, { kind: "awaiting", waitClass: "blocked" }]),
 	"blocked",
-	"存在任一阻塞等待即取琥珀色调：紧迫信号优先",
+	"存在任一阻塞等待即取金色调：紧迫信号优先于完成提醒",
+);
+assert.equal(
+	awaitBadgeTone([{ kind: "awaiting", waitClass: "done" }, { kind: "awaiting", waitClass: "error" }]),
+	"error",
+	"错误提醒优先于完成提醒",
+);
+assert.equal(
+	awaitBadgeTone([
+		{ kind: "awaiting", waitClass: "done" },
+		{ kind: "awaiting", waitClass: "error" },
+		{ kind: "awaiting", waitClass: "blocked" },
+	]),
+	"error",
+	"错误 > 阻塞 > 完成 优先级（C-043）",
 );
 
 // ---- R-01-001/AC-05 徽标计数口径：只统计主会话，子代理不计入 ｜ R-01-002/AC-06 阻塞计数 ----
@@ -2289,8 +2307,8 @@ const holdSnap = { ids: ["sB"], byId: { sB: holdBase }, current: "sA" };
 const confirmEntries = buildEntries(holdSnap, [], {}, acks(1000));
 assert.deepEqual(
 	confirmEntries.map((e) => [e.id, e.kind, e.pendingText ?? null, e.waitClass, e.noteText, e.isCurrent]),
-	[["sB", "awaiting", null, "done", "已完成，继续对话，或移入历史", false]],
-	"未确认完成提醒以 awaiting 完成提醒条目（无类型徽标文案）留在活动区，是否当前会话无关",
+	[["sB", "awaiting", null, "done", "继续对话，或移入历史", false]],
+	"未确认完成提醒以 awaiting 完成提醒条目（胶囊「已完成」+固定正文）留在活动区，是否当前会话无关",
 );
 assert.deepEqual(
 	awaitBadgeStats(confirmEntries),
@@ -2332,6 +2350,65 @@ assert.deepEqual(
 	buildEntries(pendingMixSnap, [], {}, acks(1000)).map((e) => [e.id, e.kind, e.pendingText, e.waitClass]),
 	[["sB", "awaiting", "待确认", "blocked"]],
 	"阻塞等待优先于完成提醒呈现",
+);
+
+// ---- R-01-002/AC-13 错误提醒：最近回合以错误结束 → 红色等待卡；随新回合覆盖解除；
+//     无确认按钮（不消费 ack 游标）；刷新恢复；后代/运行抑制；错误信息正文 ----
+const errAcks = (lastTurnEndKind, error, ackedAt = null) =>
+	new Map([["sB", { lastTurnEnd: 1000, lastTurnEndKind, lastTurnEndError: error, ackedAt }]]);
+assert.equal(errorReminder({ id: "sB", displayTitle: "旧B" }, { lastTurnEndKind: "error" }, false), true, "error 回合结束即成立");
+assert.equal(errorReminder({ id: "sB", displayTitle: "旧B" }, { lastTurnEndKind: "completed" }, false), false, "正常回合不成立");
+assert.equal(errorReminder({ id: "sB", displayTitle: "旧B" }, { lastTurnEndKind: "error", ackedAt: 99999 }, false), true, "错误提醒不消费 ack 游标（ackedAt 不影响成立）");
+assert.equal(errorReminder({ id: "sB", displayTitle: "旧B" }, null, false), false, "无登记不成立（升级不回溯补发错误提醒）");
+assert.equal(errorReminder({ id: "m-c1", parentId: "m", displayTitle: "子S" }, { lastTurnEndKind: "error" }, true), false, "子代理不产生错误提醒");
+const errEntries = buildEntries(holdSnap, [], {}, errAcks("error", "The engine is currently overloaded, please try again later"));
+assert.deepEqual(
+	errEntries.map((e) => [e.id, e.kind, e.pendingText ?? null, e.waitClass, e.noteText]),
+	[["sB", "awaiting", null, "error", "The engine is currently overloaded, please try again later"]],
+	"error 回合以 awaiting 错误提醒条目留在活动区（红色卡面、正文为错误信息）",
+);
+assert.deepEqual(
+	buildEntries(holdSnap, [], {}, errAcks("error", "")).map((e) => [e.id, e.waitClass, e.noteText]),
+	[["sB", "error", ERROR_NOTE_FALLBACK]],
+	"error 回合无错误信息时回落固定文案（R-01-002/AC-09）",
+);
+assert.ok(ERROR_NOTE_MAX > 0, "错误信息截断上限为正数");
+assert.equal(ERROR_NOTE_FALLBACK, "回合以错误结束，请检查会话");
+assert.deepEqual(
+	awaitBadgeStats(errEntries),
+	{ waiting: 1, blocked: 0, total: 1 },
+	"错误提醒计入徽标等待分子但不计阻塞（R-01-002/AC-06）",
+);
+assert.deepEqual(
+	buildRecent(holdSnap, [], NOW, undefined, {}, [], errAcks("error", "boom")).map((e) => e.id),
+	[],
+	"错误提醒中会话不入历史区（分区不变量，R-01-010/AC-06）",
+);
+// 优先级：同一登记上 error 优先于 done（lastTurnEndKind 为 error 时兼有未确认完成）。
+assert.deepEqual(
+	buildEntries(holdSnap, [], {}, errAcks("error", "boom", 1000)).map((e) => [e.id, e.waitClass]),
+	[["sB", "error"]],
+	"错误提醒优先于完成提醒呈现（C-043）",
+);
+// 抑制与覆盖：运行期间按运行卡呈现；新回合（kind 覆盖为正常原因）即解除错误提醒——
+// 未确认时落入完成提醒（turn/end 照常登记 lastTurnEnd），已确认后完全退出活动区。
+const errRunning = buildEntries({ ids: ["sB"], byId: { sB: { ...holdBase, running: true } }, current: null }, [], {}, errAcks("error", "boom"));
+assert.equal(errRunning[0].kind, "running", "错误提醒在运行期间被呈现抑制");
+const clearedErr = buildEntries(holdSnap, [], {}, errAcks("completed", null));
+assert.deepEqual(
+	clearedErr.map((e) => [e.id, e.kind, e.waitClass]),
+	[["sB", "awaiting", "done"]],
+	"新回合正常结束后错误提醒覆盖解除：未确认时转为完成提醒（绿卡）",
+);
+const clearedErrAcked = buildEntries(holdSnap, [], {}, errAcks("completed", null, 2000));
+assert.deepEqual(clearedErrAcked.map((e) => [e.id, e.kind]), [], "新回合正常结束且已确认后完全退出活动区（错误提醒无确认按钮语义）");
+// 委托周期抑制：后代活动期间错误提醒不生效。
+const delegErrMix = { ids: ["root", "root-c1"], byId: { root: holdBase, "root-c1": { id: "root-c1", displayTitle: "子S", parentId: "root", running: true } }, current: null };
+const delegErrAcks = new Map([["root", { lastTurnEnd: 1000, lastTurnEndKind: "error", lastTurnEndError: "boom", ackedAt: null }]]);
+assert.deepEqual(
+	buildEntries(delegErrMix, [], {}, delegErrAcks, new Set(["root"])).map((e) => e.id),
+	["root", "root-c1"],
+	"委托周期中错误提醒不生效（保持运行呈现）",
 );
 
 // ---- R-01-016/AC-01 等待卡条目承载会话最后已知工作项时间线（数据路径）----
@@ -2678,13 +2755,13 @@ assert.ok(
 assert.ok(bundle.includes("function activeSessionIds(byId = {})"), "活动子代理沿 parentId 链补齐活动祖先");
 // ---- R-01-016/AC-01 等待卡保留最近工作项时间线 ----
 assert.ok(
-	bundle.includes('return [head, row, makeEl("div", "dap-trace"), noteRow];'),
-	"awaiting 骨架在标题行与备注行之间含时间线容器（R-01-016/AC-01）",
+	bundle.includes('return [head, row, makeEl("div", "dap-trace"), foot];'),
+	"awaiting 骨架在标题行与末行两段（胶囊+正文）之间含时间线容器（R-01-016/AC-01，C-043）",
 );
 // ---- R-01-002/AC-10 完成提醒卡「移入历史」按钮 ----
 assert.ok(
-	bundle.includes('noteRow.append(makeEl("div", "dap-note"), badge, makeConfirmButton());'),
-	"awaiting 末行为「提示文字+类型徽标+按钮」行容器，类型徽标已自标题行迁入末行（R-01-002/AC-08、AC-10，C-040）",
+	bundle.includes('noteRow.append(makeEl("div", "dap-note"), makeConfirmButton());'),
+	"awaiting 正文行为「正文+按钮」行容器，胶囊已移至首行；按钮仅完成提醒卡显示（R-01-002/AC-08、AC-10，C-043）",
 );
 assert.ok(bundle.includes('button.className = "dap-confirm"') && bundle.includes('button.textContent = "移入历史"'), "完成提醒卡按钮以「移入历史」文案呈现（R-01-002/AC-10，C-040）");
 assert.ok(
@@ -2982,44 +3059,46 @@ assert.ok(bundle.includes('"<span>活动</span><span class=\\"dap-toggle-count\\
 assert.ok(bundle.includes(".dap-toggle[data-drawer-open] { display: none; }"), "抽屉打开时浮动开关隐藏");
 assert.ok(bundle.includes('toggle.toggleAttribute("data-drawer-open", open)'), "开关显隐由 togglePane 单点同步");
 
-// R-01-002/AC-01、AC-02 阻塞等待徽标前置类型图标；AC-08（C-040）闪烁载体移至末行：
-// 阻塞等待为末行提示文字+行尾类型徽标同频同相脉冲，完成提醒整行文字脉冲，标题圆点两类均静止。
+// R-01-002/AC-01、AC-02、AC-09、AC-13 等待三类胶囊（C-043）：末行首行为「圆底类型图标 + 类型
+// 文字」胶囊（阻塞金/完成绿/错误红），胶囊与正文同频同相脉冲；「移入历史」按钮不闪，标题圆点静止。
 assert.ok(
-	bundle.includes('badge.append(makeEl("span", "dap-badge-icon"), makeEl("span", "dap-badge-text"))'),
-	"等待徽标为图标+文本双段结构（R-01-002/AC-01、AC-02）",
+	bundle.includes('capsule.append(makeEl("span", "dap-capsule-icon"), makeEl("span", "dap-capsule-text"))'),
+	"等待胶囊为图标+文本双段结构（R-01-002/AC-01、AC-02、AC-09、AC-13）",
 );
-assert.ok(bundle.includes("function createPendingIcon(kind)"), "阻塞等待类型图标工厂存在（对勾/文档/问号气泡）");
-assert.ok(bundle.includes('entry.waitClass === "blocked" && PENDING_ICON_KINDS.has(entry.pendingKind)'), "图标归属由 waitClass/pendingKind 结构化字段驱动，未知种类不给图标（R-01-002/AC-01、AC-02）");
+assert.ok(bundle.includes("function createCapsuleIcon(kind)"), "胶囊类型图标工厂存在（对勾/文档/问号气泡/已完成对勾/错误感叹号）");
 assert.ok(
-	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] :is(.dap-note, .dap-badge)') &&
-		bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-note'),
-	"末行提示文字与阻塞等待类型徽标的脉冲由 data-wait 结构化属性驱动（R-01-002/AC-08，C-040）",
+	bundle.includes("CAPSULE_ICON_KINDS.has(entry.pendingKind)"),
+	"胶囊图标归属由 waitClass/pendingKind 结构化字段驱动，未知种类不给图标（R-01-002/AC-01、AC-02）",
 );
-// 多行承载（R-01-002/AC-09，C-041）：末行提示以 pre-line 保留 Q 行列表换行符；
-// 完成提醒/recent 单行提示无换行符，行为不受影响。
 assert.ok(
-	bundle.includes('[data-dsh-activity-pane] .dap-note {\n  /* 多行提示（R-01-002/AC-09）：待回复卡的 Q 行列表以 \\n 换行呈现（pre-line 保留\n     换行符、折叠其余空白）；完成提醒等单行提示不受影响（无换行符时不产生新行）。 */\n  min-width: 0; overflow: hidden; white-space: pre-line;'),
-	"末行提示文字以 pre-line 承载提问 Q 行列表多行（R-01-002/AC-09，C-041）",
+	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"] .dap-foot :is(.dap-capsule, .dap-note)'),
+	"三类等待卡的胶囊与正文脉冲由同一 data-wait 作用域规则驱动（R-01-002/AC-08，C-043）",
+);
+// 多行承载（R-01-002/AC-09，C-041）：末行正文以 pre-line 保留 Q 行列表换行符；
+// 完成提醒/错误提醒/recent 单行正文无换行符，行为不受影响。
+assert.ok(
+	bundle.includes('[data-dsh-activity-pane] .dap-note {\n  /* 多行正文（R-01-002/AC-09）：待回复卡的 Q 行列表以 \\n 换行呈现（pre-line 保留\n     换行符、折叠其余空白）；完成提醒/错误提醒等单行正文不受影响（无换行符时不产生新行）。 */\n  min-width: 0; overflow: hidden; white-space: pre-line;'),
+	"末行正文以 pre-line 承载提问 Q 行列表多行（R-01-002/AC-09，C-041）",
 );
 assert.ok(!bundle.includes("dap-badge-flash") && !bundle.includes("awaitBadgeFlash"), "标题区徽标闪烁机制整体移除：闪烁不再出现在卡片标题行（R-01-002/AC-08，C-040）");
 assert.ok(
 	bundle.includes('prevWait !== entry.waitClass') && bundle.includes('node.style.animation = "none"') &&
-		bundle.includes('rec.el.querySelectorAll(".dap-note-row .dap-note, .dap-note-row .dap-badge")'),
-	"原地跨类转换（done↔blocked）时末行提示文字与类型徽标动画一次性同步重启对齐相位（R-01-002/AC-08，C-040 复审修复）",
+		bundle.includes('rec.el.querySelectorAll(".dap-foot .dap-capsule, .dap-foot .dap-note")'),
+	"原地跨类转换（done↔blocked↔error）时胶囊与正文动画一次性同步重启对齐相位（R-01-002/AC-08，C-043 复审修复）",
 );
 assert.ok(!bundle.includes('dot.style.animation = "none"'), "相位重启目标随标题圆点静止而移除，重启只作用于末行元素（R-01-002/AC-08，C-040）");
 assert.ok(
-	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"] .dap-dot {\n  animation: none;\n}'),
-	"等待卡标题状态点静止不闪（R-01-002/AC-08，C-040）",
+	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"] .dap-dot {\n  animation: none;\n  background: var(--dap-wait-color, #58c98f);'),
+	"等待卡标题状态点静止不闪、色相随 --dap-wait-color 类别变量（R-01-002/AC-08，C-043）",
 );
 assert.ok(
-	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] .dap-dot {\n  background: #e8a33d;\n  box-shadow: 0 0 8px rgba(232,163,61,.85);\n}') &&
-		bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-dot {\n  background: #58c98f;\n  box-shadow: 0 0 8px rgba(88,201,143,.85);\n}'),
-	"状态点着色与光晕强度两类一致、仅换色相：阻塞琥珀、完成绿（R-01-002/AC-04，C-040 复审修复）",
+	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] {\n  --dap-wait-color: #f5c542;') &&
+		bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {\n  --dap-wait-color: #f06a72;'),
+	"阻塞等待金 / 错误提醒红类别色相经 --dap-wait-color 单点定义（R-01-002/AC-04、AC-13，C-043）",
 );
 assert.equal(awaitBadgeTone([{ kind: "awaiting", waitClass: "blocked" }]), "blocked", "tone 判定收敛到核心纯函数单点（R-01-002/AC-06）");
 assert.ok(bundle.includes('rec.el.setAttribute("data-wait", entry.waitClass)'), "等待类别经 data-wait 属性承载（R-01-002/AC-08）");
-assert.ok(bundle.includes('entry.noteText ?? ""'), "末行提示文字由核心单点派生（R-01-002/AC-09）");
+assert.ok(bundle.includes('entry.noteText ?? ""'), "末行正文由核心单点派生（R-01-002/AC-09）");
 // 缺陷回归（C-040）：noteText 派生时快照路径的时间线尚未按引用 memo 完成，
 // 等待卡静止后无下一帧导致待回复末行永远停留动作回落文案——时间线就绪后必须
 // 以同一核心纯函数对 question 卡补全重派生。
@@ -3030,28 +3109,44 @@ assert.ok(
 );
 // R-01-002/AC-03、AC-04 完成提醒卡绿色成功卡面（C-040）：深色静态暗绿底+绿描边光晕，浅色取 success 别名。
 assert.ok(
-	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {\n  border-color: color-mix(in srgb, #58c98f 55%, transparent);') &&
+	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {\n  --dap-wait-color: #58c98f;\n  border-color: color-mix(in srgb, #58c98f 55%, transparent);') &&
 		bundle.includes("background: rgba(32, 41, 35, 0.97);"),
-	"完成提醒卡为暗绿底色与绿描边光晕，强度与阻塞等待卡一致（R-01-002/AC-03、AC-04）",
+	"完成提醒卡为暗绿底色与绿描边光晕，强度与其它等待卡一致（R-01-002/AC-03、AC-04）",
 );
 assert.ok(
 	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {\n  background: var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237));\n}'),
 	"浅色主题完成提醒卡取宿主 success 三级背景别名（R-01-002/AC-04）",
 );
 assert.ok(
-	bundle.includes('.dap-card[data-kind="awaiting"][data-wait="done"] .dap-badge {\n  display: none;\n}'),
-	"完成提醒卡不显示类型徽标（R-01-002/AC-08，C-040）",
+	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {\n  --dap-wait-color: #f06a72;'),
+	"错误提醒卡为红色调卡面（与时间线错误红同源）（R-01-002/AC-13，C-043）",
 );
-// R-01-002/AC-06 计数徽标底色跟随等待构成（C-040）：三处镜像面 tone=done 取绿。
+assert.ok(
+	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {\n  background: rgb(252, 233, 234);\n}'),
+	"浅色主题错误提醒卡取淡红错误底（R-01-002/AC-13，C-043）",
+);
+assert.ok(
+	!bundle.includes('.dap-card[data-kind="awaiting"][data-wait="done"] .dap-badge') &&
+		bundle.includes('[data-dsh-activity-pane] .dap-capsule {\n  flex: none; display: inline-flex; align-items: center; gap: 4px;') &&
+		bundle.includes('[data-dsh-activity-pane] .dap-capsule-icon {'),
+	"末行徽标结构整体迁移为胶囊：无行尾徽标隐藏规则，胶囊双段规则在位（R-01-002/AC-08，C-043）",
+);
+// R-01-002/AC-06 计数徽标底色跟随等待构成（C-040、C-043）：三处镜像面 tone=done 取绿、tone=error 取红。
 assert.ok(
 	bundle.includes("awaitBadgeTone(active)") &&
-		(bundle.match(/\.dap-toggle\[data-awaiting\]\[data-tone="done"\] \.dap-toggle-count/g) ?? []).length >= 1,
-	"三处数量徽标按等待构成写入 tone 属性并接入 done 绿色变体（R-01-002/AC-06）",
+		(bundle.match(/\.dap-toggle\[data-awaiting\]\[data-tone="done"\] \.dap-toggle-count/g) ?? []).length >= 1 &&
+		(bundle.match(/\.dap-toggle\[data-awaiting\]\[data-tone="error"\] \.dap-toggle-count/g) ?? []).length >= 1,
+	"三处数量徽标按等待构成写入 tone 属性并接入 done 绿/error 红变体（R-01-002/AC-06）",
 );
 assert.ok(
 	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="done"],') &&
 		bundle.includes("var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237))"),
 	"浅色主题徽标 done 色调取 success 别名（R-01-002/AC-06）",
+);
+assert.ok(
+	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="error"],') &&
+		bundle.includes("rgb(252, 233, 234)"),
+	"浅色主题徽标 error 色调取淡红错误底（R-01-002/AC-06，C-043）",
 );
 // R-01-001/AC-04、AC-05、AC-06 徽标 n/m 计数；R-01-002/AC-06、AC-07 同色等待占比脉冲
 assert.ok(bundle.includes("text: `${waiting}/${total}`,"), "数量徽标以 n/m 分数形式呈现");
@@ -3061,7 +3156,7 @@ assert.ok(
 );
 assert.ok(
 	bundle.includes("[data-dsh-activity-pane] .dap-count[data-awaiting] {\n  /* 底色/透明度与等待卡完全一致、无描边与外环") &&
-		bundle.includes("[data-dsh-activity-pane] .dap-rail-count[data-awaiting] {\n  background: rgba(35, 31, 25, 0.97);"),
+		bundle.includes("[data-dsh-activity-pane] .dap-rail-count[data-awaiting] {\n  background: rgba(46, 42, 26, 0.97);"),
 	"数量徽标等待态底色/透明度与等待卡完全一致、无描边与外环（R-01-002/AC-06）",
 );
 assert.equal(
@@ -3086,12 +3181,12 @@ assert.equal(
 assert.ok(bundle.includes('el.style.setProperty("--dap-await-period", next)'), "渲染层按等待占比写入脉冲周期自定义属性");
 assert.ok(
 	bundle.includes(
-		"body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting],\nbody:not([data-ds-dark-theme]) .dap-toggle[data-awaiting] .dap-toggle-count {\n  background: var(--dsw-alias-state-warn-tertiary, rgb(254, 245, 231));\n}",
+		"body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting],\nbody:not([data-ds-dark-theme]) .dap-toggle[data-awaiting] .dap-toggle-count {\n  background: rgb(253, 244, 208);\n}",
 	),
-	"浅色主题数量徽标覆盖声明体完整：仅等待卡浅色背景别名、无描边与外环（防空规则回归）",
+	"浅色主题数量徽标覆盖声明体完整：仅等待卡浅色金色背景、无描边与外环（防空规则回归）",
 );
 assert.ok(bundle.includes("`${total} 个活动会话，${blocked} 个等待你答复`"), "数量徽标 aria-label 携带阻塞等待计数说明（R-01-002/AC-06）");
-assert.ok(bundle.includes("border-radius: 999px; padding: 0 7px;\n}\n/* 徽标类型图标"), "等待标识徽标规则正确闭合，后续为类型图标段（R-01-002/AC-04 结构回归防护）");
+assert.ok(bundle.includes("border-radius: 999px; padding: 1px 8px 1px 3px;\n}\n/* 胶囊圆底类型图标"), "等待胶囊规则正确闭合，后续为圆底图标段（R-01-002/AC-04 结构回归防护）");
 assert.ok(
 	bundle.includes("border-radius: 999px;\n  padding: 0 7px;\n}\n[data-dsh-activity-pane] .dap-count[data-awaiting] {"),
 	"数量徽标基态规则无描边、正确闭合，紧随其后为等待态变体（R-01-001/AC-04 结构回归防护）",

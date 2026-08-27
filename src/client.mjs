@@ -89,15 +89,21 @@ const CSS = `
 [data-dsh-activity-pane] .dap-count[data-awaiting] {
   /* 底色/透明度与等待卡完全一致、无描边与外环（R-01-002/AC-06）；脉冲走亮度呼吸而非整体
      不透明度——半透明会让底色透进列头背景；周期由 --dap-await-period 驱动（AC-07）。
-     任一等待行动即脉冲：阻塞等待与完成提醒行为一致（C-037）。
-     底色跟随等待构成（C-040）：默认琥珀（阻塞在即），tone=done 时取完成提醒同款暗绿。 */
-  background: rgba(35, 31, 25, 0.97);
+     任一等待行动即脉冲：三类等待行动行为一致（C-037）。
+     底色跟随等待构成（C-040、C-043）：默认金（阻塞在即），tone=done 取完成提醒同款暗绿、
+     tone=error 取错误提醒同款暗红（错误 > 阻塞 > 完成 优先级）。 */
+  background: rgba(46, 42, 26, 0.97);
   animation: dap-await-pulse var(--dap-await-period, 1.6s) ease-in-out infinite;
 }
 [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="done"],
 [data-dsh-activity-pane] .dap-rail-count[data-awaiting][data-tone="done"],
 [data-dsh-activity-pane] .dap-toggle[data-awaiting][data-tone="done"] .dap-toggle-count {
   background: rgba(32, 41, 35, 0.97);
+}
+[data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="error"],
+[data-dsh-activity-pane] .dap-rail-count[data-awaiting][data-tone="error"],
+[data-dsh-activity-pane] .dap-toggle[data-awaiting][data-tone="error"] .dap-toggle-count {
+  background: rgba(40, 29, 31, 0.97);
 }
 @keyframes dap-await-pulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
 /* 单一滚动区：活动区与最近历史同一容器滚动；touch-action/overscroll 防止
@@ -217,7 +223,7 @@ const CSS = `
   color: color-mix(in srgb, currentColor 60%, transparent);
 }
 [data-dsh-activity-pane] .dap-rail-count[data-awaiting] {
-  background: rgba(35, 31, 25, 0.97);
+  background: rgba(46, 42, 26, 0.97);
   animation: dap-await-pulse var(--dap-await-period, 1.6s) ease-in-out infinite;
 }
 /* 桌面拖拽调宽手柄（R-01-015）：右缘 6px 命中区，拖拽实时写入 --dap-width；
@@ -319,20 +325,34 @@ const CSS = `
   border-color: color-mix(in srgb, #65a0ff 75%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, #65a0ff 45%, transparent), 0 0 12px color-mix(in srgb, #65a0ff 30%, transparent);
 }
-/* 等待双类卡面按色彩语义分野（R-01-002/AC-03、AC-04，C-040）：阻塞等待保持琥珀暖色
-   催促尽快响应；完成提醒改用绿色成功色系——深色取宿主 success 三级背景同款暗绿
-   （green-900），描边与光晕强度与阻塞等待卡一致，仅换色相。 */
+/* 等待三类卡面按色彩语义分野（R-01-002/AC-03、AC-04、AC-13，C-040、C-043）：阻塞等待
+   采用金色系催促尽快响应（自琥珀 #e8a33d 调亮调纯为金黄 #f5c542，底色同步提亮提黄——
+   与旧琥珀底差异须一眼可辨，东家视觉反馈）；完成提醒采用绿色成功
+   色系——深色取宿主 success 三级背景同款暗绿（green-900），底色仅保留轻微绿色色偏；
+   错误提醒采用红色错误色系（与时间线错误分组行同源 #f06a72），警示会话出错。
+   --dap-wait-color 供状态点与末行胶囊共用的类别色相。 */
+[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"],
+[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"],
+[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dap-wait-color) 35%, transparent), 0 6px 16px rgba(0,0,0,.3);
+}
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] {
-  border-color: color-mix(in srgb, #e8a33d 55%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, #e8a33d 35%, transparent), 0 6px 16px rgba(0,0,0,.3);
-  background: rgba(35, 31, 25, 0.97);
+  --dap-wait-color: #f5c542;
+  border-color: color-mix(in srgb, #f5c542 55%, transparent);
+  /* 金黄底：r/g 通道接近（明度较琥珀底更亮）、b 通道明显压低，扫一眼即金黄而非橙棕。 */
+  background: rgba(46, 42, 26, 0.97);
 }
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {
+  --dap-wait-color: #58c98f;
   border-color: color-mix(in srgb, #58c98f 55%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, #58c98f 35%, transparent), 0 6px 16px rgba(0,0,0,.3);
-  /* 底色仅保留轻微绿色色偏（g 通道高于 r/b 均值约 +7.5，与琥珀面的暖偏同级），
+  /* 底色仅保留轻微绿色色偏（g 通道高于 r/b 均值约 +7.5，与金色面的暖偏同级），
      不用宿主 green-900 全饱和值——整卡大面积铺色时过绿过亮抢视线（东家视觉反馈）。 */
   background: rgba(32, 41, 35, 0.97);
+}
+[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {
+  --dap-wait-color: #f06a72;
+  border-color: color-mix(in srgb, #f06a72 55%, transparent);
+  background: rgba(40, 29, 31, 0.97);
 }
 /* 等待卡同为当前会话时描边/光晕回归蓝色高亮（R-01-006/AC-01）：基态 [data-current]
    与 [data-kind="awaiting"] 同优先级且定义在前，深色下被橙色描边顶掉；组合选择器
@@ -364,17 +384,11 @@ const CSS = `
 }
 @keyframes dap-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 /* 等待卡标题状态点静止（R-01-002/AC-08，C-040）：闪烁提醒已统一移至卡片末行，
-   标题区不再抢眼；状态点只按等待类别着色——阻塞琥珀、完成绿。 */
+   标题区不再抢眼；状态点只按等待类别着色——阻塞金、完成绿、错误红。 */
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"] .dap-dot {
   animation: none;
-}
-[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] .dap-dot {
-  background: #e8a33d;
-  box-shadow: 0 0 8px rgba(232,163,61,.85);
-}
-[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-dot {
-  background: #58c98f;
-  box-shadow: 0 0 8px rgba(88,201,143,.85);
+  background: var(--dap-wait-color, #58c98f);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--dap-wait-color, #58c98f) 85%, transparent);
 }
 [data-dsh-activity-pane] .dap-card[data-kind="recent"] .dap-dot {
   background: #8a94a3;
@@ -389,30 +403,30 @@ const CSS = `
 [data-dsh-activity-pane] .dap-card[data-kind="recent"] .dap-title {
   font-weight: 400;
 }
-/* 等待标识徽标改用主题协调的柔和底（与 workspace chip 同系）：醒目性由等待卡
-   描边与计数徽标脉冲承载（R-01-002/AC-04）。阻塞等待徽标前置类型图标（AC-01、AC-02）。 */
-[data-dsh-activity-pane] .dap-badge {
-  flex: none; display: inline-flex; align-items: center; gap: 3px;
+/* 等待卡末行首行「类型胶囊」（R-01-002/AC-01、AC-02、AC-09、AC-13，C-043）：圆底类型
+   图标 + 类型文字，色相随等待类别（--dap-wait-color）——阻塞金/完成绿/错误红；
+   胶囊为行内元素不自占满宽，随文字内容收缩。 */
+[data-dsh-activity-pane] .dap-capsule {
+  flex: none; display: inline-flex; align-items: center; gap: 4px;
   font-size: 10px; line-height: 14px; font-weight: 600;
-  color: color-mix(in srgb, currentColor 88%, transparent);
-  background: color-mix(in srgb, currentColor 12%, transparent);
-  border-radius: 999px; padding: 0 7px;
+  color: color-mix(in srgb, var(--dap-wait-color, currentColor) 92%, transparent);
+  background: color-mix(in srgb, var(--dap-wait-color, currentColor) 14%, transparent);
+  border-radius: 999px; padding: 1px 8px 1px 3px;
 }
-/* 徽标类型图标：12px 字形盒与卡片其它图标一致；完成提醒无图标（空盒不占位）。 */
-[data-dsh-activity-pane] .dap-badge-icon { width: 12px; height: 12px; display: inline-flex; align-items: center; }
-[data-dsh-activity-pane] .dap-badge-icon:empty { display: none; }
-[data-dsh-activity-pane] .dap-badge-icon svg { display: block; width: 12px; height: 12px; }
-/* 等待双类的末行脉冲（R-01-002/AC-08，C-040）：闪烁载体为卡片末行——阻塞等待的
-   提示文字与行尾类型徽标同频同相闪烁，完成提醒整行提示文字闪烁；「移入历史」按钮
-   不闪。骨架挂载与 kind 重建路径下两类元素同帧起步；原地跨类转换的相位对齐由渲染层
-   在 data-wait 变化时同步重启（见 syncCards），标题状态点两类均静止。 */
-[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] :is(.dap-note, .dap-badge),
-[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-note {
+/* 胶囊圆底类型图标：圆形底 + 12px 字形，与卡片其它图标尺度对齐。 */
+[data-dsh-activity-pane] .dap-capsule-icon {
+  width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--dap-wait-color, currentColor) 22%, transparent);
+}
+[data-dsh-activity-pane] .dap-capsule-icon:empty { display: none; }
+[data-dsh-activity-pane] .dap-capsule-icon svg { display: block; width: 12px; height: 12px; }
+/* 等待三类的末行脉冲（R-01-002/AC-08，C-043）：闪烁载体为卡片末行——类型胶囊与正文
+   文字同频同相闪烁（三类一致）；「移入历史」按钮不闪。骨架挂载与 kind 重建路径下各元素
+   天然同帧起步；原地跨类转换的相位对齐由渲染层在 data-wait 变化时同步重启（见 syncCards），
+   标题状态点三类均静止。 */
+[data-dsh-activity-pane] .dap-card[data-kind="awaiting"] .dap-foot :is(.dap-capsule, .dap-note) {
   animation: dap-pulse 1.2s ease-in-out infinite;
-}
-/* 完成提醒卡无类型徽标（C-040）：徽标元素仍在骨架中（按类别复用），直接隐藏。 */
-[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-badge {
-  display: none;
 }
 /* 复审修复（C-040）：状态点光晕两类同强度、仅换色相——阻塞琥珀光晕与完成绿光晕一致。 */
 /* 工作区徽标「图标+文本」双段：文件夹图标与左边栏工作区条目同源（R-01-003/AC-06）；
@@ -455,19 +469,22 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 [data-dsh-activity-pane] .dap-model:empty { display: none; }
 [data-dsh-activity-pane] .dap-note {
-  /* 多行提示（R-01-002/AC-09）：待回复卡的 Q 行列表以 \n 换行呈现（pre-line 保留
-     换行符、折叠其余空白）；完成提醒等单行提示不受影响（无换行符时不产生新行）。 */
+  /* 多行正文（R-01-002/AC-09）：待回复卡的 Q 行列表以 \n 换行呈现（pre-line 保留
+     换行符、折叠其余空白）；完成提醒/错误提醒等单行正文不受影响（无换行符时不产生新行）。 */
   min-width: 0; overflow: hidden; white-space: pre-line;
   font-size: 11px; line-height: 15px;
   color: color-mix(in srgb, currentColor 62%, transparent);
 }
-/* 等待卡末行容器（R-01-002/AC-08、AC-10，C-040）：提示文字铺满，行尾为阻塞等待的
-   类型徽标与完成提醒卡的「移入历史」按钮——徽标随文字同闪，按钮不闪。 */
+/* 等待卡末行两段容器（R-01-002/AC-08、AC-09、AC-13，C-043）：首行类型胶囊、其下为
+   正文行（正文文字 + 完成提醒卡的「移入历史」按钮——胶囊与正文同闪，按钮不闪）。 */
+[data-dsh-activity-pane] .dap-foot {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  min-width: 0; margin: 2px 0 0;
+}
 [data-dsh-activity-pane] .dap-note-row {
-  display: flex; align-items: center; gap: 6px; min-width: 0;
+  display: flex; align-items: center; gap: 6px; min-width: 0; align-self: stretch;
 }
 [data-dsh-activity-pane] .dap-note-row .dap-note { flex: 1 1 auto; }
-[data-dsh-activity-pane] .dap-note-row .dap-badge { flex: none; }
 [data-dsh-activity-pane] .dap-confirm {
   flex: none; padding: 0 7px; margin: 1px 0;
   font-size: 10.5px; line-height: 16px;
@@ -803,23 +820,32 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current] 
 }
 
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] {
-  background: var(--dsw-alias-state-warn-tertiary, rgb(254, 245, 231));
+  background: rgb(253, 244, 208);
 }
 /* 完成提醒卡浅色主题取宿主 success 三级背景别名（R-01-002/AC-04，C-040）：淡绿成功底。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {
   background: var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237));
 }
-/* 数量徽标等待态浅色主题覆盖：琥珀默认跟随阻塞卡、tone=done 跟随完成卡别名
-  （R-01-002/AC-06，无描边与外环）。 */
+/* 错误提醒卡浅色主题：与深色错误红同源的淡红错误底（C-043）。 */
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {
+  background: rgb(252, 233, 234);
+}
+/* 数量徽标等待态浅色主题覆盖：默认金色跟随阻塞卡、tone=done 跟随完成卡别名、
+  tone=error 跟随错误卡淡红（R-01-002/AC-06，无描边与外环）。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting],
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting],
 body:not([data-ds-dark-theme]) .dap-toggle[data-awaiting] .dap-toggle-count {
-  background: var(--dsw-alias-state-warn-tertiary, rgb(254, 245, 231));
+  background: rgb(253, 244, 208);
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="done"],
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting][data-tone="done"],
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-toggle[data-awaiting][data-tone="done"] .dap-toggle-count {
   background: var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237));
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="error"],
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting][data-tone="error"],
+body:not([data-ds-dark-theme]) .dap-toggle[data-awaiting][data-tone="error"] .dap-toggle-count {
+  background: rgb(252, 233, 234);
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-pct {
   color: var(--dsw-alias-state-success-primary, #22c55e);
@@ -1539,6 +1565,20 @@ function apply(ctx) {
 		return button;
 	}
 
+	/** 陈旧等待卡骨架就地迁移（C-043 热装兼容）：旧版末行为「正文行 + 行尾类型徽标」单行，
+	 *  新版为「胶囊行 + 正文行」两段——把旧 noteRow 移入新的 .dap-foot 包裹并去掉行尾徽标，
+	 *  confirm 按钮节点复用（已绑定的 ack 监听不丢）。 */
+	function migrateAwaitingFoot(el) {
+		const noteRow = el.querySelector(".dap-note-row");
+		if (noteRow === null) return;
+		noteRow.querySelector(".dap-badge")?.remove();
+		const capsule = makeEl("div", "dap-capsule");
+		capsule.append(makeEl("span", "dap-capsule-icon"), makeEl("span", "dap-capsule-text"));
+		const foot = makeEl("div", "dap-foot");
+		noteRow.replaceWith(foot);
+		foot.append(capsule, noteRow);
+	}
+
 	/** 静态骨架卡片；动态文本一律走 textContent，规避 HTML 注入。 */
 	function cardChildren(kind) {
 		const head = makeEl("div", "dap-card-head");
@@ -1574,14 +1614,17 @@ function apply(ctx) {
 		if (kind === "awaiting") {
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
-			// 等待双类末行结构（R-01-002/AC-08、AC-10，C-040）：类型徽标位于末行行尾随提示文字
-			// 同频闪烁（仅阻塞等待显示，done 经 CSS 隐藏），完成提醒卡在其后提供「移入历史」按钮。
-			const badge = makeEl("span", "dap-badge");
-			badge.append(makeEl("span", "dap-badge-icon"), makeEl("span", "dap-badge-text"));
-			// 备注行容器：备注文本 + 类型徽标 + 「移入历史」按钮（R-01-002/AC-10）。
+			// 等待三类末行结构（R-01-002/AC-08、AC-09，C-043）：首行「类型胶囊」（圆底类型
+			// 图标 + 类型文字），其下为正文行——阻塞/错误的说明文字，完成提醒的
+			// 「继续对话，或移入历史」+ 行尾「移入历史」按钮。
+			const capsule = makeEl("div", "dap-capsule");
+			capsule.append(makeEl("span", "dap-capsule-icon"), makeEl("span", "dap-capsule-text"));
+			// 正文行容器：正文文本 + 「移入历史」按钮（仅完成提醒卡显示，R-01-002/AC-10）。
 			const noteRow = makeEl("div", "dap-note-row");
-			noteRow.append(makeEl("div", "dap-note"), badge, makeConfirmButton());
-			return [head, row, makeEl("div", "dap-trace"), noteRow];
+			noteRow.append(makeEl("div", "dap-note"), makeConfirmButton());
+			const foot = makeEl("div", "dap-foot");
+			foot.append(capsule, noteRow);
+			return [head, row, makeEl("div", "dap-trace"), foot];
 		}
 		// 运行卡：上下文 + 标题 + 最近工作项 + 进度条 + token 底行。
 		const row = makeEl("div", "dap-row");
@@ -1749,8 +1792,9 @@ function apply(ctx) {
 		});
 	}
 
-	/** 有类型图标的阻塞等待种类（R-01-002/AC-01、AC-02）；未知种类不给图标（不冒充已知类型）。 */
-	const PENDING_ICON_KINDS = new Set(["approval", "plan-review", "question"]);
+	/* 胶囊类型种类（R-01-002/AC-01、AC-02、AC-09、AC-13，C-043）：阻塞待确认/待审查/问题、
+	 * 完成提醒（对勾）与错误提醒（感叹号）；未知种类不给图标（不冒充已知类型）。 */
+	const CAPSULE_ICON_KINDS = new Set(["approval", "plan-review", "question", "done", "error"]);
 
 	/** 阻塞等待徽标类型图标（R-01-002/AC-01、AC-02）：通用几何自绘（对勾/文档/问号气泡），
 	 *  stroke 风格与机器人图标一致；16 框、12px 字形盒，与卡片其它图标尺度对齐。 */
@@ -1778,6 +1822,28 @@ function apply(ctx) {
 				{ attrs: { d: "M8.55 11.4v.5", ...stroke } },
 			],
 		});
+	}
+
+	/** 等待卡类型胶囊图标（R-01-002/AC-09、AC-13，C-043）：done 复用对勾几何（与待确认同形、
+	 *  靠胶囊与卡面颜色区分成功/确认语义），error 为感叹号气泡（圆 + 感叹号钩 + 圆点）；
+	 *  其余走阻塞等待图标。 */
+	function createCapsuleIcon(kind) {
+		const stroke = { fill: "none", stroke: "currentColor", "stroke-width": "1.8", "stroke-linecap": "round", "stroke-linejoin": "round" };
+		if (kind === "done")
+			return createInlineIcon({
+				viewBox: "0 0 16 16",
+				parts: [{ attrs: { d: "M3.5 8.8L6.8 12.1L12.6 4.3", ...stroke } }],
+			});
+		if (kind === "error")
+			return createInlineIcon({
+				viewBox: "0 0 16 16",
+				parts: [
+					{ tag: "circle", attrs: { cx: "8", cy: "8", r: "5.9", ...stroke } },
+					{ attrs: { d: "M8 5.2v3.5", ...stroke } },
+					{ attrs: { d: "M8 11.4v.5", ...stroke } },
+				],
+			});
+		return createPendingIcon(kind);
 	}
 
 	/** fallback 图标分类：先按 toolName 镜像原生 classifyTool 与行级覆盖（web_search 用地球、
@@ -1976,19 +2042,39 @@ function apply(ctx) {
 		if (title !== null && title.textContent !== entry.title)
 			title.textContent = entry.title;
 
-		const badge = el.querySelector(".dap-badge");
-		if (badge !== null) {
-			const pending = entry.pendingText ?? "";
-			const badgeText = badge.querySelector(".dap-badge-text");
-			if (badgeText !== null && badgeText.textContent !== pending) badgeText.textContent = pending;
-			// 阻塞等待徽标前置类型图标（待确认=对勾 / 待审查=文档 / 问题=问号气泡）；
-			// 完成提醒卡整枚徽标由 CSS data-wait 隐藏（C-040）。
-			const iconHolder = badge.querySelector(".dap-badge-icon");
+		const capsule = el.querySelector(".dap-capsule");
+		// 陈旧骨架就地迁移（C-043 热装兼容）：旧版「正文行 + 行尾类型徽标」骨架升级为
+		// 「胶囊行 + 正文行」；仅迁移等待卡且确认按钮节点复用（不丢已绑定的 ack 监听）。
+		if (capsule === null && entry.kind === "awaiting" && el.querySelector(".dap-badge") !== null) {
+			migrateAwaitingFoot(el);
+		}
+		if (capsule !== null || entry.kind === "awaiting") {
+			// 胶囊文字：blocked=待确认/待审查/问题（pendingText），done=「已完成」，error=「错误」。
+			const capsuleText = el.querySelector(".dap-capsule-text");
+			const text =
+				entry.waitClass === "blocked"
+					? (entry.pendingText ?? "")
+					: entry.waitClass === "done"
+						? "已完成"
+						: entry.waitClass === "error"
+							? "错误"
+							: "";
+			if (capsuleText !== null && capsuleText.textContent !== text) capsuleText.textContent = text;
+			// 胶囊前置圆形类型图标：blocked=对勾/文档/问号，done=对勾，error=感叹号。
+			const iconHolder = el.querySelector(".dap-capsule-icon");
 			const iconKind =
-				entry.waitClass === "blocked" && PENDING_ICON_KINDS.has(entry.pendingKind) ? entry.pendingKind : "";
+				entry.waitClass === "blocked"
+					? CAPSULE_ICON_KINDS.has(entry.pendingKind)
+						? entry.pendingKind
+						: ""
+					: entry.waitClass === "done"
+						? "done"
+						: entry.waitClass === "error"
+							? "error"
+							: "";
 			if (iconHolder !== null && (iconHolder.dataset.kind ?? "") !== iconKind) {
 				iconHolder.dataset.kind = iconKind;
-				iconHolder.replaceChildren(...(iconKind === "" ? [] : [createPendingIcon(iconKind)]));
+				iconHolder.replaceChildren(...(iconKind === "" ? [] : [createCapsuleIcon(iconKind)]));
 			}
 		}
 
@@ -2359,19 +2445,21 @@ function apply(ctx) {
 		rec.el.style.marginLeft = `${(entry.depth ?? 0) * INDENT_PX}px`;
 		rec.el.toggleAttribute("data-current", entry.isCurrent);
 		rec.el.toggleAttribute("data-awaiting", entry.kind === "awaiting");
-		// 等待双类（R-01-002/AC-08，C-040）：blocked=阻塞等待（末行行尾类型徽标随文字同闪，
-		// 琥珀催促卡面），done=完成提醒（无类型徽标，绿色成功卡面、整行末行提示闪烁）。
+		// 等待三类（R-01-002/AC-08、AC-13，C-043）：blocked=阻塞等待（金色卡面、胶囊+正文闪烁），
+		// done=完成提醒（绿色成功卡面、胶囊+正文闪烁、按钮不闪），error=错误提醒（红色卡面、
+		// 胶囊+正文闪烁、无按钮）。
 		const prevWait = rec.el.getAttribute("data-wait");
-		if (entry.waitClass === "blocked" || entry.waitClass === "done") rec.el.setAttribute("data-wait", entry.waitClass);
+		if (entry.waitClass === "blocked" || entry.waitClass === "done" || entry.waitClass === "error")
+			rec.el.setAttribute("data-wait", entry.waitClass);
 		else rec.el.removeAttribute("data-wait");
 		if (
-			(entry.waitClass === "blocked" || entry.waitClass === "done") &&
+			(entry.waitClass === "blocked" || entry.waitClass === "done" || entry.waitClass === "error") &&
 			prevWait !== null && prevWait !== "" && prevWait !== entry.waitClass
 		) {
-			// 原地跨类转换（done↔blocked）：卡片骨架按 id 复用不重建，提示文字的动画不会
-			// 自行归零而类型徽标经 display 切换会重新起步——两者一并重启对齐相位，
+			// 原地跨类转换（done↔blocked↔error）：卡片骨架按 id 复用不重建，胶囊与正文的
+			// 动画不会自行归零而类型图标经 replaceChildren 会重新起步——一并重启对齐相位，
 			// 同频同相不漂移（R-01-002/AC-08；骨架挂载/kind 重建路径天然同帧无需处理）。
-			for (const node of rec.el.querySelectorAll(".dap-note-row .dap-note, .dap-note-row .dap-badge")) {
+			for (const node of rec.el.querySelectorAll(".dap-foot .dap-capsule, .dap-foot .dap-note")) {
 				node.style.animation = "none";
 				void node.offsetWidth;
 				node.style.animation = "";
@@ -2381,7 +2469,7 @@ function apply(ctx) {
 			"aria-label",
 			`${entry.workspaceTitle ? entry.workspaceTitle + " - " : ""}${entry.title}${
 				entry.pendingText ? "，" + entry.pendingText : ""
-			}${entry.waitClass === "done" && entry.noteText ? "，" + entry.noteText : ""}`,
+			}${(entry.waitClass === "done" || entry.waitClass === "error") && entry.noteText ? "，" + entry.noteText : ""}`,
 		);
 		renderCardInto(rec.el, entry, hueByWorkspace);
 		// 只有顺序/归属真正变化时才移动 DOM：每次渲染无条件 appendChild 会把所有
@@ -2811,8 +2899,8 @@ function apply(ctx) {
 		// 计数与折叠：n/m 只统计主会话——分子为等待行动数、分母为其加运行中主会话之和
 		// （R-01-001/AC-04、AC-05）；空态同样显示 0/0（AC-06）。列表在途时不冒充计数，
 		// 三处数量标识显示加载指示（R-01-014/AC-06）。脉冲由 data-awaiting 承载：
-		// 任一等待行动（阻塞等待或完成提醒）即脉冲（R-01-002/AC-06，C-037）；
-		// 底色经 data-tone 跟随等待构成——有阻塞即琥珀、全为完成提醒则绿（C-040）。
+		// 任一等待行动（阻塞等待、完成提醒或错误提醒）即脉冲（R-01-002/AC-06，C-037）；
+		// 底色经 data-tone 跟随等待构成——错误 > 阻塞 > 完成 优先级取红/金/绿（C-040、C-043）。
 		const count = pane.querySelector(".dap-count");
 		const railCount = pane.querySelector(".dap-rail-count");
 		const { waiting, blocked, total } = awaitBadgeStats(active);

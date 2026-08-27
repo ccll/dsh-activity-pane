@@ -1,27 +1,36 @@
-// dsh-activity-pane 宿主侧：完成确认状态（R-01-002/AC-03、AC-05、AC-10～AC-12、R-01-010/AC-06，C-030）。
+// dsh-activity-pane 宿主侧：完成确认与错误提醒状态（R-01-002/AC-03、AC-05、AC-10～AC-13、R-01-010/AC-06，C-030、C-043）。
 //
 // 职责：
-//   1. 订阅 `session/event` 的 `turn/end`，把事件顶层 `time` 登记为会话的 `lastTurnEnd`；
+//   1. 订阅 `session/event` 的 `turn/end`，把事件顶层 `time` 登记为会话的 `lastTurnEnd`，
+//      并登记回合结束原因 `lastTurnEndKind`（取 `data.reason.kind`，缺失/非法归一
+//      `'unknown'`）与 error 回合的错误信息 `lastTurnEndError`（截断至 ERROR_NOTE_MAX）；
 //   2. `POST /dsh-activity-pane/api/ack` 写回 `ackedAt`；
 //   3. `GET /dsh-activity-pane/api/acks` 全量快照；`GET /dsh-activity-pane/api/acks/stream` SSE 推送
 //      （连接即发全量、变更即广播）。
 //
-// 持久化：storageDomain 声明式 domain 表 `acks`（sessionId → { lastTurnEnd, ackedAt }）。
+// 持久化：storageDomain 声明式 domain 表 `acks`（sessionId → { lastTurnEnd, lastTurnEndKind,
+// lastTurnEndError, ackedAt }）。
 // 设计约束（C-030）：不写会话日志、不依赖 sessionProjections、不引入客户端轮询；
 // 完成提醒成立 = 主会话 && 非 running && 无阻塞等待 && 非委托周期 && lastTurnEnd > ackedAt，
-// 判定在客户端纯函数完成，本侧只维护持久事实与广播。
+// 错误提醒成立 = 主会话 && 非 running && 无阻塞等待 && 非委托周期 && lastTurnEndKind === 'error'
+// （不消费 ack 游标，C-043），判定在客户端纯函数完成，本侧只维护持久事实与广播。
 
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import { z } from 'zod'
+import { ERROR_NOTE_MAX } from './core.mjs'
 
 export const name = 'dsh-activity-pane'
 export const inject = ['storageDomain', 'webServer']
 
 const API_PATH = '/dsh-activity-pane/api'
 
-/** 每会话完成确认记录：lastTurnEnd 最后回合结束时刻（事件 time，毫秒），ackedAt 确认时刻。 */
+/** 每会话完成/错误登记：lastTurnEnd 最后回合结束时刻（事件 time，毫秒）、
+ *  lastTurnEndKind 回合结束原因（completed/blocked/max-tokens/aborted/error/unknown）、
+ *  lastTurnEndError error 回合的错误信息（截断，非 error 回合为 null）、ackedAt 确认时刻。 */
 const ackRecord = z.object({
 	lastTurnEnd: z.number().nullable(),
+	lastTurnEndKind: z.string().nullable(),
+	lastTurnEndError: z.string().nullable(),
 	ackedAt: z.number().nullable(),
 })
 
@@ -57,9 +66,14 @@ export function apply(ctx) {
 	const domainReady = new Promise((resolve) => {
 		resolveDomain = resolve
 	})
-	let acks = null // KvTable: sessionId -> { lastTurnEnd, ackedAt }
+	let acks = null // KvTable: sessionId -> { lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }
 	/** SSE 连接集合：广播时逐个写 `event: state`。 */
 	const streamClients = new Set()
+
+	/** 错误信息截断（C-043）：与 core.mjs 的 ERROR_NOTE_MAX 同口径，超限以省略号收尾。 */
+	function truncateError(text) {
+		return text.length <= ERROR_NOTE_MAX ? text : `${text.slice(0, ERROR_NOTE_MAX)}…`
+	}
 
 	ctx.inject(['storageDomain'], async (domainCtx) => {
 		const domain = await domainCtx.storageDomain.open(domainSpec)
@@ -88,8 +102,9 @@ export function apply(ctx) {
 		}
 	}
 
-	// turn/end 登记（R-01-002/AC-03、AC-11、AC-12）：事件按会话序提交，get+put 无竞态；
-	// 保留既有 ackedAt（回合更替不清确认游标），lastTurnEnd 前移即让旧提醒失效、新提醒成立。
+	// turn/end 登记（R-01-002/AC-03、AC-11～AC-13、C-043）：事件按会话序提交，get+put 无竞态；
+	// 保留既有 ackedAt（回合更替不清确认游标），lastTurnEnd 前移即让旧提醒失效、新提醒成立；
+	// 同回合登记结束原因与错误信息（错误提醒的持久事实来源）。
 	ctx.on('session/event', async (session, event) => {
 		if (event?.type !== 'turn/end') return
 		const time = Number(event.time)
@@ -98,8 +113,20 @@ export function apply(ctx) {
 		if (id === '') return
 		try {
 			await domainReady
+			const reason = event.data && typeof event.data === 'object' && event.data.reason && typeof event.data.reason === 'object'
+				? event.data.reason
+				: null
+			const kind = typeof reason?.kind === 'string' ? reason.kind : 'unknown'
+			const errorMessage = kind === 'error' && (typeof reason?.error?.message === 'string' || typeof reason?.error?.message === 'object')
+				? String(reason.error.message)
+				: ''
 			const current = acks.get(id)
-			await acks.put(id, { lastTurnEnd: time, ackedAt: current?.ackedAt ?? null })
+			await acks.put(id, {
+				lastTurnEnd: time,
+				lastTurnEndKind: kind,
+				lastTurnEndError: kind === 'error' && errorMessage !== '' ? truncateError(errorMessage) : null,
+				ackedAt: current?.ackedAt ?? null,
+			})
 			broadcast()
 		} catch (error) {
 			ctx.logger?.warn?.(`dsh-activity-pane: turn/end 登记失败（${id}）: ${String(error)}`)
@@ -145,7 +172,13 @@ export function apply(ctx) {
 					try {
 						await domainReady
 						const current = acks.get(sessionId)
-						await acks.put(sessionId, { lastTurnEnd: current?.lastTurnEnd ?? null, ackedAt: Date.now() })
+						// 确认写回只动 ackedAt：保留回合结束时刻、结束原因与错误信息（C-043）。
+						await acks.put(sessionId, {
+							lastTurnEnd: current?.lastTurnEnd ?? null,
+							lastTurnEndKind: current?.lastTurnEndKind ?? null,
+							lastTurnEndError: current?.lastTurnEndError ?? null,
+							ackedAt: Date.now(),
+						})
 						broadcast()
 						res.writeHead(200, { 'Content-Type': 'application/json' })
 						res.end(JSON.stringify({ ok: true }))

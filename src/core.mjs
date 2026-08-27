@@ -33,9 +33,17 @@ const PENDING_NOTES = {
 const PENDING_UNKNOWN_LABEL = "待处理";
 const PENDING_UNKNOWN_NOTE = "等待你处理后继续";
 
-/** 完成提醒备注行（R-01-002/AC-09，C-040）：引导继续对话或移入历史；文案长度受
- *  末行宽度约束——须与「移入历史」按钮同排在默认窗格宽度下单行完整可见。 */
-export const ROUND_DONE_NOTE = "已完成，继续对话，或移入历史";
+/** 完成提醒正文行（R-01-002/AC-09，C-040、C-043）：引导继续对话或移入历史——「已完成」
+ *  语义已由首行胶囊承载，正文不再重复；文案长度受末行宽度约束——须与「移入历史」
+ *  按钮同排在默认窗格宽度下单行完整可见。 */
+export const ROUND_DONE_NOTE = "继续对话，或移入历史";
+
+/** 错误提醒信息截断上限（宿主登记 lastTurnEndError 与客户端渲染共用，C-043）：
+ *  错误信息只为提示用户会话出错了，超长正文无展示价值；与 Q 行列表单行上界同量级。 */
+export const ERROR_NOTE_MAX = 120;
+
+/** 错误提醒正文回落文案（R-01-002/AC-13，C-043）：error 回合无可用错误信息时使用。 */
+export const ERROR_NOTE_FALLBACK = "回合以错误结束，请检查会话";
 
 /** 镜像原生 toolRowModel 的 classifyTool（dsh-client-ui-tool）：摘要参数键按 variant 分派（C-011）。 */
 const TOOL_VARIANTS = {
@@ -1068,15 +1076,17 @@ export function awaitNoteText(waitClass, pendingKind, questionPreview = null) {
 	return PENDING_NOTES[pendingKind] ?? PENDING_UNKNOWN_NOTE;
 }
 
-/** 计数徽标底色跟随等待构成（R-01-002/AC-06，C-040）：存在任一阻塞等待主会话即取
- *  `'blocked'`（琥珀催促），等待全部为完成提醒时取 `'done'`（绿=已完成不急）；无等待行动
- *  或仅运行卡时返回 null。子代理不计入。 */
+/** 计数徽标底色跟随等待构成（R-01-002/AC-06，C-040、C-043）：按 错误 > 阻塞 > 完成
+ *  的优先级取色——存在任一错误提醒主会话即取 `'error'`（红=最紧迫），否则存在阻塞
+ *  等待主会话取 `'blocked'`（金催促），等待全部为完成提醒时取 `'done'`（绿=已完成
+ *  不急）；无等待行动或仅运行卡时返回 null。子代理不计入。 */
 export function awaitBadgeTone(entries) {
 	let tone = null;
 	for (const entry of Array.isArray(entries) ? entries : []) {
 		if (entry?.kind !== "awaiting") continue;
+		if (entry.waitClass === "error") return "error";
 		if (entry.waitClass === "blocked") return "blocked";
-		tone = "done";
+		if (entry.waitClass === "done") tone = "done";
 	}
 	return tone;
 }
@@ -1347,13 +1357,14 @@ export function mainTitle(byId, id) {
  *     isCurrent, pendingText?, descendantActive? }
  * kind 规则：
  *   - 主会话 running（且无 pending）或处于委托周期（含后代耗尽空窗）→ 'running'
- *   - 主会话 pendingInteraction / completed → 'awaiting'（等待用户行动）
+ *   - 主会话 pendingInteraction / completed / errorReminder → 'awaiting'（等待用户行动）
  *   - 子代理 running / pending 或存在活动后代 → 'subagent'，自身与后代均不活动则不显示
- * completions（完成确认，R-01-002/AC-05、R-01-010/AC-06）：Map id → { lastTurnEnd, ackedAt }，
- * 由渲染层从宿主侧 ack 状态通道注入；其中完成提醒成立（completionReminder）的主会话按
- * awaiting「已完成」保留在活动区。delegatingIds（委托周期集合，渲染层由 progressAnchor
+ * completions（完成确认与错误提醒，R-01-002/AC-05、AC-13、R-01-010/AC-06）：Map id →
+ * { lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }，由渲染层从宿主侧 ack 状态
+ * 通道注入；其中完成提醒成立（completionReminder）或错误提醒成立（errorReminder）的
+ * 主会话按 awaiting 保留在活动区。delegatingIds（委托周期集合，渲染层由 progressAnchor
  * 记账派生）：集合内会话视同处于委托周期——后代耗尽至 settle 处理回合启动的
- * 空窗内仍保持运行呈现、完成提醒不生效；条目的 descendantActive 字段
+ * 空窗内仍保持运行呈现、完成/错误提醒不生效；条目的 descendantActive 字段
  * 始终为当帧原始后代活性（供进度锚点记账判定耗尽），不受 delegatingIds 影响。
  */
 export function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null) {
@@ -1385,12 +1396,14 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 		const isSub = hasParent;
 		// 完成确认（R-01-002/AC-03、AC-05、R-01-010/AC-06）：未确认的完成提醒按自身活动计入。
 		const done = completionReminder(row, completionFor(id, completions), isSub);
+		// 错误提醒（R-01-002/AC-13，C-043）：最近回合以错误结束的按自身活动计入。
+		const err = errorReminder(row, completionFor(id, completions), isSub);
 		// 子代理完成且没有活动后代时消失；主会话完成后保留为"等待打开"；母会话在委托周期保持运行呈现（R-01-003/AC-05）。
 		const selfActive = isOwnActiveRow(row, byId);
 		const descendantActive = descendantIds.has(String(id));
 		const delegating = descendantActive || (delegatingIds instanceof Set && delegatingIds.has(String(id)));
-		const show = selfActive || delegating || done;
-		meta.set(id, { row, running, pending, isSub, show, done, descendantActive, delegating, depth: 0 });
+		const show = selfActive || delegating || done || err;
+		meta.set(id, { row, running, pending, isSub, show, done, err, descendantActive, delegating, depth: 0 });
 	}
 
 	// 主会话按 workspace 顺序排序；未归入任何工作区的主会话保持在 lineage 中靠后。
@@ -1421,8 +1434,11 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 			const workspace = m.isSub
 				? { title: "", key: "" }
 				: workspaceInfoForSession(id, workspaceItems ?? [], byId);
-			// 完成确认判定单点（R-01-002）：pendingText/waitClass/noteText 三字段共用。
+			// 完成确认判定单点（R-01-002，C-040）：pendingText/waitClass/noteText 三字段共用；
+			// 错误提醒（C-043）优先于完成提醒（同一回合登记只能有一个 lastTurnEndKind）。
 			const doneWait = !m.pending && m.done && !m.running && !m.delegating;
+			const errWait = !m.pending && m.err && !m.running && !m.delegating;
+			const errorNote = entryErrorNote(m.err, completionFor(id, completions));
 			entries.push({
 				id,
 				parentId: m.isSub ? String(parentId) : null,
@@ -1448,12 +1464,15 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 				isCurrent: current !== null && String(current) === String(id),
 				// 完成提醒卡不显示类型徽标（C-040）：pendingText 仅为阻塞等待承载。
 				pendingText: m.pending ? pendingText(m.row.pendingInteraction) : undefined,
-				// 等待双类（R-01-002）：blocked=阻塞等待（待确认/待审查/待回复），done=完成提醒。
+				// 等待三类（R-01-002，C-043）：blocked=阻塞等待（金色）、error=错误提醒（红色）、
+				// done=完成提醒（绿色）；错误提醒优先于完成提醒（同一登记只有一个结束原因）。
 				waitClass: m.pending
 					? "blocked"
-					: doneWait
-						? "done"
-						: undefined,
+					: errWait
+						? "error"
+						: doneWait
+							? "done"
+							: undefined,
 				pendingKind: m.pending ? m.row.pendingInteraction : undefined,
 				noteText: m.pending
 					? awaitNoteText(
@@ -1461,9 +1480,11 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 							m.row.pendingInteraction,
 							m.row.pendingInteraction === "question" ? timelineQuestionPreview(timeline) : null,
 						)
-					: doneWait
-						? ROUND_DONE_NOTE
-						: undefined,
+					: errWait
+						? errorNote
+						: doneWait
+							? ROUND_DONE_NOTE
+							: undefined,
 			});
 		}
 		for (const child of childIds.get(id) ?? []) visit(child, depth + 1);
@@ -1663,6 +1684,27 @@ export function completionReminder(row, completion, isSub = false) {
 }
 
 /**
+ * 错误提醒判定（R-01-002/AC-13，C-043）：主会话最近一个回合以不可恢复错误结束
+ * （宿主登记的 `lastTurnEndKind === 'error'`）时成立——随新回合结束（kind 被新 reason
+ * 覆盖）解除；不消费 ack 游标、无确认按钮；成立与否只依赖宿主持久状态，刷新/重连恢复。
+ * running/阻塞等待/委托周期的呈现抑制由调用方（buildEntries 的 waitClass 判定）处理。
+ */
+export function errorReminder(row, completion, isSub = false) {
+	if (isSub || !isRecord(row)) return false;
+	const record = isRecord(completion) ? completion : null;
+	return record !== null && record.lastTurnEndKind === "error";
+}
+
+/** 错误提醒正文（R-01-002/AC-09、AC-13，C-043）：宿主登记的 lastTurnEndError（截断后
+ *  的错误信息）；非字符串或空串时回落固定文案，不冒充具体错误。 */
+function entryErrorNote(err, completion) {
+	if (err !== true) return "";
+	const record = isRecord(completion) ? completion : null;
+	const message = record?.lastTurnEndError;
+	return typeof message === "string" && message !== "" ? message : ERROR_NOTE_FALLBACK;
+}
+
+/**
  * 活动区→历史区迁移检测（R-01-010/AC-07）：上一帧活动区 id 在本帧离开活动区且出现于
  * 历史区即判定为一次迁移；彻底消失（归档、滑出历史窗口）不判定。prevActiveIds 为上一帧
  * 已渲染的活动区 id 集合，active/recent 为本帧派生条目。
@@ -1744,6 +1786,7 @@ export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WI
 		if (archived.has(id)) continue; // 归档会话不可选中，不入最近历史
 		if (isSubagentRow(row, byId)) continue; // 子代理（含已结束）不入最近历史；也无完成提醒语义
 		if (completionReminder(row, completionFor(id, completions), false)) continue; // 完成确认中，留在活动区
+		if (errorReminder(row, completionFor(id, completions), false)) continue; // 错误提醒中，留在活动区
 		if (delegatingIds instanceof Set && delegatingIds.has(String(id))) continue; // 委托周期中（含耗尽空窗），留在活动区
 		if (isActiveRow(row, byId, activeIds)) continue;
 		const updatedAt = Number(row.updatedAt);

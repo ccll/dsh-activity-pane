@@ -378,7 +378,17 @@ assert.equal(awaitNoteText("blocked", "approval"), "等待你确认授权后继�
 assert.equal(awaitNoteText("blocked", "plan-review"), "等待你审查计划后继续");
 assert.equal(awaitNoteText("blocked", "question"), "等待你回答问题后继续", "问题不可得时回落动作说明");
 assert.equal(awaitNoteText("blocked", "question", "采用哪个方案方向？"), "采用哪个方案方向？", "待回复末行为提问标题正文，不带前缀");
-assert.equal(awaitNoteText("done", undefined), "本轮任务已完成，请给出新的指令，或将会话移入历史");
+assert.equal(awaitNoteText("done", undefined), "已完成，继续对话，或移入历史");
+// 宽度上界回归（R-01-002/AC-09）：done 末行须与「移入历史」按钮同排在默认 280px 窗格
+// 单行完整可见——内容区约 258px，按钮+gap 约占 66px，留文字约 192px；11px 全角字宽
+// 即 11px/字符，故文案（含标点）不得超过 17 个全角字符。改长必触发省略号吃掉行动引导。
+{
+	const note = awaitNoteText("done", undefined);
+	assert.ok(
+		[...note].length <= 17,
+		`完成提醒末行文案宽度上界：不超过 17 个全角字符（当前 ${[...note].length}，R-01-002/AC-09）`,
+	);
+}
 assert.equal(awaitNoteText("blocked", "unknown-kind"), "等待你处理后继续", "未知阻塞种类中性兜底（评审修正）");
 
 // ---- R-01-002/AC-09 提问标题提取：首问 header 优先、回落问题正文物理首行（C-040） ----
@@ -686,7 +696,7 @@ assert.deepEqual(
 );
 assert.deepEqual(
 	buildEntries({ ids: ["root"], byId: { root: delegCompleted.byId.root }, current: null }, [], {}, new Map([["root", { lastTurnEnd: 1500, ackedAt: null }]])).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null, entry.waitClass ?? null, entry.noteText ?? null]),
-	[["root", "awaiting", null, "done", "本轮任务已完成，请给出新的指令，或将会话移入历史"]],
+	[["root", "awaiting", null, "done", "已完成，继续对话，或移入历史"]],
 	"后代全部结束后完成提醒恢复显示（R-01-002/AC-03、AC-09）",
 );
 // ---- R-01-003/AC-05、R-01-009/AC-06 耗尽空窗（后代结束、settle 回合未启动）保持运行呈现 ----
@@ -2241,7 +2251,7 @@ const holdSnap = { ids: ["sB"], byId: { sB: holdBase }, current: "sA" };
 const confirmEntries = buildEntries(holdSnap, [], {}, acks(1000));
 assert.deepEqual(
 	confirmEntries.map((e) => [e.id, e.kind, e.pendingText ?? null, e.waitClass, e.noteText, e.isCurrent]),
-	[["sB", "awaiting", null, "done", "本轮任务已完成，请给出新的指令，或将会话移入历史", false]],
+	[["sB", "awaiting", null, "done", "已完成，继续对话，或移入历史", false]],
 	"未确认完成提醒以 awaiting 完成提醒条目（无类型徽标文案）留在活动区，是否当前会话无关",
 );
 assert.deepEqual(

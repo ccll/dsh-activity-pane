@@ -39,8 +39,9 @@ const PENDING_NOTES = {
 const PENDING_UNKNOWN_LABEL = "待处理";
 const PENDING_UNKNOWN_NOTE = "等待你处理后继续";
 
-/** 完成提醒备注行（R-01-002/AC-09，C-040）：说清下一步——给新指令或移入历史。 */
-const ROUND_DONE_NOTE = "本轮任务已完成，请给出新的指令，或将会话移入历史";
+/** 完成提醒备注行（R-01-002/AC-09，C-040）：引导继续对话或移入历史；文案长度受
+ *  末行宽度约束——须与「移入历史」按钮同排在默认窗格宽度下单行完整可见。 */
+const ROUND_DONE_NOTE = "已完成，继续对话，或移入历史";
 
 /** 镜像原生 toolRowModel 的 classifyTool（dsh-client-ui-tool）：摘要参数键按 variant 分派（C-011）。 */
 const TOOL_VARIANTS = {

@@ -2976,6 +2976,14 @@ assert.ok(
 assert.equal(awaitBadgeTone([{ kind: "awaiting", waitClass: "blocked" }]), "blocked", "tone 判定收敛到核心纯函数单点（R-01-002/AC-06）");
 assert.ok(bundle.includes('rec.el.setAttribute("data-wait", entry.waitClass)'), "等待类别经 data-wait 属性承载（R-01-002/AC-08）");
 assert.ok(bundle.includes('entry.noteText ?? ""'), "末行提示文字由核心单点派生（R-01-002/AC-09）");
+// 缺陷回归（C-040）：noteText 派生时快照路径的时间线尚未按引用 memo 完成，
+// 等待卡静止后无下一帧导致待回复末行永远停留动作回落文案——时间线就绪后必须
+// 以同一核心纯函数对 question 卡补全重派生。
+assert.ok(
+	bundle.includes('timelineQuestionPreview(entry.timeline)') &&
+		bundle.includes('entry.noteText = awaitNoteText("blocked", "question", question)'),
+	"待回复卡在时间线就绪后补全提问标题派生，不依赖下一帧重绘（R-01-002/AC-09 时序缺陷回归）",
+);
 // R-01-002/AC-03、AC-04 完成提醒卡绿色成功卡面（C-040）：深色静态暗绿底+绿描边光晕，浅色取 success 别名。
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {\n  border-color: color-mix(in srgb, #58c98f 55%, transparent);') &&

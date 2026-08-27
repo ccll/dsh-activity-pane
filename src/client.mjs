@@ -2646,6 +2646,17 @@ function apply(ctx) {
 				entry.model = detail.model.model;
 				entry.reasoning = detail.model.reasoning;
 			}
+			// 待回复卡末行补全（C-040 缺陷修复）：noteText 在 buildEntries 时以当时的
+			// details.timeline 派生，而快照路径的时间线在上面的循环里才按引用 memo 算出
+			// （首帧之前为空/旧值）；等待卡静止后常无下一帧重绘，提问标题将永远停留在
+			// 动作回落文案。时间线就绪后用同一核心纯函数对 question 卡重新求值；
+			// noteText 并入 cardSignature，值变化自然驱动本帧 DOM 写入。
+			// （history 冷路径异步到达本身携带一次 queueSync 重绘，不受此缺陷影响。）
+			if (entry.kind === "awaiting" && entry.waitClass === "blocked" && entry.pendingKind === "question") {
+				const question = timelineQuestionPreview(entry.timeline);
+				if (typeof question === "string" && question !== "" && question !== entry.noteText)
+					entry.noteText = awaitNoteText("blocked", "question", question);
+			}
 			// 字段级加载指示（R-01-014/AC-02）：补充数据在途时卡片对应位置显示活动图标。
 			entry.loadingModel = !detail?.model && modelLoads.has(entry.id);
 			entry.loadingTimeline =

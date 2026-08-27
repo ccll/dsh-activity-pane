@@ -2,7 +2,7 @@
 // 长列表：活动卡片超出窗格可视高度时窗格内可滚动查看全部卡片；
 // 窗格内滚动时主会话内容滚动位置不变（滚动隔离）。
 
-import { cardVisibleInPane, dismissNotice, mainAreaBox, mainAreaHas, newSessionWithMessage, paneBox, sendHeroMessage, until } from "../helpers.mjs";
+import { openApp, cardVisibleInPane, mainAreaBox, mainAreaHas, newSessionWithMessage, paneBox, sendHeroMessage, until } from "../helpers.mjs";
 
 const SESSION_COUNT = 10;
 const title = (n) => `e2e:fast 长列表探针${String(n).padStart(2, "0")}`;
@@ -44,8 +44,7 @@ async function wheelOver(page, box, deltaY, times) {
 export default async function longList({ page, url, assert }) {
 	// 压低视口高度：卡片列表与主会话长文都更容易超出可视区域。
 	await page.setViewportSize({ width: 1100, height: 500 });
-	await page.goto(url, { waitUntil: "networkidle" });
-	await dismissNotice(page);
+	await openApp(page, url);
 
 	// 会话 1 用 slow 剧本产生长内容（供主会话滚动隔离观察）；其余 fast。
 	// 完成提醒卡累积在活动区，超出窗格可视高度。

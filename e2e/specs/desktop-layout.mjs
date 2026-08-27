@@ -1,7 +1,7 @@
 // R-01-007/AC-01、R-01-007/AC-02、R-01-011/AC-05
 // 桌面贴边布局：窗格位于主会话左侧贴边、不遮挡主会话；折叠/展开控件保持同位。
 
-import { dismissNotice, paneBox, sendHeroMessage, until } from "../helpers.mjs";
+import { openApp, paneBox, sendHeroMessage, until } from "../helpers.mjs";
 
 // 窄条特征：宽度远小于窗格、高度容纳竖排标题与计数；位置容差取 2px 抗亚像素抖动。
 const STRIP_MAX_WIDTH_PX = 60;
@@ -9,8 +9,7 @@ const STRIP_MIN_HEIGHT_PX = 60;
 const POSITION_TOLERANCE_PX = 2;
 
 export default async function desktopLayout({ page, url, assert }) {
-	await page.goto(url, { waitUntil: "networkidle" });
-	await dismissNotice(page);
+	await openApp(page, url);
 	await sendHeroMessage(page, "e2e:fast 桌面布局探针");
 
 	// R-01-007/AC-01：桌面宽度（1280 > 767）下窗格为主会话左侧通高贴边列。

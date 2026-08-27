@@ -74,6 +74,7 @@ export async function bootE2e() {
 
 	let web;
 	let url;
+	const webStderr = [];
 	// detached 使 dsh web 自成进程组，清理按组终止（其子进程不留孤儿）。
 	const killWebGroup = (signal) => {
 		if (!web || web.exitCode !== null) return;
@@ -99,7 +100,12 @@ export async function bootE2e() {
 		await execFileAsync("dsh", ["plugin", "--profile", "web", "add", repoRoot], { env });
 		mark("plugin");
 
-		web = spawn("dsh", ["web", "--port", "0"], { env, stdio: ["ignore", "pipe", "inherit"], detached: true });
+		web = spawn("dsh", ["web", "--port", "0"], { env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+		// 保留 web stderr 尾部供 spec 失败时取证（宿主侧错误不在浏览器控制台出现）。
+		web.stderr.on("data", (data) => {
+			webStderr.push(String(data));
+			if (webStderr.length > 200) webStderr.shift();
+		});
 		url = await new Promise((resolve, reject) => {
 			let buffer = "";
 			const timer = setTimeout(() => reject(new Error(`dsh web 启动超时（${BOOT_TIMEOUT_MS}ms），输出：${buffer.slice(-500)}`)), BOOT_TIMEOUT_MS);
@@ -136,7 +142,7 @@ export async function bootE2e() {
 	}
 
 	timings.total = Date.now() - t0;
-	return { home, url, mock, timings, cleanup };
+	return { home, url, mock, timings, cleanup, webStderr };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

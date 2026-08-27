@@ -2,19 +2,19 @@
 // 会话生命周期端到端：空态 → e2e:slow 剧本运行卡 → 完成提醒卡 → 确认移入历史区。
 // 只断言用户可观察的呈现（区域文字、按钮、页面 URL），不依赖内部 DOM 结构（C-045）。
 
-import { dismissNotice, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
+import { openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
 
 const TITLE = "e2e:slow 慢速任务探针";
 
 export default async function sessionLifecycle({ page, url, mock, assert }) {
-	await page.goto(url, { waitUntil: "networkidle" });
-	await dismissNotice(page);
+	await openApp(page, url);
 
 	// R-01-001/AC-02、R-01-010/AC-04：无活动会话时活动区显示明确空态而非空白。
+	// 宽限 30s：观测到宿主 sessions 服务偶发推送停滞（窗格滞留「加载中…」，见 TODO 缺陷线索）。
 	await until("窗格挂载并显示空态", async () => {
 		const regions = await paneRegions(page);
 		return regions && regions.active.includes("暂无活动会话") ? regions : null;
-	}, 20_000);
+	}, 30_000);
 
 	// 经真实 composer 发送 e2e:slow 指令（R-01-001/AC-01 的驱动路径）。
 	await sendHeroMessage(page, TITLE);

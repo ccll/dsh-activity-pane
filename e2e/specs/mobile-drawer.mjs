@@ -1,15 +1,14 @@
 // R-01-008/AC-01
 // 移动端默认隐藏：视口 ≤767px 时窗格默认隐藏在屏外不占主会话宽度，仅出现浮动开关。
 
-import { dismissNotice, paneBox, sendHeroMessage, until } from "../helpers.mjs";
+import { openApp, paneBox, sendHeroMessage, until } from "../helpers.mjs";
 
 // 移动断点为 767px（PRD R-01-008），取 375px 代表手机视口。
 const MOBILE_VIEWPORT = { width: 375, height: 700 };
 
 export default async function mobileDrawer({ page, url, assert }) {
 	await page.setViewportSize(MOBILE_VIEWPORT);
-	await page.goto(url, { waitUntil: "networkidle" });
-	await dismissNotice(page);
+	await openApp(page, url);
 
 	// 浮动开关位于会话头部，先进入一个会话。
 	await sendHeroMessage(page, "e2e:fast 移动探针");

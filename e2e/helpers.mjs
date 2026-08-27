@@ -41,6 +41,24 @@ export async function dismissNotice(page) {
 	if (await notice.isVisible().catch(() => false)) await notice.click();
 }
 
+/** 打开应用并等待窗格数据就绪。
+ *  宿主 sessions 服务偶发首推挂起（窗格滞留「加载中…」，见 TODO 缺陷线索）：
+ *  停滞超过 12s 则重载一次——重载触发新连接世代重新拉取（实测即时恢复）；
+ *  重载后仍停滞则抛错（真失败，不作无限掩盖）。 */
+export async function openApp(page, url) {
+	for (let attempt = 0; attempt < 2; attempt += 1) {
+		await page.goto(url, { waitUntil: "networkidle" });
+		await dismissNotice(page);
+		const ready = await until("窗格数据就绪", async () => {
+			const regions = await paneRegions(page);
+			if (!regions) return null;
+			return regions.active.includes("加载中") || regions.recent.includes("加载中") ? null : true;
+		}, 12_000).catch(() => false);
+		if (ready) return;
+	}
+	throw new Error("窗格数据停滞：重载后仍滞留「加载中…」（宿主 sessions 首推挂起未自愈）");
+}
+
 /** 主会话区（窗格右缘以右）是否可见地出现指定文字（叶子节点匹配，默认子串）。 */
 export async function mainAreaHas(page, text, { exact = false } = {}) {
 	const box = await paneBox(page);

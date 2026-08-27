@@ -27,31 +27,41 @@ if (specFiles.length === 0) {
 let failed = 0;
 for (const name of specFiles) {
 	// 每条 spec 独立隔离环境：会话状态互不可见（冷启动约 2-4s，可接受）。
-	const env = await bootE2e();
-	let browser;
-	const start = Date.now();
-	try {
-		const spec = (await import(pathToFileURL(join(specDir, name)).href)).default;
-		browser = await chromium.launch();
-		const context = await browser.newContext();
-		const page = await context.newPage();
+	const spec = (await import(pathToFileURL(join(specDir, name)).href)).default;
+	let lastError = null;
+	// 宿主 sessions 首推挂起（见 TODO 缺陷线索）绑定服务端实例且重载不保证自愈，
+	// 对该签名错误用全新环境重试一次；其余失败（真回归）不重试。
+	for (let attempt = 0; attempt < 2; attempt += 1) {
+		if (attempt > 0) console.error(`e2e: RETRY ${name}（上一环境数据停滞，换新环境重试）`);
+		const env = await bootE2e();
+		let browser;
+		const start = Date.now();
 		try {
-			await spec({ page, url: env.url, mock: env.mock, assert });
-			console.error(`e2e: PASS ${name}（${Date.now() - start}ms）`);
+			browser = await chromium.launch();
+			const context = await browser.newContext();
+			const page = await context.newPage();
+			try {
+				await spec({ page, url: env.url, mock: env.mock, assert });
+				console.error(`e2e: PASS ${name}（${Date.now() - start}ms）`);
+				lastError = null;
+			} catch (error) {
+				lastError = error;
+				console.error(`e2e: FAIL ${name}\n${error?.stack ?? error}`);
+				if (env.webStderr.length > 0) console.error(`e2e: dsh web stderr 尾部：\n${env.webStderr.slice(-20).join("")}`);
+				await page.screenshot({ path: join(here, `fail-${name}.png`) }).catch(() => {});
+			} finally {
+				await context.close();
+			}
 		} catch (error) {
-			failed += 1;
-			console.error(`e2e: FAIL ${name}\n${error?.stack ?? error}`);
-			await page.screenshot({ path: join(here, `fail-${name}.png`) }).catch(() => {});
+			lastError = error;
+			console.error(`e2e: FAIL ${name}（环境启动失败）\n${error?.stack ?? error}`);
 		} finally {
-			await context.close();
+			await browser?.close();
+			await env.cleanup();
 		}
-	} catch (error) {
-		failed += 1;
-		console.error(`e2e: FAIL ${name}（环境启动失败）\n${error?.stack ?? error}`);
-	} finally {
-		await browser?.close();
-		await env.cleanup();
+		if (lastError === null || !String(lastError?.message ?? lastError).includes("窗格数据停滞")) break;
 	}
+	if (lastError !== null) failed += 1;
 }
 
 if (failed > 0) {

@@ -3,7 +3,7 @@
 // 折叠时间线不依赖 dsh-auto-collapse（本隔离环境按构造不含该插件，全套件功能断言
 // 即「不降级」证据）、外壳重挂载恢复不重复、全程控制台无插件报错与未捕获异常。
 
-import { dismissNotice, mainAreaHas, newSessionWithMessage, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
+import { openApp, mainAreaHas, newSessionWithMessage, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
 
 const TITLE_A = "e2e:fast 自动更新探针甲";
 const TITLE_B = "e2e:fast 自动更新探针乙";
@@ -17,14 +17,14 @@ export default async function autoUpdate({ page, url, assert }) {
 	});
 	page.on("pageerror", (error) => consoleErrors.push(String(error)));
 
-	await page.goto(url, { waitUntil: "networkidle" });
-	await dismissNotice(page);
+	await openApp(page, url);
 
 	// R-01-010/AC-04：无活动会话时活动区显示明确空态。
+	// 宽限 30s：观测到宿主 sessions 服务偶发推送停滞（窗格滞留「加载中…」，见 TODO 缺陷线索）。
 	await until("活动区空态提示", async () => {
 		const regions = await paneRegions(page);
 		return regions && regions.active.includes("暂无活动会话") ? regions : null;
-	}, 20_000);
+	}, 30_000);
 
 	// R-01-001/AC-03：会话开始运行与结束的状态变化自动反映到窗格，无需手动刷新。
 	await sendHeroMessage(page, TITLE_A);

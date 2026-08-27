@@ -2987,7 +2987,7 @@ assert.ok(
 // R-01-002/AC-03、AC-04 完成提醒卡绿色成功卡面（C-040）：深色静态暗绿底+绿描边光晕，浅色取 success 别名。
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {\n  border-color: color-mix(in srgb, #58c98f 55%, transparent);') &&
-		bundle.includes("background: rgba(35, 60, 44, 0.97);"),
+		bundle.includes("background: rgba(32, 41, 35, 0.97);"),
 	"完成提醒卡为暗绿底色与绿描边光晕，强度与阻塞等待卡一致（R-01-002/AC-03、AC-04）",
 );
 assert.ok(

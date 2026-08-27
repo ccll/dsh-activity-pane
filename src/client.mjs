@@ -97,7 +97,7 @@ const CSS = `
 [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="done"],
 [data-dsh-activity-pane] .dap-rail-count[data-awaiting][data-tone="done"],
 [data-dsh-activity-pane] .dap-toggle[data-awaiting][data-tone="done"] .dap-toggle-count {
-  background: rgba(35, 60, 44, 0.97);
+  background: rgba(32, 41, 35, 0.97);
 }
 @keyframes dap-await-pulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
 /* 单一滚动区：活动区与最近历史同一容器滚动；touch-action/overscroll 防止
@@ -330,7 +330,9 @@ const CSS = `
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {
   border-color: color-mix(in srgb, #58c98f 55%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, #58c98f 35%, transparent), 0 6px 16px rgba(0,0,0,.3);
-  background: rgba(35, 60, 44, 0.97);
+  /* 底色仅保留轻微绿色色偏（g 通道高于 r/b 均值约 +7.5，与琥珀面的暖偏同级），
+     不用宿主 green-900 全饱和值——整卡大面积铺色时过绿过亮抢视线（东家视觉反馈）。 */
+  background: rgba(32, 41, 35, 0.97);
 }
 /* 等待卡同为当前会话时描边/光晕回归蓝色高亮（R-01-006/AC-01）：基态 [data-current]
    与 [data-kind="awaiting"] 同优先级且定义在前，深色下被橙色描边顶掉；组合选择器
@@ -467,14 +469,15 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 [data-dsh-activity-pane] .dap-confirm {
   flex: none; padding: 0 7px; margin: 1px 0;
   font-size: 10.5px; line-height: 16px;
-  color: color-mix(in srgb, currentColor 76%, transparent);
+  /* 次要按钮（东家视觉反馈）：文字压暗不与末行提示争抢，悬停略提仍可辨。 */
+  color: color-mix(in srgb, currentColor 58%, transparent);
   background: color-mix(in srgb, currentColor 9%, transparent);
   border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
   border-radius: 5px;
   cursor: pointer;
 }
 [data-dsh-activity-pane] .dap-confirm:hover {
-  color: color-mix(in srgb, currentColor 92%, transparent);
+  color: color-mix(in srgb, currentColor 82%, transparent);
   background: color-mix(in srgb, currentColor 14%, transparent);
 }
 /* 运行卡富化（对齐 answer-pet 卡片；MIT 参考，见 README）。 */

@@ -27,12 +27,12 @@ C-037 落地后两类等待卡视觉几乎同构（琥珀卡面 + 标题区圆�
   - `askQuestionPreview` 改为 `questions[0].header` 物理首行优先，缺失回落 `question` 正文首行；
   - `ROUND_DONE_NOTE` 换新文案「本轮任务已完成，请给出新的指令，或将会话移入历史」；
   - `awaitNoteText("blocked","question")` 去前缀直出提问标题/正文首行；
-  - `awaitBadgeFlash` 收窄为仅 blocked；
-  - 新增纯函数 `awaitBadgeTone(entries)` → `'done'|'blocked'`（有 blocked 即 blocked，否则 done），供三处徽标共用。
+  - 删除 `awaitBadgeFlash` 与 `ROUND_DONE_LABEL`（done 无徽标文案、闪烁改纯 CSS 属性驱动）；
+  - 新增纯函数 `awaitBadgeTone(entries)` → `'done'|'blocked'|null`（有 blocked 即 blocked，否则 done），供三处计数徽标共用。
 - `src/client.mjs`：
-  - awaiting 卡骨架把类型徽标自标题行迁入 `.dap-note-row` 行尾（提示文字 flex:1、徽标随行）；相位重启目标由标题圆点改为末行元素；
-  - 完成（done）态新增绿色系卡面规则（深色静态暗绿底 + 绿描边光晕 + 状态点绿；浅色主题覆盖取 `--dsw-alias-state-success-tertiary` 别名），阻塞琥珀不动；
-  - `.dap-confirm` 文案改「移入历史」；
+  - awaiting 卡骨架把类型徽标自标题行迁入 `.dap-note-row` 行尾（提示文字 flex:1、徽标随行）；闪烁由 `data-wait` 属性驱动的 CSS 规则承载，原地跨类转换（done↔blocked）时渲染层检测属性变化将末行文字与徽标动画一并同步重启；
+  - 完成（done）态新增绿色系卡面规则（深色静态暗绿底 + 绿描边光晕 + 状态点绿光晕；浅色主题覆盖取 `--dsw-alias-state-success-tertiary` 别名），阻塞琥珀不动；两类状态点静止不闪、着色同强度仅换色相；
+  - `.dap-confirm` 文案改「移入历史」；done 卡 aria 追加 noteText 播报（补回删除「已完成」徽标后的状态可访问性），blocked 卡 aria 维持 pendingText 口径不变；
   - 三处数量徽标按 `awaitBadgeTone` 写 tone 属性，浅色主题下两态分别复用 warn/success 别名底色。
 - host.mjs 与 ack 协议零改动。
 - 测试先行：先改写 check.mjs 断言为新契约失败态，再实现转绿。

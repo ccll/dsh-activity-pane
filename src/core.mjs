@@ -1042,8 +1042,9 @@ export function pendingText(kind) {
 }
 
 /** 等待卡末行提示（R-01-002/AC-09，C-040）：阻塞等待说明动作与后果（待回复直出第一条
- *  提问的标题/正文首行，不带前缀——提示即回答入口）；完成提醒固定引导新指令或移入历史。
- *  questionPreview 为时间线末条 ask 工作项携带的问题文本（可为 null）。 */
+ *  提问的展示文本——header 优先、回落正文首行，不带前缀，提示即回答入口）；完成提醒
+ *  固定引导新指令或移入历史。questionPreview 为时间线末条 ask 工作项携带的该展示文本
+ * （可为 null）。 */
 export function awaitNoteText(waitClass, pendingKind, questionPreview = null) {
 	if (waitClass === "done") return ROUND_DONE_NOTE;
 	if (pendingKind === "question" && typeof questionPreview === "string" && questionPreview !== "")
@@ -1064,8 +1065,8 @@ export function awaitBadgeTone(entries) {
 	return tone;
 }
 
-/** 时间线末条 ask_user_question 工作项携带的提问正文（折叠组行同样上浮该字段）；
- *  不存在时返回 null（R-01-002/AC-09）。 */
+/** 时间线末条 ask_user_question 工作项携带的第一条提问展示文本（header 优先、回落正文
+ *  首行；折叠组行同样上浮该字段）；不存在时返回 null（R-01-002/AC-09）。 */
 export function timelineQuestionPreview(timeline) {
 	const rows = Array.isArray(timeline) ? timeline : [];
 	for (let i = rows.length - 1; i >= 0; i -= 1) {

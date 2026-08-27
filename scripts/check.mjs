@@ -2948,15 +2948,20 @@ assert.ok(
 	"末行提示文字与阻塞等待类型徽标的脉冲由 data-wait 结构化属性驱动（R-01-002/AC-08，C-040）",
 );
 assert.ok(!bundle.includes("dap-badge-flash") && !bundle.includes("awaitBadgeFlash"), "标题区徽标闪烁机制整体移除：闪烁不再出现在卡片标题行（R-01-002/AC-08，C-040）");
-assert.ok(!bundle.includes('dot.style.animation = "none"'), "相位重启对齐目标随标题圆点静止而移除（R-01-002/AC-08，C-040）");
+assert.ok(
+	bundle.includes('prevWait !== entry.waitClass') && bundle.includes('node.style.animation = "none"') &&
+		bundle.includes('rec.el.querySelectorAll(".dap-note-row .dap-note, .dap-note-row .dap-badge")'),
+	"原地跨类转换（done↔blocked）时末行提示文字与类型徽标动画一次性同步重启对齐相位（R-01-002/AC-08，C-040 复审修复）",
+);
+assert.ok(!bundle.includes('dot.style.animation = "none"'), "相位重启目标随标题圆点静止而移除，重启只作用于末行元素（R-01-002/AC-08，C-040）");
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"] .dap-dot {\n  animation: none;\n}'),
 	"等待卡标题状态点静止不闪（R-01-002/AC-08，C-040）",
 );
 assert.ok(
-	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] .dap-dot') &&
-		bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-dot'),
-	"状态点着色随等待类别分野：阻塞琥珀、完成绿（R-01-002/AC-04，C-040）",
+	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] .dap-dot {\n  background: #e8a33d;\n  box-shadow: 0 0 8px rgba(232,163,61,.85);\n}') &&
+		bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-dot {\n  background: #58c98f;\n  box-shadow: 0 0 8px rgba(88,201,143,.85);\n}'),
+	"状态点着色与光晕强度两类一致、仅换色相：阻塞琥珀、完成绿（R-01-002/AC-04，C-040 复审修复）",
 );
 assert.equal(awaitBadgeTone([{ kind: "awaiting", waitClass: "blocked" }]), "blocked", "tone 判定收敛到核心纯函数单点（R-01-002/AC-06）");
 assert.ok(bundle.includes('rec.el.setAttribute("data-wait", entry.waitClass)'), "等待类别经 data-wait 属性承载（R-01-002/AC-08）");

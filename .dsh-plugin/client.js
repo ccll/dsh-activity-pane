@@ -1048,8 +1048,9 @@ function pendingText(kind) {
 }
 
 /** 等待卡末行提示（R-01-002/AC-09，C-040）：阻塞等待说明动作与后果（待回复直出第一条
- *  提问的标题/正文首行，不带前缀——提示即回答入口）；完成提醒固定引导新指令或移入历史。
- *  questionPreview 为时间线末条 ask 工作项携带的问题文本（可为 null）。 */
+ *  提问的展示文本——header 优先、回落正文首行，不带前缀，提示即回答入口）；完成提醒
+ *  固定引导新指令或移入历史。questionPreview 为时间线末条 ask 工作项携带的该展示文本
+ * （可为 null）。 */
 function awaitNoteText(waitClass, pendingKind, questionPreview = null) {
 	if (waitClass === "done") return ROUND_DONE_NOTE;
 	if (pendingKind === "question" && typeof questionPreview === "string" && questionPreview !== "")
@@ -1070,8 +1071,8 @@ function awaitBadgeTone(entries) {
 	return tone;
 }
 
-/** 时间线末条 ask_user_question 工作项携带的提问正文（折叠组行同样上浮该字段）；
- *  不存在时返回 null（R-01-002/AC-09）。 */
+/** 时间线末条 ask_user_question 工作项携带的第一条提问展示文本（header 优先、回落正文
+ *  首行；折叠组行同样上浮该字段）；不存在时返回 null（R-01-002/AC-09）。 */
 function timelineQuestionPreview(timeline) {
 	const rows = Array.isArray(timeline) ? timeline : [];
 	for (let i = rows.length - 1; i >= 0; i -= 1) {
@@ -2350,7 +2351,7 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-dot {
   background: #58c98f;
-  box-shadow: none;
+  box-shadow: 0 0 8px rgba(88,201,143,.85);
 }
 [data-dsh-activity-pane] .dap-card[data-kind="recent"] .dap-dot {
   background: #8a94a3;
@@ -2380,8 +2381,8 @@ const CSS = `
 [data-dsh-activity-pane] .dap-badge-icon svg { display: block; width: 12px; height: 12px; }
 /* 等待双类的末行脉冲（R-01-002/AC-08，C-040）：闪烁载体为卡片末行——阻塞等待的
    提示文字与行尾类型徽标同频同相闪烁，完成提醒整行提示文字闪烁；「移入历史」按钮
-   不闪。两组规则在同一帧随 data-wait 属性生效，动画自然同相位；标题状态点已静止
-   （见上），无需 JS 相位重启。 */
+   不闪。骨架挂载与 kind 重建路径下两类元素同帧起步；原地跨类转换的相位对齐由渲染层
+   在 data-wait 变化时同步重启（见 syncCards），标题状态点两类均静止。 */
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] :is(.dap-note, .dap-badge),
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-note {
   animation: dap-pulse 1.2s ease-in-out infinite;
@@ -2390,6 +2391,7 @@ const CSS = `
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-badge {
   display: none;
 }
+/* 复审修复（C-040）：状态点光晕两类同强度、仅换色相——阻塞琥珀光晕与完成绿光晕一致。 */
 /* 工作区徽标「图标+文本」双段：文件夹图标与左边栏工作区条目同源（R-01-003/AC-06）；
    名称字号不低于 10.5px（AC-07），行高保持 14px 以维持胶囊与卡片高度。
    着色（AC-08～AC-11）：核心映射提供 OKLCH hue；深色主题文字取高明度中高彩度，
@@ -4333,13 +4335,27 @@ function apply(ctx) {
 		rec.el.toggleAttribute("data-awaiting", entry.kind === "awaiting");
 		// 等待双类（R-01-002/AC-08，C-040）：blocked=阻塞等待（末行行尾类型徽标随文字同闪，
 		// 琥珀催促卡面），done=完成提醒（无类型徽标，绿色成功卡面、整行末行提示闪烁）。
+		const prevWait = rec.el.getAttribute("data-wait");
 		if (entry.waitClass === "blocked" || entry.waitClass === "done") rec.el.setAttribute("data-wait", entry.waitClass);
 		else rec.el.removeAttribute("data-wait");
+		if (
+			(entry.waitClass === "blocked" || entry.waitClass === "done") &&
+			prevWait !== null && prevWait !== "" && prevWait !== entry.waitClass
+		) {
+			// 原地跨类转换（done↔blocked）：卡片骨架按 id 复用不重建，提示文字的动画不会
+			// 自行归零而类型徽标经 display 切换会重新起步——两者一并重启对齐相位，
+			// 同频同相不漂移（R-01-002/AC-08；骨架挂载/kind 重建路径天然同帧无需处理）。
+			for (const node of rec.el.querySelectorAll(".dap-note-row .dap-note, .dap-note-row .dap-badge")) {
+				node.style.animation = "none";
+				void node.offsetWidth;
+				node.style.animation = "";
+			}
+		}
 		rec.el.setAttribute(
 			"aria-label",
 			`${entry.workspaceTitle ? entry.workspaceTitle + " - " : ""}${entry.title}${
 				entry.pendingText ? "，" + entry.pendingText : ""
-			}${entry.kind === "awaiting" && entry.noteText ? "，" + entry.noteText : ""}`,
+			}${entry.waitClass === "done" && entry.noteText ? "，" + entry.noteText : ""}`,
 		);
 		renderCardInto(rec.el, entry, hueByWorkspace);
 		// 只有顺序/归属真正变化时才移动 DOM：每次渲染无条件 appendChild 会把所有

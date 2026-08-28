@@ -6,7 +6,7 @@ id: T-085
 
 # T-085 测试门禁稳定性与 GitHub Actions CI 加固
 
-状态: active
+状态: completed
 关联: C-045、C-046、C-047、C-048、C-049 → E2E 验证基建
 风险等级: standard
 
@@ -69,13 +69,13 @@ id: T-085
 
 ## 终态与证据
 
-- 实现: 待填写
-- 测试: 待填写
-- DESIGN 对照: 待填写
-- commit: 待填写
+- 实现: `872a898` 统一 fast/full 门禁、GitHub Actions、固定 2 worker 隔离 E2E、移动抽屉与双客户端完成同步；`1121c12` 修复最终门禁发现的最近卡完成瞬间 user-only history 竞态，并收敛 card 激活、失败 artifact 清理与 AC 锚定声明。
+- 测试: `pnpm verify` 在最终 `1121c12` 上连续 3 轮全绿（10/10 spec；E2E 114.736s / 133.560s / 121.177s；每轮均显式恢复 1 次宿主 sessions stall；完整命令 129.06s / 147.78s / 136.02s）；`card-content` 根因修复前后均做 3 轮定向复现/回归，最终与 `completion-sync`、`mobile-drawer` 联跑通过；`pnpm install --frozen-lockfile`、`pnpm verify:fast`、`git diff --check` 通过；历史截止安装实测 `dsh`、dsh-base、client-runtime、session-projection、web-app 均解析为 rc.7；CI YAML 本地解析并确认 coherent DSH 与 `pnpm verify` 步骤。GitHub hosted 结果待 push 后由 workflow 裁决。
+- DESIGN 对照: DESIGN 的 E2E 验证基建已与 C-047/C-048/C-049 及实现一致：每 spec/恢复尝试独立 Chromium + dsh web、固定 2 worker、CI 隔离 coherent rc.7、最近卡预览缺口单次 history fallback；PRD 未变，128/128 AC 保持自动化锚定。
+- commit: 1121c12
 - review:
-  - 审核方: 待填写
-  - 目的理解: 待填写
-  - 执行方式: 待填写
-  - 问题与修复: 待填写
-  - 复审结论: 待填写
+  - 审核方: Standards reviewer `01529703-ddf8-4bd5-a90b-5a58dd06fd63`；Spec reviewer `a44a9e98-fcdf-40f1-a582-aa482debc36e`
+  - 目的理解: 两位 reviewer 均先确认 T-085 要统一 agent/pre-push/CI 完整门禁，稳定并提速真实 dsh web E2E，只对已知 sessions stall 有限恢复，补移动抽屉与完成提醒跨客户端/刷新边界，并保持 AgentMap 与失败取证一致。
+  - 执行方式: `code-review` skill 双轴审核，固定基线 `d10aeee...872a898`，随后对 working tree 修复与最终 `1121c12` 由同一审核方连续复审；Standards 读取 AGENTS/CONVENTIONS，Spec 读取 T-085、DESIGN 与 C-046～C-049。
+  - 问题与修复: Standards 发现 AC-09 与移动 AC 子集过度声明、`ERR_PANE_STALL` 魔法串、重复且脆弱的 card 定位、注释错位及 artifact 清理命名/异常传播；分别通过收紧锚定映射、复用常量、`activateCard`、注释归位、`clearFailureArtifact` 吞非关键清理错误修复。Spec 发现恢复后陈旧 screenshot、`getByText(...).first()` 定位风险与终态证据待填；前两项已修复，本节补齐证据。最终完整门禁另暴露最近卡 agent preview 竞态，补 `previewFallbackLoaded` 单次 history 刷新及正反单测，双轴均复审通过。
+  - 复审结论: Standards 终审“通过，无新增 hard violation”；Spec 终审“全部 findings 关闭，无新增缺失、越界或行为错误”，允许关闭 T-085。

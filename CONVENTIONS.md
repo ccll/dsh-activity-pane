@@ -35,16 +35,16 @@ owner: agent 主笔，项目属主审批
 - 快速验证入口: `pnpm verify:fast`（AgentMap lint + core 单测与 client bundle 契约）。
 - 权威验证入口: .githooks/pre-push
 - 完整验证命令: `pnpm verify`（快速入口 + 全量浏览器 E2E）；agent 任务结束与 pre-push 重放同一命令。
-- CI 门禁: 不适用：upstream sessions 首拉缺陷使 GitHub hosted 产生系统性假失败；`.github/workflows/ci.yml` 仅保留 `workflow_dispatch` 作为诊断入口，main push、tag 与 PR 均不自动运行。提交与推送以本地 `.githooks/pre-push` 的 `pnpm verify` 为当前权威门禁，待 upstream 修复后再评估恢复 hosted CI。
+- CI 门禁: 不适用：C-057 已暂停 main push、tag 与 PR 自动 hosted 运行，`.github/workflows/ci.yml` 仅保留 `workflow_dispatch` 诊断入口。C-058 已修复本项目 sessions readiness 根因，但恢复自动触发仍须先有手工 hosted 实测并另立决策；提交与推送以本地 `.githooks/pre-push` 的 `pnpm verify` 为当前权威门禁。
 - `.githooks/pre-commit.d/20-agentmap-lint.sh`：AgentMap 结构、追溯与派生报告。
 - `.githooks/pre-commit.d/30-dsh-activity-pane-check.sh`：dsh-activity-pane 单测与 client bundle 契约校验（`node scripts/check.mjs`）。
 - `.githooks/pre-push.d/20-agentmap-lint.sh`：校验待推送历史的 AgentMap 不可变契约。
-- `.githooks/pre-push.d/30-dsh-activity-pane-e2e.sh`：执行完整 `pnpm verify`；E2E 每 spec/恢复尝试独立 dsh web、Chromium 与 context，只有 `E2E_PANE_STALL` 允许有限恢复并在汇总中计数。
+- `.githooks/pre-push.d/30-dsh-activity-pane-e2e.sh`：执行完整 `pnpm verify`；E2E 每 spec 使用独立 dsh web、Chromium、context 与单个页面连接世代，任何失败均不重试。
 - 扫描来源：`.`
 
 ## 构建与开发工作流
 
-- E2E（C-045、C-046、C-047、C-051～C-053）：`pnpm test:e2e` 启动隔离测试环境（临时 `$DSH_HOME` + mock LLM + 随机端口 dsh web）并固定顺序执行 `e2e/specs/*.mjs`；每 spec/恢复尝试独立 Chromium 与 context；首次使用先 `PLAYWRIGHT_BROWSERS_PATH=0 pnpm exec playwright install chromium-headless-shell`，失败截图落在 `e2e/fail-*.png`（已 gitignore）。
+- E2E（C-045、C-046、C-047、C-058）：`pnpm test:e2e` 启动隔离测试环境（临时 `$DSH_HOME` + mock LLM + 随机端口 dsh web）并固定顺序执行 `e2e/specs/*.mjs`；每 spec 独立 Chromium/context 且只建立一个页面连接世代；首次使用先 `PLAYWRIGHT_BROWSERS_PATH=0 pnpm exec playwright install chromium-headless-shell`，失败截图落在 `e2e/fail-*.png`（已 gitignore）。
 - 本地开发安装（在 profile 中挂载；pnpm `link:` 使 profile 内为指向本仓库的符号链接）：`dsh plugin --profile web add ./dsh-activity-pane`。
 - `pnpm build:client` 生成 `.dsh-plugin/client.js`；`pnpm check` 做 core 单元检查 + bundle 校验；`pnpm dev:watch` 监视 `src/*.mjs`，变化即重建 bundle。
 - 热更开发：DSH 通过 `dsh-client-hmr` 监视已安装插件的 client bundle 文件，内容一变就推送 `rebuilt` 帧，浏览器单独热装该插件——不需要整页刷新，也不需要重启 `dsh web`（host 侧改动除外：本插件自 T-073 起 host 侧承载完成确认状态，改动 `src/host.mjs` 后需重启 `dsh web` 生效）。

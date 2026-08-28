@@ -2631,6 +2631,10 @@ assert.ok(bundle.includes("unbindPaneControls"), "窗格控制监听可清理");
 assert.ok(bundle.includes("notifyLayoutChange"), "布局变化通知 sibling overlay 重测");
 assert.ok(bundle.includes('window.dispatchEvent(new Event("resize"))'), "布局变化派发标准 resize 通知");
 assert.ok(bundle.includes("pane !== renderedPane"), "新窗格实例必须重置渲染签名");
+assert.ok(
+	clientSource.includes('const sig = `${listState}|${cardSignature(visibleEntries)}`;'),
+	"列表 phase 转换必须参与渲染签名，空列表不得冻结在加载/失败状态（T-087）",
+);
 // R-01-013/AC-02 回归：卡片标题必须随快照更新——单卡渲染异常不得冻结其余卡片
 // （此前渲染签名先于卡片循环提交且无异常隔离，故障卡及其后全部卡片永久滞留旧标题，
 //  历史卡因此停在首条消息形态的 fallback 标题，与左侧栏脱节）。
@@ -3412,14 +3416,14 @@ assert.ok(hostSource.includes("streamClients") && hostSource.includes("for (cons
 const e2eRunnerSource = await readFile(join(root, "e2e/run.mjs"), "utf8");
 assert.equal(e2eRunnerSource.match(/chromium\.launch\(/g)?.length, 1, "runner 只有一条 Chromium 启动路径");
 assert.ok(e2eRunnerSource.includes("context = await browser.newContext()"), "每次隔离环境创建独立 browser context");
-assert.ok(e2eRunnerSource.includes("await browser?.close()"), "每次 spec/恢复尝试都关闭浏览器进程");
+assert.ok(e2eRunnerSource.includes("await browser?.close()"), "每个 spec 都关闭浏览器进程");
 assert.ok(!e2eRunnerSource.includes("sharedBrowser"), "不保留未使用或跨环境共享的浏览器进程");
-assert.ok(e2eRunnerSource.includes("const MAX_CONCURRENCY = 1") && e2eRunnerSource.includes("Math.min(MAX_CONCURRENCY, specFiles.length)"), "E2E 固定顺序执行，避免 hosted runner 资源竞争");
-assert.ok(e2eRunnerSource.includes("attempt < 2"), "sessions stall 最多换一次全新环境");
+assert.ok(e2eRunnerSource.includes("const MAX_CONCURRENCY = 1") && e2eRunnerSource.includes("Math.min(MAX_CONCURRENCY, specFiles.length)"), "E2E 固定顺序执行，保持资源上限与日志顺序稳定");
+assert.ok(!e2eRunnerSource.includes("RECOVER") && !e2eRunnerSource.includes("stallRecoveries"), "普通失败与列表停滞均不得换环境重试");
 const e2eHelperSource = await readFile(join(root, "e2e/helpers.mjs"), "utf8");
-assert.equal(e2eHelperSource.match(/page\.goto\(url/g)?.length, 1, "页面连接世代只由一条受控路径建立");
-assert.ok(e2eHelperSource.includes("const PANE_READY_TIMEOUT_MS = 6_000"), "rc.7 页面连接世代使用固定 6s 观察窗口");
-assert.ok(e2eHelperSource.includes("attempt < 5"), "每环境最多五个页面连接世代");
+assert.equal(e2eHelperSource.match(/page\.goto\(url/g)?.length, 1, "每个 spec 只建立一个页面连接世代");
+assert.ok(e2eHelperSource.includes("const PANE_READY_TIMEOUT_MS = 6_000"), "单页面连接世代使用固定 6s 观察窗口");
+assert.ok(!e2eHelperSource.includes("ERR_PANE_STALL") && !e2eHelperSource.includes("attempt <"), "helpers 不保留列表停滞专用恢复路径");
 
 // ---- GitHub CI 触发策略（C-050，T-086）----
 const ciWorkflowSource = await readFile(join(root, ".github/workflows/ci.yml"), "utf8");
@@ -3430,7 +3434,7 @@ assert.ok(!ciWorkflowSource.includes('tags: ["v*"]'), "release tag 不自动触�
 assert.ok(ciWorkflowSource.includes("workflow_dispatch:"), "保留显式 hosted 诊断入口");
 assert.ok(!ciWorkflowSource.includes("runner.tool_cache"), "job 级 env 不引用尚不可用的 runner context");
 assert.ok(ciWorkflowSource.includes("fetch-depth: 0"), "CI checkout 保留完整历史以验证 terminal task commit 证据");
-assert.ok(ciWorkflowSource.includes("timeout-minutes: 30"), "顺序 E2E 与有界恢复拥有明确 hosted timeout");
+assert.ok(ciWorkflowSource.includes("timeout-minutes: 30"), "顺序 E2E 拥有明确 hosted timeout");
 assert.ok(ciWorkflowSource.includes("node-version: 24.16.0"), "hosted Node 与本地稳定基线一致");
 
 // ---- E2E 基建：mock LLM 剧本服务行为断言（C-045，T-082、T-088）----

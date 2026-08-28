@@ -2842,7 +2842,9 @@ function apply(ctx) {
 		cancelStaleOpenRetries({ currentId: snapshot?.current ?? null, activatedId: lastActivatedId });
 
 		const visibleEntries = [...active, ...recent];
-		const sig = cardSignature(visibleEntries);
+		// listState 参与签名：空列表从 pending/error → ready 时卡集合不变，若只比较卡片
+		// 会被提前返回冻结在「加载中」/「列表加载失败」；状态转换同样是可观察渲染输入。
+		const sig = `${listState}|${cardSignature(visibleEntries)}`;
 		if (sig === lastSig) return;
 		const hueByWorkspace = resolveWorkspaceHues(visibleEntries.map((entry) => entry.workspaceKey));
 		// 跨区迁移（双向，R-01-010/AC-07）：DOM 写入前量取旧卡矩形并克隆 ghost。

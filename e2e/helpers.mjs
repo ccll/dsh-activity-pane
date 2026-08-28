@@ -52,24 +52,19 @@ export async function dismissNotice(page) {
 	if (await notice.isVisible().catch(() => false)) await notice.click();
 }
 
-/** 打开应用并等待窗格数据就绪。
- *  rc.7 browser runtime 首次 list pull 失败后不会自重试；顺序 suite 中最多建立五个
- *  6s 页面连接世代，让新 SessionManager 在浏览器连接稳定后重新拉取。 */
+/** 打开应用并等待窗格数据就绪；列表状态转换由产品渲染签名保证即时落到 DOM，
+ *  测试只建立一个页面连接世代，超时或明确失败均直接暴露为回归。 */
 export async function openApp(page, url) {
-	for (let attempt = 0; attempt < 5; attempt += 1) {
-		await page.goto(url, { waitUntil: "networkidle" });
-		await dismissNotice(page);
-		const outcome = await until("窗格数据就绪", async () => {
-			const regions = await paneRegions(page);
-			if (!regions) return null;
-			if (regions.active.includes("列表加载失败") || regions.recent.includes("列表加载失败")) return "error";
-			return regions.active.includes("加载中") || regions.recent.includes("加载中") ? null : "ready";
-		}, PANE_READY_TIMEOUT_MS).catch(() => "timeout");
-		if (outcome === "ready") return;
-	}
-	const error = new Error("窗格数据停滞：五个 sessions 连接世代仍未就绪");
-	error.code = ERR_PANE_STALL;
-	throw error;
+	await page.goto(url, { waitUntil: "networkidle" });
+	await dismissNotice(page);
+	await until("窗格数据就绪", async () => {
+		const regions = await paneRegions(page);
+		if (!regions) return null;
+		if (regions.active.includes("列表加载失败") || regions.recent.includes("列表加载失败")) {
+			throw new Error("窗格列表加载失败");
+		}
+		return regions.active.includes("加载中") || regions.recent.includes("加载中") ? null : regions;
+	}, PANE_READY_TIMEOUT_MS);
 }
 
 /** 主会话区（窗格右缘以右）是否可见地出现指定文字（叶子节点匹配，默认子串）。 */
@@ -123,9 +118,6 @@ export const MOCK_FAST_REPLY = "E2E 快速回合已完成。";
 export const MOCK_ERROR_MESSAGE = "E2E 模型故障探针";
 /** 隔离环境卡面显示的模型名（boot.mjs 种子为小写 id，显示名经宿主模型目录映射）。 */
 export const MOCK_MODEL = "DeepSeek-V4-Flash";
-
-/** 窗格数据停滞错误签名：run.mjs 据此换环境重试，不靠文案子串耦合。 */
-export const ERR_PANE_STALL = "E2E_PANE_STALL";
 
 /** 在 hero 首页 composer 填入消息并发送；
  *  宿主偶发在启动时直接恢复进会话视图（无 hero）——先点 New session 回 hero。

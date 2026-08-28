@@ -39,8 +39,10 @@ export default async function autoUpdate({ page, url, assert }) {
 
 	// R-01-017/AC-01：本隔离环境未安装 dsh-auto-collapse，时间线仍以折叠分组呈现
 	// （上下文注入合并为分组行），窗格功能不降级。
-	const regionsAfterRun = await paneRegions(page);
-	assert.ok(regionsAfterRun.active.includes("上下文注入"), "折叠分组行呈现（无 dsh-auto-collapse 依赖）");
+	await until("折叠分组行呈现（无 dsh-auto-collapse 依赖）", async () => {
+		const regions = await paneRegions(page);
+		return regions?.active.includes("上下文注入") ? regions : null;
+	});
 
 	// R-02-002/AC-01：会话切换/导航触发外壳视图更替后，窗格保持恰好一个实例。
 	await newSessionWithMessage(page, TITLE_B);

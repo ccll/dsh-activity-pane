@@ -177,7 +177,7 @@ flowchart LR
 - 轮内状态输入：`runtimeStats({ elapsedMs, outputTokens, rateTokS })`、`usageSummary(tokenUsage)`（计费输入=未缓存输入+缓存读+缓存写，缓存命中率=缓存读÷计费输入，对齐原生统计行口径）与 `conversationTimeline(snapshot)` 为纯函数，输入由渲染器从原生 `ConversationSnapshot`（`chat` / `runningCalls` / `partial` / `turnTimings` / `legacy.nodes`）与 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`）归一而来（R-01-009、R-01-012）。
 - 排序不变量：主会话按所在工作区侧栏顺序；未纳入任何工作区的排在全部工作区之后并保持出现顺序；子代理跟随母会话并缩进（R-01-001、R-01-003）。
 - 徽标色相不变量：`workspaceHue(key)` 是以工作区身份（`workspaceKey`）为唯一输入的纯函数——djb2 哈希经雪崩终混（高位熵折入低位，消除 djb2 低位分布聚集）后在避开红色警戒区的色相弧 [30°,320°] 上均匀取色（30 + hash % 291），输出 [30,320] 整数；同一身份恒得同一色相，与工作区列表顺序、会话状态及持久化存储无关；不同身份的色相在 291 个取值上分散（R-01-003/AC-08、AC-09，C-026、C-027、C-029）。`resolveWorkspaceHues(keys)` 在基色之上做同屏感知锚点分配：可见身份集合去重排序后，以 `(workspaceHue(identity) - 30) % 7` 选稳定起始锚点；七个 OKLCH hue 锚点固定为 `[55,100,145,190,235,280,325]`，起始锚点已占用时按槽位步进 3 循环探测（3 与 7 互质，顺序 `0→3→6→2→5→1→4`，首次冲突跨约 135° 而非落到相邻色）；超过 7 个时在同一起点与探测顺序下选择当前使用次数最少的锚点，使复用计数差不超过 1；在深色 C=0.16、浅色 C=0.15 的共同 L/C 下，最小 45° hue 间距对应 OKLab 距离分别约 0.122 / 0.115；结果是可见集合的纯函数，集合不变则颜色不变（R-01-003/AC-08、AC-12，C-031～C-034）。
-- 稳定签名：`cardSignature` 对条目可见字段求签名（含 model/reasoning/timeline/userPreview/agentPreview/activityAt、progress/tokenStats）；签名相同的重复渲染必须跳过全部 DOM 写入（R-02-003）。
+- 稳定签名：渲染签名由 `listState` 与 `cardSignature` 的结构化二元组组成；后者覆盖条目可见字段（含 model/reasoning/timeline/userPreview/agentPreview/activityAt、progress/tokenStats）。仅二者均相同时才跳过 DOM 写入，使空卡集合的 pending/error → ready 仍提交列表状态（R-02-003，C-058）。
 - 完成确认状态由宿主侧持久化承载：`lastTurnEnd`、`lastTurnEndKind`（回合结束原因：completed/blocked/max-tokens/aborted/error，宿主对缺失/非法值归一 `unknown`）、`lastTurnEndError`（error 回合的错误信息）与 `ackedAt` 存于 storageDomain 表，会话事件是宿主侧登记的唯一事实来源；页面刷新或客户端重新连接后经 SSE 通道全量快照恢复（R-01-002/AC-12、AC-13）。
 - 运行卡渲染期字段：渲染器为 running 条目补充 `progress`（阶段百分比）、`timeline`（主会话窗口最近工作项）与 `tokenStats`；不再派生独立 `status` 文案行；进度条条纹随运行卡骨架常驻，无需属性翻转。
 - 非运行活动卡呈现：awaiting 条目同样承载 `timeline`（会话最后已知工作项，最多 4 项，非运行会话不做尾部 running 提升）（R-01-016）；非执行呈现（快照 pending，或渲染层按条目 pendingText 判定的等待/暂停——等待卡使用冻结快照、pending 不可得）下残留执行中状态在分组之前经 `settleWhenIdle` 全部落定（组标题/状态均由已定案成员派生，不出现已定案圆点配「正在思考」标题），尾部提升同时跳过；存在活动后代时除外（保留委托周期在飞呈现与尾部提升，R-01-009/AC-10）。
@@ -338,7 +338,7 @@ flowchart LR
 - 职责: 以真实浏览器对最终页面行为做端到端回归验证，为交互类验收点提供自动化锚点（T-082 首条 spec 锚定 R-01-001、R-01-002、R-01-010；T-083/T-084 迁移布局、滚动、跳转、调宽、回顶与卡面内容；T-085 加固 runner 并覆盖 R-01-002 跨客户端确认同步/恢复与 R-01-008 移动抽屉完整交互；T-088 覆盖 R-01-002 错误提醒的 provider→Host→SSE→浏览器跨边界路径；不承担任何产品行为）
 - 关键内部结构:
   - 隔离测试环境：每个 spec 使用独立 `$DSH_HOME` 临时目录 + 预置 settings.yaml（provider 指向 mock LLM）+ `dsh web --port 0`；插件经 `dsh plugin --profile web add` 以 link: 装入；spec 间会话与持久化状态互不可见。
-  - 浏览器生命周期：每个 spec 使用独立 Chromium 与主 context，结束后关闭；需要验证同服务多客户端语义的 spec 可在该 Chromium 内创建第二个 context，二者只共享对应 spec 的 dsh web 服务。C-047 的隔离策略保证 spec 间浏览器状态不可见；runner 固定顺序执行以保持单机资源上限与日志顺序稳定（C-058，废弃 C-049 并发策略）。
+  - 浏览器生命周期：每个 spec 使用独立 Chromium 与主 context，结束后关闭；需要验证同服务多客户端语义的 spec 可在该 Chromium 内创建第二个 context，二者只共享对应 spec 的 dsh web 服务。C-047 的隔离策略保证 spec 间浏览器状态不可见；runner 按 C-053 固定顺序执行以保持单机资源上限与日志顺序稳定，C-058 仅删除 sessions 专用恢复。
   - mock LLM 剧本服务：OpenAI 兼容 `POST /chat/completions` 端点，按用户消息关键词选择 E2E 剧本——慢速流式（运行中）、ask_user_question tool_call（待回复）、立即 finish（完成提醒）、非重试型 HTTP 400（错误提醒）。
   - 驱动：Playwright 经真实 composer UI 发起会话，断言窗格可观察行为；不断言内部 DOM 结构，结构断言仅限宿主槽座等显式契约边界。
   - 失败语义：每个 spec 只建立一个 Chromium context、一个页面连接世代并观察 6s；普通断言、列表超时与明确列表失败均立即计为回归，不 reload、不换环境重试。列表 `pending/error → ready` 参与卡片渲染签名，空卡集合也会提交状态转换，避免签名短路把 DOM 冻结在「加载中」/「列表加载失败」；失败保存 screenshot 与服务端 stderr 尾部（C-058，废弃 C-053/C-055 的 sessions 专用恢复）。

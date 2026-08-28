@@ -2,7 +2,7 @@
 // 断言辅助只读用户可观察呈现（可见文字、包围盒、页面 URL）。
 
 export const POLL_INTERVAL_MS = 200;
-const PANE_READY_TIMEOUTS_MS = [32_000, 12_000];
+const PANE_READY_TIMEOUT_MS = 6_000;
 
 /** 轮询直到 fn() 返回真值或超时；超时抛错并附最后一次观测值。E2E_TRACE=1 时打印各段耗时。 */
 export async function until(label, fn, timeoutMs = 10_000) {
@@ -48,22 +48,21 @@ export async function dismissNotice(page) {
 }
 
 /** 打开应用并等待窗格数据就绪。
- *  首代给 sessions.list 完整的 30s unary timeout 与渲染余量；rc.7 首败后不会自重试，
- *  因此只再 reload 一次并在已启动服务上等待 12s，避免恢复旧的 5×6s 请求风暴。 */
+ *  rc.7 browser runtime 首次 list pull 失败后不会自重试；顺序 suite 中最多建立五个
+ *  6s 页面连接世代，让新 SessionManager 在浏览器连接稳定后重新拉取。 */
 export async function openApp(page, url) {
-	let outcome = "timeout";
-	for (const timeoutMs of PANE_READY_TIMEOUTS_MS) {
+	for (let attempt = 0; attempt < 5; attempt += 1) {
 		await page.goto(url, { waitUntil: "networkidle" });
 		await dismissNotice(page);
-		outcome = await until("窗格数据就绪", async () => {
+		const outcome = await until("窗格数据就绪", async () => {
 			const regions = await paneRegions(page);
 			if (!regions) return null;
 			if (regions.active.includes("列表加载失败") || regions.recent.includes("列表加载失败")) return "error";
 			return regions.active.includes("加载中") || regions.recent.includes("加载中") ? null : "ready";
-		}, timeoutMs).catch(() => "timeout");
+		}, PANE_READY_TIMEOUT_MS).catch(() => "timeout");
 		if (outcome === "ready") return;
 	}
-	const error = new Error(`窗格数据停滞：sessions 首次就绪结果为 ${outcome}`);
+	const error = new Error("窗格数据停滞：五个 sessions 连接世代仍未就绪");
 	error.code = ERR_PANE_STALL;
 	throw error;
 }

@@ -341,7 +341,7 @@ flowchart LR
   - 浏览器生命周期：每个 spec/恢复尝试使用独立 Chromium 与主 context，结束后关闭；需要验证同服务多客户端语义的 spec 可在该 Chromium 内创建第二个 context，二者只共享对应 spec 的 dsh web 服务。C-047 的隔离策略避免 Chromium 跨环境复用放大宿主 sessions 首推竞态；runner 固定顺序执行，避免 hosted runner 同时承载两套 dsh web + Chromium 触发 rc.7 sessions 首推失败（C-053，废弃 C-049 并发策略）。
   - mock LLM 剧本服务：OpenAI 兼容 `POST /chat/completions` SSE 端点，按用户消息关键词选择 E2E 剧本——慢速流式（运行中）、ask_user_question tool_call（待回复）、立即 finish（完成提醒）。
   - 驱动：Playwright 经真实 composer UI 发起会话，断言窗格可观察行为；不断言内部 DOM 结构，结构断言仅限宿主槽座等显式契约边界。
-  - 失败与恢复：普通断言失败立即计为回归，不自动重试；每个环境首代按 DSH 30s unary timeout 加渲染余量等待 sessions 首次就绪，rc.7 首败不自重试时仅 reload 一次并等待 12s；两代仍 loading 或列表加载失败才签名为 `E2E_PANE_STALL`，runner 最多再换一次全新 Chromium + dsh web。恢复次数进入套件日志，失败保存 screenshot 与服务端 stderr 尾部（C-051、C-052）。
+  - 失败与恢复：普通断言失败立即计为回归，不自动重试；rc.7 browser runtime 首次 list pull 失败后不会自重试，每个顺序环境最多建立五个 6s 页面连接世代，让新 SessionManager 在连接稳定后重拉；仍 loading 或列表加载失败才签名为 `E2E_PANE_STALL`，runner 最多再换一次全新 Chromium + dsh web。恢复次数进入套件日志，失败保存 screenshot 与服务端 stderr 尾部（C-053、C-055，废弃 C-051/C-052/C-054 长等待方案）。
   - 门禁归属：`pnpm verify:fast` 为快速入口，`pnpm verify` 为完整入口；agent 任务结束、`.githooks/pre-push.d/` 与 `.github/workflows/ci.yml` 重放完整入口，pre-commit 保持快速检查。CI 的 dsh CLI 以顶层 rc.7 + 2026-08-18 registry 历史截止隔离安装，使 caret 传递依赖保持完整 rc.7 家族且不改变插件 lockfile（C-048）。项目不接受 PR，workflow 只在 main push、`v*` release tag 与手工触发时运行；tag CI 仅作人工创建 GitHub Release 前的再次裁决，不自动发布（C-050）。
 - 代码位置: e2e/、package.json、.githooks/、.github/workflows/ci.yml
 - 实现: 单端（Node，测试期进程）

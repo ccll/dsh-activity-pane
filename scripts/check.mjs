@@ -3413,8 +3413,8 @@ assert.ok(e2eRunnerSource.includes("const MAX_CONCURRENCY = 1") && e2eRunnerSour
 assert.ok(e2eRunnerSource.includes("attempt < 2"), "sessions stall 最多换一次全新环境");
 const e2eHelperSource = await readFile(join(root, "e2e/helpers.mjs"), "utf8");
 assert.equal(e2eHelperSource.match(/page\.goto\(url/g)?.length, 1, "页面连接世代只由一条受控路径建立");
-assert.ok(e2eHelperSource.includes("const PANE_READY_TIMEOUTS_MS = [32_000, 12_000]"), "sessions 首代覆盖 unary timeout，首败后只允许一次短重拉");
-assert.ok(!e2eHelperSource.includes("attempt < 5"), "不恢复 5×6s 短世代请求风暴");
+assert.ok(e2eHelperSource.includes("const PANE_READY_TIMEOUT_MS = 6_000"), "rc.7 页面连接世代使用固定 6s 观察窗口");
+assert.ok(e2eHelperSource.includes("attempt < 5"), "每环境最多五个页面连接世代");
 
 // ---- GitHub CI 触发策略（C-050，T-086）----
 const ciWorkflowSource = await readFile(join(root, ".github/workflows/ci.yml"), "utf8");
@@ -3424,6 +3424,7 @@ assert.ok(ciWorkflowSource.includes('tags: ["v*"]'), "v* release tag 触发 CI")
 assert.ok(ciWorkflowSource.includes("workflow_dispatch:"), "允许手工重跑 CI");
 assert.ok(!ciWorkflowSource.includes("runner.tool_cache"), "job 级 env 不引用尚不可用的 runner context");
 assert.ok(ciWorkflowSource.includes("fetch-depth: 0"), "CI checkout 保留完整历史以验证 terminal task commit 证据");
+assert.ok(ciWorkflowSource.includes("timeout-minutes: 30"), "顺序 E2E 与有界恢复拥有明确 hosted timeout");
 
 // ---- E2E 基建：mock LLM 剧本服务行为断言（C-045，T-082）----
 // 浏览器 spec 驱动真实 UI；三剧本的 SSE 形状与分流规则在此做 Node 级行为验证。

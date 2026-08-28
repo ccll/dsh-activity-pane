@@ -950,3 +950,42 @@ C-049 依据本地单 spec 约 272MB 与双 worker 约 118～144s 的结果，�
 
 #### 影响面
 R-01-002、R-01-008、R-02-002 / E2E 验证基建、验证门禁
+
+### C-054 post-timeout reload 同样使用完整 unary 窗口
+日期: 2026-08-28
+
+#### 上下文
+C-052 给第二个 SessionManager 12s 的假设不成立：顺序执行本地完整套件一次 10/10、183.589s、0 恢复，但随后两轮分别出现 2/10 失败（297.907s、4 恢复）与 1/10 失败（463.537s、4 恢复）。多个成功 spec 总耗时约 40～54s，说明第二代也可能需要超过 12s；12s 再次犯了低于 DSH 30s unary timeout 的层级错配。
+
+#### 决策
+- 首代与唯一一次 post-timeout reload 均等待 32s；不再给第二代设置不同的短窗口。
+- GitHub Verify job timeout 从 20 分钟提高到 30 分钟，只覆盖顺序执行与最坏有界恢复预算，不增加重试次数。
+- 继续由 suite 日志记录恢复次数；若完整 32s × 2 后仍失败，按 C-052 进入最多一次 fresh environment recovery。
+
+#### 被否方案及原因
+- 保留第二代 12s：实测仍误杀慢但可能完成的 unary 请求。
+- 第二代无限等待：上游无自愈时会挂死门禁。
+- 恢复为并行执行抵消墙钟：C-053 已证明并发是失败放大器，不能用不稳定换速度。
+
+#### 影响面
+R-01-002、R-01-008、R-02-002 / E2E 验证基建、验证门禁
+
+### C-055 rc.7 兼容恢复采用顺序环境内的五个短连接世代
+日期: 2026-08-28
+
+#### 上下文
+C-054 的顺序 32s × 2 实测反而恶化为 1/10 失败、798.176s、7 次 fresh-environment recovery；说明等待不能修复已失败且不自愈的 SessionManager。与此同时，对三套独立 dsh web 直接 POST `session.list` 均在 24～26ms 成功，证明 host API 已就绪，停滞发生在浏览器启动期的连接/请求竞争与一次性 manager pull。短 reload 的作用不是等待慢 unary，而是用新 SessionManager 重新参与已逐渐稳定的浏览器连接环境；hosted 的 5×6s 灾难主要由两套完整环境并发放大，C-053 已移除该放大器。
+
+#### 决策
+- 废弃 C-051/C-052/C-054 的长等待方案；恢复每环境最多五个页面连接世代，每代等待 6s，但与 C-053 顺序执行组合使用。
+- runner 仍最多两个全新环境，普通断言仍不重试；兼容路径只存在于 E2E，不进入产品插件。
+- CI timeout 保持 30 分钟，为顺序 suite 与有界 fresh recovery 留余量。
+- upstream 修复方向保持不变：SessionManager 首败有限重拉，并向 outward list projection 暴露 state/error；升级验证后删除短世代兼容路径。
+
+#### 被否方案及原因
+- 继续 32s × 2：首败后的 manager 不会自愈，长等只增加 10 分钟级墙钟，实测失败率未消失。
+- 仅依赖 direct host probe：host endpoint 健康不能证明浏览器 ConnectionController 已给 SessionManager 成功完成 unary；三次 probe 已排除服务端冷就绪。
+- 在产品插件中补定时 refresh：outward `ISessions.list` 是只读接口，且宿主恢复策略不属于活动窗格职责。
+
+#### 影响面
+R-01-002、R-01-008、R-02-002 / E2E 验证基建、验证门禁

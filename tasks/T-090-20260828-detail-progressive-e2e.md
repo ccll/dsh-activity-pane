@@ -7,7 +7,7 @@ mutation: lifecycle
 # T-090 卡片 detail 渐进就绪浏览器证据
 
 风险等级: standard
-状态: active
+状态: completed
 
 ## 背景与目标
 
@@ -57,4 +57,13 @@ mutation: lifecycle
 
 ## 终态与证据
 
-待实现完成后填写。
+- 实现: `6ff8756` 在现有 `loading-ready.mjs` 增加 R-01-014/AC-03 同页两阶段证据，并以显式 `dap-e2e-model-delay` 延迟正式 native models RPC；`94eae7a` 增加可结清 waiter、卸载 timer 清理与 inflight 下限保护；`8e30798` 保留同步 RPC throw 进入既有 Promise catch 的失败语义。默认 URL、load plan、并发池、签名与零重试模型不变。
+- 测试: `node e2e/run.mjs loading-ready` 在最终实现上通过（5.651s），证明真实 slow 卡标题/用户时间线先呈现、model/reasoning 后补齐；`pnpm check`、`pnpm lint`、staged bundle 门禁与 `git diff --check` 通过，E2E 锚定由 62 提升到 63。实现首版完整 `pnpm verify` 12/12 通过（132.342s）；最终 cleanup 修复后的完整运行 11/12，唯一失败为未进入本 spec 的 `desktop-layout` 首页 readiness 6s 超时，随后独立诊断 `desktop-layout` 通过（7.333s），作为后续稳定性 task 的基线线索而不由本 task 加 retry。
+- DESIGN 对照: `DESIGN.md#E2E 验证基建` 已登记 `dap-e2e-model-delay` 仅显式 fragment 启用、上限 1s、跳过 model directory 抢先初值但不伪造 native response；实现复用同一页面连接世代与现有 loading-ready spec，无 reload、跨 spec 共享或通用 fixture registry。
+- commit: 6ff8756 94eae7a 8e30798
+- review:
+  - 审核方: Standards reviewer `2a4f24d7-9a5c-412e-9db8-1fd0c672ae98`；Spec reviewer `741515e3-a294-478c-a8ba-b6969a03793a`
+  - 目的理解: 审核方先确认 T-090 只需证明同页真实卡片可用内容先呈现、model detail 后补齐；接缝默认零分支、正式 native models response 不伪造，且不得改变 load plan、零重试和隔离模型。
+  - 执行方式: `code-review` skill，固定基线 `459b5fa...HEAD`；Standards 与 Spec 双轴并行，修复均由原 Standards reviewer 复审。
+  - 问题与修复: Standards 初审发现完整实现字符串断言脆弱、delay timer 卸载未清理；修复后复审发现 timer 内同步 RPC throw 会逃出 Promise。分别改为 seam 调用/清理边界 contract、可结清 waiters + inflight 下限，以及 `Promise.resolve().then(call)` 同化同步异常。Spec 初审直接通过，确认观察范围限定 activity pane 同一卡片且 AC-03 覆盖准确。
+  - 复审结论: Standards 最终无 hard/judgement/Fowler finding；Spec 无缺失、行为错误或 scope creep；双轴通过。

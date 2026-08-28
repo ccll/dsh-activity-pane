@@ -140,8 +140,7 @@ def row_covers(rows, key, require_none=False):
         if not valid_impact_row(row):
             continue
         subject, _change, _layer, action, _evidence = row
-        subjects = set(AC_ID_RE.findall(subject))
-        if key not in subjects and subject != key:
+        if subject != key:
             continue
         if require_none and action.lower() != "none":
             continue

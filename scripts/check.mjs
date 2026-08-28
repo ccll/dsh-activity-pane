@@ -2562,6 +2562,11 @@ execFileSync(process.execPath, [join(root, "scripts/build-client.mjs")], {
 });
 const bundle = await readFile(join(root, ".dsh-plugin/client.js"), "utf8");
 const clientSource = await readFile(join(root, "src/client.mjs"), "utf8");
+assert.ok(
+	clientSource.includes('lastTurnEndKind: typeof record?.lastTurnEndKind === "string"') &&
+		clientSource.includes('lastTurnEndError: typeof record?.lastTurnEndError === "string"'),
+	"SSE ack 快照完整保留错误提醒的 kind 与正文（R-01-002/AC-13，T-088）",
+);
 // bundle 必须是可解析的合法 JS（new Function 只编译不执行）——防止 CSS 模板内
 // 误插反引号这类"字符串检查能过、但 loader 导入即失败"的损坏。
 assert.doesNotThrow(
@@ -3428,9 +3433,9 @@ assert.ok(ciWorkflowSource.includes("fetch-depth: 0"), "CI checkout 保留完整
 assert.ok(ciWorkflowSource.includes("timeout-minutes: 30"), "顺序 E2E 与有界恢复拥有明确 hosted timeout");
 assert.ok(ciWorkflowSource.includes("node-version: 24.16.0"), "hosted Node 与本地稳定基线一致");
 
-// ---- E2E 基建：mock LLM 剧本服务行为断言（C-045，T-082）----
-// 浏览器 spec 驱动真实 UI；三剧本的 SSE 形状与分流规则在此做 Node 级行为验证。
-const { startMockLlm } = await import("../e2e/mock-llm.mjs");
+// ---- E2E 基建：mock LLM 剧本服务行为断言（C-045，T-082、T-088）----
+// 浏览器 spec 驱动真实 UI；四剧本的响应形状与分流规则在此做 Node 级行为验证。
+const { MOCK_ERROR_MESSAGE, startMockLlm } = await import("../e2e/mock-llm.mjs");
 const mock = await startMockLlm();
 try {
 	/** 请求 mock 并解析 SSE 负载序列（[DONE] 收尾）。 */
@@ -3471,6 +3476,17 @@ try {
 	assert.ok(parsed.questions[0].question.length > 0 && parsed.questions[0].options.length === 2, "ask 工具参数重组为合法提问负载");
 	assert.equal(ask.at(-2).choices[0].finish_reason, "tool_calls", "ask 以 tool_calls 收尾");
 
+	// error：非重试型 HTTP 400 携带稳定 provider error，驱动真实 Agent error turn/end。
+	const errorResponse = await fetch(`${mock.url}/chat/completions`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ model: "deepseek-v4-flash", stream: true, messages: [{ role: "user", content: "e2e:error 探针" }] }),
+	});
+	assert.equal(errorResponse.status, 400, "error 剧本返回非重试型 HTTP 400");
+	assert.deepEqual(await errorResponse.json(), {
+		error: { message: MOCK_ERROR_MESSAGE, type: "invalid_request_error", code: "e2e_failure" },
+	}, "error 剧本返回稳定 OpenAI 兼容错误负载");
+
 	// 分流规则：含 tool 结果的回合一律 fast 收口，忽略历史消息里的关键词。
 	const afterTool = await requestScenario("继续", [
 		{ role: "user", content: "e2e:slow 历史指令" },
@@ -3479,7 +3495,7 @@ try {
 	assert.ok(afterTool.length <= 4 && afterTool.at(-2).choices[0].finish_reason === "stop", "tool 结果回合直接 fast 收口");
 
 	// 默认剧本：无关键词走 fast；非 chat/completions 路径 404。
-	assert.deepEqual(mock.scenarioLog, ["fast", "fast", "slow", "ask", "fast"], "scenarioLog 记录分流结果（默认/显式 fast、slow、ask、tool 收口）");
+	assert.deepEqual(mock.scenarioLog, ["fast", "fast", "slow", "ask", "error", "fast"], "scenarioLog 记录分流结果（默认/显式 fast、slow、ask、error、tool 收口）");
 	const wrongPath = await fetch(`${mock.url}/models`);
 	assert.equal(wrongPath.status, 404, "非 chat/completions 路径返回 404");
 } finally {

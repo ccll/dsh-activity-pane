@@ -4,6 +4,7 @@
 // 确定性制造会话活动：
 //   e2e:slow  —— 慢速流式输出（约 24 块 × 150ms），会话保持运行中数秒
 //   e2e:ask   —— ask_user_question 工具调用，回合转入待回复
+//   e2e:error —— 返回非重试型 HTTP 400，回合以稳定错误结束
 //   e2e:fast  —— 立即完成（默认剧本，关键词缺省时同样走这里）
 // 含 tool 结果（role: tool）的后续请求统一以短文本 stop 收口。
 //
@@ -16,6 +17,7 @@ import http from "node:http";
 
 const SLOW_CHUNKS = 24;
 const SLOW_INTERVAL_MS = 150;
+export const MOCK_ERROR_MESSAGE = "E2E 模型故障探针";
 
 /** 取消息文本（字符串或内容分片数组）。 */
 function messageText(msg) {
@@ -37,7 +39,7 @@ function pickScenario(body) {
 	if (hasToolResult) return "fast";
 	const userTexts = (body.messages ?? []).filter((m) => m?.role === "user").map(messageText);
 	for (let i = userTexts.length - 1; i >= 0; i -= 1) {
-		const match = userTexts[i].match(/e2e:(slow|ask|fast)/);
+		const match = userTexts[i].match(/e2e:(slow|ask|error|fast)/);
 		if (match) return match[1];
 	}
 	return "fast";
@@ -115,6 +117,14 @@ async function playAsk(res, model) {
 	res.end();
 }
 
+/** 不可恢复错误剧本：HTTP 400 使 Agent 回合以稳定 provider error 结束。 */
+function playError(res) {
+	res.writeHead(400, { "content-type": "application/json" });
+	res.end(JSON.stringify({
+		error: { message: MOCK_ERROR_MESSAGE, type: "invalid_request_error", code: "e2e_failure" },
+	}));
+}
+
 /** 立即完成剧本：短文本直接 stop。 */
 async function playFast(res, model) {
 	send(res, chunk(model, { role: "assistant", content: `${MOCK_FAST_REPLY}\n` }));
@@ -149,6 +159,10 @@ export async function startMockLlm() {
 			}
 			const scenario = pickScenario(body);
 			scenarioLog.push(scenario);
+			if (scenario === "error") {
+				playError(res);
+				return;
+			}
 			res.writeHead(200, {
 				"content-type": "text/event-stream",
 				"cache-control": "no-cache",

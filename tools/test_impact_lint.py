@@ -17,9 +17,10 @@ E2E_PATTERNS = ("e2e/specs/*.mjs",)
 MANUAL_PATTERNS = ("scripts/acceptance.mjs",)
 EVIDENCE_PATTERNS = AUTO_PATTERNS + E2E_PATTERNS + MANUAL_PATTERNS
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-ALLOWED_LAYERS = {"UNIT", "E2E", "MANUAL", "UNIT/E2E", "UNIT/MANUAL", "E2E/MANUAL", "UNIT/E2E/MANUAL", "none"}
+ALLOWED_LAYERS = {"UNIT", "E2E", "MANUAL", "UNIT/E2E", "UNIT/MANUAL", "E2E/MANUAL", "UNIT/E2E/MANUAL"}
 ALLOWED_ACTIONS = {"add", "update", "delete", "none"}
 PLACEHOLDER_RE = re.compile(r"^(?:-|N/A|TBD|TODO|待补|无)$", re.IGNORECASE)
+NONE_REASON_RE = re.compile(r"(?:仅|不变|无需|保持|已由|因为|由于|措辞|行为|证据|覆盖|承接|避免|unchanged|wording|because|covered|existing|no change)", re.IGNORECASE)
 
 
 def run_git(root, *args, input_text=None, check=True):
@@ -126,13 +127,13 @@ def changed_active_task_rows(root, changed, reader):
 
 def valid_impact_row(row):
     subject, change, layer, action, evidence = row
-    return (
-        bool(subject and change)
-        and layer in ALLOWED_LAYERS
-        and action.lower() in ALLOWED_ACTIONS
-        and len(evidence.strip()) >= 8
-        and PLACEHOLDER_RE.fullmatch(evidence.strip()) is None
-    )
+    action = action.lower()
+    evidence = evidence.strip()
+    if not subject or not change or layer not in ALLOWED_LAYERS or action not in ALLOWED_ACTIONS:
+        return False
+    if len(evidence) < 8 or PLACEHOLDER_RE.fullmatch(evidence) is not None:
+        return False
+    return action != "none" or NONE_REASON_RE.search(evidence) is not None
 
 
 def row_covers(rows, key, require_none=False):
@@ -296,7 +297,13 @@ def self_test():
         task = root / "tasks/T-001-test.md"
         task.write_text(
             "状态: active\n\n## 测试影响\n\n| 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |\n"
-            "|---|---|---|---|---|\n| R-01-001/AC-01 | wording | UNIT | skip | x |\n",
+            "|---|---|---|---|---|\n| R-01-001/AC-01 | wording | none | none | wording only; observable behavior unchanged |\n",
+            encoding="utf-8",
+        )
+        assert any("modified" in error for error in evaluate(root, "HEAD", "working"))
+        task.write_text(
+            "状态: active\n\n## 测试影响\n\n| 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |\n"
+            "|---|---|---|---|---|\n| R-01-001/AC-01 | wording | UNIT | none | xxxxxxxx |\n",
             encoding="utf-8",
         )
         assert any("modified" in error for error in evaluate(root, "HEAD", "working"))

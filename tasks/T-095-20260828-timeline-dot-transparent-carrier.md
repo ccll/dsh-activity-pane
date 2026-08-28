@@ -7,7 +7,7 @@ mutation: lifecycle
 # T-095 时间线小圆核与透明同心承载盒
 
 风险等级: standard
-状态: active
+状态: completed
 
 ## 背景与目标
 
@@ -58,8 +58,13 @@ mutation: lifecycle
 
 ## 终态与证据
 
-- 实现: 待填写。
-- 测试: 待填写。
-- DESIGN 对照: 待填写。
-- commit: 待填写。
-- review: 待填写。
+- 实现: `src/client.mjs` 保留 `left:0; top:3px; width:7px; height:7px` 的同心承载盒，将 1px border 改为 transparent；背景使用 `background-color` + `background-clip: padding-box`，各状态仅覆盖 `background-color`，因此可见主体恒为 5px 圆核；删除节点 box-shadow，普通节点改用基于圆核 alpha 的 1px/alpha 0.32 `drop-shadow`，running 使用同源 1px halo + 3px/alpha 0.65 glow 并保留 `dap-pulse`；`.dsh-plugin/client.js` 已重建。`DESIGN.md` 与 C-063 同步修订 C-062。
+- 测试: 测试先行改写 contract/E2E，旧实现分别因透明 border 缺失而红（contract AssertionError；browser 实测 border 为 `rgba(101,160,255,0.16)` 而非 transparent）。实施中 browser E2E 首次暴露 running 的 `background` shorthand 会把 `background-clip` 重置为 `border-box`，随后根因修为全部状态只覆盖 `background-color`；focused `session-lifecycle` 最终通过（9.165s）。E2E 验证透明 7px 盒、5px 核、padding-box、box-shadow 缺席、普通/running drop-shadow 分层、页面绝对同心及跨时间 pulse；`pnpm verify:fast` 通过；最终 `pnpm verify` 12/12 通过（132.437s）；`git diff --check` 通过。现有 `http://127.0.0.1:3080/` 刷新后在 DPR 2 截图目验时间线圆核明显小于标题点、竖线居中且 halo 跟随小圆；computed style 为 carrier 7px/core 5px/transparent border/padding-box/box-shadow none/filter drop-shadow，标题点 7px，节点对标题点与竖线中心差均为 0。
+- DESIGN 对照: R-01-009/AC-09 的 5px 视觉圆点、半透明外围与同圆心契约保持不变；`DESIGN.md` 已收敛到 C-063 的「透明 7px 对齐盒 / 5px 可见核 / 基于核 alpha 的 halo」职责分离，标题点、行高、缩进、DOM、数据层和状态语义均未改变。
+- commit: d9fc3e6
+- review:
+  - 审核方: Standards reviewer `9839a302-fa37-4829-b087-8207cc6de9d2`；Spec reviewer `245bca17-36b0-405c-a369-4deb23974e49`。
+  - 目的理解: 分离跨 DPR 对齐所需的透明 7px 同心承载盒与用户可见的 5px 圆核；halo/glow 跟随圆核 alpha，不显露承载盒边界，同时保持标题点 7px、竖线同心和 running 脉冲。
+  - 执行方式: `code-review` skill，固定基线 `8d20a7fe8fc01a8f62ac9369e476e2ea3ccb8be3`，范围 `git diff 8d20a7f...d9fc3e6`；Standards/Spec 双轴独立并行审核。
+  - 问题与修复: 两轴均无 finding。Standards 确认 browser E2E 直接裁决透明边界、7/5px 几何、box-shadow 缺席、drop-shadow 分层、绝对同心及 pulse 实际变化；Spec 确认 `background-color` 不重置 clipping，视觉主体小于标题点且无 scope creep。
+  - 复审结论: Standards 与 Spec 均通过，无遗留 hard violation、smell 或规格偏差。

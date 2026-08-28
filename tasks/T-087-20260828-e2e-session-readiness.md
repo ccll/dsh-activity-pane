@@ -6,7 +6,7 @@ id: T-087
 
 # T-087 E2E sessions 首次就绪等待根因修复
 
-状态: active
+状态: completed
 关联: C-047、C-049、C-051、C-052、C-053、C-054、C-055、C-056、C-057、C-058 → E2E 验证基建
 风险等级: standard
 
@@ -59,13 +59,13 @@ id: T-087
 
 ## 终态与证据
 
-- 实现: 待填写
-- 测试: 待填写
-- DESIGN 对照: 待填写
-- commit: 待填写
+- 实现: 实时 manager/pane 探针证明 DSH list 已 ready，根因改判为活动窗格空卡集合签名未含 `listState`；渲染签名改为 `JSON.stringify([listState, cardSignature(...)])`。删除 `ERR_PANE_STALL`、五页面世代、fresh-environment recovery 与恢复计数；每 spec 单页面 6s，失败即回归。折叠 timeline detail 断言改为等待真实可观察行，发布 bundle 同步。
+- 测试: 探针失败样本中 manager 40～450ms ready、pane notify/render phase ready 而 DOM 45s loading；修复后单页面 `desktop-layout.mjs` 连续 10/10。完整 `pnpm verify` 连续三轮 11/11（125.270s、124.241s、131.200s），审核修复后 11/11（124.756s），pre-push 11/11（128.277s）。手工 hosted run `33159348747` 在 commit `663b62a` 上 11/11、107.625s，job 3m3s 成功且无任何 recovery 路径。
+- DESIGN 对照: C-058 与 `DESIGN.md#E2E 验证基建` 均描述 listState+cardSignature 结构化签名、每 spec 单页面 6s、零 reload/零换环境；C-053 仅保留固定顺序。`CONVENTIONS.md` 与 runner/helper/check 当前实现一致。自动 hosted 与 Release 仍按 C-057 保持手工，单次 hosted 绿色不改变既有治理决策。
+- commit: cb20709 c02f221 663b62a（根因修复与预算删除、审核收口、异步断言与 DESIGN 最终对齐）
 - review:
-  - 审核方: 待填写
-  - 目的理解: 待填写
-  - 执行方式: 待填写
-  - 问题与修复: 待填写
-  - 复审结论: 待填写
+  - 审核方: Standards reviewer `ff31c02a-088c-4c4b-8055-663832cc681d`；Spec reviewer `72724383-7713-425b-8b19-23c2a814392c`
+  - 目的理解: 找出用户可见列表长期「加载中」的真实层级，在产品最小层修复状态投影，并删除会掩盖回归的 sessions 专用 E2E 恢复；保持 C-057 的手工 hosted/Release 治理。
+  - 执行方式: `code-review` skill，固定基线 `a7f3722...HEAD`，Standards/Spec 双轴并行审核；每轮修复由同一审核方复审。
+  - 问题与修复: 初审发现 DESIGN 浏览器生命周期残留旧 sessions 归因、CONVENTIONS 零恢复措辞过宽、分隔符签名、快失败契约缺失和 C-049/C-058 引用归属；`c02f221` 以结构化签名、精确措辞和正向快失败契约修复，`663b62a` 对齐 C-053/C-058 并补稳定签名设计。零恢复终验另暴露完成提醒早于 timeline detail 的测试竞态，改为等待可观察折叠行。
+  - 复审结论: Standards 与 Spec 最终均通过；原 findings 全部关闭，无新增 finding，source/bundle、map/code 与零恢复行为一致。

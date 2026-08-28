@@ -24,6 +24,8 @@ id: T-087
 - C-053 顺序执行一轮 10/10、183.589s、0 恢复，但另一次清理陈旧测试进程后的纯净顺序轮仍 1/10 失败、463.537s、4 恢复；成功 spec 可达 40～54s，证明第二代 12s 仍低于真实 unary 边界。
 - C-054 两代各 32s 实测仍 1/10 失败、798.176s、7 次恢复；等待不能修复已失败且不自愈的 manager。三套独立 host 直接 `session.list` probe 均在 24～26ms 成功，排除服务端 API 冷就绪，根因收敛到 browser runtime 启动期一次性 pull。
 - C-055 顺序 + 五个 6s 世代在本地 Node 24.16.0 两轮均 10/10、168.948s/186.818s、0 fresh recovery；同提交 hosted Node 22.23.2 却 0/10、753.617s、10 次恢复，因此下一单变量实验按 C-056 对齐 Node 24.16.0。
+- upstream staging 已在 `fix/session-list-initial-retry` 形成本地 commit `6686472`：每个 connection generation 只为 pending 初始列表保留一次尾随重试，direct refresh 与公开 list state 不变；manager 50 tests、root typecheck、build、doc-sync 32 gates 与 staged lint 均通过，尚未 fork 或公开 PR。
+- patched alpha.1 与本项目 rc.7 E2E boot 不能直接作同构对比：新 runtime 的 token URL 首次 GET 返回 303，跟随且无 cookie jar 时为 401，而 `boot.mjs` 只接受最终 `response.ok`，导致 readiness 60s 超时；因此恢复预算只在兼容发布 runtime 可用后收紧，不把 auth 协议差异误判为 sessions 回归。
 - runner 原有最多 3 个全新 Chromium + dsh web 环境；多冷环境恢复与双宿主并发均过量，但顺序环境内短连接世代仍是 rc.7 必需兼容路径。
 
 ## 收敛方案

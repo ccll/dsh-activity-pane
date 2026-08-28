@@ -39,7 +39,7 @@ id: T-087
 
 - `pnpm verify:fast` 验证 readiness 契约与 128/128 AC 锚定。
 - 本地连续 3 轮 `pnpm verify`，记录恢复次数与墙钟。
-- push 后观察 GitHub hosted `pnpm verify`，要求 10/10 spec 通过并记录 readiness/恢复数据。
+- 自动 hosted CI 按 C-057 暂停；兼容发布 runtime 可用后手工 `workflow_dispatch`，要求全 spec 通过并记录 readiness/恢复数据，再评估收紧预算。
 - 独立 `code-review` skill 双轴审核；finding 由同一审核方复审至通过。
 
 ## 验证矩阵

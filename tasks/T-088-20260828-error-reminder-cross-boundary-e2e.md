@@ -32,7 +32,7 @@ id: T-088
 ## 测试计划
 
 - `pnpm verify:fast` 验证 mock 剧本与 spec 注册契约。
-- 单独运行 `pnpm test:e2e -- error-reminder.mjs`。
+- 单独运行 `node e2e/run.mjs error-reminder.mjs`。
 - 完整 `pnpm verify` 验证新增 spec 与既有 10 个 spec 顺序共存。
 - 独立 `code-review` skill 双轴审核；finding 由同一审核方复审至通过。
 

@@ -41,14 +41,17 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 			const node = getComputedStyle(item, "::before");
 			const heading = getComputedStyle(titleDot);
 			const line = getComputedStyle(trace, "::before");
+			const itemRect = item.getBoundingClientRect();
+			const titleRect = titleDot.getBoundingClientRect();
+			const traceRect = trace.getBoundingClientRect();
 			return {
 				nodeWidth: Number.parseFloat(node.width),
 				nodeHeight: Number.parseFloat(node.height),
-				nodeCenterX: Number.parseFloat(node.left) + Number.parseFloat(node.width) / 2,
+				nodeCenterX: itemRect.left + Number.parseFloat(node.left) + Number.parseFloat(node.width) / 2,
 				titleWidth: Number.parseFloat(heading.width),
 				titleHeight: Number.parseFloat(heading.height),
-				titleCenterX: Number.parseFloat(heading.width) / 2,
-				lineCenterX: Number.parseFloat(line.left) + Number.parseFloat(line.width) / 2,
+				titleCenterX: titleRect.left + Number.parseFloat(heading.width) / 2,
+				lineCenterX: traceRect.left + Number.parseFloat(line.left) + Number.parseFloat(line.width) / 2,
 				animation: node.animationName,
 				glow: node.boxShadow,
 			};
@@ -56,8 +59,8 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 	);
 	assert.deepEqual([dotGeometry.nodeWidth, dotGeometry.nodeHeight], [5, 5], "时间线节点整体为 5×5px（R-01-009/AC-09）");
 	assert.deepEqual([dotGeometry.titleWidth, dotGeometry.titleHeight], [7, 7], "标题状态点保持 7×7px（R-01-009/AC-09）");
-	assert.equal(dotGeometry.nodeCenterX, dotGeometry.titleCenterX, "时间线点与标题点同圆心（R-01-009/AC-09）");
-	assert.equal(dotGeometry.nodeCenterX, dotGeometry.lineCenterX, "时间线点与竖线同圆心（R-01-009/AC-09）");
+	assert.ok(Math.abs(dotGeometry.nodeCenterX - dotGeometry.titleCenterX) <= 0.5, "时间线点与标题点的页面绝对圆心竖直对齐（R-01-009/AC-09）");
+	assert.ok(Math.abs(dotGeometry.nodeCenterX - dotGeometry.lineCenterX) <= 0.5, "时间线点与竖线的页面绝对圆心竖直对齐（R-01-009/AC-09）");
 	assert.equal(dotGeometry.animation, "dap-pulse", "running 时间线点保留脉冲（R-01-009/AC-09）");
 	assert.notEqual(dotGeometry.glow, "none", "running 时间线点保留光晕（R-01-009/AC-09）");
 

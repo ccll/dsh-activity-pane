@@ -24,7 +24,7 @@ id: T-086
 
 - 删除 `pull_request` 触发；保留 main push，新增 `v*` tag push 与 `workflow_dispatch`。
 - 不增加自动发布：tag CI 只重放 `pnpm verify`，release 仍由人在 main commit CI 与 tag CI 均通过后创建。
-- 推送实现提交后观察首次 hosted run，记录冷安装、浏览器安装、E2E、恢复次数与总耗时。
+- 推送实现提交后观察首次 hosted run，记录冷安装、浏览器安装、E2E、恢复次数与总耗时；首次 run 在建 job 前失败，根因为 job 级 env 引用了该阶段不可用的 `runner.tool_cache`，改用 `github.workspace/.cache` 并增加回归契约。
 - 仅在 hosted 数据证明必要时优化缓存或 timeout；本 task 不预设额外发布脚本。
 
 ## 测试计划

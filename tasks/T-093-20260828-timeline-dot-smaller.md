@@ -7,7 +7,7 @@ mutation: lifecycle
 # T-093 时间线圆点整体缩小
 
 风险等级: standard
-状态: active
+状态: completed
 
 ## 背景与目标
 
@@ -55,8 +55,13 @@ mutation: lifecycle
 
 ## 终态与证据
 
-- 实现: 待填写。
-- 测试: 待填写。
-- DESIGN 对照: 待填写。
-- commit: 待填写。
-- review: 待填写。
+- 实现: `src/client.mjs` 将时间线节点改为实际 5×5px（`left: 1px; top: 4px`），与 7px 标题点及 `left: 3px` 的 1px 竖线共享 x=3.5 圆心；普通节点删除外扩 box-shadow，running 节点保留蓝色光晕与 `dap-pulse`；`.dsh-plugin/client.js` 已重建。`DESIGN.md` 与 C-061 同步修订 C-036 的 7px 同盒方案。
+- 测试: 测试先行将 `scripts/check.mjs` 改为 5px/7px 契约，旧实现下以「时间线圆点为实际 5px」断言失败，实施后转绿；独立审核后在 `e2e/specs/session-lifecycle.mjs` 增加真实 Chromium 证据，断言 5×5px 时间线点、7×7px 标题点、running 光晕/脉冲，并以元素 `getBoundingClientRect()` + 伪元素偏移计算页面绝对圆心、按 0.5px 容差验证时间线点与标题点/竖线竖直对齐。`pnpm verify:fast` 通过；focused `session-lifecycle` 通过（9.989s）；最终 `pnpm verify` 12/12 通过（130.352s）；`git diff --check` 通过。现有 `http://127.0.0.1:3080/` 刷新后实测 8 个时间线节点，computed style 为 5×5px/left 1px/top 4px，标题点 7×7px，running 节点为 `dap-pulse`。
+- DESIGN 对照: R-01-009/AC-09 既有 5px 视觉圆点需求保持不变；`DESIGN.md` 已收敛到 C-061 的实际 5px 盒、绝对同圆心、原生圆角与盒内半透明外环，DOM、数据层、行高、文字缩进和状态语义均未改变。
+- commit: 1692a31 （最终实现范围另含 d053f37、7049bf0）。
+- review:
+  - 审核方: Standards reviewer `cdfd4194-2b27-4760-b51a-0b24e442f7cb`；Spec reviewer `aab042f3-c4fc-4867-9331-4498ca1eaa27`。
+  - 目的理解: 将活动卡时间线节点整体从与标题点同大的 7～9px 可见轮廓收敛为实际 5px，同时保持标题点 7px、页面绝对圆心对齐、状态色、running 光晕/脉冲及布局不变；同步 AgentMap、测试与生成 bundle。
+  - 执行方式: `code-review` skill，固定基线 `9023285df97a23c03c31be14a19752c383dfd53e`，最终范围 `git diff 9023285...1692a31`；Standards/Spec 双轴独立并行审核，findings 由同一审核方复审。
+  - 问题与修复: Standards 初审指出仅有 bundle 字符串断言，缺少用户可观察行为证据；以 `7049bf0` 增加真实 Chromium 的尺寸、局部同圆心与 running 动效断言。首次复审继续指出局部 CSS 值未计入容器页面偏移；以 `1692a31` 改为 bounding rect + 伪元素偏移的页面绝对圆心断言并加入 0.5px 容差。同一 Standards reviewer 最终确认两项 hard finding 全部关闭；Spec 各轮均无 finding、无 scope creep。
+  - 复审结论: Standards 与 Spec 最终均通过，无遗留 hard violation、smell 或规格偏差。

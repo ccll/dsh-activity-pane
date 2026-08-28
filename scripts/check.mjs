@@ -3444,10 +3444,12 @@ assert.ok(e2eHelperSource.includes('throw new Error("窗格列表加载失败")'
 
 // ---- GitHub CI 触发策略（C-050，T-086）----
 const ciWorkflowSource = await readFile(join(root, ".github/workflows/ci.yml"), "utf8");
-assert.ok(!ciWorkflowSource.includes("pull_request:"), "不为未采用的 pull request 运行 CI");
-assert.ok(ciWorkflowSource.includes("\n  push:") && ciWorkflowSource.includes("branches: [main]"), "main push 自动触发 hosted clean-runner 裁决（C-060）");
-assert.ok(!ciWorkflowSource.includes('tags: ["v*"]'), "release tag 不重复运行 hosted CI");
-assert.ok(ciWorkflowSource.includes("workflow_dispatch:"), "保留显式 hosted 诊断入口");
+const ciTriggerBlock = ciWorkflowSource.match(/^on:\n([\s\S]*?)^permissions:/m)?.[1] ?? "";
+assert.equal(
+	ciTriggerBlock,
+	"  workflow_dispatch:\n  push:\n    branches: [main]\n\n",
+	"hosted CI trigger 仅允许 workflow_dispatch 与 main push，不得加入 PR、tag 或其它 push filter",
+);
 assert.ok(!ciWorkflowSource.includes("runner.tool_cache"), "job 级 env 不引用尚不可用的 runner context");
 assert.ok(ciWorkflowSource.includes("fetch-depth: 0"), "CI checkout 保留完整历史以验证 terminal task commit 证据");
 assert.ok(ciWorkflowSource.includes("timeout-minutes: 30"), "顺序 E2E 拥有明确 hosted timeout");

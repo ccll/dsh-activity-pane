@@ -28,7 +28,7 @@ mutation: lifecycle
 3. 更新 check contract、CONVENTIONS 与 DESIGN；本地 pre-push 仍为推送前权威门禁，hosted 是推送后 clean-runner 独立裁决。
 4. 本次提交推送后观察自动 run 实际结果，不以 workflow YAML 静态解析代替 hosted 证据。
 
-实现进度: 已增加 main push trigger，并同步 workflow contract、CONVENTIONS 与 DESIGN；正在执行本地门禁、独立审核和推送后自动 hosted 实测。
+实现进度: `1093aff` 已推送并自动创建 push run `33179755933`；双轴初审均指出 trigger substring contract 可被其它 PR/tag 语法绕过，已改为精确锁定完整 `on` trigger block，仅允许 workflow_dispatch 与 main/branches，正在等待同一 reviewer 复审和 hosted 结论。
 
 ## 测试影响
 

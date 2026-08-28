@@ -32,8 +32,8 @@ mutation: lifecycle
 
 | 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |
 |---|---|---|---|---|
-| R-01-009/AC-09 | 既有 5px 视觉圆点实现纠偏 | UNIT/MANUAL | update | 更新 CSS contract 与目视验收，明确时间线点整体小于 7px 标题点且仍同圆心 |
-| DESIGN | 以实际 5px 盒修订 7px 同盒实现 | UNIT/MANUAL | update | 更新设计、C-061、CSS contract 与验收步骤 |
+| R-01-009/AC-09 | 既有 5px 视觉圆点实现纠偏 | UNIT/E2E/MANUAL | update | 更新 CSS contract、浏览器 computed style/几何断言与目视验收，明确时间线点整体小于 7px 标题点、仍同圆心且 running 动效不变 |
+| DESIGN | 以实际 5px 盒修订 7px 同盒实现 | UNIT/E2E/MANUAL | update | 更新设计、C-061、CSS contract、浏览器行为断言与验收步骤 |
 
 ## 测试计划
 
@@ -47,10 +47,10 @@ mutation: lifecycle
 
 | 维度 | 适用性/理由 | 可执行证据 |
 |---|---|---|
-| 成功 | 适用：时间线点整体 5px、标题点 7px，尺寸层级明显 | `scripts/check.mjs#R-01-009/AC-09`、`scripts/acceptance.mjs#R-01-009/AC-09`、`src/client.mjs::width: 5px; height: 5px;` |
+| 成功 | 适用：时间线点整体 5px、标题点 7px，尺寸层级明显 | `e2e/specs/session-lifecycle.mjs#R-01-009/AC-09`、`scripts/check.mjs#R-01-009/AC-09`、`scripts/acceptance.mjs#R-01-009/AC-09`、`src/client.mjs::width: 5px; height: 5px;` |
 | 异常 | 不适用：纯 CSS 呈现纠偏，无失败路径 | — |
-| 边界配置 | 适用：5px 点与 1px 竖线仍共享 x=3.5 圆心，行高与末端几何不变 | `scripts/check.mjs#R-01-009/AC-09`、`src/client.mjs::left: 1px; top: 4px;` |
-| 副作用 | 适用：标题点、状态颜色、running 光晕/脉冲、子代理裁切行为不变 | `scripts/check.mjs#R-01-009/AC-09`、`scripts/acceptance.mjs#R-01-009/AC-09`、`src/client.mjs::animation: dap-pulse 1.15s ease-in-out infinite;` |
+| 边界配置 | 适用：5px 点与 1px 竖线仍共享 x=3.5 圆心，行高与末端几何不变 | `e2e/specs/session-lifecycle.mjs#R-01-009/AC-09`、`scripts/check.mjs#R-01-009/AC-09`、`src/client.mjs::left: 1px; top: 4px;` |
+| 副作用 | 适用：标题点、状态颜色、running 光晕/脉冲、子代理裁切行为不变 | `e2e/specs/session-lifecycle.mjs#R-01-009/AC-09`、`scripts/check.mjs#R-01-009/AC-09`、`scripts/acceptance.mjs#R-01-009/AC-09`、`src/client.mjs::animation: dap-pulse 1.15s ease-in-out infinite;` |
 | 兼容性 | 适用：继续使用原生 `border-radius`，不恢复硬停色 radial-gradient | `scripts/check.mjs#R-01-009/AC-09`、`src/client.mjs::background: #778394; background-clip: padding-box;` |
 
 ## 终态与证据

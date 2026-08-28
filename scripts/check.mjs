@@ -3419,9 +3419,10 @@ assert.ok(e2eHelperSource.includes("attempt < 5"), "每环境最多五个页面�
 // ---- GitHub CI 触发策略（C-050，T-086）----
 const ciWorkflowSource = await readFile(join(root, ".github/workflows/ci.yml"), "utf8");
 assert.ok(!ciWorkflowSource.includes("pull_request:"), "不为未采用的 pull request 运行 CI");
-assert.ok(ciWorkflowSource.includes("branches: [main]"), "main push 触发 CI");
-assert.ok(ciWorkflowSource.includes('tags: ["v*"]'), "v* release tag 触发 CI");
-assert.ok(ciWorkflowSource.includes("workflow_dispatch:"), "允许手工重跑 CI");
+assert.ok(!ciWorkflowSource.includes("\n  push:"), "暂停 main 与 tag 的自动 hosted CI");
+assert.ok(!ciWorkflowSource.includes("branches: [main]"), "main push 不自动触发 hosted CI");
+assert.ok(!ciWorkflowSource.includes('tags: ["v*"]'), "release tag 不自动触发 hosted CI");
+assert.ok(ciWorkflowSource.includes("workflow_dispatch:"), "保留显式 hosted 诊断入口");
 assert.ok(!ciWorkflowSource.includes("runner.tool_cache"), "job 级 env 不引用尚不可用的 runner context");
 assert.ok(ciWorkflowSource.includes("fetch-depth: 0"), "CI checkout 保留完整历史以验证 terminal task commit 证据");
 assert.ok(ciWorkflowSource.includes("timeout-minutes: 30"), "顺序 E2E 与有界恢复拥有明确 hosted timeout");

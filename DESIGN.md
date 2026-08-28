@@ -342,6 +342,6 @@ flowchart LR
   - mock LLM 剧本服务：OpenAI 兼容 `POST /chat/completions` SSE 端点，按用户消息关键词选择 E2E 剧本——慢速流式（运行中）、ask_user_question tool_call（待回复）、立即 finish（完成提醒）。
   - 驱动：Playwright 经真实 composer UI 发起会话，断言窗格可观察行为；不断言内部 DOM 结构，结构断言仅限宿主槽座等显式契约边界。
   - 失败与恢复：普通断言失败立即计为回归，不自动重试；rc.7 browser runtime 首次 list pull 失败后不会自重试，每个顺序环境最多建立五个 6s 页面连接世代，让新 SessionManager 在连接稳定后重拉；仍 loading 或列表加载失败才签名为 `E2E_PANE_STALL`，runner 最多再换一次全新 Chromium + dsh web。恢复次数进入套件日志，失败保存 screenshot 与服务端 stderr 尾部（C-053、C-055，废弃 C-051/C-052/C-054 长等待方案）。
-  - 门禁归属：`pnpm verify:fast` 为快速入口，`pnpm verify` 为完整入口；agent 任务结束、`.githooks/pre-push.d/` 与 `.github/workflows/ci.yml` 重放完整入口，pre-commit 保持快速检查。CI 的 dsh CLI 以顶层 rc.7 + 2026-08-18 registry 历史截止隔离安装，使 caret 传递依赖保持完整 rc.7 家族且不改变插件 lockfile（C-048）。项目不接受 PR，workflow 只在 main push、`v*` release tag 与手工触发时运行；tag CI 仅作人工创建 GitHub Release 前的再次裁决，不自动发布（C-050）。
+  - 门禁归属：`pnpm verify:fast` 为快速入口，`pnpm verify` 为完整入口；agent 任务结束与 `.githooks/pre-push.d/` 重放完整入口，pre-commit 保持快速检查。本地 pre-push 是当前提交与推送的权威门禁。`.github/workflows/ci.yml` 保留顶层 rc.7 + 2026-08-18 registry 历史截止、锁定 Node/pnpm/Playwright 与完整历史 checkout，但仅允许 `workflow_dispatch` 作 hosted 诊断；main push、tag 与 PR 不自动触发，待 upstream sessions 首拉恢复后再评估恢复（C-057）。Release 继续由人在本地完整门禁通过后创建，不自动发布。
 - 代码位置: e2e/、package.json、.githooks/、.github/workflows/ci.yml
 - 实现: 单端（Node，测试期进程）

@@ -6,7 +6,7 @@ id: T-088
 
 # T-088 错误提醒跨边界 E2E
 
-状态: active
+状态: completed
 关联: C-043、C-045 → E2E 验证基建、错误提醒
 风险等级: standard
 
@@ -49,13 +49,13 @@ id: T-088
 
 ## 终态与证据
 
-- 实现: 待填写
-- 测试: 待填写
-- DESIGN 对照: 待填写
-- commit: 待填写
+- 实现: `applyAcksState()` 完整保留 Host SSE 快照的 `lastTurnEndKind/lastTurnEndError`，确认写回保留记录其余字段；mock LLM 新增非重试型 HTTP 400 error 剧本；`error-reminder.mjs` 覆盖 provider→Agent turn/end→Host storage→SSE→浏览器错误提醒、无确认按钮、打开不解除与刷新恢复；发布 bundle 同步。
+- 测试: 首次 E2E 复现 Host 快照正确但客户端误显示完成提醒；修复后单 spec 15.235s、0 recovery 通过。最终 `pnpm verify` 11/11 spec 通过（210.532s，0 recovery），`pnpm verify:fast` 与 `git diff --check` 通过。
+- DESIGN 对照: `DESIGN.md#E2E 验证基建` 已登记 T-088 与 error 剧本；错误提醒 Host/SSE/core/呈现契约原本即为目标态，修复后 `src/client.mjs` 与 `.dsh-plugin/client.js` 无差异。
+- commit: ad1acbd 0c9f014 b16aecc eae633e 8be1d91（实现、审核修复、命令对齐、bundle 同步与验收分工）
 - review:
-  - 审核方: 待填写
-  - 目的理解: 待填写
-  - 执行方式: 待填写
-  - 问题与修复: 待填写
-  - 复审结论: 待填写
+  - 审核方: Standards reviewer `01529703-ddf8-4bd5-a90b-5a58dd06fd63`；Spec reviewer `a44a9e98-fcdf-40f1-a582-aa482debc36e`
+  - 目的理解: 用真实 mock provider 故障证明错误提醒跨越 Agent/Host/SSE/浏览器边界，并修复 Host 已登记 error 但客户端投影丢字段导致误显示完成提醒的缺陷；断言只覆盖用户可观察契约。
+  - 执行方式: `code-review` skill，固定基线 `15cf561...HEAD`，Standards/Spec 双轴并行审核；每轮修复后由同一审核方复审。
+  - 问题与修复: 初审发现 DESIGN 未登记 error 剧本、标题可误满足「错误」断言、内部 DOM/data-tone 断言、AC 锚点过宽、bundle 未同步、acceptance 迁移账本与诊断路径分散；分别由 `0c9f014`、`eae633e`、`8be1d91` 收敛。T-086 矩阵漂移同轮修复。
+  - 复审结论: Standards 与 Spec 最终均通过；source/artifact 一致，无 hard violation、无未决 judgement finding。

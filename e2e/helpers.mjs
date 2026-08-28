@@ -48,8 +48,11 @@ export async function paneBox(page) {
 
 /** 首跑公告弹窗仅在首次出现，存在则关掉。 */
 export async function dismissNotice(page) {
-	const notice = page.getByRole("button", { name: "Continue" });
-	if (await notice.isVisible().catch(() => false)) await notice.click();
+	// 公告按钮会先以 disabled 挂载再启用，也可能在水合时被替换；在一次 DOM 执行内查找并激活，避免 locator 自动等待竞态。
+	await page.evaluate(() => {
+		const button = [...document.querySelectorAll("button")].find((candidate) => candidate.textContent.trim() === "Continue");
+		if (button && !button.disabled) button.click();
+	});
 }
 
 /** 打开应用并等待窗格数据就绪；列表状态转换由产品渲染签名保证即时落到 DOM，
@@ -124,6 +127,7 @@ export const MOCK_MODEL = "DeepSeek-V4-Flash";
  *  二次水合可能清空输入，填入后校验、被清空则重填；发送成功以 hero 消失为准。 */
 export async function sendHeroMessage(page, text) {
 	const hero = page.locator(`textarea[placeholder="${HERO_PLACEHOLDER}"]`);
+	await dismissNotice(page);
 	for (let attempt = 0; ; attempt += 1) {
 		const visible = await hero.waitFor({ timeout: 8_000 }).then(() => true).catch(() => false);
 		if (visible) break;
@@ -131,6 +135,8 @@ export async function sendHeroMessage(page, text) {
 		await page.getByRole("button", { name: "New session" }).first().click();
 	}
 	await until(`发送消息「${text}」`, async () => {
+		// 首跑公告可能在 goto/networkidle 之后延迟挂载；每轮先处理，避免遮罩吞掉 composer 键盘事件。
+		await dismissNotice(page);
 		await hero.fill(text).catch(() => {});
 		await page.waitForTimeout(400);
 		if ((await hero.inputValue().catch(() => "")) !== text) return null; // 被水合清空，下轮重填

@@ -3209,7 +3209,12 @@ function apply(ctx) {
 		for (const [id, record] of Object.entries(state)) {
 			const lastTurnEnd = Number(record?.lastTurnEnd);
 			if (Number.isFinite(lastTurnEnd) && lastTurnEnd > 0) {
-				completeAcksById.set(String(id), { lastTurnEnd, ackedAt: Number(record.ackedAt) || null });
+				completeAcksById.set(String(id), {
+					lastTurnEnd,
+					lastTurnEndKind: typeof record?.lastTurnEndKind === "string" ? record.lastTurnEndKind : null,
+					lastTurnEndError: typeof record?.lastTurnEndError === "string" ? record.lastTurnEndError : null,
+					ackedAt: Number(record.ackedAt) || null,
+				});
 			}
 		}
 		queueSync();
@@ -3250,7 +3255,7 @@ function apply(ctx) {
 	async function ackCompletion(sessionId) {
 		const id = String(sessionId);
 		const prev = completeAcksById.get(id) ?? null;
-		completeAcksById.set(id, { lastTurnEnd: prev?.lastTurnEnd ?? null, ackedAt: Date.now() });
+		completeAcksById.set(id, { ...prev, lastTurnEnd: prev?.lastTurnEnd ?? null, ackedAt: Date.now() });
 		queueSync();
 		try {
 			const response = await fetch(`${ACK_API_BASE}/ack`, {

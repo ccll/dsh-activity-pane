@@ -7,7 +7,7 @@ mutation: lifecycle
 # T-092 E2E 阶段计时与 cleanup timer 收敛
 
 风险等级: standard
-状态: active
+状态: completed
 
 ## 背景与目标
 
@@ -55,4 +55,13 @@ mutation: lifecycle
 
 ## 终态与证据
 
-待实现完成后填写。
+- 实现: `91ee817` 取消正常 web exit 后的 losing SIGKILL timer、在 slow response destroyed 后停止剩余 chunks，并输出 boot/browser/spec/cleanup/total；`80747d5` 让 context/browser/environment cleanup 逐项执行且错误显式使 spec 失败，补最终 slow 收尾 guard 与行为测试。
+- 测试: focused A 基线 `loading-ready` runner 5.847s、wall 11.07s（差 5.22s）；仅取消 escalation timer 后 wall 8.85s；最终实现 runner 6.571s、wall 7.11s（差 0.54s），消除约 4.68s 进程尾部空等。`pnpm verify` 最终 12/12 通过，runner suite 135.511s；PASS 日志已分列每 spec 阶段。`pnpm check` 的直接行为测试证明 cleanup 首步失败后仍执行第二步且错误返回、AbortController 断流后 slow chunk 少于 24 且 350ms 后计数稳定；lint、staged bundle、`git diff --check` 通过。
+- DESIGN 对照: `DESIGN.md#E2E 验证基建` 已同步阶段可观测性、5s SIGKILL 仅在 SIGTERM 未收敛时升级、slow destroyed 停止剩余 timer/收尾、cleanup 错误显式裁决；MAX_CONCURRENCY=1、独立环境/Chromium/context、6s readiness、零 retry/reload 与 sendHero 均未改变。
+- commit: 91ee817 80747d5
+- review:
+  - 审核方: Standards reviewer `dd1ce0b9-204a-474f-ab46-e48c66f58a85`；Spec reviewer `3198a5cb-a212-4d4d-ac7b-df0b151a70d1`
+  - 目的理解: 两位 reviewer 先确认 T-092 只修有 A/B 证据的 E2E 进程尾部 timer，并增加阶段耗时；不得改变 timeout、隔离、并发、sendHero 或零重试策略。
+  - 执行方式: `code-review` skill，固定基线 `21a57ac...HEAD`；Standards 与 Spec 双轴并行，修复后由同一 reviewer 复审。
+  - 问题与修复: Standards 初审发现 cleanup error 被吞会误报 PASS、源码 includes 不能证明行为；Spec 发现最后一次 slow sleep 后断开仍可能写 stop/usage/DONE。修复为 `settleCleanupSteps` 聚合错误并继续释放、`formatPassTimings` 直接行为断言、AbortController + streamLog 断流行为测试，以及最终收尾前 destroyed guard。
+  - 复审结论: Standards 与 Spec 原 findings 全部关闭，无新增问题；focused wall-total 差值低于 1s，完整 12/12 通过。

@@ -89,12 +89,14 @@ const ASK_QUESTION_ARGUMENTS = JSON.stringify({
 });
 
 /** 慢速流式剧本：分块吐文本，让会话保持运行数秒。客户端中途断开（响应流关闭）即停止。 */
-async function playSlow(res, model) {
+async function playSlow(res, model, streamLog = []) {
 	for (let i = 1; i <= SLOW_CHUNKS; i += 1) {
 		if (res.destroyed || res.writableEnded) return;
 		send(res, chunk(model, { role: i === 1 ? "assistant" : undefined, content: `慢速输出片段 ${i}/${SLOW_CHUNKS}。\n` }));
+		streamLog.push(i);
 		await sleep(SLOW_INTERVAL_MS);
 	}
+	if (res.destroyed || res.writableEnded) return;
 	send(res, chunk(model, {}, "stop"));
 	send(res, usageChunk(model, SLOW_CHUNKS * 6));
 	res.write("data: [DONE]\n\n");
@@ -146,10 +148,11 @@ const SCENARIOS = {
 
 /**
  * 启动 mock LLM 服务。
- * @returns Promise<{ url, port, scenarioLog, close }>；scenarioLog 记录每次命中的剧本名（按请求顺序）。
+ * @returns Promise<{ url, port, scenarioLog, streamLog, close }>；scenarioLog 记录命中剧本，streamLog 记录 slow 已发送块。
  */
 export async function startMockLlm() {
 	const scenarioLog = [];
+	const streamLog = [];
 	const server = http.createServer((req, res) => {
 		if (req.method !== "POST" || !req.url.endsWith("/chat/completions")) {
 			res.writeHead(404).end("not found");
@@ -175,7 +178,8 @@ export async function startMockLlm() {
 				});
 			}
 			try {
-				await SCENARIOS[scenario](res, body.model ?? "e2e-mock");
+				const model = body.model ?? "e2e-mock";
+				await (scenario === "slow" ? playSlow(res, model, streamLog) : SCENARIOS[scenario](res, model));
 			} catch {
 				res.end();
 			}
@@ -187,6 +191,7 @@ export async function startMockLlm() {
 		port,
 		url: `http://127.0.0.1:${port}/v1`,
 		scenarioLog,
+		streamLog,
 		close: () => new Promise((resolve) => server.close(resolve)),
 	};
 }

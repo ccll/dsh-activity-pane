@@ -339,7 +339,7 @@ flowchart LR
 - 关键内部结构:
   - 隔离测试环境：每个 spec 使用独立 `$DSH_HOME` 临时目录 + 预置 settings.yaml（provider 指向 mock LLM）+ `dsh web --port 0`；插件经 `dsh plugin --profile web add` 以 link: 装入；spec 间会话与持久化状态互不可见。
   - 浏览器生命周期：每个 spec 使用独立 Chromium 与主 context，结束后关闭；需要验证同服务多客户端语义的 spec 可在该 Chromium 内创建第二个 context，二者只共享对应 spec 的 dsh web 服务。C-047 的隔离策略保证 spec 间浏览器状态不可见；runner 按 C-053 固定顺序执行以保持单机资源上限与日志顺序稳定，C-058 仅删除 sessions 专用恢复。
-  - 阶段可观测性与清理：PASS 日志分列 boot/browser/spec/cleanup/total，定位真实墙钟占比；dsh web 正常退出后立即取消 5s SIGKILL escalation timer，只有 SIGTERM 未在窗口内收敛才升级；slow mock 在客户端响应已 destroyed/writableEnded 时停止剩余 chunk timers，不让 losing timer 或断开的剧本拖住 Node 进程。
+  - 阶段可观测性与清理：PASS 日志分列 boot/browser/spec/cleanup/total，定位真实墙钟占比；dsh web 正常退出后立即取消 5s SIGKILL escalation timer，只有 SIGTERM 未在窗口内收敛才升级；slow mock 在客户端响应已 destroyed/writableEnded 时停止剩余 chunk timers 与收尾写入。context/browser/environment 清理逐项执行，任一步失败均显式使 spec 失败而不阻止后续资源释放。
   - mock LLM 剧本服务：OpenAI 兼容 `POST /chat/completions` 端点，按用户消息关键词选择 E2E 剧本——慢速流式（运行中）、ask_user_question tool_call（待回复）、runtime 的 tool→回答后 slow stream（运行态时间线实时更新）、立即 finish（完成提醒）、非重试型 HTTP 400（错误提醒）。
   - 可控加载接缝：仅当页面 URL fragment 显式携带参数时启用且单项上限 1s；`dap-e2e-list-delay` 把首次非错误列表快照在渲染边界内短暂投影为 pending，到期只触发同一 `queueSync`；`dap-e2e-model-delay` 仅跳过 model directory 的抢先初值并延迟正式 native models RPC，不伪造 response。默认 URL 为零分支，不修改宿主 sessions、真实快照或页面连接世代。`loading-ready.mjs` 以 MutationObserver 证明列表 loading 帧实际提交及真实 slow 卡标题/时间线先呈现、model detail 后补齐。
   - 驱动：Playwright 经真实 composer UI 发起会话，断言窗格可观察行为；不断言内部 DOM 结构，结构断言仅限宿主槽座、可访问角色与列表状态等显式契约边界。

@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 process.env.PLAYWRIGHT_BROWSERS_PATH ??= "0";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const { bootE2e } = await import("./boot.mjs");
+const { bootE2e, formatPassTimings, settleCleanupSteps } = await import("./boot.mjs");
 const { chromium } = await import("playwright");
 const MAX_CONCURRENCY = 1;
 
@@ -69,13 +69,19 @@ async function runSpec(name) {
 		await captureFailure(page, name);
 	} finally {
 		const cleanupStart = Date.now();
-		await context?.close().catch(() => {});
-		await browser?.close().catch(() => {});
-		await env?.cleanup().catch(() => {});
+		const cleanupErrors = await settleCleanupSteps([
+			["context", () => context?.close()],
+			["browser", () => browser?.close()],
+			["environment", () => env?.cleanup()],
+		]);
 		cleanupMs = Date.now() - cleanupStart;
+		if (cleanupErrors.length > 0) {
+			result = 1;
+			console.error(`e2e: FAIL ${name} cleanup\n${cleanupErrors.join("\n")}`);
+		}
 	}
 	if (result === 0) {
-		console.error(`e2e: PASS ${name}（boot=${bootMs}ms browser=${browserMs}ms spec=${specMs}ms cleanup=${cleanupMs}ms total=${Date.now() - start}ms）`);
+		console.error(formatPassTimings(name, { boot: bootMs, browser: browserMs, spec: specMs, cleanup: cleanupMs, total: Date.now() - start }));
 	}
 	return result;
 }

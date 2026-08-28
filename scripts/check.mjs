@@ -3432,13 +3432,23 @@ assert.ok(hostSource.includes("streamClients") && hostSource.includes("for (cons
 const e2eRunnerSource = await readFile(join(root, "e2e/run.mjs"), "utf8");
 assert.equal(e2eRunnerSource.match(/chromium\.launch\(/g)?.length, 1, "runner 只有一条 Chromium 启动路径");
 assert.ok(e2eRunnerSource.includes("context = await browser.newContext()"), "每次隔离环境创建独立 browser context");
-assert.ok(e2eRunnerSource.includes("await browser?.close()"), "每个 spec 都关闭浏览器进程");
+assert.ok(e2eRunnerSource.includes("browser?.close()"), "每个 spec 都关闭浏览器进程");
 assert.ok(!e2eRunnerSource.includes("sharedBrowser"), "不保留未使用或跨环境共享的浏览器进程");
 assert.ok(e2eRunnerSource.includes("const MAX_CONCURRENCY = 1") && e2eRunnerSource.includes("Math.min(MAX_CONCURRENCY, specFiles.length)"), "E2E 固定顺序执行，保持资源上限与日志顺序稳定");
 assert.ok(!e2eRunnerSource.includes("RECOVER") && !e2eRunnerSource.includes("stallRecoveries"), "普通失败与列表停滞均不得换环境重试");
-assert.ok(e2eRunnerSource.includes("boot=${bootMs}ms browser=${browserMs}ms spec=${specMs}ms cleanup=${cleanupMs}ms"), "PASS 日志分列 boot/browser/spec/cleanup 阶段耗时");
-const e2eBootSource = await readFile(join(root, "e2e/boot.mjs"), "utf8");
-assert.ok(e2eBootSource.includes("clearTimeout(escalationTimer)"), "正常 cleanup 后取消 SIGKILL escalation timer，不拖住 Node 进程");
+const { formatPassTimings, settleCleanupSteps } = await import("../e2e/boot.mjs");
+assert.equal(
+	formatPassTimings("sample.mjs", { boot: 1, browser: 2, spec: 3, cleanup: 4, total: 10 }),
+	"e2e: PASS sample.mjs（boot=1ms browser=2ms spec=3ms cleanup=4ms total=10ms）",
+	"PASS 日志可观察地分列 boot/browser/spec/cleanup/total",
+);
+const cleanupOrder = [];
+const cleanupErrors = await settleCleanupSteps([
+	["first", async () => { cleanupOrder.push("first"); throw new Error("expected cleanup failure"); }],
+	["second", async () => { cleanupOrder.push("second"); }],
+]);
+assert.deepEqual(cleanupOrder, ["first", "second"], "cleanup 单步失败后继续释放其余资源");
+assert.equal(cleanupErrors.length, 1, "cleanup 错误显式返回给 runner 裁决失败，不被吞掉");
 const e2eHelperSource = await readFile(join(root, "e2e/helpers.mjs"), "utf8");
 assert.equal(e2eHelperSource.match(/page\.goto\(url/g)?.length, 1, "每个 spec 只建立一个页面连接世代");
 assert.ok(e2eHelperSource.includes("const PANE_READY_TIMEOUT_MS = 6_000"), "单页面连接世代使用固定 6s 观察窗口");
@@ -3460,8 +3470,6 @@ assert.ok(ciWorkflowSource.includes("node-version: 24.16.0"), "hosted Node 与�
 
 // ---- E2E 基建：mock LLM 剧本服务行为断言（C-045，T-082、T-088、T-089）----
 // 浏览器 spec 驱动真实 UI；fast/slow/ask/runtime/error 的响应形状与分流规则在此做 Node 级行为验证。
-const mockLlmSource = await readFile(join(root, "e2e/mock-llm.mjs"), "utf8");
-assert.ok(mockLlmSource.includes("res.destroyed || res.writableEnded"), "slow mock 在客户端断开后停止剩余 chunk timers");
 const { startMockLlm } = await import("../e2e/mock-llm.mjs");
 const { MOCK_ERROR_MESSAGE } = await import("../e2e/helpers.mjs");
 const mock = await startMockLlm();
@@ -3496,6 +3504,23 @@ try {
 	const slowContent = slow.filter((e) => e.choices?.[0]?.delta?.content);
 	assert.equal(slowContent.length, 24, "slow 分 24 块流式输出");
 	assert.equal(slow.at(-2).choices[0].finish_reason, "stop", "slow 以 stop 收尾");
+
+	// slow disconnect：客户端读到首块后断开，服务端停止剩余 chunk timers 与收尾写入。
+	const streamBeforeDisconnect = mock.streamLog.length;
+	const abort = new AbortController();
+	const disconnected = await fetch(`${mock.url}/chat/completions`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		signal: abort.signal,
+		body: JSON.stringify({ model: "deepseek-v4-flash", stream: true, messages: [{ role: "user", content: "e2e:slow 断开探针" }] }),
+	});
+	await disconnected.body.getReader().read();
+	abort.abort();
+	await new Promise((resolve) => setTimeout(resolve, 350));
+	const streamAfterDisconnect = mock.streamLog.length;
+	await new Promise((resolve) => setTimeout(resolve, 350));
+	assert.ok(streamAfterDisconnect > streamBeforeDisconnect && streamAfterDisconnect - streamBeforeDisconnect < 24, "slow 断开后未发送剩余全部内容块");
+	assert.equal(mock.streamLog.length, streamAfterDisconnect, "slow 断开后 chunk 计数稳定，无遗留 timers 继续写入");
 
 	// ask：tool_calls 增量可重组为合法 ask_user_question 参数，finish_reason 为 tool_calls。
 	const ask = await requestScenario("e2e:ask 探针");
@@ -3532,7 +3557,7 @@ try {
 	assert.ok(afterTool.length <= 4 && afterTool.at(-2).choices[0].finish_reason === "stop", "tool 结果回合直接 fast 收口");
 
 	// 默认剧本：无关键词走 fast；非 chat/completions 路径 404。
-	assert.deepEqual(mock.scenarioLog, ["fast", "fast", "slow", "ask", "runtime", "slow", "error", "fast"], "scenarioLog 记录默认/显式 fast、slow、ask、runtime→slow、error 与普通 tool 收口");
+	assert.deepEqual(mock.scenarioLog, ["fast", "fast", "slow", "slow", "ask", "runtime", "slow", "error", "fast"], "scenarioLog 记录默认/显式 fast、slow/断开、ask、runtime→slow、error 与普通 tool 收口");
 	const wrongPath = await fetch(`${mock.url}/models`);
 	assert.equal(wrongPath.status, 404, "非 chat/completions 路径返回 404");
 } finally {

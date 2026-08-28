@@ -23,6 +23,24 @@ const BOOT_TIMEOUT_MS = 60_000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** 依次执行全部清理步骤，返回带标签的错误；单步失败不阻止其余资源释放。 */
+export async function settleCleanupSteps(steps) {
+	const errors = [];
+	for (const [label, cleanup] of steps) {
+		try {
+			await cleanup();
+		} catch (error) {
+			errors.push(`${label}: ${error?.stack ?? error}`);
+		}
+	}
+	return errors;
+}
+
+export function formatPassTimings(name, timings) {
+	const { boot, browser, spec, cleanup, total } = timings;
+	return `e2e: PASS ${name}（boot=${boot}ms browser=${browser}ms spec=${spec}ms cleanup=${cleanup}ms total=${total}ms）`;
+}
+
 /** 预置工作区存储：隔离环境内建一个工作区目录并登记为唯一工作区，免除 UI 选工作区步骤。 */
 async function seedWorkspace(home) {
 	const id = "e2e-workspace";

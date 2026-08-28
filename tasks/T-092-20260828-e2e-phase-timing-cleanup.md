@@ -18,7 +18,7 @@ mutation: lifecycle
 ## 差距评估
 
 - `bootE2e().timings` 已记录 mock/settings/plugin/webReady/total，但 runner 未输出。
-- 实现进度: 首轮取消 normal cleanup 的 losing escalation timer 后 focused wall 从 11.07s 降到 8.85s；阶段日志继续定位到 slow mock 在客户端断开后仍保留 chunk timers，增加 `res.destroyed` 终止条件后同 spec runner total 6.340s、wall 6.80s，差值收敛到 0.46s。
+- 实现进度: 首轮取消 normal cleanup 的 losing escalation timer 后 focused wall 从 11.07s 降到 8.85s；增加 slow disconnect 终止后 runner total 6.340s、wall 6.80s。双轴初审继续发现 cleanup error 被吞及最终 slow 收尾前缺断开复查，已改为显式 `settleCleanupSteps` 错误裁决、最终 guard，并以行为测试验证单步 cleanup 失败仍释放后续资源及断开后 chunk 计数稳定，待复审。
 - cleanup 的 5s escalation timer 无取消句柄；正常 web exit 赢得 race 后 timer 仍存活。
 - 多次 hosted/main push 已在 2m30～2m48 job 内绿色，当前没有证据支持改变隔离或 timeout 策略。
 
@@ -51,7 +51,7 @@ mutation: lifecycle
 | 边界配置 | 适用：只改变日志和正常 timer 生命周期，不改变 timeout/隔离 | `e2e/boot.mjs::BOOT_TIMEOUT_MS`、`e2e/run.mjs::MAX_CONCURRENCY` |
 | 副作用 | 适用：cleanup 始终关闭 context/browser/web/mock/home | `e2e/run.mjs::finally`、`e2e/boot.mjs::cleanup` |
 | 性能 | 适用：focused A/B 使用进程 wall 与 runner total 比较 | `e2e/run.mjs::suiteStart` |
-| 可观测性 | 适用：每 spec 输出 boot/spec/cleanup/total | `e2e/boot.mjs::timings`、`e2e/run.mjs::PASS` |
+| 可观测性 | 适用：每 spec 输出 boot/browser/spec/cleanup/total | `e2e/boot.mjs::timings`、`e2e/boot.mjs::formatPassTimings` |
 
 ## 终态与证据
 

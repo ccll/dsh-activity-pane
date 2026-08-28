@@ -28,7 +28,7 @@ mutation: lifecycle
 3. 扩展 `loading-ready.mjs`：列表 ready 后发送真实 `e2e:slow` 会话，记录“标题/用户时间线已出现而 model 尚未出现”及“model/reasoning 随后出现”的有序证据。
 4. `scripts/check.mjs` 增加接缝边界 contract；重建 client bundle并同步 DESIGN/acceptance 映射。
 
-实现进度: 已按上述边界落地 model delay、同页 MutationObserver 两阶段断言及 DESIGN/acceptance 对照；Standards 初审指出实现字符串断言过度脆弱及 delay timer 卸载未清理，已收敛为 `delayedModelCall` 边界、waiter 清理与 inflight 下限保护，待原 reviewer 复审。
+实现进度: 已按上述边界落地 model delay、同页 MutationObserver 两阶段断言及 DESIGN/acceptance 对照；Standards 初审指出实现字符串断言过度脆弱及 delay timer 卸载未清理，首轮修复收敛为 `delayedModelCall` 边界、waiter 清理与 inflight 下限保护；复审补充同步 `api.models` 抛错会逃出 timer，已改为 Promise 链吸收并沿用既有 `.catch` 降级，待最终复审。
 
 ## 测试影响
 

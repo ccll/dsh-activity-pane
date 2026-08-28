@@ -2907,6 +2907,7 @@ assert.ok(clientSource.includes('e2eParams.get("dap-e2e-model-delay")'), "detail
 assert.ok(clientSource.includes("Math.min(requestedModelDelay, 1_000)"), "detail 渐进 E2E 延迟上限为 1 秒");
 assert.ok(clientSource.includes("if (!subagent && e2eModelDelayMs === 0) subscribeModelDirectory(id, detail);"), "fixture 模式仅绕开 model directory 抢先初值");
 assert.ok(clientSource.includes("delayedModelCall(() => api.models({ sessionId: id }))"), "detail fixture 延迟正式 models RPC，不伪造 model response");
+assert.ok(clientSource.includes("Promise.resolve().then(call)"), "detail fixture 保留 models RPC 同步异常的 Promise catch 降级语义");
 assert.ok(clientSource.includes("e2eModelDelayWaiters.clear()"), "卸载时取消并结清 detail fixture 延迟，不残留 timer/promise");
 assert.ok(bundle.includes("promise.then(queueSync, queueSync)"), "补充数据逐个完成即重绘（先就绪先显示）");
 assert.ok(bundle.includes("LOAD_CONCURRENCY"), "冷数据读取经并发池限制慢网挤占");

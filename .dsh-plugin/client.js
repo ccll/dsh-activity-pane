@@ -3041,7 +3041,7 @@ function apply(ctx) {
 		return new Promise((resolve) => {
 			const timer = setTimeout(() => {
 				e2eModelDelayWaiters.delete(timer);
-				resolve(disposed ? null : call());
+				resolve(disposed ? null : Promise.resolve().then(call));
 			}, e2eModelDelayMs);
 			e2eModelDelayWaiters.set(timer, resolve);
 		});

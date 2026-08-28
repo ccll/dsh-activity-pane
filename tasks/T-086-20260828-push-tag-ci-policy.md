@@ -25,7 +25,7 @@ id: T-086
 - 删除 `pull_request` 触发；保留 main push，新增 `v*` tag push 与 `workflow_dispatch`。
 - 不增加自动发布：tag CI 只重放 `pnpm verify`，release 仍由人在 main commit CI 与 tag CI 均通过后创建。
 - 推送实现提交后观察首次 hosted run，记录冷安装、浏览器安装、E2E、恢复次数与总耗时；首次 run 在建 job 前失败，根因为 job 级 env 引用了该阶段不可用的 `runner.tool_cache`，改用 `github.workspace/.cache` 并增加回归契约；第二次 run 进入 Verify 后发现 checkout 默认浅克隆使历史 terminal task commit 证据不可达，改为 `fetch-depth: 0`。
-- 仅在 hosted 数据证明必要时优化缓存或 timeout；本 task 不预设额外发布脚本。
+- 第三次 hosted run 在 Node 22 + 双 worker 下 8/10 失败、468.179s、16 次恢复；顺序 + 短世代后第四次仍 0/10、753.617s、10 次恢复，而本地 Node 24.16.0 同策略连续门禁可 10/10、0 fresh recovery。由此把 hosted Node 精确锁到 24.16.0，并把 job timeout 提高到 30 分钟；不增加发布脚本或环境重试。
 
 ## 测试计划
 

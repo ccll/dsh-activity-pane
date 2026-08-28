@@ -57,19 +57,33 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 				titleCenterX: titleRect.left + Number.parseFloat(heading.width) / 2,
 				lineCenterX: traceRect.left + Number.parseFloat(line.left) + Number.parseFloat(line.width) / 2,
 				animation: node.animationName,
+				opacity: Number.parseFloat(node.opacity),
 				glow: node.boxShadow,
 				settledHalo: settledNode.boxShadow,
 			};
 		}, TITLE),
 	);
+	const pulseOpacities = [dotGeometry.opacity];
+	for (let sample = 0; sample < 2; sample += 1) {
+		await page.waitForTimeout(300);
+		pulseOpacities.push(
+			await page.evaluate(() => {
+				const running = document.querySelector('[data-dsh-activity-pane] .dap-trace-item[data-status="running"]');
+				return running ? Number.parseFloat(getComputedStyle(running, "::before").opacity) : Number.NaN;
+			}),
+		);
+	}
+
 	assert.deepEqual([dotGeometry.nodeWidth, dotGeometry.nodeHeight], [7, 7], "时间线节点使用 7×7px 同心承载盒（R-01-009/AC-09）");
 	assert.equal(dotGeometry.nodeCoreWidth, 5, "时间线承载盒内保留 5px 实心核（R-01-009/AC-09）");
 	assert.deepEqual([dotGeometry.titleWidth, dotGeometry.titleHeight], [7, 7], "标题状态点保持 7×7px（R-01-009/AC-09）");
 	assert.ok(Math.abs(dotGeometry.nodeCenterX - dotGeometry.titleCenterX) <= 0.5, "时间线承载盒与标题点的页面绝对圆心竖直对齐（R-01-009/AC-09）");
 	assert.ok(Math.abs(dotGeometry.nodeCenterX - dotGeometry.lineCenterX) <= 0.5, "时间线承载盒与竖线的页面绝对圆心竖直对齐（R-01-009/AC-09）");
-	assert.notEqual(dotGeometry.settledHalo, "none", "已定案时间线点恢复半透明外围环（R-01-009/AC-09）");
+	assert.match(dotGeometry.settledHalo, /rgba\(119, 131, 148, 0\.14\) 0px 0px 0px 1px/, "已定案时间线点恢复 1px 半透明外围环（R-01-009/AC-09）");
 	assert.equal(dotGeometry.animation, "dap-pulse", "running 时间线点保留脉冲（R-01-009/AC-09）");
-	assert.notEqual(dotGeometry.glow, "none", "running 时间线点保留半透明外围与光晕（R-01-009/AC-09）");
+	assert.match(dotGeometry.glow, /rgba\(101, 160, 255, 0\.16\) 0px 0px 0px 1px/, "running 时间线点恢复 1px 同色半透明外围（R-01-009/AC-09）");
+	assert.match(dotGeometry.glow, /rgba\(101, 160, 255, 0\.65\) 0px 0px 6px 0px/, "running 时间线点保留 6px 光晕（R-01-009/AC-09）");
+	assert.ok(pulseOpacities.every(Number.isFinite) && Math.max(...pulseOpacities) - Math.min(...pulseOpacities) > 0.05, `running 时间线点 opacity 随 dap-pulse 跨时间变化（采样 ${pulseOpacities.join(", ")}，R-01-009/AC-09）`);
 
 	// mock 必须确实命中 slow 剧本（证明链路经 mock LLM 而非真实模型）。
 	assert.ok(mock.scenarioLog.includes("slow"), `mock 应命中 slow 剧本，实际：${mock.scenarioLog}`);

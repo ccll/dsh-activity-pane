@@ -17,6 +17,9 @@ E2E_PATTERNS = ("e2e/specs/*.mjs",)
 MANUAL_PATTERNS = ("scripts/acceptance.mjs",)
 EVIDENCE_PATTERNS = AUTO_PATTERNS + E2E_PATTERNS + MANUAL_PATTERNS
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+ALLOWED_LAYERS = {"UNIT", "E2E", "MANUAL", "UNIT/E2E", "UNIT/MANUAL", "E2E/MANUAL", "UNIT/E2E/MANUAL", "none"}
+ALLOWED_ACTIONS = {"add", "update", "delete", "none"}
+PLACEHOLDER_RE = re.compile(r"^(?:-|N/A|TBD|TODO|待补|无)$", re.IGNORECASE)
 
 
 def run_git(root, *args, input_text=None, check=True):
@@ -31,7 +34,12 @@ def run_git(root, *args, input_text=None, check=True):
 
 def git_text(root, spec, path):
     result = run_git(root, "show", "%s:%s" % (spec, path), check=False)
-    return result.stdout if result.returncode == 0 else ""
+    if result.returncode == 0:
+        return result.stdout
+    missing = ("does not exist in", "exists on disk, but not in", "not in the index")
+    if any(marker in result.stderr for marker in missing):
+        return ""
+    raise RuntimeError(result.stderr.strip() or "git show failed for %s:%s" % (spec, path))
 
 
 def working_text(root, path):
@@ -116,15 +124,28 @@ def changed_active_task_rows(root, changed, reader):
     return rows
 
 
+def valid_impact_row(row):
+    subject, change, layer, action, evidence = row
+    return (
+        bool(subject and change)
+        and layer in ALLOWED_LAYERS
+        and action.lower() in ALLOWED_ACTIONS
+        and len(evidence.strip()) >= 8
+        and PLACEHOLDER_RE.fullmatch(evidence.strip()) is None
+    )
+
+
 def row_covers(rows, key, require_none=False):
-    for subject, _change, _layer, action, evidence in rows:
+    for row in rows:
+        if not valid_impact_row(row):
+            continue
+        subject, _change, _layer, action, _evidence = row
         subjects = set(AC_ID_RE.findall(subject))
         if key not in subjects and subject != key:
             continue
         if require_none and action.lower() != "none":
             continue
-        if evidence.strip():
-            return True
+        return True
     return False
 
 
@@ -193,24 +214,31 @@ def evaluate(root, base, target, report=False):
 
 
 def commit_parent(root, commit):
-    result = run_git(root, "rev-parse", "%s^" % commit, check=False)
-    return result.stdout.strip() if result.returncode == 0 else EMPTY_TREE
+    resolved = run_git(root, "rev-parse", commit).stdout.strip()
+    fields = run_git(root, "rev-list", "--parents", "-n", "1", resolved).stdout.split()
+    if not fields or fields[0] != resolved:
+        raise RuntimeError("cannot resolve commit parent for %s" % commit)
+    return fields[1] if len(fields) > 1 else EMPTY_TREE
 
 
-def pre_push(root, report):
+def outgoing_commits(root, local_sha, remote_sha, remote):
+    if remote_sha != "0" * 40:
+        return run_git(root, "rev-list", "--reverse", "%s..%s" % (remote_sha, local_sha)).stdout.splitlines()
+    if not remote:
+        raise RuntimeError("test impact pre-push: new remote ref requires remote name")
+    return run_git(root, "rev-list", "--reverse", local_sha, "--not", "--remotes=%s" % remote).stdout.splitlines()
+
+
+def pre_push(root, report, remote):
     errors = []
     for line in sys.stdin:
         fields = line.split()
         if len(fields) != 4:
-            continue
+            raise RuntimeError("test impact pre-push: malformed ref update line")
         _local_ref, local_sha, _remote_ref, remote_sha = fields
         if local_sha == "0" * 40:
             continue
-        if remote_sha == "0" * 40:
-            commits = run_git(root, "rev-list", "--reverse", local_sha, "--not", "--remotes").stdout.splitlines()
-        else:
-            commits = run_git(root, "rev-list", "--reverse", "%s..%s" % (remote_sha, local_sha)).stdout.splitlines()
-        for commit in commits:
+        for commit in outgoing_commits(root, local_sha, remote_sha, remote):
             current = evaluate(root, commit_parent(root, commit), commit, report)
             errors.extend(["%s: %s" % (commit[:8], error) for error in current])
     return errors
@@ -269,7 +297,13 @@ def self_test():
         task = root / "tasks/T-001-test.md"
         task.write_text(
             "状态: active\n\n## 测试影响\n\n| 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |\n"
-            "|---|---|---|---|---|\n| R-01-001/AC-01 | wording | UNIT | none | wording only |\n",
+            "|---|---|---|---|---|\n| R-01-001/AC-01 | wording | UNIT | skip | x |\n",
+            encoding="utf-8",
+        )
+        assert any("modified" in error for error in evaluate(root, "HEAD", "working"))
+        task.write_text(
+            "状态: active\n\n## 测试影响\n\n| 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |\n"
+            "|---|---|---|---|---|\n| R-01-001/AC-01 | wording | UNIT | none | wording only; observable behavior unchanged |\n",
             encoding="utf-8",
         )
         assert not evaluate(root, "HEAD", "working")
@@ -286,6 +320,21 @@ def self_test():
             encoding="utf-8",
         )
         assert not evaluate(root, "HEAD", "working")
+        reset()
+
+        (root / "marker.txt").write_text("new remote branch\n", encoding="utf-8")
+        run_git(root, "add", "marker.txt")
+        run_git(root, "commit", "-qm", "new branch commit")
+        local = run_git(root, "rev-parse", "HEAD").stdout.strip()
+        parent = run_git(root, "rev-parse", "HEAD^").stdout.strip()
+        run_git(root, "update-ref", "refs/remotes/origin/main", parent)
+        run_git(root, "update-ref", "refs/remotes/other/main", local)
+        assert local in outgoing_commits(root, local, "0" * 40, "origin")
+        try:
+            git_text(root, "missing-ref", "PRD.md")
+            raise AssertionError("invalid Git ref must not be treated as a missing path")
+        except RuntimeError:
+            pass
     print("test impact lint self-test passed")
 
 
@@ -295,6 +344,7 @@ def main():
     parser.add_argument("--pre-push", action="store_true")
     parser.add_argument("--commit")
     parser.add_argument("--report", action="store_true")
+    parser.add_argument("--remote")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
@@ -302,7 +352,7 @@ def main():
         return 0
     root = Path(run_git(Path.cwd(), "rev-parse", "--show-toplevel").stdout.strip())
     if args.pre_push:
-        errors = pre_push(root, args.report)
+        errors = pre_push(root, args.report, args.remote)
     elif args.commit:
         errors = evaluate(root, commit_parent(root, args.commit), args.commit, args.report)
     else:

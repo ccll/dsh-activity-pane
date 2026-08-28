@@ -22,7 +22,7 @@
 // - R-01-003/AC-03、AC-08～AC-12 浏览器着色、R-01-012/AC-01、AC-05、R-01-013/AC-01、AC-03..05、AC-07、AC-08、AC-10、AC-11 → e2e/specs/card-content.mjs（AC-02 结构断言已迁，多工作区感知区分与「标题随宿主更新」半句仍人工）
 // T-089 起：
 // - R-01-009/AC-02、AC-03 的 tool→等待→stream 实时更新 → e2e/specs/auto-update.mjs（AC-01 进行中 tool partial 仍由 unit/人工承接）。
-// - R-01-014/AC-01、AC-03、AC-06 的列表 pending→ready 与计数切换 → e2e/specs/loading-ready.mjs。
+// - R-01-014/AC-01、AC-06 的列表 pending→ready 与计数切换 → e2e/specs/loading-ready.mjs（AC-03 卡片字段渐进就绪仍由 unit/人工承接）。
 // - R-01-011/AC-03～AC-05 的键盘折叠/展开 → e2e/specs/desktop-layout.mjs。
 //
 // 用法：`node scripts/acceptance.mjs` 打印清单。

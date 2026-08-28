@@ -55,7 +55,7 @@ id: T-089
 | R-01-009/AC-02 | 运行态 stream 时间线更新证据补强，需求不变 | E2E | update | e2e/mock-llm.mjs runtime 剧本与 e2e/specs/auto-update.mjs |
 | R-01-009/AC-03 | 运行态状态变化证据补强，需求不变 | E2E | update | e2e/mock-llm.mjs runtime 剧本与 e2e/specs/auto-update.mjs |
 | R-01-014/AC-01 | 列表 loading→ready 浏览器证据补强，需求不变 | E2E | add | 可控 loading-ready spec |
-| R-01-014/AC-03 | 同一页面渐进呈现证据补强，需求不变 | E2E | add | 可控 loading-ready spec |
+| R-01-014/AC-03 | 卡片字段部分先就绪需要独立 detail fixture，需求不变 | UNIT | none | loading-ready 仅验证列表级 pending→ready；保留 scripts/check.mjs 的渐进字段派生断言，避免过度锚定 |
 | R-01-014/AC-06 | 数量标识 loading→count 证据补强，需求不变 | E2E | add | 可控 loading-ready spec |
 
 ## 测试计划

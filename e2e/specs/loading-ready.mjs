@@ -1,4 +1,4 @@
-// R-01-014/AC-01、R-01-014/AC-03、R-01-014/AC-06、R-02-003/AC-01
+// R-01-014/AC-01、R-01-014/AC-06、R-02-003/AC-01
 // 同一页面连接世代内，列表 pending 时活动区/历史区/数量标识呈现 loading；ready 后落到真实空态与 0/0。
 
 import { dismissNotice, paneRegions, until } from "../helpers.mjs";

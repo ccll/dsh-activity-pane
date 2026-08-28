@@ -1095,8 +1095,8 @@ export function awaitBadgeTone(entries) {
 	for (const entry of Array.isArray(entries) ? entries : []) {
 		if (entry?.kind !== "awaiting") continue;
 		if (entry.waitClass === "error") return "error";
-		if (entry.waitClass === "blocked") return "blocked";
-		if (entry.waitClass === "done") tone = "done";
+		if (entry.waitClass === "blocked") tone = "blocked";
+		else if (entry.waitClass === "done" && tone === null) tone = "done";
 	}
 	return tone;
 }

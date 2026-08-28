@@ -1,5 +1,5 @@
-// R-01-003/AC-03、R-01-012/AC-01、R-01-012/AC-05、
-// R-01-013/AC-01、R-01-013/AC-02、R-01-013/AC-03、R-01-013/AC-04、R-01-013/AC-05、R-01-013/AC-07、R-01-013/AC-08
+// R-01-003/AC-03、R-01-003/AC-08～AC-12、R-01-012/AC-01、R-01-012/AC-05、
+// R-01-013/AC-01、R-01-013/AC-02、R-01-013/AC-03、R-01-013/AC-04、R-01-013/AC-05、R-01-013/AC-07、R-01-013/AC-08、R-01-013/AC-10、R-01-013/AC-11
 // 卡面内容：活动卡显示工作区归属、模型名称与用户角色标签；最近卡按五层信息
 // 结构呈现（工作区+模型 / 标题 / 用户预览 / 助手预览 / 活动时间）。
 
@@ -33,6 +33,31 @@ export default async function cardContent({ page, url, assert }) {
 		return { dx: m.x - b.x, dy: Math.abs(m.y - b.y) };
 	}, MOCK_MODEL);
 	assert.ok(headerPos && headerPos.dx > 0 && headerPos.dy < 24, "模型上下文在工作区徽标右侧同一行（卡面右上角，R-01-012/AC-01）");
+
+	// R-01-003/AC-08～AC-12：浏览器实际应用工作区稳定色相与深浅主题 OKLCH 层次。
+	const workspaceStyles = await page.evaluate(() => {
+		const badge = document.querySelector("[data-dsh-activity-pane] .dap-workspace:not([hidden])");
+		if (!badge) return null;
+		const read = () => {
+			const style = getComputedStyle(badge);
+			return {
+				hue: badge.style.getPropertyValue("--dap-workspace-hue"),
+				color: style.color,
+				background: style.backgroundColor,
+				border: style.borderTopColor,
+			};
+		};
+		document.body.setAttribute("data-ds-dark-theme", "");
+		const dark = read();
+		document.body.removeAttribute("data-ds-dark-theme");
+		const light = read();
+		document.body.setAttribute("data-ds-dark-theme", "");
+		return { dark, light };
+	});
+	assert.ok(workspaceStyles && [55, 100, 145, 190, 235, 280, 325].includes(Number(workspaceStyles.dark.hue)), "工作区徽标实际写入七色感知锚点（R-01-003/AC-08、AC-12）");
+	assert.notEqual(workspaceStyles.dark.color, workspaceStyles.light.color, "工作区徽标文字色按深浅主题分别校准（R-01-003/AC-10、AC-11）");
+	assert.ok(workspaceStyles.dark.background !== "rgba(0, 0, 0, 0)" && workspaceStyles.light.background !== "rgba(0, 0, 0, 0)", "工作区徽标深浅主题均有同色相底色（R-01-003/AC-10、AC-11）");
+	assert.ok(workspaceStyles.dark.border !== "rgba(0, 0, 0, 0)" && workspaceStyles.light.border !== "rgba(0, 0, 0, 0)", "工作区徽标深浅主题均有可见描边（R-01-003/AC-10、AC-11）");
 
 	// 完成提醒稳定后只激活一次；若重渲染吞 click，应由本 spec 直接报回归。
 	await until("移入历史按钮就绪", async () => {
@@ -78,5 +103,27 @@ export default async function cardContent({ page, url, assert }) {
 	}, 20_000);
 	// R-01-013/AC-01..05、AC-07、AC-08：五层结构按序命中即证（工作区+模型 / 标题 / 用户标签+首行 / 助手标签+首行 / 时间）。
 	assert.ok(matched.length >= 8, `最近卡五层结构按序呈现（命中叶子 ${matched.length} 个）`);
+
+	// R-01-013/AC-10、AC-11：在真实浏览器中验证最近卡弱化且深浅主题轮廓可辨。
+	const recentStyles = await page.evaluate((title) => {
+		const pane = document.querySelector("[data-dsh-activity-pane]");
+		const card = [...(pane?.querySelectorAll('[role="button"]') ?? [])].find((candidate) => candidate.innerText.includes(title));
+		if (!card) return null;
+		const read = () => {
+			const style = getComputedStyle(card);
+			return { opacity: style.opacity, background: style.backgroundColor, border: style.borderTopColor };
+		};
+		document.body.setAttribute("data-ds-dark-theme", "");
+		const dark = read();
+		document.body.removeAttribute("data-ds-dark-theme");
+		const light = read();
+		document.body.setAttribute("data-ds-dark-theme", "");
+		return { dark, light };
+	}, TITLE);
+	assert.equal(recentStyles?.dark.opacity, "0.8", "最近卡保持低于活动卡的不透明度（R-01-013/AC-10）");
+	assert.equal(recentStyles?.dark.background, "rgba(26, 28, 34, 0.92)", "深色最近卡使用可辨中间档底色（R-01-013/AC-11）");
+	assert.notEqual(recentStyles?.dark.border, "rgba(0, 0, 0, 0)", "深色最近卡具有可见描边（当前卡可由选中描边增强，R-01-013/AC-11）");
+	assert.equal(recentStyles?.light.background, "rgb(243, 244, 246)", "浅色最近卡暗于活动卡纯白且与窗格可分辨（R-01-013/AC-11）");
+	assert.notEqual(recentStyles?.light.border, "rgba(0, 0, 0, 0)", "浅色最近卡具有可见弱描边（R-01-013/AC-11）");
 
 }

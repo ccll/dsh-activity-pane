@@ -1,4 +1,4 @@
-// R-01-008/AC-01、AC-02（点击）、AC-03（鼠标）、AC-04（文案/相对位置）、AC-05、AC-06（点击）
+// R-01-008/AC-01、AC-02（点击）、AC-03（鼠标）、AC-04（文案/相对位置）、AC-05、AC-06（点击）；R-01-015/AC-03
 // 移动端抽屉：默认隐藏、开关展开、标题/外部点击收起、开关随状态显隐，
 // 激活当前卡只收起抽屉，激活其它卡仍切换会话；键盘、真触摸和精确视觉位置保留人工。
 
@@ -41,6 +41,7 @@ export default async function mobileDrawer({ page, url, assert }) {
 	// R-01-008/AC-01：默认隐藏在屏外，不占主会话宽度。
 	const hiddenBox = await until("窗格挂载", () => paneBox(page));
 	assert.ok(hiddenBox.x + hiddenBox.width <= 1, `窗格默认隐藏在屏外（右缘 ${Math.round(hiddenBox.x + hiddenBox.width)} ≤ 1）`);
+	assert.equal(await page.locator("[data-dsh-activity-pane] .dap-resize").isVisible(), false, "移动端抽屉不提供拖拽调宽手柄（R-01-015/AC-03）");
 
 	// R-01-008/AC-04：浮动开关文案与位置。
 	const toggle = await toggleButton(page);

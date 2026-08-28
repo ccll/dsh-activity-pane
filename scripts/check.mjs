@@ -851,6 +851,14 @@ assert.equal(
 	"error",
 	"错误 > 阻塞 > 完成 优先级（C-043）",
 );
+assert.equal(
+	awaitBadgeTone([
+		{ kind: "awaiting", waitClass: "blocked" },
+		{ kind: "awaiting", waitClass: "error" },
+	]),
+	"error",
+	"错误提醒在阻塞等待之后出现时仍取红色调，优先级不依赖条目顺序（R-01-002/AC-06）",
+);
 
 // ---- R-01-001/AC-05 徽标计数口径：只统计主会话，子代理不计入 ｜ R-01-002/AC-06 阻塞计数 ----
 assert.deepEqual(awaitBadgeStats([]), { waiting: 0, blocked: 0, total: 0 }, "空列表为 0/0（R-01-001/AC-06）");
@@ -3149,9 +3157,10 @@ assert.ok(
 // R-01-002/AC-06 计数徽标底色跟随等待构成（C-040、C-043）：三处镜像面 tone=done 取绿、tone=error 取红。
 assert.ok(
 	bundle.includes("awaitBadgeTone(active)") &&
-		(bundle.match(/\.dap-toggle\[data-awaiting\]\[data-tone="done"\] \.dap-toggle-count/g) ?? []).length >= 1 &&
-		(bundle.match(/\.dap-toggle\[data-awaiting\]\[data-tone="error"\] \.dap-toggle-count/g) ?? []).length >= 1,
-	"三处数量徽标按等待构成写入 tone 属性并接入 done 绿/error 红变体（R-01-002/AC-06）",
+		bundle.includes("\n.dap-toggle[data-awaiting][data-tone=\"done\"] .dap-toggle-count {") &&
+		bundle.includes("\n.dap-toggle[data-awaiting][data-tone=\"error\"] .dap-toggle-count {") &&
+		!bundle.includes("[data-dsh-activity-pane] .dap-toggle[data-awaiting][data-tone="),
+	"三处数量徽标按等待构成写入 tone 属性，浮动移动开关以自身作用域接入 done 绿/error 红变体（R-01-002/AC-06）",
 );
 assert.ok(
 	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="done"],') &&
@@ -3171,8 +3180,9 @@ assert.ok(
 );
 assert.ok(
 	bundle.includes("[data-dsh-activity-pane] .dap-count[data-awaiting] {\n  /* 底色/透明度与等待卡完全一致、无描边与外环") &&
-		bundle.includes("[data-dsh-activity-pane] .dap-rail-count[data-awaiting] {\n  background: rgba(46, 42, 26, 0.97);"),
-	"数量徽标等待态底色/透明度与等待卡完全一致、无描边与外环（R-01-002/AC-06）",
+		bundle.includes("[data-dsh-activity-pane] .dap-rail-count[data-awaiting] {\n  background: rgba(46, 42, 26, 0.97);") &&
+		bundle.includes(".dap-toggle[data-awaiting] .dap-toggle-count {\n  background: rgba(46, 42, 26, 0.97);"),
+	"列头、窄条与移动开关的阻塞等待徽标底色/透明度均与等待卡一致、无描边与外环（R-01-002/AC-06）",
 );
 assert.equal(
 	(bundle.match(/data-blocked/g) ?? []).length,

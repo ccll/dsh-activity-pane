@@ -97,12 +97,12 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="done"],
 [data-dsh-activity-pane] .dap-rail-count[data-awaiting][data-tone="done"],
-[data-dsh-activity-pane] .dap-toggle[data-awaiting][data-tone="done"] .dap-toggle-count {
+.dap-toggle[data-awaiting][data-tone="done"] .dap-toggle-count {
   background: rgba(32, 41, 35, 0.97);
 }
 [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="error"],
 [data-dsh-activity-pane] .dap-rail-count[data-awaiting][data-tone="error"],
-[data-dsh-activity-pane] .dap-toggle[data-awaiting][data-tone="error"] .dap-toggle-count {
+.dap-toggle[data-awaiting][data-tone="error"] .dap-toggle-count {
   background: rgba(40, 29, 31, 0.97);
 }
 @keyframes dap-await-pulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
@@ -729,7 +729,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   padding: 0 5px; font-size: 10px; font-weight: 700;
 }
 .dap-toggle[data-awaiting] .dap-toggle-count {
-  background: rgba(35, 31, 25, 0.97);
+  background: rgba(46, 42, 26, 0.97);
   animation: dap-await-pulse var(--dap-await-period, 1.6s) ease-in-out infinite;
 }
 /* 移动端抽屉透明遮罩：抽屉打开时铺满视口、点击收起抽屉（R-01-008/AC-03）。
@@ -839,7 +839,7 @@ body:not([data-ds-dark-theme]) .dap-toggle[data-awaiting] .dap-toggle-count {
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="done"],
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting][data-tone="done"],
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-toggle[data-awaiting][data-tone="done"] .dap-toggle-count {
+body:not([data-ds-dark-theme]) .dap-toggle[data-awaiting][data-tone="done"] .dap-toggle-count {
   background: var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="error"],

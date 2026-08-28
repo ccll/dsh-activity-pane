@@ -1,4 +1,4 @@
-// R-01-001/AC-03、R-01-010/AC-04、R-01-017/AC-01、R-02-002/AC-01、R-02-002/AC-02
+// R-01-001/AC-03～AC-06、R-01-002/AC-06～AC-07、R-01-010/AC-04、R-01-017/AC-01、R-02-002/AC-01、R-02-002/AC-02
 // 状态自动更新（出现/完成/等待出现/等待解除四类变化，无需手动刷新）、活动区空态、
 // 折叠时间线不依赖 dsh-auto-collapse（本隔离环境按构造不含该插件，全套件功能断言
 // 即「不降级」证据）、外壳重挂载恢复不重复、全程控制台无插件报错与未捕获异常。
@@ -8,6 +8,27 @@ import { mainAreaHas, newSessionWithMessage, openApp, paneRegions, sendHeroMessa
 const TITLE_A = "e2e:fast 自动更新探针甲";
 const TITLE_B = "e2e:fast 自动更新探针乙";
 const TITLE_ASK = "e2e:ask 自动更新等待探针";
+const DESKTOP_VIEWPORT = { width: 1280, height: 720 };
+const MOBILE_VIEWPORT = { width: 375, height: 700 };
+
+async function badgeSnapshot(page, surface) {
+	return page.evaluate((name) => {
+		const pane = document.querySelector("[data-dsh-activity-pane]");
+		const toggle = document.querySelector(".dap-toggle");
+		const count = name === "header" ? pane?.querySelector(".dap-count") : name === "rail" ? pane?.querySelector(".dap-rail-count") : toggle?.querySelector(".dap-toggle-count");
+		const owner = name === "toggle" ? toggle : count;
+		if (!count || !owner) return null;
+		const style = getComputedStyle(count);
+		return {
+			text: count.textContent.trim(),
+			awaiting: owner.hasAttribute("data-awaiting"),
+			tone: owner.getAttribute("data-tone"),
+			period: count.style.getPropertyValue("--dap-await-period"),
+			background: style.backgroundColor,
+			animation: style.animationName,
+		};
+	}, surface);
+}
 
 export default async function autoUpdate({ page, url, assert }) {
 	// R-02-002/AC-02：全程收集控制台错误，结束后断言无插件报错。
@@ -18,6 +39,7 @@ export default async function autoUpdate({ page, url, assert }) {
 	page.on("pageerror", (error) => consoleErrors.push(String(error)));
 
 	await openApp(page, url);
+	await page.evaluate(() => document.body.setAttribute("data-ds-dark-theme", ""));
 
 	// R-01-010/AC-04：无活动会话时活动区显示明确空态。
 	// 宽限 30s：观测到宿主 sessions 服务偶发推送停滞（窗格滞留「加载中…」，见 TODO 缺陷线索）。
@@ -25,6 +47,10 @@ export default async function autoUpdate({ page, url, assert }) {
 		const regions = await paneRegions(page);
 		return regions && regions.active.includes("暂无活动会话") ? regions : null;
 	}, 30_000);
+	const emptyBadge = await badgeSnapshot(page, "header");
+	assert.equal(emptyBadge?.text, "0/0", "空态数量徽标显示 0/0（R-01-001/AC-06）");
+	assert.equal(emptyBadge?.awaiting, false, "无等待行动时数量徽标不进入等待态（R-01-002/AC-06）");
+	assert.equal(emptyBadge?.animation, "none", "无等待行动时数量徽标停止脉冲（R-01-002/AC-06）");
 
 	// R-01-001/AC-03：会话开始运行与结束的状态变化自动反映到窗格，无需手动刷新。
 	await sendHeroMessage(page, TITLE_A);
@@ -36,6 +62,40 @@ export default async function autoUpdate({ page, url, assert }) {
 		const regions = await paneRegions(page);
 		return regions && regions.active.includes("已完成") ? regions : null;
 	});
+
+	// R-01-001/AC-04～AC-06、R-01-002/AC-06～AC-07：三处数量徽标实际呈现同一 n/m、tone、底色与脉冲周期。
+	const doneHeader = await until("完成提醒列头徽标就绪", async () => {
+		const value = await badgeSnapshot(page, "header");
+		return value?.tone === "done" ? value : null;
+	});
+	assert.equal(doneHeader.text, "1/1", "列头数量徽标显示等待行动数/活动主会话总数");
+	assert.equal(doneHeader.background, "rgba(32, 41, 35, 0.97)", "完成提醒列头徽标使用完成卡绿色底色");
+	assert.equal(doneHeader.period, "0.500s", "全部活动主会话等待时列头徽标达到脉冲频率上限");
+	assert.equal(doneHeader.animation, "dap-await-pulse", "存在等待行动时列头徽标开启脉冲");
+
+	await page.getByRole("button", { name: "收起活动会话窗格" }).click();
+	const doneRail = await until("完成提醒窄条徽标就绪", async () => {
+		const value = await badgeSnapshot(page, "rail");
+		return value?.tone === "done" ? value : null;
+	});
+	assert.deepEqual(
+		{ text: doneRail.text, background: doneRail.background, period: doneRail.period, animation: doneRail.animation },
+		{ text: "1/1", background: "rgba(32, 41, 35, 0.97)", period: "0.500s", animation: "dap-await-pulse" },
+		"折叠窄条徽标与列头使用同一完成 tone、底色与脉冲",
+	);
+	await page.getByRole("button", { name: /活动会话/ }).last().click();
+
+	await page.setViewportSize(MOBILE_VIEWPORT);
+	const doneToggle = await until("完成提醒移动开关徽标就绪", async () => {
+		const value = await badgeSnapshot(page, "toggle");
+		return value?.tone === "done" ? value : null;
+	});
+	assert.deepEqual(
+		{ text: doneToggle.text, background: doneToggle.background, period: doneToggle.period, animation: doneToggle.animation },
+		{ text: "1/1", background: "rgba(32, 41, 35, 0.97)", period: "0.500s", animation: "dap-await-pulse" },
+		"移动开关徽标与列头使用同一完成 tone、底色与脉冲",
+	);
+	await page.setViewportSize(DESKTOP_VIEWPORT);
 
 	// R-01-017/AC-01：本隔离环境未安装 dsh-auto-collapse，时间线仍以折叠分组呈现
 	// （上下文注入合并为分组行），窗格功能不降级。
@@ -65,6 +125,14 @@ export default async function autoUpdate({ page, url, assert }) {
 		const regions = await paneRegions(page);
 		return regions && regions.active.includes("等待回答") && regions.active.includes(TITLE_ASK) ? regions : null;
 	});
+	const blockedBadge = await until("阻塞等待徽标就绪", async () => {
+		const value = await badgeSnapshot(page, "header");
+		return value?.tone === "blocked" ? value : null;
+	});
+	assert.match(blockedBadge.text, /^\d+\/\d+$/, "阻塞等待时列头保持 n/m 计数（R-01-001/AC-04～AC-06）");
+	assert.equal(blockedBadge.background, "rgba(46, 42, 26, 0.97)", "阻塞等待时列头徽标使用与阻塞卡一致的金色底（R-01-002/AC-06）");
+	assert.equal(blockedBadge.animation, "dap-await-pulse", "阻塞等待时列头徽标持续脉冲（R-01-002/AC-06）");
+	assert.match(blockedBadge.period, /^\d+(?:\.\d+)?s$/, "阻塞等待时列头徽标写入占比驱动周期（R-01-002/AC-07）");
 	await page.getByText("确认继续执行").click();
 	await page.getByRole("button", { name: "Submit", exact: true }).click();
 	await until("等待解除并转为完成提醒", async () => {

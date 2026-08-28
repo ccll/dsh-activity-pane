@@ -7,19 +7,19 @@
 // 分工（T-083 起）：可机器判定的交互验收点已迁移为 `e2e/specs/` 的 Playwright
 // spec（pre-push 门禁自动执行，同样锚定 AC-ID）；本清单只保留观感/视觉、
 // 真实设备与复杂编排类条目。迁移映射：
-// - R-01-001/AC-03、R-01-017/AC-01、R-02-002/AC-01、AC-02 → e2e/specs/auto-update.mjs
+// - R-01-001/AC-03～AC-06、R-01-002/AC-06～AC-07（空态/完成/阻塞及三处徽标）、R-01-017/AC-01、R-02-002/AC-01、AC-02 → e2e/specs/auto-update.mjs
 // - R-01-004/AC-01、AC-02 → e2e/specs/long-list.mjs
 // - R-01-007/AC-01、AC-02、R-01-011/AC-05 → e2e/specs/desktop-layout.mjs
 // - R-01-008/AC-01、AC-02 点击、AC-03 鼠标、AC-04 文案/相对位置、AC-05、AC-06 点击 → e2e/specs/mobile-drawer.mjs（AC-02/AC-06 键盘、AC-03 真触摸、AC-04 精确位置与遮挡观感残留人工）
 // - R-01-010/AC-04 → e2e/specs/auto-update.mjs 与 e2e/specs/session-lifecycle.mjs
 // - R-01-001/AC-01、AC-02、R-01-002/AC-03、AC-10、R-01-010/AC-01、AC-02 → e2e/specs/session-lifecycle.mjs
 // - R-01-002/AC-05、AC-10、AC-11、AC-12 完成提醒路径 → e2e/specs/completion-sync.mjs
-// - R-01-002/AC-05、AC-09、AC-10、AC-12、AC-13 错误提醒路径 → e2e/specs/error-reminder.mjs
+// - R-01-002/AC-05、AC-06、AC-09、AC-10、AC-12、AC-13 错误提醒路径 → e2e/specs/error-reminder.mjs
 // T-084 起第二批：
 // - R-01-005/AC-01、R-01-006/AC-01 → e2e/specs/navigation.mjs
-// - R-01-015/AC-01、AC-02、AC-04、AC-03 桌面折叠态 → e2e/specs/resize.mjs（AC-03 移动端残留人工）
+// - R-01-015/AC-01、AC-02、AC-04、AC-03 桌面折叠态 → e2e/specs/resize.mjs；AC-03 移动端无手柄 → e2e/specs/mobile-drawer.mjs
 // - R-01-018/AC-01、AC-03、AC-04、AC-05、AC-02 点击/reduced-motion → e2e/specs/back-to-top.mjs（AC-02 键盘激活与平滑观感残留人工）
-// - R-01-003/AC-03、R-01-012/AC-01、AC-05、R-01-013/AC-01、AC-03..05、AC-07、AC-08 → e2e/specs/card-content.mjs（AC-02 结构断言已迁，「标题随宿主更新」半句仍人工）
+// - R-01-003/AC-03、AC-08～AC-12 浏览器着色、R-01-012/AC-01、AC-05、R-01-013/AC-01、AC-03..05、AC-07、AC-08、AC-10、AC-11 → e2e/specs/card-content.mjs（AC-02 结构断言已迁，多工作区感知区分与「标题随宿主更新」半句仍人工）
 //
 // 用法：`node scripts/acceptance.mjs` 打印清单。
 
@@ -185,8 +185,6 @@ const steps = [
 	"折叠态下确认窄条以竖排显示「活动会话」标题与活动计数徽标，悬停窄条出现与展开态标题行对等的高亮反馈，点击窄条任意位置展开并恢复活动区+历史区显示。",
 	// R-01-011/AC-06 移动端标题行即收起抽屉
 	"切到 <=767px 移动视口打开抽屉，确认点击抽屉内标题行与桌面为同一交互路径：抽屉收起、不出现折叠窄条；桌面宽度下点击标题行仍折叠为窄条，行为不回归。",
-	// R-01-015/AC-03 移动端无拖拽手柄（桌面折叠态断言已迁 e2e/specs/resize.mjs）
-	"切到 <=767px 移动视口打开抽屉，确认抽屉右缘无拖拽光标与手柄。",
 	// R-01-017/AC-01 折叠时间线呈现质量（「无 dsh-auto-collapse 不降级」已由 e2e/specs/auto-update.mjs 自动化覆盖）
 	"运行一个多工具+思考回合的会话：确认活动卡时间线呈折叠分组（如「正在运行/运行了命令/编辑了文件/已思考」，组摘要为推理文本内容）。",
 	// R-02-004/AC-01 订阅断开

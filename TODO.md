@@ -13,10 +13,7 @@ owner: 双方
 - [缺陷线索] 已归档会话仍出现在窗格最近历史区（左边栏按 archived 隐藏；buildRecent 无归档过滤，且 sessions.list 快照是否携带归档标记待查）。
 - [缺陷线索] 进度条的进度计算有误，与 answer-pet 不匹配；需要重新评估 answer-pet 的进度条算法。
 - [需求候选] 会话级操作（重命名、取消、队列编辑、直接响应等待项）作为 v1 后的候选增强（东家尚未确认）。
-- [需求候选] 窗格宽度（默认 280）与折叠状态可配置化/设置项（东家提及，未定）。
-- [维护想法] 窗格宽度拖拽与折叠把手：v1 为固定宽度，后续可贴合外壳 details 槽语义增强（见 DESIGN 边界与对外契约）。
-- [需求候选] 允许用户在限定范围内拖放调节 pane 的宽度。
+- [需求候选] 为窗格宽度与折叠状态提供独立设置项（拖拽调宽及宽度恢复已实现，东家尚未确认是否还需要设置入口）。
 - [维护想法] 运行卡时长实时计算位于 DOM 层、无 Node 锚点；后续抽 `elapsedAt(startTime, now)` 纯函数或引入浏览器 E2E（独立审核提示，见 T-001 review）。
-- [需求候选] 移动端抽屉内激活卡片跳转会话后自动收起抽屉（现行行为保持展开，需东家确认预期）
-- [维护想法] 上架 dsh-market：目录在 awesome-dsh-plugin 仓库（PR 一条 data/plugins/ccll__dsh-activity-pane.yml，需仓库满 1 天、≥10 commits、加 dsh-plugin topic）；可选发布 npm（需移除 private:true 并补 repository 字段）。
+- [维护想法] 上架 dsh-market：目录在 awesome-dsh-plugin 仓库（PR 一条 data/plugins/ccll__dsh-activity-pane.yml，需仓库满 1 天、≥10 commits、加 dsh-plugin topic）；可选发布 npm（package 已具备公开发布字段，仍需决定发布渠道）。
 - [维护想法] buildRecent 位置参数已达 9 个（调用点出现 undefined/{}/[]/null/null 占位串）；后续可将后 6 个归并为 options 对象（T-057 独立审核提示，既有模式延续、不阻塞）。

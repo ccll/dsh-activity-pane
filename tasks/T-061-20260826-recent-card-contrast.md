@@ -6,7 +6,7 @@ id: T-061
 
 # T-061 最近历史卡底色与描边辨识度提升
 
-状态: active
+状态: completed
 关联: R-01-013/AC-11 / 窗格渲染器
 风险等级: standard
 
@@ -52,4 +52,13 @@ id: T-061
 
 ## 终态与证据
 
-（关闭时填写）
+- 实现: 可达实现链 `5653025b032a4e04472999af5731ac05f1fec05d`、`5653f8473455c998452df499cb79cda9acd18961`、`de3fd3ceff279e87ae81c51c332ea413af614e1d` 依次建立可辨底色/弱描边、审核修复与最终中间档参数：深色 `rgba(26,28,34,0.92)`、浅色 `rgb(243,244,246)`，并保留 `opacity: 0.8` 的历史弱化语义。
+- 测试: `scripts/check.mjs` 分别锚定 R-01-013/AC-10 的弱化与 AC-11 的深浅主题底色/描边；`card-content.mjs` 在真实浏览器中读取最近卡 computed opacity、背景和描边验证两主题。最终 `pnpm verify` 全绿，11/11 E2E spec 通过（127.467s）。
+- DESIGN 对照: DESIGN 的最近卡弱化且可辨条目与当前 CSS 参数、hover 语义及需求追溯一致，无差异。
+- commit: de3fd3ceff279e87ae81c51c332ea413af614e1d
+- review:
+  - 审核方: Standards reviewer `e156fa4c-f0fd-46c9-bca3-736689a22eee`；Spec reviewer `cbaa86d7-90aa-41da-a18c-00e481363d63`（含分项子审）
+  - 目的理解: 提升最近历史卡在深浅主题中的轮廓辨识度，同时保持其低于活动卡的视觉层级。
+  - 执行方式: `code-review` skill 双轴审核当前 HEAD、PRD R-01-013/AC-10～AC-11、DESIGN、实现与测试。
+  - 问题与修复: Standards 要求补齐首次实现、审核修复与最终调档的可达 commit 链；Spec 初审发现深浅主题视觉 AC 只有静态/人工证据。已补完整历史链，并由 `970ec526c157162be0780ae254fd0ad74153eb6e` 在 `card-content.mjs` 增加真实浏览器 computed style 断言。
+  - 复审结论: 同一 Standards 与 Spec reviewer 确认证据缺口关闭，无新增 finding，允许关闭。

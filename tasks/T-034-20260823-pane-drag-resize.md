@@ -6,7 +6,7 @@ id: T-034
 
 # T-034 桌面窗格拖拽调宽
 
-状态: active
+状态: completed
 关联: R-01-015 / 窗格渲染器、活动状态模型（宽度夹取纯函数）
 风险等级: standard
 
@@ -50,4 +50,13 @@ id: T-034
 
 ## 终态与证据
 
-（active：实现、测试、DESIGN 对照、commit 与 review 证据在关闭时填写。）
+- 实现: `src/core.mjs` 以 `clampPaneWidth` 单点归一 200–480px 宽度；`src/client.mjs` 提供桌面右缘 pointer 拖拽、实时 `--dap-width` 更新、主会话弹性让位、折叠/移动端禁用及 localStorage 持久化恢复。
+- 测试: `scripts/check.mjs` 覆盖宽度夹取与 bundle 契约；`e2e/specs/resize.mjs` 覆盖桌面拖拽、夹取、折叠与恢复，`e2e/specs/mobile-drawer.mjs` 覆盖移动端无拖拽手柄。发布前收敛时 `pnpm verify` 全绿，11/11 E2E spec 通过（127.467s）。
+- DESIGN 对照: DESIGN 的桌面宿主布局、拖拽手柄、宽度夹取和持久化契约与当前实现一致，无差异。
+- commit: 0aa74776252bb846290179241bd40b559b3c3a86
+- review:
+  - 审核方: Standards reviewer `e156fa4c-f0fd-46c9-bca3-736689a22eee`；Spec reviewer `cbaa86d7-90aa-41da-a18c-00e481363d63`（含分项子审）
+  - 目的理解: 兑现 R-01-015 的桌面实时拖拽调宽、200–480px 夹取、折叠/移动端禁用与刷新恢复，并保证主会话同步让位。
+  - 执行方式: `code-review` skill 双轴审核当前 HEAD 与历史实现提交，读取 PRD、DESIGN、任务、实现和现有测试证据。
+  - 问题与修复: Spec 初审发现 R-01-015/AC-03 只有桌面折叠态浏览器证据、移动端仍为人工项；`970ec526c157162be0780ae254fd0ad74153eb6e` 在 `mobile-drawer.mjs` 增加真实移动视口下调宽手柄不可见断言，并同步 acceptance 迁移映射。Standards 无代码 finding。
+  - 复审结论: 同一 Standards 与 Spec reviewer 确认移动端证据缺口关闭，无新增 finding，允许关闭。

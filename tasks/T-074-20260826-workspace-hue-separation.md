@@ -6,7 +6,7 @@ id: T-074
 
 # T-074 工作区徽标同屏最小色相间距消解
 
-状态: active
+状态: completed
 关联: R-01-003/AC-08、AC-12 → 活动状态模型
 风险等级: standard
 
@@ -46,3 +46,14 @@ C-029 全弧均匀取色上线后，东家刷新实测仍只看到蓝、紫两�
 | 副作用 | 适用：输入顺序不影响映射；同一工作区全部卡片同色；稳定签名与胶囊几何不变 | `scripts/check.mjs#R-01-003/AC-08`、`scripts/check.mjs#R-01-003/AC-12`、`src/client.mjs::renderCardIntoList` |
 
 ## 终态与证据
+
+- 实现: 可达实现链 `e64b3fee479043d6d0c571cf6d3acb0586bfde9f`、`dc4c87823798bfceada84430dddaa782f593d2a9` 依次建立七锚点集合映射与最终 OKLCH hue/步进 3 跨色区探测：同屏不超过 7 个工作区时锚点唯一，超过 7 个时确定性均衡复用；渲染层以 OKLCH 前景、底色和描边呈现深浅主题徽标。
+- 测试: `scripts/check.mjs` 覆盖真实聚集样本、输入顺序稳定、空白/重复身份、七色唯一、超容量均衡、深浅主题 OKLab 距离 ≥0.11 与 bundle 契约；`card-content.mjs` 在真实浏览器中验证实际 hue 写入、深浅主题文字色、底色和描边。最终 `pnpm verify` 全绿，11/11 E2E spec 通过（127.467s）。
+- DESIGN 对照: DESIGN 的徽标色相不变量、集合级映射与工作区徽标着色参数和当前实现一致，无差异。
+- commit: dc4c87823798bfceada84430dddaa782f593d2a9
+- review:
+  - 审核方: Standards reviewer `e156fa4c-f0fd-46c9-bca3-736689a22eee`；Spec reviewer `cbaa86d7-90aa-41da-a18c-00e481363d63`（含分项子审）
+  - 目的理解: 消除独立哈希在小样本同屏集合中的偶然蓝紫聚集，以可证明的七色感知锚点和确定性槽位消解兑现 R-01-003/AC-08～AC-12。
+  - 执行方式: `code-review` skill 双轴审核当前 HEAD、历史实现提交、PRD/DESIGN 约束及现有自动/人工验证。
+  - 问题与修复: Standards 要求补齐集合级消解首次实现与最终 OKLCH 调整的可达 commit 链；Spec 初审发现浏览器实际着色与主题接线只有静态/人工证据。已补完整历史链，并由 `970ec526c157162be0780ae254fd0ad74153eb6e` 在 `card-content.mjs` 增加真实浏览器 computed style 断言。
+  - 复审结论: 同一 Standards 与 Spec reviewer 确认证据缺口关闭，无新增 finding，允许关闭。

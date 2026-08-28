@@ -6,7 +6,7 @@ id: T-080
 
 # T-080 等待三类语义统一：金色阻塞胶囊、错误提醒红面与「类型胶囊 + 正文」末行结构
 
-状态: active
+状态: completed
 关联: R-01-001/AC-05、R-01-002/AC-01～AC-13、R-01-010/AC-06 → 活动状态模型、窗格渲染器、完成确认宿主侧
 风险等级: standard
 
@@ -57,8 +57,6 @@ id: T-080
 | 副作用 | 适用：完成提醒绿卡与按钮不闪不变；Q 行列表/pre-line 不变；时间线错误红独立于卡片红；不可恢复错误不再误报绿色完成 | `scripts/check.mjs#R-01-002/AC-08`、`scripts/check.mjs#R-01-002/AC-10`、`scripts/check.mjs#R-01-002/AC-06`、`scripts/acceptance.mjs#R-01-002/AC-13`、`src/client.mjs::renderCardInto`、`src/core.mjs::awaitNoteText` |
 
 ## 终态与证据
-
-状态: completed
 
 - 实现: `src/host.mjs`——acks 记录扩展 `{ lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }`（四字段 `.nullable().optional()` 兼容升级前旧记录，storageDomain 打开时按记录 parse、必填键缺失会 invalid-record 使 domain 不可用）；turn/end 登记读取 `data.reason.kind`（缺失/非法归一 `unknown`）、error 回合以 `reason.error.message`（仅字符串契约）经 `truncateErrorNote` 截断登记、非 error 回合清空；POST /ack 写回保留新字段；全量快照/SSE 下发新字段。`src/core.mjs`——新增 `errorReminder`（主会话 && `lastTurnEndKind === 'error'` 成立、不消费 ack 游标、随新回合结束覆盖）、`entryErrorNote`（错误信息/回落 `ERROR_NOTE_FALLBACK`）、导出 `truncateErrorNote`（按码点截断、省略号不计上限）；`buildEntries` 派生 `waitClass='error'`（错误优先于完成）、`buildRecent` 排除错误提醒会话、`awaitBadgeTone` 按 错误>阻塞>完成 优先级取色；`ROUND_DONE_NOTE` 改「继续对话，或移入历史」（语义由「已完成」胶囊承载）。`src/client.mjs`——等待卡末行改「胶囊行（圆底类型图标+类型文字）+ 正文行」两段结构（`migrateAwaitingFoot` 负责旧版行尾徽标骨架热装就地迁移、confirm 按钮节点复用）；金色 `#f5c542`（深色底 `rgba(46,42,26,.97)` 与旧琥珀一眼可辨）、错误红 `#f06a72`（与时间线错误红同源）；胶囊与正文同频同相闪烁（data-wait 驱动器 + 跨类转换相位重启）、「移入历史」按钮不闪且仅完成卡提供；数量徽标三处镜像面 tone=error 红/tone=done 绿/默认金。
 - 测试: 测试先行改红再转绿；`scripts/check.mjs` 新增 R-01-002/AC-13 锚点组（errorReminder 成立/ack 无关/子代理排除、buildEntries 错误条目 waitClass/noteText、错误信息回落、tone 错误>阻塞>完成优先级、awaitBadgeStats 计分子、buildRecent 排除、错误优先于完成、运行/委托周期抑制、新回合覆盖→完成提醒/已确认退出）与 truncateErrorNote 断言（不超限/恰上限/超限省略号/代理对/非字符串），并重写胶囊结构/三色卡面/闪烁选择器/相位重启的 bundle 契约锚点；`scripts/acceptance.mjs` 新增错误提醒人工条目并改写三类胶囊/三色/徽标条目；`pnpm build:client && pnpm check` 多轮全绿；`agentmap_lint passed`（22/22 需求、128/128 验收点锚定）；`git diff --check` 干净。GUI 目验（三类卡胶囊与正文同步闪烁、金色/红色卡面、按钮仅完成卡、刷新恢复、429 场景错误信息上卡）由东家现场验收。

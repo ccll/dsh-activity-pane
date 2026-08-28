@@ -3448,8 +3448,8 @@ assert.ok(ciWorkflowSource.includes("fetch-depth: 0"), "CI checkout 保留完整
 assert.ok(ciWorkflowSource.includes("timeout-minutes: 30"), "顺序 E2E 拥有明确 hosted timeout");
 assert.ok(ciWorkflowSource.includes("node-version: 24.16.0"), "hosted Node 与本地稳定基线一致");
 
-// ---- E2E 基建：mock LLM 剧本服务行为断言（C-045，T-082、T-088）----
-// 浏览器 spec 驱动真实 UI；四剧本的响应形状与分流规则在此做 Node 级行为验证。
+// ---- E2E 基建：mock LLM 剧本服务行为断言（C-045，T-082、T-088、T-089）----
+// 浏览器 spec 驱动真实 UI；fast/slow/ask/runtime/error 的响应形状与分流规则在此做 Node 级行为验证。
 const { startMockLlm } = await import("../e2e/mock-llm.mjs");
 const { MOCK_ERROR_MESSAGE } = await import("../e2e/helpers.mjs");
 const mock = await startMockLlm();
@@ -3492,6 +3492,15 @@ try {
 	assert.ok(parsed.questions[0].question.length > 0 && parsed.questions[0].options.length === 2, "ask 工具参数重组为合法提问负载");
 	assert.equal(ask.at(-2).choices[0].finish_reason, "tool_calls", "ask 以 tool_calls 收尾");
 
+	// runtime：首请求仍为 ask tool；其 tool 结果后续请求进入 slow，供浏览器证明 tool→stream 时间线更新。
+	const runtimeAsk = await requestScenario("e2e:runtime 探针");
+	assert.equal(runtimeAsk.at(-2).choices[0].finish_reason, "tool_calls", "runtime 首回合以 ask tool_calls 收尾");
+	const runtimeAfterTool = await requestScenario("继续", [
+		{ role: "user", content: "e2e:runtime 历史指令" },
+		{ role: "tool", tool_call_id: "call_e2e_ask", content: "继续" },
+	]);
+	assert.equal(runtimeAfterTool.filter((e) => e.choices?.[0]?.delta?.content).length, 24, "runtime tool 结果后进入 24 块 slow 流式输出");
+
 	// error：非重试型 HTTP 400 携带稳定 provider error，驱动真实 Agent error turn/end。
 	const errorResponse = await fetch(`${mock.url}/chat/completions`, {
 		method: "POST",
@@ -3511,7 +3520,7 @@ try {
 	assert.ok(afterTool.length <= 4 && afterTool.at(-2).choices[0].finish_reason === "stop", "tool 结果回合直接 fast 收口");
 
 	// 默认剧本：无关键词走 fast；非 chat/completions 路径 404。
-	assert.deepEqual(mock.scenarioLog, ["fast", "fast", "slow", "ask", "error", "fast"], "scenarioLog 记录分流结果（默认/显式 fast、slow、ask、error、tool 收口）");
+	assert.deepEqual(mock.scenarioLog, ["fast", "fast", "slow", "ask", "runtime", "slow", "error", "fast"], "scenarioLog 记录默认/显式 fast、slow、ask、runtime→slow、error 与普通 tool 收口");
 	const wrongPath = await fetch(`${mock.url}/models`);
 	assert.equal(wrongPath.status, 404, "非 chat/completions 路径返回 404");
 } finally {

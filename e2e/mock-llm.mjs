@@ -3,10 +3,11 @@
 // 按用户消息中的 `e2e:<剧本名>` 关键词选择预编排剧本，在隔离测试环境中
 // 确定性制造会话活动：
 //   e2e:slow  —— 慢速流式输出（约 24 块 × 150ms），会话保持运行中数秒
-//   e2e:ask   —— ask_user_question 工具调用，回合转入待回复
-//   e2e:error —— 返回非重试型 HTTP 400，回合以稳定错误结束
-//   e2e:fast  —— 立即完成（默认剧本，关键词缺省时同样走这里）
-// 含 tool 结果（role: tool）的后续请求统一以短文本 stop 收口。
+//   e2e:ask     —— ask_user_question 工具调用，回合转入待回复
+//   e2e:runtime —— 较慢的 ask_user_question 工具调用；回答后转入 slow 流式输出
+//   e2e:error   —— 返回非重试型 HTTP 400，回合以稳定错误结束
+//   e2e:fast    —— 立即完成（默认剧本，关键词缺省时同样走这里）
+// 普通 tool 结果后续请求以短文本 stop 收口；runtime 的 tool 结果进入 slow。
 //
 // 用法：`node e2e/mock-llm.mjs`（监听 127.0.0.1 随机端口，就绪后向 stdout
 // 打印一行 JSON {"url": "http://127.0.0.1:<port>/v1"}）；或被 boot.mjs
@@ -30,15 +31,17 @@ function messageText(msg) {
 	return "";
 }
 
-/** 按用户文本选择剧本；含 tool 结果的回合一律 fast 收口。
+/** 按用户文本选择剧本；runtime 的 tool 结果转入 slow，其余 tool 结果 fast 收口。
  *  关键词取最后一条带 `e2e:` 前缀的用户消息——主回合的 wire 消息里
  *  上下文注入可能排在用户正文之后，不能只看末条用户消息。 */
 function pickScenario(body) {
-	const hasToolResult = (body.messages ?? []).some((m) => m?.role === "tool");
-	if (hasToolResult) return "fast";
-	const userTexts = (body.messages ?? []).filter((m) => m?.role === "user").map(messageText);
+	const messages = body.messages ?? [];
+	const hasToolResult = messages.some((m) => m?.role === "tool");
+	const userTexts = messages.filter((m) => m?.role === "user").map(messageText);
+	const runtime = userTexts.some((text) => text.includes("e2e:runtime"));
+	if (hasToolResult) return runtime ? "slow" : "fast";
 	for (let i = userTexts.length - 1; i >= 0; i -= 1) {
-		const match = userTexts[i].match(/e2e:(slow|ask|error|fast)/);
+		const match = userTexts[i].match(/e2e:(slow|ask|runtime|error|fast)/);
 		if (match) return match[1];
 	}
 	return "fast";
@@ -99,7 +102,7 @@ async function playSlow(res, model) {
 }
 
 /** 待回复剧本：ask_user_question 工具调用后收尾，回合等待用户行动。 */
-async function playAsk(res, model) {
+async function playAsk(res, model, fragmentDelayMs = 20) {
 	send(res, chunk(model, { role: "assistant", content: "需要先确认一个问题。\n" }));
 	const argFragments = [ASK_QUESTION_ARGUMENTS.slice(0, 40), ASK_QUESTION_ARGUMENTS.slice(40)];
 	const deltas = [
@@ -108,7 +111,7 @@ async function playAsk(res, model) {
 	];
 	for (const delta of deltas) {
 		send(res, chunk(model, { tool_calls: [delta] }));
-		await sleep(20);
+		await sleep(fragmentDelayMs);
 	}
 	send(res, chunk(model, {}, "tool_calls"));
 	send(res, usageChunk(model, 24));
@@ -133,7 +136,13 @@ async function playFast(res, model) {
 	res.end();
 }
 
-const SCENARIOS = { slow: playSlow, ask: playAsk, error: playError, fast: playFast };
+const SCENARIOS = {
+	slow: playSlow,
+	ask: playAsk,
+	runtime: playAsk,
+	error: playError,
+	fast: playFast,
+};
 
 /**
  * 启动 mock LLM 服务。

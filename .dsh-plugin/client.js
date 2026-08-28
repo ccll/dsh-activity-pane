@@ -3023,6 +3023,13 @@ function apply(ctx) {
 	let clockTimer = null;
 	let syncScheduled = false;
 	let lastSig = "";
+	// E2E-only deterministic seam（T-089）：显式 URL 参数最多把本页首次列表 ready 呈现延后 1s，
+	// 用于证明 pending→ready 进入渲染签名；默认路径为 0，不改变服务、快照或生产时序。
+	const requestedListDelay = Number(new URLSearchParams(window.location.hash.slice(1)).get("dap-e2e-list-delay"));
+	const e2eListReadyAt = Number.isFinite(requestedListDelay) && requestedListDelay > 0
+		? Date.now() + Math.min(requestedListDelay, 1_000)
+		: 0;
+	let e2eListReleaseTimer = null;
 	let renderedPane = null;
 	let boundPane = null;
 	let unbindPaneControls = null;
@@ -4726,7 +4733,16 @@ function apply(ctx) {
 		const recentSection = pane.querySelector(`.${RECENT_CLASS}`);
 		if (activeList === null || recentSection === null) return;
 
-		const snapshot = getSnapshot(sessions, "list");
+		let snapshot = getSnapshot(sessions, "list");
+		if (e2eListReadyAt > Date.now() && snapshot?.phase !== "error") {
+			snapshot = { phase: "pending" };
+			if (e2eListReleaseTimer === null) {
+				e2eListReleaseTimer = setTimeout(() => {
+					e2eListReleaseTimer = null;
+					queueSync();
+				}, Math.max(0, e2eListReadyAt - Date.now()));
+			}
+		}
 		const listState = listLoadState(snapshot);
 		const workspaceSnapshot = getSnapshot(workspaces, "list");
 		const workspaceItems = workspaceSnapshot?.items ?? [];
@@ -5176,6 +5192,7 @@ function apply(ctx) {
 		window.removeEventListener("pageshow", onPageShow);
 		completeAcksById.clear();
 		if (clockTimer !== null) clearInterval(clockTimer);
+		if (e2eListReleaseTimer !== null) clearTimeout(e2eListReleaseTimer);
 		for (const [, rec] of livenessById) {
 			try {
 				rec.unsubscribe?.();

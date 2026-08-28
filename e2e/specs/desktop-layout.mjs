@@ -1,5 +1,5 @@
-// R-01-007/AC-01、R-01-007/AC-02、R-01-011/AC-05
-// 桌面贴边布局：窗格位于主会话左侧贴边、不遮挡主会话；折叠/展开控件保持同位。
+// R-01-007/AC-01、R-01-007/AC-02、R-01-011/AC-03、R-01-011/AC-04、R-01-011/AC-05
+// 桌面贴边布局：窗格位于主会话左侧贴边、不遮挡主会话；键盘折叠/展开控件保持同位。
 
 import { openApp, paneBox, sendHeroMessage, until } from "../helpers.mjs";
 
@@ -25,11 +25,13 @@ export default async function desktopLayout({ page, url, assert }) {
 	await composer.pressSequentially("主会话可正常输入");
 	assert.equal(await composer.inputValue(), "主会话可正常输入", "主会话 composer 可正常输入");
 
-	// R-01-011/AC-05：收起/展开控件保持在窗格顶部同一屏幕位置。
+	// R-01-011/AC-03、AC-05：Space 激活标题行收起，控件保持在窗格顶部同一屏幕位置。
 	const header = page.getByRole("button", { name: "收起活动会话窗格" });
 	const headerBox = await header.boundingBox();
 	assert.ok(headerBox, "展开态标题行控件存在");
-	await header.click();
+	await header.focus();
+	assert.equal(await header.evaluate((el) => document.activeElement === el), true, "标题行可经键盘聚焦");
+	await header.press("Space");
 	// 折叠为窄条：窄条整体是展开控件，其顶端与原标题行同位。
 	const strip = await until("折叠为窄条", async () => {
 		const candidate = page.getByRole("button", { name: /活动会话/ }).last();
@@ -42,8 +44,10 @@ export default async function desktopLayout({ page, url, assert }) {
 		Math.abs(stripBox.x - headerBox.x) <= POSITION_TOLERANCE_PX && Math.abs(stripBox.y - headerBox.y) <= POSITION_TOLERANCE_PX,
 		`窄条顶端与标题行同位（${stripBox.x},${stripBox.y} vs ${headerBox.x},${headerBox.y}）`,
 	);
-	await strip.click();
-	await until("展开恢复", async () => {
+	// R-01-011/AC-04：窄条整体为原生按钮，Enter 激活后展开恢复。
+	await strip.focus();
+	await strip.press("Enter");
+	await until("Enter 激活窄条展开恢复", async () => {
 		const b = await page.getByRole("button", { name: "收起活动会话窗格" }).boundingBox().catch(() => null);
 		return b && Math.abs(b.x - headerBox.x) <= POSITION_TOLERANCE_PX && Math.abs(b.y - headerBox.y) <= POSITION_TOLERANCE_PX ? true : null;
 	});

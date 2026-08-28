@@ -1,5 +1,5 @@
 // R-01-018/AC-01、R-01-018/AC-02、R-01-018/AC-03、R-01-018/AC-04、R-01-018/AC-05
-// 回到顶部：滚动超阈值出现悬浮按钮、激活回顶（减弱动态时直接定位）、回顶后隐藏、
+// 回到顶部：滚动超阈值出现悬浮按钮、键盘激活回顶（减弱动态时直接定位）、回顶后隐藏、
 // 移动抽屉同样提供而折叠窄条不显示、纯图标无文字且有不透明底色与可访问名称。
 
 import { cardVisibleInPane, newSessionWithMessage, openApp, paneBox, sendHeroMessage, until, wheelOver } from "../helpers.mjs";
@@ -63,11 +63,13 @@ export default async function backToTop({ page, url, assert }) {
 	// R-01-018/AC-01（右下角）：按钮贴合窗格右缘与底缘。
 	assert.ok(state.right >= box.x + box.width - 40 && state.bottom >= box.y + box.height - 40, `按钮位于窗格右下角（right=${Math.round(state.right)} bottom=${Math.round(state.bottom)}，pane right=${Math.round(box.x + box.width)} bottom=${Math.round(box.y + box.height)}）`);
 
-	// R-01-018/AC-02、AC-03：点击回顶——顶部卡片重新可见、按钮隐藏。
+	// R-01-018/AC-02、AC-03：Enter 激活回顶——顶部卡片重新可见、按钮隐藏。
 	assert.equal(await cardVisibleInPane(page, TOP_TITLE()), false, "前置：滚走后顶部卡片不可见");
-	await page.getByRole("button", { name: "回到顶部" }).click();
+	const topButton = page.getByRole("button", { name: "回到顶部" });
+	await topButton.focus();
+	await topButton.press("Enter");
 	const topTitle = TOP_TITLE();
-	await untilBackToTop(page, topTitle, "回顶完成且按钮隐藏");
+	await untilBackToTop(page, topTitle, "Enter 激活回顶完成且按钮隐藏");
 
 	// R-01-018/AC-02（减弱动态）：直接定位不做平滑滚动——点击后极短窗口内首卡即回视野。
 	await page.emulateMedia({ reducedMotion: "reduce" });

@@ -52,8 +52,8 @@ id: T-089
 | R-01-008/AC-06 | 键盘路径补强，需求不变 | E2E | update | e2e/specs/mobile-drawer.mjs |
 | R-01-018/AC-02 | 键盘路径补强，需求不变 | E2E | update | e2e/specs/back-to-top.mjs |
 | R-01-009/AC-01 | 进行中 tool partial 的浏览器窗口不稳定，需求不变 | UNIT | none | 保留 scripts/check.mjs 的工作项派生断言；E2E 只锚定落定 tool 与后续 stream，不过度声明 AC-01 |
-| R-01-009/AC-02 | 运行态 stream 时间线更新证据补强，需求不变 | E2E | update | mock LLM 剧本与 session-lifecycle spec |
-| R-01-009/AC-03 | 运行态状态变化证据补强，需求不变 | E2E | update | mock LLM 剧本与 session-lifecycle spec |
+| R-01-009/AC-02 | 运行态 stream 时间线更新证据补强，需求不变 | E2E | update | e2e/mock-llm.mjs runtime 剧本与 e2e/specs/auto-update.mjs |
+| R-01-009/AC-03 | 运行态状态变化证据补强，需求不变 | E2E | update | e2e/mock-llm.mjs runtime 剧本与 e2e/specs/auto-update.mjs |
 | R-01-014/AC-01 | 列表 loading→ready 浏览器证据补强，需求不变 | E2E | add | 可控 loading-ready spec |
 | R-01-014/AC-03 | 同一页面渐进呈现证据补强，需求不变 | E2E | add | 可控 loading-ready spec |
 | R-01-014/AC-06 | 数量标识 loading→count 证据补强，需求不变 | E2E | add | 可控 loading-ready spec |

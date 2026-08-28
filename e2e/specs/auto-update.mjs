@@ -1,4 +1,4 @@
-// R-01-001/AC-03～AC-06、R-01-002/AC-06～AC-07、R-01-010/AC-04、R-01-017/AC-01、R-02-002/AC-01、R-02-002/AC-02
+// R-01-001/AC-03～AC-06、R-01-002/AC-06～AC-07、R-01-009/AC-02、R-01-009/AC-03、R-01-010/AC-04、R-01-017/AC-01、R-02-002/AC-01、R-02-002/AC-02
 // 状态自动更新（出现/完成/等待出现/等待解除四类变化，无需手动刷新）、活动区空态、
 // 折叠时间线不依赖 dsh-auto-collapse（本隔离环境按构造不含该插件，全套件功能断言
 // 即「不降级」证据）、外壳重挂载恢复不重复、全程控制台无插件报错与未捕获异常。
@@ -7,7 +7,7 @@ import { mainAreaHas, newSessionWithMessage, openApp, paneRegions, sendHeroMessa
 
 const TITLE_A = "e2e:fast 自动更新探针甲";
 const TITLE_B = "e2e:fast 自动更新探针乙";
-const TITLE_ASK = "e2e:ask 自动更新等待探针";
+const TITLE_RUNTIME = "e2e:runtime 自动更新运行态探针";
 const DESKTOP_VIEWPORT = { width: 1280, height: 720 };
 const MOBILE_VIEWPORT = { width: 375, height: 700 };
 
@@ -30,7 +30,7 @@ async function badgeSnapshot(page, surface) {
 	}, surface);
 }
 
-export default async function autoUpdate({ page, url, assert }) {
+export default async function autoUpdate({ page, url, mock, assert }) {
 	// R-02-002/AC-02：全程收集控制台错误，结束后断言无插件报错。
 	const consoleErrors = [];
 	page.on("console", (msg) => {
@@ -118,12 +118,13 @@ export default async function autoUpdate({ page, url, assert }) {
 	const regionsAfterSwitch = await paneRegions(page);
 	assert.ok(regionsAfterSwitch.active.includes(TITLE_A) && regionsAfterSwitch.active.includes(TITLE_B), "两张卡片在重挂载后保持");
 
-	// R-01-001/AC-03（等待出现与等待解除）：ask 剧本使会话进入等待行动，
-	// 窗格呈现「等待回答」；在主会话区选择选项并提交后，等待解除并转为完成提醒。
-	await newSessionWithMessage(page, TITLE_ASK);
-	await until("等待行动自动出现在窗格", async () => {
-		const regions = await paneRegions(page);
-		return regions && regions.active.includes("等待回答") && regions.active.includes(TITLE_ASK) ? regions : null;
+	// R-01-001/AC-03、R-01-009/AC-02、AC-03：runtime 剧本先产生真实 ask tool，
+	// 窗格呈现已落定的工具分组；回答后同一会话进入 slow 流式输出并原地更新时间线。
+	await newSessionWithMessage(page, TITLE_RUNTIME);
+	const runtimeCard = page.locator('[data-dsh-activity-pane] [role="button"]').filter({ hasText: TITLE_RUNTIME }).first();
+	await until("tool 工作项落定并进入等待行动", async () => {
+		const text = await runtimeCard.innerText().catch(() => "");
+		return text.includes("运行了命令") && text.includes("等待回答") && text.includes("E2E 探针问题") ? text : null;
 	});
 	const blockedBadge = await until("阻塞等待徽标就绪", async () => {
 		const value = await badgeSnapshot(page, "header");
@@ -135,10 +136,25 @@ export default async function autoUpdate({ page, url, assert }) {
 	assert.match(blockedBadge.period, /^\d+(?:\.\d+)?s$/, "阻塞等待时列头徽标写入占比驱动周期（R-01-002/AC-07）");
 	await page.getByText("确认继续执行").click();
 	await page.getByRole("button", { name: "Submit", exact: true }).click();
-	await until("等待解除并转为完成提醒", async () => {
-		const regions = await paneRegions(page);
-		return regions && !regions.active.includes("等待回答") && regions.active.includes("已完成") ? regions : null;
+	const earlyChunk = await until("时间线出现早期流式正文", async () => {
+		const text = await runtimeCard.innerText().catch(() => "");
+		const match = text.match(/慢速输出片段 (\d+)\/24/);
+		return match && Number(match[1]) < 24 ? Number(match[1]) : null;
 	});
+	const laterChunk = await until("同一时间线跟随流式输出更新", async () => {
+		const text = await runtimeCard.innerText().catch(() => "");
+		const chunks = [...text.matchAll(/慢速输出片段 (\d+)\/24/g)].map((match) => Number(match[1]));
+		const latest = Math.max(0, ...chunks);
+		return latest > earlyChunk ? latest : null;
+	});
+	assert.ok(laterChunk > earlyChunk, `流式时间线应从片段 ${earlyChunk} 更新到更晚片段，实际 ${laterChunk}`);
+	await until("等待解除并转为完成提醒", async () => {
+		const text = await runtimeCard.innerText().catch(() => "");
+		return !text.includes("等待回答") && text.includes("已完成") ? text : null;
+	});
+	const runtimeIndex = mock.scenarioLog.indexOf("runtime");
+	const slowAfterRuntime = mock.scenarioLog.indexOf("slow", runtimeIndex + 1);
+	assert.ok(runtimeIndex >= 0 && slowAfterRuntime > runtimeIndex, `runtime 应在 tool 请求后进入 slow，实际：${mock.scenarioLog}`);
 
 	// R-02-002/AC-02：加载、运行、等待、切换全程控制台无插件报错、无未捕获异常
 	// （控制台监听在 goto 之前挂接，槽座出现前的早期阶段也在覆盖范围内）。

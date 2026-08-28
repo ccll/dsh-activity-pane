@@ -335,11 +335,13 @@ flowchart LR
 - 实现: 单端（浏览器 client bundle）
 
 ### E2E 验证基建
-- 职责: 以真实浏览器对最终页面行为做端到端回归验证，为交互类验收点提供自动化锚点（T-082 首条 spec 锚定 R-01-001、R-01-002、R-01-010；R-01-005、R-01-008、R-02-002 等人工-only 验收点由 T-083 迁移承接；T-084 第二批承接 R-01-005/006 跳转高亮、R-01-015 调宽、R-01-018 回到顶部与 R-01-003/012/013 卡面内容子集；不承担任何产品行为）
+- 职责: 以真实浏览器对最终页面行为做端到端回归验证，为交互类验收点提供自动化锚点（T-082 首条 spec 锚定 R-01-001、R-01-002、R-01-010；T-083/T-084 迁移布局、滚动、跳转、调宽、回顶与卡面内容；T-085 加固 runner 并覆盖 R-01-002 跨客户端确认同步/恢复与 R-01-008 移动抽屉完整交互；不承担任何产品行为）
 - 关键内部结构:
-  - 隔离测试环境：`$DSH_HOME` 临时目录 + 预置 settings.yaml（provider 指向 mock LLM）+ `dsh web --port 0`；插件经 `dsh plugin --profile web add` 以 link: 装入；是否缓存环境模板由 T-082 实测冷启动成本决定。
+  - 隔离测试环境：每个 spec 使用独立 `$DSH_HOME` 临时目录 + 预置 settings.yaml（provider 指向 mock LLM）+ `dsh web --port 0`；插件经 `dsh plugin --profile web add` 以 link: 装入；spec 间会话与持久化状态互不可见。
+  - 浏览器生命周期：全套件共享一个 Chromium 进程，每个 spec 创建独立 browser context；需要验证同服务多客户端语义的 spec 可在该浏览器内创建第二个 context，二者只共享对应 spec 的 dsh web 服务。
   - mock LLM 剧本服务：OpenAI 兼容 `POST /chat/completions` SSE 端点，按用户消息关键词选择 E2E 剧本——慢速流式（运行中）、ask_user_question tool_call（待回复）、立即 finish（完成提醒）。
   - 驱动：Playwright 经真实 composer UI 发起会话，断言窗格可观察行为；不断言内部 DOM 结构，结构断言仅限宿主槽座等显式契约边界。
-  - 门禁归属：`.githooks/pre-push.d/` 重门禁，pre-commit 快检查不变。
-- 代码位置: e2e/（T-082 创建）
+  - 失败与恢复：普通断言失败立即计为回归，不自动重试；只有签名为 `E2E_PANE_STALL` 的已知宿主 sessions 首推停滞允许有限换环境恢复，恢复次数进入套件日志；失败保存 screenshot 与服务端 stderr 尾部。
+  - 门禁归属：`pnpm verify:fast` 为快速入口，`pnpm verify` 为完整入口；agent 任务结束、`.githooks/pre-push.d/` 与 `.github/workflows/ci.yml` 重放完整入口，pre-commit 保持快速检查。
+- 代码位置: e2e/、package.json、.githooks/、.github/workflows/ci.yml
 - 实现: 单端（Node，测试期进程）

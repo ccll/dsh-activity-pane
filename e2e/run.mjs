@@ -44,26 +44,40 @@ async function runSpec(name) {
 	let browser;
 	let context;
 	let page;
+	let result = 0;
+	let bootMs = 0;
+	let browserMs = 0;
+	let specMs = 0;
+	let cleanupMs = 0;
 	const start = Date.now();
 	try {
 		env = await bootE2e();
+		bootMs = Date.now() - start;
+		const browserStart = Date.now();
 		browser = await chromium.launch();
 		context = await browser.newContext();
 		page = await context.newPage();
+		browserMs = Date.now() - browserStart;
+		const specStart = Date.now();
 		await spec({ browser, page, url: env.url, mock: env.mock, assert });
 		await clearFailureArtifact(name);
-		console.error(`e2e: PASS ${name}（${Date.now() - start}ms）`);
-		return 0;
+		specMs = Date.now() - specStart;
 	} catch (error) {
+		result = 1;
 		console.error(`e2e: FAIL ${name}\n${error?.stack ?? error}`);
 		if (env?.webStderr.length > 0) console.error(`e2e: dsh web stderr 尾部：\n${env.webStderr.slice(-20).join("")}`);
 		await captureFailure(page, name);
-		return 1;
 	} finally {
+		const cleanupStart = Date.now();
 		await context?.close().catch(() => {});
 		await browser?.close().catch(() => {});
 		await env?.cleanup().catch(() => {});
+		cleanupMs = Date.now() - cleanupStart;
 	}
+	if (result === 0) {
+		console.error(`e2e: PASS ${name}（boot=${bootMs}ms browser=${browserMs}ms spec=${specMs}ms cleanup=${cleanupMs}ms total=${Date.now() - start}ms）`);
+	}
+	return result;
 }
 
 const suiteStart = Date.now();

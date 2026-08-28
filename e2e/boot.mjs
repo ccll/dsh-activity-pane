@@ -87,10 +87,20 @@ export async function bootE2e() {
 	const cleanup = async () => {
 		if (web && web.exitCode === null) {
 			killWebGroup("SIGTERM");
-			await Promise.race([
-				new Promise((resolve) => web.once("exit", resolve)),
-				sleep(5_000).then(() => killWebGroup("SIGKILL")),
-			]);
+			let escalationTimer = null;
+			try {
+				await Promise.race([
+					new Promise((resolve) => web.once("exit", resolve)),
+					new Promise((resolve) => {
+						escalationTimer = setTimeout(() => {
+							killWebGroup("SIGKILL");
+							resolve();
+						}, 5_000);
+					}),
+				]);
+			} finally {
+				if (escalationTimer !== null) clearTimeout(escalationTimer);
+			}
 		}
 		await mock.close();
 		await rm(home, { recursive: true, force: true });

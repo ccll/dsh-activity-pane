@@ -3436,6 +3436,9 @@ assert.ok(e2eRunnerSource.includes("await browser?.close()"), "每个 spec 都�
 assert.ok(!e2eRunnerSource.includes("sharedBrowser"), "不保留未使用或跨环境共享的浏览器进程");
 assert.ok(e2eRunnerSource.includes("const MAX_CONCURRENCY = 1") && e2eRunnerSource.includes("Math.min(MAX_CONCURRENCY, specFiles.length)"), "E2E 固定顺序执行，保持资源上限与日志顺序稳定");
 assert.ok(!e2eRunnerSource.includes("RECOVER") && !e2eRunnerSource.includes("stallRecoveries"), "普通失败与列表停滞均不得换环境重试");
+assert.ok(e2eRunnerSource.includes("boot=${bootMs}ms browser=${browserMs}ms spec=${specMs}ms cleanup=${cleanupMs}ms"), "PASS 日志分列 boot/browser/spec/cleanup 阶段耗时");
+const e2eBootSource = await readFile(join(root, "e2e/boot.mjs"), "utf8");
+assert.ok(e2eBootSource.includes("clearTimeout(escalationTimer)"), "正常 cleanup 后取消 SIGKILL escalation timer，不拖住 Node 进程");
 const e2eHelperSource = await readFile(join(root, "e2e/helpers.mjs"), "utf8");
 assert.equal(e2eHelperSource.match(/page\.goto\(url/g)?.length, 1, "每个 spec 只建立一个页面连接世代");
 assert.ok(e2eHelperSource.includes("const PANE_READY_TIMEOUT_MS = 6_000"), "单页面连接世代使用固定 6s 观察窗口");
@@ -3457,6 +3460,8 @@ assert.ok(ciWorkflowSource.includes("node-version: 24.16.0"), "hosted Node 与�
 
 // ---- E2E 基建：mock LLM 剧本服务行为断言（C-045，T-082、T-088、T-089）----
 // 浏览器 spec 驱动真实 UI；fast/slow/ask/runtime/error 的响应形状与分流规则在此做 Node 级行为验证。
+const mockLlmSource = await readFile(join(root, "e2e/mock-llm.mjs"), "utf8");
+assert.ok(mockLlmSource.includes("res.destroyed || res.writableEnded"), "slow mock 在客户端断开后停止剩余 chunk timers");
 const { startMockLlm } = await import("../e2e/mock-llm.mjs");
 const { MOCK_ERROR_MESSAGE } = await import("../e2e/helpers.mjs");
 const mock = await startMockLlm();

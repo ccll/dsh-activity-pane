@@ -18,13 +18,14 @@ mutation: lifecycle
 ## 差距评估
 
 - `bootE2e().timings` 已记录 mock/settings/plugin/webReady/total，但 runner 未输出。
+- 实现进度: 首轮取消 normal cleanup 的 losing escalation timer 后 focused wall 从 11.07s 降到 8.85s；阶段日志继续定位到 slow mock 在客户端断开后仍保留 chunk timers，增加 `res.destroyed` 终止条件后同 spec runner total 6.340s、wall 6.80s，差值收敛到 0.46s。
 - cleanup 的 5s escalation timer 无取消句柄；正常 web exit 赢得 race 后 timer 仍存活。
 - 多次 hosted/main push 已在 2m30～2m48 job 内绿色，当前没有证据支持改变隔离或 timeout 策略。
 
 ## 收敛方案
 
 1. `boot.mjs` 为 SIGKILL escalation timer 保存句柄，并在 race 结束后 `clearTimeout`。
-2. `run.mjs` 将 PASS 日志拆出 boot/spec/cleanup/total；FAIL 仍即时输出错误、截图和 web stderr，最终 cleanup 不吞结果。
+2. `run.mjs` 将 PASS 日志拆出 boot/browser/spec/cleanup/total；FAIL 仍即时输出错误、截图和 web stderr，最终 cleanup 不吞结果。
 3. `scripts/check.mjs` 增加 timer 取消和阶段日志 contract；DESIGN 登记可观测性与无遗留 timer 约束。
 4. 用 `/usr/bin/time node e2e/run.mjs loading-ready` 比较 A/B，再跑完整 `pnpm verify`。
 

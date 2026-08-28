@@ -91,7 +91,7 @@ const ASK_QUESTION_ARGUMENTS = JSON.stringify({
 /** 慢速流式剧本：分块吐文本，让会话保持运行数秒。客户端中途断开（响应流关闭）即停止。 */
 async function playSlow(res, model) {
 	for (let i = 1; i <= SLOW_CHUNKS; i += 1) {
-		if (res.writableEnded) return;
+		if (res.destroyed || res.writableEnded) return;
 		send(res, chunk(model, { role: i === 1 ? "assistant" : undefined, content: `慢速输出片段 ${i}/${SLOW_CHUNKS}。\n` }));
 		await sleep(SLOW_INTERVAL_MS);
 	}

@@ -35,6 +35,11 @@ export async function paneRegions(page) {
 	});
 }
 
+/** 读取宿主错误/完成登记全量快照，仅供跨边界失败诊断。 */
+export async function activityAcks(page) {
+	return page.evaluate(() => fetch("/dsh-activity-pane/api/acks").then((res) => res.json()));
+}
+
 /** 窗格根的包围盒（契约边界选择器仅此一个）。 */
 export async function paneBox(page) {
 	const box = await page.locator("[data-dsh-activity-pane]").boundingBox();

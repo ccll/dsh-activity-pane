@@ -35,18 +35,22 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 			const pane = document.querySelector("[data-dsh-activity-pane]");
 			const card = [...(pane?.querySelectorAll('[role="button"]') ?? [])].find((candidate) => candidate.innerText.includes(title));
 			const item = card?.querySelector('.dap-trace-item[data-status="running"]');
+			const settledItem = card?.querySelector('.dap-trace-item:not([data-status="running"])');
 			const titleDot = card?.querySelector(".dap-dot");
 			const trace = card?.querySelector(".dap-trace");
-			if (!item || !titleDot || !trace) return null;
+			if (!item || !settledItem || !titleDot || !trace) return null;
 			const node = getComputedStyle(item, "::before");
+			const settledNode = getComputedStyle(settledItem, "::before");
 			const heading = getComputedStyle(titleDot);
 			const line = getComputedStyle(trace, "::before");
 			const itemRect = item.getBoundingClientRect();
 			const titleRect = titleDot.getBoundingClientRect();
 			const traceRect = trace.getBoundingClientRect();
+			const borderWidth = Number.parseFloat(node.borderLeftWidth);
 			return {
 				nodeWidth: Number.parseFloat(node.width),
 				nodeHeight: Number.parseFloat(node.height),
+				nodeCoreWidth: Number.parseFloat(node.width) - borderWidth * 2,
 				nodeCenterX: itemRect.left + Number.parseFloat(node.left) + Number.parseFloat(node.width) / 2,
 				titleWidth: Number.parseFloat(heading.width),
 				titleHeight: Number.parseFloat(heading.height),
@@ -54,15 +58,18 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 				lineCenterX: traceRect.left + Number.parseFloat(line.left) + Number.parseFloat(line.width) / 2,
 				animation: node.animationName,
 				glow: node.boxShadow,
+				settledHalo: settledNode.boxShadow,
 			};
 		}, TITLE),
 	);
-	assert.deepEqual([dotGeometry.nodeWidth, dotGeometry.nodeHeight], [5, 5], "时间线节点整体为 5×5px（R-01-009/AC-09）");
+	assert.deepEqual([dotGeometry.nodeWidth, dotGeometry.nodeHeight], [7, 7], "时间线节点使用 7×7px 同心承载盒（R-01-009/AC-09）");
+	assert.equal(dotGeometry.nodeCoreWidth, 5, "时间线承载盒内保留 5px 实心核（R-01-009/AC-09）");
 	assert.deepEqual([dotGeometry.titleWidth, dotGeometry.titleHeight], [7, 7], "标题状态点保持 7×7px（R-01-009/AC-09）");
-	assert.ok(Math.abs(dotGeometry.nodeCenterX - dotGeometry.titleCenterX) <= 0.5, "时间线点与标题点的页面绝对圆心竖直对齐（R-01-009/AC-09）");
-	assert.ok(Math.abs(dotGeometry.nodeCenterX - dotGeometry.lineCenterX) <= 0.5, "时间线点与竖线的页面绝对圆心竖直对齐（R-01-009/AC-09）");
+	assert.ok(Math.abs(dotGeometry.nodeCenterX - dotGeometry.titleCenterX) <= 0.5, "时间线承载盒与标题点的页面绝对圆心竖直对齐（R-01-009/AC-09）");
+	assert.ok(Math.abs(dotGeometry.nodeCenterX - dotGeometry.lineCenterX) <= 0.5, "时间线承载盒与竖线的页面绝对圆心竖直对齐（R-01-009/AC-09）");
+	assert.notEqual(dotGeometry.settledHalo, "none", "已定案时间线点恢复半透明外围环（R-01-009/AC-09）");
 	assert.equal(dotGeometry.animation, "dap-pulse", "running 时间线点保留脉冲（R-01-009/AC-09）");
-	assert.notEqual(dotGeometry.glow, "none", "running 时间线点保留光晕（R-01-009/AC-09）");
+	assert.notEqual(dotGeometry.glow, "none", "running 时间线点保留半透明外围与光晕（R-01-009/AC-09）");
 
 	// mock 必须确实命中 slow 剧本（证明链路经 mock LLM 而非真实模型）。
 	assert.ok(mock.scenarioLog.includes("slow"), `mock 应命中 slow 剧本，实际：${mock.scenarioLog}`);

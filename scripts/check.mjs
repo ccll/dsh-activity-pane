@@ -3007,9 +3007,9 @@ assert.ok(bundle.includes('.dap-trace-summary[data-follow="end"] { text-overflow
 
 // R-01-009/AC-09
 // ---- 回归锚点：时间线几何/状态动画（R-01-009/AC-08、AC-09 呈现细节）----
-// 轨道列从卡片内容左边起步：时间线圆点为实际 5px（left:1px、圆心 x=3.5），
-// 明显小于 7px 标题圆点，同时与标题点和 left 3px 的 1px 竖线严格同圆心；
-// 5px border-box 由实体背景 + 1px 半透明 border 原生圆角裁剪，避免硬停色 gradient 八边形；
+// 轨道列从卡片内容左边起步：时间线节点与 7px 标题点使用同尺寸承载盒（left:0、圆心 x=3.5），
+// 与 left 3px 的 1px 竖线保持同一光栅相位；7px border-box 内以 1px 半透明 border 留出
+// 5px 实心核，普通节点再以 1px 半透明 box-shadow 恢复外围环；原生圆角避免硬停色 gradient 八边形；
 // 竖线贯穿首项圆点并向上引出；
 // 竖线为容器 ::before 单元素整条绘制（零拼接，对齐层级连接线 .dap-conn-track 原则）——
 // 逐项分段曾在接缝处双线叠加、半透明相加成亮带（T-069）；
@@ -3019,7 +3019,7 @@ assert.ok(!bundle.includes(".dap-trace-item::after"), "时间线不再逐项分�
 assert.ok(!bundle.includes("bottom: -8px"), "逐项竖线下探 8px 的拼接几何已移除（T-069）");
 assert.ok(bundle.includes(".dap-trace:has(> :only-child)::before"), "单项时间线（含加载行）不画竖线（沿用原末项不画线语义）");
 assert.ok(bundle.includes("margin: 1px 0 2px;"), "时间线整体与卡片内容左边界对齐");
-assert.ok(bundle.includes("left: 3px; top: 0; bottom: 7px"), "1px 竖线（整数位）与 5px 时间线圆点、7px 标题圆点严格同圆心 x=3.5，终点没入最末圆点");
+assert.ok(bundle.includes("left: 3px; top: 0; bottom: 7px"), "1px 竖线（整数位）与 7px 时间线承载盒、7px 标题点严格同圆心 x=3.5，终点没入最末圆点");
 assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace::before"), "浅色主题时间线竖线色覆盖迁移到容器级规则（T-069）");
 assert.ok(bundle.includes("color: #c7ced9; font-size: 10px; line-height: 14px;"), "工作项文字恢复原有 10px/14px 尺度");
 assert.ok(bundle.includes("width: 14px; height: 14px;") && !bundle.includes("width: 14px; height: 14px; padding: 1px;"), "工作项图标容器为真实 14px 盒、无占位的 padding 环（R-01-012、C-019）");
@@ -3028,13 +3028,14 @@ assert.ok(bundle.includes("linear-gradient(var(--dsw-alias-label-tertiary, rgb(1
 assert.ok(bundle.includes("anchor: true") && bundle.includes("isUserChatNode"), "指令锚行由核心派生并前置返回，找锚只做廉价 kind 检查（R-01-012/AC-12）");
 assert.ok(bundle.includes("display: block; width: 12px; height: 12px;"), "工作项 SVG 保持 12px");
 assert.ok(bundle.includes('svg.setAttribute("width", String(width))'), "canonical 图标经 createInlineIcon 统一写入尺寸（默认 12px）");
-assert.ok(bundle.includes("left: 1px; top: 4px;\n  width: 5px; height: 5px;"), "时间线圆点为实际 5px 且圆心保持 x=3.5/y=6.5（R-01-009/AC-09、C-061）");
-assert.ok(bundle.includes("box-sizing: border-box; border: 1px solid rgba(119, 131, 148, .14); border-radius: 50%;"), "5px 圆点以盒内半透明外环和原生圆角裁剪呈现（R-01-009/AC-09、C-061）");
+assert.ok(bundle.includes("left: 0; top: 3px;\n  width: 7px; height: 7px;"), "时间线节点恢复 7px 同心承载盒，圆心保持 x=3.5/y=6.5（R-01-009/AC-09、C-062）");
+assert.ok(bundle.includes("box-sizing: border-box; border: 1px solid rgba(119, 131, 148, .14); border-radius: 50%;"), "7px 承载盒以 1px 半透明 border 留出 5px 实心核并经原生圆角裁剪（R-01-009/AC-09、C-062）");
 assert.ok(bundle.includes("background: #778394; background-clip: padding-box;"), "时间线圆点使用实体背景与 padding-box 裁剪，不绕过 border-radius（R-01-009/AC-09）");
-assert.ok(bundle.includes("background: #65a0ff; border-color: rgba(101,160,255,.16);"), "running 圆点保留蓝色实心核与同色半透明内环（R-01-009/AC-09）");
-assert.ok(!bundle.includes("radial-gradient(circle,"), "时间线圆点不再使用硬停色 radial-gradient（R-01-009/AC-09、C-036、C-061）");
-assert.ok(!bundle.includes("box-shadow: 0 0 0 1px rgba(119, 131, 148, .14);"), "普通时间线圆点不再以外扩 box-shadow 放大到标题点尺寸（R-01-009/AC-09、C-061）");
-assert.ok(bundle.includes(".dap-dot {\n  width: 7px; height: 7px;"), "标题圆点保持 7px，并与实际 5px 时间线圆点形成尺寸层级");
+assert.ok(bundle.includes("background: #65a0ff; border-color: rgba(101,160,255,.16);"), "running 圆点保留蓝色 5px 实心核与同色半透明内环（R-01-009/AC-09）");
+assert.ok(!bundle.includes("radial-gradient(circle,"), "时间线圆点不再使用硬停色 radial-gradient（R-01-009/AC-09、C-036、C-061、C-062）");
+assert.ok(bundle.includes("box-shadow: 0 0 0 1px rgba(119, 131, 148, .14);"), "普通时间线圆点恢复 1px 半透明外围环（R-01-009/AC-09、C-062）");
+assert.ok(bundle.includes("box-shadow: 0 0 0 1px rgba(101,160,255,.16), 0 0 6px rgba(101,160,255,.65);"), "running 圆点恢复同色半透明外围并保留 6px 光晕（R-01-009/AC-09、C-062）");
+assert.ok(bundle.includes(".dap-dot {\n  width: 7px; height: 7px;"), "标题点与时间线承载盒同为 7px，5px 实心核继续形成尺寸层级");
 assert.ok(bundle.includes("padding-left: 14px"), "时间线文字轨道保持 14px 内缩");
 assert.ok(bundle.includes(".dap-subtrace {\n  position: relative;   /* 容器级整条竖线的定位基准 */\n  min-width: 0;"), "子代理容器不再 padding/border/overflow 包裹（不裁切圆点），并为容器级整条竖线提供定位基准（T-069）");
 assert.ok(bundle.includes(".dap-fill { transition: none; }"), "降低动效设置不关闭状态动画（对齐 answer-pet）");

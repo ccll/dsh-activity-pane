@@ -29,20 +29,22 @@ owner: agent 主笔，项目属主审批
 
 ## 验证门禁
 
-- 提交前务必运行 `pnpm build:client && pnpm check` 并把重新生成的 `.dsh-plugin/client.js` 一并暂存；`pre-commit` 的 `30-*` hook 也会重跑该检查。
+- 每次 agent 工作完成运行 `pnpm verify`；编辑循环可先运行约 5 秒的 `pnpm verify:fast`。`pnpm check` 会重建 `.dsh-plugin/client.js`，提交时一并暂存生成结果。
 - `.d/` hook 统一使用 `NN-name.sh`，两位编号在同一目录内唯一；dispatcher 以 `LC_ALL=C` 按文件名顺序执行并在首个失败处停止。
 - `.githooks/pre-push`：先对 outgoing commits 重放 `.githooks/commit-msg`，再执行 `pre-push.d/`。
+- 快速验证入口: `pnpm verify:fast`（AgentMap lint + core 单测与 client bundle 契约）。
 - 权威验证入口: .githooks/pre-push
-- CI 门禁: 不适用：新项目尚未声明共享集成分支，建立 CI 时改为适用并登记配置路径
+- 完整验证命令: `pnpm verify`（快速入口 + 全量浏览器 E2E）；agent 任务结束、pre-push 与 CI 重放同一命令。
+- CI 门禁: 适用：`.github/workflows/ci.yml` 在 pull request 与 main push 上使用锁定的 Node、pnpm、dsh 与 Playwright Chromium 执行 pnpm verify，失败上传 E2E screenshot artifact。
 - `.githooks/pre-commit.d/20-agentmap-lint.sh`：AgentMap 结构、追溯与派生报告。
 - `.githooks/pre-commit.d/30-dsh-activity-pane-check.sh`：dsh-activity-pane 单测与 client bundle 契约校验（`node scripts/check.mjs`）。
 - `.githooks/pre-push.d/20-agentmap-lint.sh`：校验待推送历史的 AgentMap 不可变契约。
-- `.githooks/pre-push.d/30-dsh-activity-pane-e2e.sh`：dsh-activity-pane 浏览器 E2E 套件（`node e2e/run.mjs`，每 spec 独立隔离环境 + mock LLM + 共享浏览器进程，9 条 spec 实测约 2 分钟；宿主首推停滞触发自愈重试时更长）。
+- `.githooks/pre-push.d/30-dsh-activity-pane-e2e.sh`：执行完整 `pnpm verify`；E2E 每 spec/恢复尝试独立 dsh web、Chromium 与 context，只有 `E2E_PANE_STALL` 允许有限恢复并在汇总中计数。
 - 扫描来源：`.`
 
 ## 构建与开发工作流
 
-- E2E（C-045）：`pnpm test:e2e` 启动隔离测试环境（临时 `$DSH_HOME` + mock LLM + 随机端口 dsh web）并顺序执行 `e2e/specs/*.mjs`；首次使用先 `PLAYWRIGHT_BROWSERS_PATH=0 pnpm exec playwright install chromium-headless-shell` 把浏览器二进制装入项目内 `node_modules`；失败截图落在 `e2e/fail-*.png`（已 gitignore）。
+- E2E（C-045、C-046、C-047、C-049）：`pnpm test:e2e` 启动隔离测试环境（临时 `$DSH_HOME` + mock LLM + 随机端口 dsh web）并以固定 2 worker 执行 `e2e/specs/*.mjs`；每 spec/恢复尝试独立 Chromium 与 context；首次使用先 `PLAYWRIGHT_BROWSERS_PATH=0 pnpm exec playwright install chromium-headless-shell`，失败截图落在 `e2e/fail-*.png`（已 gitignore）。
 - 本地开发安装（在 profile 中挂载；pnpm `link:` 使 profile 内为指向本仓库的符号链接）：`dsh plugin --profile web add ./dsh-activity-pane`。
 - `pnpm build:client` 生成 `.dsh-plugin/client.js`；`pnpm check` 做 core 单元检查 + bundle 校验；`pnpm dev:watch` 监视 `src/*.mjs`，变化即重建 bundle。
 - 热更开发：DSH 通过 `dsh-client-hmr` 监视已安装插件的 client bundle 文件，内容一变就推送 `rebuilt` 帧，浏览器单独热装该插件——不需要整页刷新，也不需要重启 `dsh web`（host 侧改动除外：本插件自 T-073 起 host 侧承载完成确认状态，改动 `src/host.mjs` 后需重启 `dsh web` 生效）。

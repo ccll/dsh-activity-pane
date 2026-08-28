@@ -20,4 +20,4 @@ owner: 双方
 - [需求候选] 移动端抽屉内激活卡片跳转会话后自动收起抽屉（现行行为保持展开，需东家确认预期）
 - [维护想法] 上架 dsh-market：目录在 awesome-dsh-plugin 仓库（PR 一条 data/plugins/ccll__dsh-activity-pane.yml，需仓库满 1 天、≥10 commits、加 dsh-plugin topic）；可选发布 npm（需移除 private:true 并补 repository 字段）。
 - [维护想法] buildRecent 位置参数已达 9 个（调用点出现 undefined/{}/[]/null/null 占位串）；后续可将后 6 个归并为 options 对象（T-057 独立审核提示，既有模式延续、不阻塞）。
-- [缺陷线索] E2E 观测到宿主 sessions 服务偶发首推停滞：页面加载后 `sessions.list` 快照永久滞留 pending（窗格「加载中…」不消退），浏览器控制台/网络/服务端 stderr 均无错误；停滞绑定服务端实例（重载同实例不一定恢复，换实例即恢复），疑似冷启动竞态。E2E 侧已做两级恢复（openApp 12s 停滞重载一次 → run.mjs 换全新环境重试一次）；根因需查宿主 client-runtime SessionManager.refreshList 的首推链路（2026-08-27，复现率约 10-20%）。
+- [缺陷线索] E2E 观测到宿主 sessions 服务偶发首推停滞：页面加载后 `sessions.list` 快照永久滞留 pending（窗格「加载中…」不消退），浏览器控制台/网络/服务端 stderr 均无错误；新连接世代或换服务实例可恢复，疑似冷启动竞态。E2E 侧由 openApp 每 6s 有限重载四次，仍停滞则抛稳定错误码，由 run.mjs 有限换全新环境恢复并在汇总中计数；根因需查宿主 client-runtime SessionManager.refreshList 的首推链路（2026-08-27，初始观测复现率约 10-20%）。

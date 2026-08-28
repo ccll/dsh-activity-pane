@@ -1,7 +1,7 @@
 // R-01-003/AC-03、R-01-012/AC-01、R-01-012/AC-05、R-01-012/AC-09、
 // R-01-013/AC-01、R-01-013/AC-02、R-01-013/AC-03、R-01-013/AC-04、R-01-013/AC-05、R-01-013/AC-07、R-01-013/AC-08
-// 卡面内容：活动卡显示工作区归属、模型名称与 reasoning level、用户/助手角色标签；
-// 最近卡按五层信息结构呈现（工作区+模型 / 标题 / 用户预览 / 助手预览 / 活动时间）。
+// 卡面内容：活动卡显示工作区归属、模型名称与用户角色标签；最近卡按五层信息
+// 结构呈现（工作区+模型 / 标题 / 用户预览 / 助手预览 / 活动时间）。
 
 import { clickCardButton, MOCK_FAST_REPLY, MOCK_MODEL, openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
 
@@ -11,16 +11,16 @@ export default async function cardContent({ page, url, assert }) {
 	await openApp(page, url);
 	await sendHeroMessage(page, TITLE);
 
-	// R-01-003/AC-03、R-01-012/AC-01、AC-05、AC-09：活动卡承载归属、模型上下文与角色标签。
-	// 等回复流出现（「助手」行在场）再取样，避免在回合刚开始时读到半成品时间线。
+	// R-01-003/AC-03、R-01-012/AC-01、AC-05：活动卡承载归属、模型上下文与用户标签。
+	// 助手回复可能被最多四行的折叠窗口裁掉，不把非契约窗口内容当作就绪条件；
+	// R-01-012/AC-09 由下方最近卡助手预览行验证。
 	const active = await until("活动卡呈现", async () => {
 		const regions = await paneRegions(page);
-		return regions && regions.active.includes(TITLE) && regions.active.includes("助手") ? regions.active : null;
+		return regions && regions.active.includes(TITLE) && regions.active.includes(MOCK_MODEL) && regions.active.includes("用户") ? regions.active : null;
 	}, 20_000);
 	assert.ok(active.includes("e2e"), "卡片显示工作区名称（R-01-003/AC-03）");
 	assert.ok(active.includes(MOCK_MODEL) && active.includes("High"), "卡片显示模型名称与 reasoning level（R-01-012/AC-01）");
 	assert.ok(active.includes("用户"), "时间线用户行带「用户」标签（R-01-012/AC-05）");
-	assert.ok(active.includes("助手"), "时间线助手行带「助手」标签（R-01-012/AC-09）");
 	// R-01-012/AC-01（右上角）：模型上下文与工作区徽标同行且在其右侧。
 	const headerPos = await page.evaluate((model) => {
 		const pane = document.querySelector("[data-dsh-activity-pane]");
@@ -35,12 +35,15 @@ export default async function cardContent({ page, url, assert }) {
 	}, MOCK_MODEL);
 	assert.ok(headerPos && headerPos.dx > 0 && headerPos.dy < 24, "模型上下文在工作区徽标右侧同一行（卡面右上角，R-01-012/AC-01）");
 
-	// 移入历史（重渲染可能吞掉首次点击，点到反映为准），随后观察最近卡五层结构。
+	// 完成提醒稳定后只激活一次；若重渲染吞 click，应由本 spec 直接报回归。
+	await until("移入历史按钮就绪", async () => {
+		const button = page.getByRole("button", { name: "移入历史", exact: true });
+		return (await button.isVisible().catch(() => false)) ? true : null;
+	}, 20_000);
+	await clickCardButton(page, TITLE, "移入历史");
 	await until("确认移入历史", async () => {
 		const regions = await paneRegions(page);
-		if (regions?.recent.includes(TITLE)) return true;
-		await clickCardButton(page, TITLE, "移入历史").catch(() => {});
-		return null;
+		return regions?.recent.includes(TITLE) ? true : null;
 	}, 20_000);
 	// 以 DOM 叶子顺序核验五层（innerText 折行随渲染宽度变化，不能按行索引断言）：
 	// 徽标 → 模型/reasoning → 会话标题 → 「用户」标签 → 用户消息首行 → 「助手」标签 → 回复首行 → 时间。

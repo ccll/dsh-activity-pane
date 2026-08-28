@@ -812,3 +812,62 @@ C-045 建立了本地 pre-push E2E，但实测暴露三项缺口：runner 声称
 
 #### 影响面
 R-01-002、R-01-005、R-01-008 / E2E 验证基建、验证门禁
+
+### C-047 E2E 按隔离环境重建 Chromium（修订 C-046 的全套件共享进程）
+日期: 2026-08-28
+
+#### 上下文
+T-085 实现 C-046 的共享 Chromium 后做对照实测：共享进程的完整套件 10 条中 9 条因宿主 sessions 首推停滞失败，约 486 秒且触发 18 次环境恢复；新跨客户端 spec 连续三套环境均停滞。改回每次隔离环境使用独立 Chromium 后，`completion-sync` 首轮约 25 秒通过，证明浏览器进程生命周期会影响该宿主冷启动竞态。浏览器冷启动相对 dsh web 与业务编排成本很小，错误共享反而更慢、更不稳定。
+
+#### 决策
+- 废弃 C-046 的“全套件共享一个 Chromium 进程”；每个 spec/恢复尝试使用独立 Chromium、独立 context 与独立 dsh web，结束后全部关闭。
+- runner 只保留一条 `chromium.launch()` 代码路径并由 Node 契约钉住，防止再次出现“额外共享进程未使用”问题。
+- 已知 sessions 首推停滞先在同环境有限重载，仍失败时同时更换 Chromium 与 dsh web；恢复次数继续进入汇总。
+- 性能优化不得以跨隔离环境复用浏览器为手段；后续只优化确定性夹具、会话数量与等待条件。
+
+#### 被否方案及原因
+- 继续共享 Chromium、只增加 timeout/retry：对照实测已使失败率与总耗时同时恶化，重试只会放大浪费。
+- 每 spec 共享 Chromium、仅恢复时重启 dsh web：现有证据表明浏览器进程也参与竞态，不能保证恢复获得新连接环境。
+- 去掉 sessions 恢复直接失败：会把已登记的宿主竞态变成插件仓库的高频误报，门禁不可用；有限且显式计数的恢复保留可观测性。
+
+#### 影响面
+R-01-002、R-01-008、R-02-002 / E2E 验证基建
+
+### C-048 CI 使用隔离的历史截止 DSH 安装（修订 C-046 的项目 devDependency）
+日期: 2026-08-28
+
+#### 上下文
+把 `@deepseek-ai/dsh@0.1.0-rc.7` 加入项目 devDependency 后，包内 `^0.1.0-rc.7` 依赖在当前 registry 解析为 rc.8，使插件自身 `@deepseek-ai/dsh-storage-domain@rc.6` 的 peer 图也被重解；完整套件出现大面积 sessions 首推停滞。对照安装 `npm install --before=2026-08-18 @deepseek-ai/dsh@0.1.0-rc.7` 后，dsh-base、client-runtime、session-projection、web-app 等完整运行时均一致解析为 rc.7，与已验证宿主相同；同时不改变项目 lockfile 与插件 peer 图。
+
+#### 决策
+- 废弃 C-046 的“项目 devDependency 安装 dsh”；项目 lockfile只承载插件自身依赖与 Playwright。
+- GitHub Actions 在独立全局前缀安装 `@deepseek-ai/dsh@0.1.0-rc.7`，并以 `--before=2026-08-18T00:00:00Z` 限定其 caret 传递依赖只能选择该版本发布时已存在的 rc.7 家族。
+- CI 仍锁定顶层版本与历史截止时间，禁止安装 registry 当前 latest；升级 DSH 时必须显式更新两者并先跑完整 E2E。
+- 本地开发沿用已安装的 dsh CLI；`pnpm verify` 启动前若 PATH 无 dsh，`bootE2e` 按既有失败语义明确报错。
+
+#### 被否方案及原因
+- 在项目 root 为全部 `@deepseek-ai/dsh-*` 传递包维护 overrides：需登记上百个包名，易漏且会污染插件自身依赖解析，维护成本不可接受。
+- 只锁顶层 `@deepseek-ai/dsh@rc.7`：其 caret 依赖仍会随 registry 新发布漂移，已实测解析成 rc.8。
+- CI 使用 rc.8 coherent runtime：当前对照实测的 sessions 首推停滞显著高于既有 rc.7 基线，不能作为稳定门禁运行时。
+
+#### 影响面
+R-01-002、R-01-008、R-02-002 / E2E 验证基建、验证门禁
+
+### C-049 E2E 最多并行两条独立 spec
+日期: 2026-08-28
+
+#### 上下文
+C-047 恢复每 spec 独立 Chromium 后，coherent rc.7 DSH 上 10 条 spec 首轮全部通过且无 sessions 恢复，但顺序执行墙钟约 226 秒；各 spec 已拥有独立 Chromium、context、dsh web、`$DSH_HOME` 与 mock，不共享可变测试状态。单条峰值内存约 272MB，GitHub hosted runner 可承载两套并行环境。
+
+#### 决策
+- runner 使用固定上限 2 的 worker pool 并行执行独立 spec；单 spec 内部步骤仍保持顺序。
+- 不提供可配置并发度：门禁只维护一个经验证的资源/速度平衡点，避免本地与 CI 口径漂移。
+- 失败与恢复按 spec 独立计数，全部 worker 结束后统一返回套件结果；任一普通断言失败仍使门禁失败。
+
+#### 被否方案及原因
+- 继续完全顺序：稳定但约 226 秒，未达到快速门禁目标，而现有隔离边界已允许安全并发。
+- 不限并发一次启动全部 spec：GitHub runner 的 CPU、内存与进程调度会放大宿主冷启动竞态，稳定性风险高。
+- 动态按 CPU 数决定并发度：本地与 CI 会得到不同执行压力，复现困难；固定 2 更可预测。
+
+#### 影响面
+R-01-002、R-01-008、R-02-002 / E2E 验证基建、验证门禁

@@ -1,10 +1,11 @@
-// E2E 套件运行器（C-045）：启动隔离测试环境，顺序执行 e2e/specs/*.mjs。
+// E2E 套件运行器（C-045、C-046、C-047）：启动隔离测试环境，执行 e2e/specs/*.mjs。
 //
-// 每个 spec 文件默认导出 async ({ page, url, mock, assert })：page 为全新
-// browser context 的首页（未导航），runner 负责环境与浏览器生命周期。
+// 每个 spec 默认导出 async ({ browser, page, url, mock, assert })：browser/page
+// 属于该次隔离环境；runner 负责环境、浏览器与 context 生命周期。最多并行两条
+// 独立 spec，在 GitHub hosted runner 资源内缩短墙钟时间。
 // 浏览器二进制为项目内安装（PLAYWRIGHT_BROWSERS_PATH=0）。
 //
-// 用法：`node e2e/run.mjs`（或 `pnpm test:e2e`）。
+// 用法：`node e2e/run.mjs`（全量）或 `node e2e/run.mjs mobile-drawer`（指定 spec）。
 
 import assert from "node:assert/strict";
 import { readdir } from "node:fs/promises";
@@ -16,59 +17,78 @@ process.env.PLAYWRIGHT_BROWSERS_PATH ??= "0";
 const here = dirname(fileURLToPath(import.meta.url));
 const { bootE2e } = await import("./boot.mjs");
 const { chromium } = await import("playwright");
+const MAX_CONCURRENCY = 2;
 
 const specDir = join(here, "specs");
-const specFiles = (await readdir(specDir)).filter((name) => name.endsWith(".mjs")).sort();
-if (specFiles.length === 0) {
-	console.error("e2e: specs/ 下没有 spec 文件");
+const requested = new Set(process.argv.slice(2).map((name) => (name.endsWith(".mjs") ? name : `${name}.mjs`)));
+const allSpecFiles = (await readdir(specDir)).filter((name) => name.endsWith(".mjs")).sort();
+const specFiles = requested.size === 0 ? allSpecFiles : allSpecFiles.filter((name) => requested.has(name));
+if (specFiles.length === 0 || (requested.size > 0 && specFiles.length !== requested.size)) {
+	console.error(`e2e: 找不到请求的 spec（可用：${allSpecFiles.join(", ")}）`);
 	process.exit(1);
 }
 
-let failed = 0;
-// 全套件共享一个浏览器进程（每条 spec 独立 context 保证存储隔离），省去逐条冷启动。
-const sharedBrowser = await chromium.launch();
-for (const name of specFiles) {
-	// 每条 spec 独立隔离环境：会话状态互不可见（冷启动约 2-4s，可接受）。
+async function captureFailure(page, name) {
+	await page?.screenshot({ path: join(here, `fail-${name}.png`) }).catch(() => {});
+}
+
+async function runSpec(name) {
 	const spec = (await import(pathToFileURL(join(specDir, name)).href)).default;
 	let lastError = null;
-	// 宿主 sessions 首推挂起（见 TODO 缺陷线索）绑定服务端实例且重载不保证自愈，
-	// 对该签名错误（ERR_PANE_STALL）最多换全新环境重试两次；其余失败（真回归）不重试。
+	let recoveries = 0;
+	// 宿主 sessions 首推停滞可能随浏览器进程延续；恢复时同时更换服务环境与 Chromium。
 	for (let attempt = 0; attempt < 3; attempt += 1) {
-		if (attempt > 0) console.error(`e2e: RETRY ${name}（上一环境数据停滞，换新环境重试）`);
-		const env = await bootE2e();
+		if (attempt > 0) {
+			recoveries += 1;
+			console.error(`e2e: RECOVER ${name}（上一环境 sessions 首推停滞，换浏览器与环境）`);
+		}
+		let env;
 		let browser;
+		let context;
+		let page;
 		const start = Date.now();
 		try {
+			env = await bootE2e();
 			browser = await chromium.launch();
-			const context = await browser.newContext();
-			const page = await context.newPage();
-			try {
-				await spec({ page, url: env.url, mock: env.mock, assert });
-				console.error(`e2e: PASS ${name}（${Date.now() - start}ms）`);
-				lastError = null;
-			} catch (error) {
-				lastError = error;
-				console.error(`e2e: FAIL ${name}\n${error?.stack ?? error}`);
-				if (env.webStderr.length > 0) console.error(`e2e: dsh web stderr 尾部：\n${env.webStderr.slice(-20).join("")}`);
-				await page.screenshot({ path: join(here, `fail-${name}.png`) }).catch(() => {});
-			} finally {
-				await context.close();
-			}
+			context = await browser.newContext();
+			page = await context.newPage();
+			await spec({ browser, page, url: env.url, mock: env.mock, assert });
+			console.error(`e2e: PASS ${name}（${Date.now() - start}ms）`);
+			lastError = null;
 		} catch (error) {
 			lastError = error;
-			console.error(`e2e: FAIL ${name}（环境启动失败）\n${error?.stack ?? error}`);
+			console.error(`e2e: FAIL ${name}\n${error?.stack ?? error}`);
+			if (env?.webStderr.length > 0) console.error(`e2e: dsh web stderr 尾部：\n${env.webStderr.slice(-20).join("")}`);
+			await captureFailure(page, name);
 		} finally {
-			await browser?.close();
-			await env.cleanup();
+			await context?.close().catch(() => {});
+			await browser?.close().catch(() => {});
+			await env?.cleanup().catch(() => {});
 		}
 		if (lastError === null || lastError?.code !== "E2E_PANE_STALL") break;
 	}
-	if (lastError !== null) failed += 1;
+	return { failed: lastError === null ? 0 : 1, recoveries };
 }
 
-await sharedBrowser.close();
+const suiteStart = Date.now();
+let nextSpec = 0;
+let failed = 0;
+let stallRecoveries = 0;
+async function worker() {
+	for (;;) {
+		const index = nextSpec;
+		nextSpec += 1;
+		if (index >= specFiles.length) return;
+		const result = await runSpec(specFiles[index]);
+		failed += result.failed;
+		stallRecoveries += result.recoveries;
+	}
+}
+await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENCY, specFiles.length) }, () => worker()));
+
+const elapsed = Date.now() - suiteStart;
 if (failed > 0) {
-	console.error(`e2e: ${failed} 个 spec 失败`);
+	console.error(`e2e: ${failed} 个 spec 失败（${elapsed}ms，sessions 恢复 ${stallRecoveries} 次）`);
 	process.exit(1);
 }
-console.error(`e2e: 全部 ${specFiles.length} 个 spec 通过`);
+console.error(`e2e: 全部 ${specFiles.length} 个 spec 通过（${elapsed}ms，sessions 恢复 ${stallRecoveries} 次）`);

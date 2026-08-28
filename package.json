@@ -1,12 +1,16 @@
 {
   "name": "dsh-activity-pane",
-"version": "0.1.0",
-"description": "DeepSeek Harness Web 活动会话总览窗格：将正在运行与等待用户行动的会话集中到一个可贴边、可滚动的左侧窗格",
-"type": "module",
-"repository": {
-  "type": "git",
-  "url": "git+https://github.com/ccll/dsh-activity-pane.git"
-},
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.5.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "description": "DeepSeek Harness Web 活动会话总览窗格：将正在运行与等待用户行动的会话集中到一个可贴边、可滚动的左侧窗格",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ccll/dsh-activity-pane.git"
+  },
   "main": "./.dsh-plugin/index.mjs",
   "exports": {
     ".": "./.dsh-plugin/index.mjs",
@@ -33,7 +37,9 @@
     "test:e2e": "node e2e/run.mjs",
     "dev:watch": "node scripts/watch.mjs",
     "accept:manual": "node scripts/acceptance.mjs",
-    "lint": "python3 tools/agentmap_lint.py --report"
+    "lint": "python3 tools/agentmap_lint.py --report",
+    "verify:fast": "pnpm lint && pnpm check",
+    "verify": "pnpm verify:fast && pnpm test:e2e"
   },
   "dsh": {
     "bundle": {

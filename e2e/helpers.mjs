@@ -2,6 +2,7 @@
 // 断言辅助只读用户可观察呈现（可见文字、包围盒、页面 URL）。
 
 export const POLL_INTERVAL_MS = 200;
+const PANE_READY_TIMEOUT_MS = 6_000;
 
 /** 轮询直到 fn() 返回真值或超时；超时抛错并附最后一次观测值。E2E_TRACE=1 时打印各段耗时。 */
 export async function until(label, fn, timeoutMs = 10_000) {
@@ -47,21 +48,21 @@ export async function dismissNotice(page) {
 }
 
 /** 打开应用并等待窗格数据就绪。
- *  宿主 sessions 服务偶发首推挂起（窗格滞留「加载中…」，见 TODO 缺陷线索）：
- *  停滞超过 12s 则重载（新连接世代触发重拉，实测可恢复），至多重载两次；
- *  仍停滞则抛错交 run.mjs 换全新环境（真失败不作无限掩盖）。 */
+ *  宿主 sessions 服务偶发首推挂起（见 TODO 缺陷线索）；同一服务实例先有限重载
+ *  四次触发新连接世代，仍停滞再交 run.mjs 换全新环境。就绪服务通常秒级返回，
+ *  每个连接世代宽限 6s；普通断言失败不会进入恢复路径。 */
 export async function openApp(page, url) {
-	for (let attempt = 0; attempt < 3; attempt += 1) {
+	for (let attempt = 0; attempt < 5; attempt += 1) {
 		await page.goto(url, { waitUntil: "networkidle" });
 		await dismissNotice(page);
 		const ready = await until("窗格数据就绪", async () => {
 			const regions = await paneRegions(page);
 			if (!regions) return null;
 			return regions.active.includes("加载中") || regions.recent.includes("加载中") ? null : true;
-		}, 12_000).catch(() => false);
+		}, PANE_READY_TIMEOUT_MS).catch(() => false);
 		if (ready) return;
 	}
-	const error = new Error("窗格数据停滞：重载后仍滞留「加载中…」（宿主 sessions 首推挂起未自愈）");
+	const error = new Error("窗格数据停滞：重载后 sessions 首推仍未恢复");
 	error.code = ERR_PANE_STALL;
 	throw error;
 }

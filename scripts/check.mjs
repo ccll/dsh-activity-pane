@@ -3392,8 +3392,16 @@ assert.ok(hostSource.includes("'/ack'") && hostSource.includes("ackedAt: Date.no
 assert.ok(hostSource.includes("streamClients") && hostSource.includes("for (const res of streamClients)"), "SSE 连接集合随卸载全数关闭");
 
 
+// ---- E2E runner 浏览器生命周期契约（C-046、C-047，T-085）----
+const e2eRunnerSource = await readFile(join(root, "e2e/run.mjs"), "utf8");
+assert.equal(e2eRunnerSource.match(/chromium\.launch\(/g)?.length, 1, "runner 只有一条 Chromium 启动路径");
+assert.ok(e2eRunnerSource.includes("context = await browser.newContext()"), "每次隔离环境创建独立 browser context");
+assert.ok(e2eRunnerSource.includes("await browser?.close()"), "每次 spec/恢复尝试都关闭浏览器进程");
+assert.ok(!e2eRunnerSource.includes("sharedBrowser"), "不保留未使用或跨环境共享的浏览器进程");
+assert.ok(e2eRunnerSource.includes("const MAX_CONCURRENCY = 2") && e2eRunnerSource.includes("Math.min(MAX_CONCURRENCY, specFiles.length)"), "E2E worker pool 并发上限固定为 2");
+
 // ---- E2E 基建：mock LLM 剧本服务行为断言（C-045，T-082）----
-// 浏览器 spec 只驱动 slow 剧本；三剧本的 SSE 形状与分流规则在此做 Node 级行为验证。
+// 浏览器 spec 驱动真实 UI；三剧本的 SSE 形状与分流规则在此做 Node 级行为验证。
 const { startMockLlm } = await import("../e2e/mock-llm.mjs");
 const mock = await startMockLlm();
 try {

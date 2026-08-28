@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DSH_RUNTIME_PATH: ${{ runner.tool_cache }}/dsh-rc7
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.cache/ms-playwright
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Cache Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Cache coherent DSH runtime
+        id: dsh-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.DSH_RUNTIME_PATH }}
+          key: dsh-rc7-before-2026-08-18-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install coherent DSH runtime
+        if: steps.dsh-cache.outputs.cache-hit != 'true'
+        run: npm install --global --prefix "$DSH_RUNTIME_PATH" --before=2026-08-18T00:00:00Z @deepseek-ai/dsh@0.1.0-rc.7
+
+      - name: Add DSH runtime to PATH
+        run: echo "$DSH_RUNTIME_PATH/bin" >> "$GITHUB_PATH"
+
+      - name: Verify DSH runtime
+        run: dsh --version
+
+      - name: Install dependencies
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium headless shell
+        run: pnpm exec playwright install --with-deps chromium-headless-shell
+
+      - name: Verify
+        run: pnpm verify
+
+      - name: Upload E2E failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure-screenshots
+          path: e2e/fail-*.png
+          if-no-files-found: ignore
+          retention-days: 7

@@ -58,8 +58,12 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 				lineCenterX: traceRect.left + Number.parseFloat(line.left) + Number.parseFloat(line.width) / 2,
 				animation: node.animationName,
 				opacity: Number.parseFloat(node.opacity),
-				glow: node.boxShadow,
-				settledHalo: settledNode.boxShadow,
+				borderColor: node.borderLeftColor,
+				backgroundClip: node.backgroundClip,
+				nodeBoxShadow: node.boxShadow,
+				settledBoxShadow: settledNode.boxShadow,
+				nodeFilter: node.filter,
+				settledFilter: settledNode.filter,
 			};
 		}, TITLE),
 	);
@@ -79,10 +83,14 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 	assert.deepEqual([dotGeometry.titleWidth, dotGeometry.titleHeight], [7, 7], "标题状态点保持 7×7px（R-01-009/AC-09）");
 	assert.ok(Math.abs(dotGeometry.nodeCenterX - dotGeometry.titleCenterX) <= 0.5, "时间线承载盒与标题点的页面绝对圆心竖直对齐（R-01-009/AC-09）");
 	assert.ok(Math.abs(dotGeometry.nodeCenterX - dotGeometry.lineCenterX) <= 0.5, "时间线承载盒与竖线的页面绝对圆心竖直对齐（R-01-009/AC-09）");
-	assert.match(dotGeometry.settledHalo, /rgba\(119, 131, 148, 0\.14\) 0px 0px 0px 1px/, "已定案时间线点恢复 1px 半透明外围环（R-01-009/AC-09）");
+	assert.equal(dotGeometry.borderColor, "rgba(0, 0, 0, 0)", "7px 承载盒边界透明不可见（R-01-009/AC-09）");
+	assert.equal(dotGeometry.backgroundClip, "padding-box", "透明承载盒内仅绘制 5px 圆核（R-01-009/AC-09）");
+	assert.equal(dotGeometry.settledBoxShadow, "none", "已定案节点不按 7px 承载盒绘制 box-shadow（R-01-009/AC-09）");
+	assert.equal(dotGeometry.nodeBoxShadow, "none", "running 节点不按 7px 承载盒绘制 box-shadow（R-01-009/AC-09）");
+	assert.match(dotGeometry.settledFilter, /drop-shadow\(rgba\(119, 131, 148, 0\.32\) 0px 0px 1px\)/, "已定案节点光晕跟随 5px 圆核 alpha 轮廓（R-01-009/AC-09）");
 	assert.equal(dotGeometry.animation, "dap-pulse", "running 时间线点保留脉冲（R-01-009/AC-09）");
-	assert.match(dotGeometry.glow, /rgba\(101, 160, 255, 0\.16\) 0px 0px 0px 1px/, "running 时间线点恢复 1px 同色半透明外围（R-01-009/AC-09）");
-	assert.match(dotGeometry.glow, /rgba\(101, 160, 255, 0\.65\) 0px 0px 6px 0px/, "running 时间线点保留 6px 光晕（R-01-009/AC-09）");
+	assert.match(dotGeometry.nodeFilter, /drop-shadow\(rgba\(101, 160, 255, 0\.32\) 0px 0px 1px\)/, "running 节点保留基于 5px 圆核的半透明外围（R-01-009/AC-09）");
+	assert.match(dotGeometry.nodeFilter, /drop-shadow\(rgba\(101, 160, 255, 0\.65\) 0px 0px 3px\)/, "running 节点保留基于 5px 圆核的状态光晕（R-01-009/AC-09）");
 	assert.ok(pulseOpacities.every(Number.isFinite) && Math.max(...pulseOpacities) - Math.min(...pulseOpacities) > 0.05, `running 时间线点 opacity 随 dap-pulse 跨时间变化（采样 ${pulseOpacities.join(", ")}，R-01-009/AC-09）`);
 
 	// mock 必须确实命中 slow 剧本（证明链路经 mock LLM 而非真实模型）。

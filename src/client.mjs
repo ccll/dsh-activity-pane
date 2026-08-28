@@ -537,9 +537,9 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 /* 动作时间线：纵向竖线串起圆点（对齐 answer-pet 的 .ap-session-trace，并修正几何细节——
    轨道列从卡片内容左边起步，和标题圆点/状态行/进度条共用左边界；竖线回收为容器级
    整条绘制，节点项只留圆点。时间线节点与 7px 标题点使用同尺寸承载盒（left:0、圆心
-   x=3.5），和 1px 竖线保持同一跨 DPR 光栅相位；1px 半透明 border 在 7px 盒内留出
-   5px 实心核，1px box-shadow 恢复小圆核外围的半透明环。1px 竖线 left:3px（圆心
-   x=3.5），与圆点严格同圆心。竖线为容器
+   x=3.5），和 1px 竖线保持同一跨 DPR 光栅相位；承载盒 1px border 完全透明，padding-box
+   背景只显示内部 5px 圆核，drop-shadow 从圆核 alpha 生成半透明光晕，不显露 7px 盒边界。
+   1px 竖线 left:3px（圆心 x=3.5），与圆点严格同圆心。竖线为容器
    ::before 单元素整条绘制（对齐层级连接线 .dap-conn-track 的零拼接原则，T-033）：
    逐项分段曾在接缝处双线叠加、半透明相加成亮带（T-069）。线从容器顶贯穿（穿过首个
    节点圆点并向上引出，表示更早历史被省略），bottom:7px 使终点没入最末圆点内部不外露；
@@ -585,24 +585,24 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 [data-dsh-activity-pane] .dap-trace-item::before {
   content: ""; position: absolute; left: 0; top: 3px;
   width: 7px; height: 7px;
-  box-sizing: border-box; border: 1px solid rgba(119, 131, 148, .14); border-radius: 50%;
+  box-sizing: border-box; border: 1px solid transparent; border-radius: 50%;
   z-index: 1;           /* 圆点盖在竖线上：竖线从圆点中穿过被其遮盖 */
-  background: #778394; background-clip: padding-box;
-  box-shadow: 0 0 0 1px rgba(119, 131, 148, .14);
+  background-color: #778394; background-clip: padding-box;
+  filter: drop-shadow(0 0 1px rgba(119,131,148,.32));
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="running"]::before {
-  background: #65a0ff; border-color: rgba(101,160,255,.16);
-  box-shadow: 0 0 0 1px rgba(101,160,255,.16), 0 0 6px rgba(101,160,255,.65);
+  background-color: #65a0ff;
+  filter: drop-shadow(0 0 1px rgba(101,160,255,.32)) drop-shadow(0 0 3px rgba(101,160,255,.65));
   animation: dap-pulse 1.15s ease-in-out infinite;
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="done"]::before {
-  background: #58c98f;
+  background-color: #58c98f;
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="error"]::before {
-  background: #f06a72;
+  background-color: #f06a72;
 }
 [data-dsh-activity-pane] .dap-trace-item[data-status="stopped"]::before {
-  background: #f5a524;
+  background-color: #f5a524;
 }
 /* 竖线不在节点项内分段自绘（接缝双线叠加成亮带，T-069），统一由上方容器 ::before
    整条绘制。 */

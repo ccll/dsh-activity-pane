@@ -10,7 +10,7 @@
 // - R-01-001/AC-03、R-01-017/AC-01、R-02-002/AC-01、AC-02 → e2e/specs/auto-update.mjs
 // - R-01-004/AC-01、AC-02 → e2e/specs/long-list.mjs
 // - R-01-007/AC-01、AC-02、R-01-011/AC-05 → e2e/specs/desktop-layout.mjs
-// - R-01-008/AC-01..06 → e2e/specs/mobile-drawer.mjs（AC-02 键盘、AC-03 真触摸、AC-04 精确位置、AC-06 软键盘观感残留人工）
+// - R-01-008/AC-01、AC-02 点击、AC-03 鼠标、AC-04 文案/相对位置、AC-05、AC-06 点击 → e2e/specs/mobile-drawer.mjs（AC-02/AC-06 键盘、AC-03 真触摸、AC-04 精确位置与遮挡观感残留人工）
 // - R-01-010/AC-04 → e2e/specs/auto-update.mjs 与 e2e/specs/session-lifecycle.mjs
 // - R-01-001/AC-01、AC-02、R-01-002/AC-03、AC-10、R-01-010/AC-01、AC-02 → e2e/specs/session-lifecycle.mjs
 // - R-01-002/AC-05、AC-10、AC-11、AC-12 → e2e/specs/completion-sync.mjs（AC-12 错误提醒恢复残留人工）
@@ -18,7 +18,7 @@
 // - R-01-005/AC-01、R-01-006/AC-01 → e2e/specs/navigation.mjs
 // - R-01-015/AC-01、AC-02、AC-04、AC-03 桌面折叠态 → e2e/specs/resize.mjs（AC-03 移动端残留人工）
 // - R-01-018/AC-01、AC-03、AC-04、AC-05、AC-02 点击/reduced-motion → e2e/specs/back-to-top.mjs（AC-02 键盘激活与平滑观感残留人工）
-// - R-01-003/AC-03、R-01-012/AC-01、AC-05、AC-09、R-01-013/AC-01、AC-03..05、AC-07、AC-08 → e2e/specs/card-content.mjs（AC-02 结构断言已迁，「标题随宿主更新」半句仍人工）
+// - R-01-003/AC-03、R-01-012/AC-01、AC-05、R-01-013/AC-01、AC-03..05、AC-07、AC-08 → e2e/specs/card-content.mjs（AC-02 结构断言已迁，「标题随宿主更新」半句仍人工）
 //
 // 用法：`node scripts/acceptance.mjs` 打印清单。
 

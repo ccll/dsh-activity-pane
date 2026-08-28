@@ -1,8 +1,8 @@
-// R-01-008/AC-01、R-01-008/AC-02、R-01-008/AC-03、R-01-008/AC-04、R-01-008/AC-05、R-01-008/AC-06
+// R-01-008/AC-01、AC-02（点击）、AC-03（鼠标）、AC-04（文案/相对位置）、AC-05、AC-06（点击）
 // 移动端抽屉：默认隐藏、开关展开、标题/外部点击收起、开关随状态显隐，
-// 激活当前卡只收起抽屉，激活其它卡仍切换会话。
+// 激活当前卡只收起抽屉，激活其它卡仍切换会话；键盘、真触摸和精确视觉位置保留人工。
 
-import { mainAreaHas, newSessionWithMessage, openApp, paneBox, sendHeroMessage, until } from "../helpers.mjs";
+import { activateCard, mainAreaHas, newSessionWithMessage, openApp, paneBox, sendHeroMessage, until } from "../helpers.mjs";
 
 const MOBILE_VIEWPORT = { width: 375, height: 700 };
 const TITLE_A = "e2e:fast 移动抽屉探针甲";
@@ -63,13 +63,13 @@ export default async function mobileDrawer({ page, url, assert }) {
 
 	// R-01-008/AC-06：当前为乙；激活当前卡只收起，不切换。
 	await openDrawer(page);
-	await page.locator("[data-dsh-activity-pane]").getByText(TITLE_B, { exact: false }).first().click();
+	await activateCard(page, TITLE_B);
 	await waitDrawerClosed(page, "激活当前卡收起抽屉");
 	assert.equal(await mainAreaHas(page, TITLE_B), true, "激活当前卡后仍停留在当前会话");
 
 	// 激活非当前卡仍走原生会话切换路径。
 	await openDrawer(page);
-	await page.locator("[data-dsh-activity-pane]").getByText(TITLE_A, { exact: false }).first().click();
+	await activateCard(page, TITLE_A);
 	await page.getByRole("button", { name: "收起活动会话窗格" }).click();
 	await waitDrawerClosed(page, "切换后收起抽屉以观察主会话");
 	await until("激活非当前卡切换到甲", () => mainAreaHas(page, TITLE_A));

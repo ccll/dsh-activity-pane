@@ -1193,12 +1193,14 @@ function escapeCssString(value) {
  *  详情与记账随可见性清理（pruneInvisibleEntries）一起移除后，决策自然恢复为「读取」。
  *  windowComplete（R-01-009/AC-06、R-01-012/AC-12 冷窗口兜底）：快照已就绪但窗口缺
  *  锚点数据（开放回合起点或可锚用户行在窗口外）时为 false——此时仍发起一次 history
- *  补读，供进度锚点与指令锚行兜底。 */
+ *  补读，供进度锚点与指令锚行兜底。previewFallbackNeeded 表示最近卡的快照预览
+ *  不完整，同样补读一次 history（R-01-013/AC-03、AC-04）。 */
 function detailLoadPlan({
 	detail = {},
 	isSubagent = false,
 	snapshotReady = false,
 	historyNeeded = false,
+	previewFallbackNeeded = false,
 	windowComplete = true,
 	modelInflight = false,
 	historyInflight = false,
@@ -1207,9 +1209,9 @@ function detailLoadPlan({
 		subagent: isSubagent === true,
 		model: !isSubagent && !detail.model && !modelInflight,
 		history:
-			!detail.history &&
 			!historyInflight &&
-			((!snapshotReady && historyNeeded) || (snapshotReady === true && windowComplete === false)),
+			((previewFallbackNeeded && detail.previewFallbackLoaded !== true) ||
+				(!detail.history && ((!snapshotReady && historyNeeded) || (snapshotReady === true && windowComplete === false)))),
 	};
 }
 
@@ -3314,7 +3316,7 @@ function apply(ctx) {
 		syncFromDirectory(); // 目录已被主窗口加载时立即同步，该会话免发一次性 RPC
 	}
 
-	function loadNativeDetails(ids) {
+	function loadNativeDetails(ids, previewFallbackIds = new Set()) {
 		const api = ctx.get("connection")?.api?.sessions;
 		if (!api) return;
 		const byId = getSnapshot(sessions, "list")?.byId ?? {};
@@ -3345,6 +3347,7 @@ function apply(ctx) {
 				isSubagent: subagent,
 				snapshotReady,
 				historyNeeded: needsHistorySnapshot(detail.snapshot),
+				previewFallbackNeeded: previewFallbackIds.has(id),
 				windowComplete,
 				modelInflight: modelLoads.has(id),
 				historyInflight: historyLoads.has(id) || sessionOpenLoads.has(id),
@@ -3378,6 +3381,7 @@ function apply(ctx) {
 				modelPromises.push(promise);
 			}
 			if (plan.history && typeof api.history === "function") {
+				if (previewFallbackIds.has(id)) detail.previewFallbackLoaded = true;
 				const promise = enqueueDetailLoad(() => Promise.resolve()
 					.then(async () => {
 						// 单池任务内串行回溯深翻（默认无页数上限）：向前翻到命中最近一条
@@ -4853,6 +4857,8 @@ function apply(ctx) {
 		}
 		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds, completeAcksById, delegatingIds, turnEnds);
 		// 预览只对 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
+		// 完成瞬间的窗口快照可能先有用户消息、后到 agent reply；缺任一预览时补读一次 history。
+		const previewFallbackIds = new Set();
 		for (const entry of recent) {
 			const detail = sessionDetailsById.get(entry.id);
 			if (!detail) continue;
@@ -4865,12 +4871,13 @@ function apply(ctx) {
 			}
 			entry.userPreview = detail.memoPreviews.userPreview || detail.previews?.userPreview || "";
 			entry.agentPreview = detail.memoPreviews.agentPreview || detail.previews?.agentPreview || "";
-			entry.loadingPreviews = !entry.userPreview && !entry.agentPreview && historyLoads.has(entry.id);
+			if (!entry.userPreview || !entry.agentPreview) previewFallbackIds.add(entry.id);
+			entry.loadingPreviews = (!entry.userPreview || !entry.agentPreview) && historyLoads.has(entry.id);
 		}
 		// 补充数据读取优先级：当前会话最优先，活动区先于历史区（区内按显示顺序）。
 		const detailIds = [...active, ...recent].map((entry) => entry.id);
 		detailIds.sort((a, b) => Number(String(b) === String(snapshot?.current)) - Number(String(a) === String(snapshot?.current)));
-		loadNativeDetails(detailIds);
+		loadNativeDetails(detailIds, previewFallbackIds);
 		const visibleIds = new Set([...active, ...recent].map((entry) => entry.id));
 		// 详情与 loads 记账同生命周期：离开可见集合即放行，重回可见时允许重拉/重试。
 		// 锚点记账不随可见性 prune：瞬时 loading 空帧不得误清（进度重置）；陈旧条目靠

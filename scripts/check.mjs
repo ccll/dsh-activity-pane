@@ -253,6 +253,17 @@ assert.equal(
 	false,
 	"原生快照已就绪且窗口数据齐全时不发 history 读取",
 );
+// R-01-013/AC-03、AC-04：最近卡窗口快照缺用户或 agent 预览时补读一次 history。
+assert.equal(
+	detailLoadPlan({ detail: { history: [{ event: { seq: 1 } }] }, snapshotReady: true, previewFallbackNeeded: true }).history,
+	true,
+	"最近卡预览不完整时即使已有早到 history 也重新补读一次",
+);
+assert.equal(
+	detailLoadPlan({ detail: { history: [], previewFallbackLoaded: true }, snapshotReady: true, previewFallbackNeeded: true }).history,
+	false,
+	"最近卡预览 fallback 已尝试后可见期内不热重试",
+);
 // R-01-009/AC-06、R-01-012/AC-12 冷窗口兜底：快照就绪但窗口缺锚点数据（开放回合起点/用户行在窗口外）时补读 history
 assert.equal(
 	detailLoadPlan({ detail: {}, snapshotReady: true, windowComplete: false }).history,

@@ -161,6 +161,17 @@ export async function wheelOver(page, box, deltaY, times) {
 	}
 }
 
+/** 激活包含指定可见文本的会话卡片，只依赖卡片的 button 语义与用户可见内容。 */
+export async function activateCard(page, cardText) {
+	const clicked = await page.evaluate((text) => {
+		const pane = document.querySelector("[data-dsh-activity-pane]");
+		const card = [...(pane?.querySelectorAll('[role="button"]') ?? [])].find((candidate) => candidate.innerText.includes(text));
+		card?.click();
+		return card !== undefined;
+	}, cardText);
+	if (!clicked) throw new Error(`找不到包含「${cardText}」的会话卡片`);
+}
+
 /** 点击窗格内指定卡片上的按钮：以标题叶子与按钮包围盒的纵向邻近度定位同一张卡
  *  （避免依赖卡片内部结构类名）。 */
 export async function clickCardButton(page, cardTitle, buttonName) {

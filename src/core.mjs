@@ -1187,12 +1187,14 @@ export function escapeCssString(value) {
  *  详情与记账随可见性清理（pruneInvisibleEntries）一起移除后，决策自然恢复为「读取」。
  *  windowComplete（R-01-009/AC-06、R-01-012/AC-12 冷窗口兜底）：快照已就绪但窗口缺
  *  锚点数据（开放回合起点或可锚用户行在窗口外）时为 false——此时仍发起一次 history
- *  补读，供进度锚点与指令锚行兜底。 */
+ *  补读，供进度锚点与指令锚行兜底。previewFallbackNeeded 表示最近卡的快照预览
+ *  不完整，同样补读一次 history（R-01-013/AC-03、AC-04）。 */
 export function detailLoadPlan({
 	detail = {},
 	isSubagent = false,
 	snapshotReady = false,
 	historyNeeded = false,
+	previewFallbackNeeded = false,
 	windowComplete = true,
 	modelInflight = false,
 	historyInflight = false,
@@ -1201,9 +1203,9 @@ export function detailLoadPlan({
 		subagent: isSubagent === true,
 		model: !isSubagent && !detail.model && !modelInflight,
 		history:
-			!detail.history &&
 			!historyInflight &&
-			((!snapshotReady && historyNeeded) || (snapshotReady === true && windowComplete === false)),
+			((previewFallbackNeeded && detail.previewFallbackLoaded !== true) ||
+				(!detail.history && ((!snapshotReady && historyNeeded) || (snapshotReady === true && windowComplete === false)))),
 	};
 }
 

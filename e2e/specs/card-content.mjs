@@ -1,4 +1,4 @@
-// R-01-003/AC-03、R-01-012/AC-01、R-01-012/AC-05、R-01-012/AC-09、
+// R-01-003/AC-03、R-01-012/AC-01、R-01-012/AC-05、
 // R-01-013/AC-01、R-01-013/AC-02、R-01-013/AC-03、R-01-013/AC-04、R-01-013/AC-05、R-01-013/AC-07、R-01-013/AC-08
 // 卡面内容：活动卡显示工作区归属、模型名称与用户角色标签；最近卡按五层信息
 // 结构呈现（工作区+模型 / 标题 / 用户预览 / 助手预览 / 活动时间）。
@@ -12,8 +12,7 @@ export default async function cardContent({ page, url, assert }) {
 	await sendHeroMessage(page, TITLE);
 
 	// R-01-003/AC-03、R-01-012/AC-01、AC-05：活动卡承载归属、模型上下文与用户标签。
-	// 助手回复可能被最多四行的折叠窗口裁掉，不把非契约窗口内容当作就绪条件；
-	// R-01-012/AC-09 由下方最近卡助手预览行验证。
+	// 助手回复可能被最多四行的折叠窗口裁掉，不把非契约窗口内容当作就绪条件。
 	const active = await until("活动卡呈现", async () => {
 		const regions = await paneRegions(page);
 		return regions && regions.active.includes(TITLE) && regions.active.includes(MOCK_MODEL) && regions.active.includes("用户") ? regions.active : null;

@@ -2,7 +2,7 @@
 // 完成确认跨客户端同步与恢复：同一服务的两个独立 browser context 同时观察提醒，
 // 一端确认后另一端自动解除；刷新/重新连接后保持已确认状态。
 
-import { clickCardButton, mainAreaHas, openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
+import { activateCard, clickCardButton, mainAreaHas, openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
 
 const TITLE = "e2e:fast 跨客户端确认探针";
 
@@ -25,7 +25,7 @@ export default async function completionSync({ browser, page, url, assert }) {
 		}
 
 		// R-01-002/AC-05：B 打开提醒卡后提醒仍保持，不能以浏览动作隐式解除。
-		await secondPage.locator("[data-dsh-activity-pane]").getByText(TITLE, { exact: false }).first().click();
+		await activateCard(secondPage, TITLE);
 		await until("客户端 B 打开完成会话", () => mainAreaHas(secondPage, TITLE));
 		const openedRegions = await paneRegions(secondPage);
 		assert.ok(openedRegions.active.includes(TITLE) && openedRegions.active.includes("已完成"), "打开会话不解除完成提醒");

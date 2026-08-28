@@ -8,7 +8,7 @@
 // 用法：`node e2e/run.mjs`（全量）或 `node e2e/run.mjs mobile-drawer`（指定 spec）。
 
 import assert from "node:assert/strict";
-import { readdir } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -16,6 +16,7 @@ process.env.PLAYWRIGHT_BROWSERS_PATH ??= "0";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const { bootE2e } = await import("./boot.mjs");
+const { ERR_PANE_STALL } = await import("./helpers.mjs");
 const { chromium } = await import("playwright");
 const MAX_CONCURRENCY = 2;
 
@@ -28,8 +29,14 @@ if (specFiles.length === 0 || (requested.size > 0 && specFiles.length !== reques
 	process.exit(1);
 }
 
+const failurePath = (name) => join(here, `fail-${name}.png`);
+
 async function captureFailure(page, name) {
-	await page?.screenshot({ path: join(here, `fail-${name}.png`) }).catch(() => {});
+	await page?.screenshot({ path: failurePath(name) }).catch(() => {});
+}
+
+async function clearFailureArtifact(name) {
+	await rm(failurePath(name), { force: true }).catch(() => {});
 }
 
 async function runSpec(name) {
@@ -53,6 +60,7 @@ async function runSpec(name) {
 			context = await browser.newContext();
 			page = await context.newPage();
 			await spec({ browser, page, url: env.url, mock: env.mock, assert });
+			await clearFailureArtifact(name);
 			console.error(`e2e: PASS ${name}（${Date.now() - start}ms）`);
 			lastError = null;
 		} catch (error) {
@@ -65,7 +73,7 @@ async function runSpec(name) {
 			await browser?.close().catch(() => {});
 			await env?.cleanup().catch(() => {});
 		}
-		if (lastError === null || lastError?.code !== "E2E_PANE_STALL") break;
+		if (lastError === null || lastError?.code !== ERR_PANE_STALL) break;
 	}
 	return { failed: lastError === null ? 0 : 1, recoveries };
 }

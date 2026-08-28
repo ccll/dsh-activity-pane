@@ -891,3 +891,62 @@ R-01-002、R-01-008、R-02-002 / E2E 验证基建、验证门禁
 
 #### 影响面
 R-02-002 / E2E 验证基建、验证门禁、发布流程
+
+### C-051 sessions readiness 使用单一完整等待代替短世代 reload
+日期: 2026-08-28
+
+#### 上下文
+C-047 把已知 sessions 首推停滞的同环境恢复设计为最多五个页面连接世代、每代只等待 6s，再换全新环境。首次 GitHub hosted run 证明正常 spec 也可在 24～30s 才就绪，而 DSH bounded unary RPC 的默认 timeout 本就是 30s；6s reload 会反复中断尚可完成的 `sessions.list`。Hosted 结果为 8/10 spec 失败、468.179s、16 次换环境恢复，本地 pre-push 也曾单轮恢复 3 次，符合自诱导重试风暴而非普通断言回归。
+
+#### 决策
+- 废弃 C-047 的“同一服务先有限 reload”部分；每个隔离环境只建立一个页面连接世代，等待 32s（30s unary timeout + 渲染余量）。
+- 32s 后仍 loading 或明确列表加载失败才归类为 `ERR_PANE_STALL`；runner 仍只允许一次全新 Chromium + dsh web 环境恢复。
+- 暂不修订 C-049 的固定 2 worker：先隔离 readiness 变量并由 hosted run 裁决；若单一完整等待后仍失败，再以新证据调整并发。
+
+#### 被否方案及原因
+- 继续 5×6s reload：总预算看似相同，却没有任一 unary 请求获得完成其 30s timeout 的机会，并持续重建 SSE/HTTP 负载。
+- 只提高 reload 次数：进一步放大资源风暴，不能修正超时层级错配。
+- 立即降为 1 worker：可能掩盖 readiness 根因并显著拉长本地门禁；先做单变量修复。
+- 无限等待：会把真实宿主停滞变成 CI hang；32s 与既有 transport timeout 有明确边界。
+
+#### 影响面
+R-01-002、R-01-008、R-02-002 / E2E 验证基建、验证门禁
+
+### C-052 sessions unary timeout 后允许一次同环境 reload
+日期: 2026-08-28
+
+#### 上下文
+C-051 的单一 32s 等待在本地完整套件实测失败：4/10 spec 最终失败、337.947s、11 次换环境恢复。对 rc.7 client-runtime 的追踪确认，`SessionManager.refreshList` 首推 transport 失败后把 `listState` 置 error，但 `listPhase` 保持 pending 且不自动重试；`SessionRuntime.projectList` 对插件投影又未携带 state/error，窗格只能继续看到 pending 并显示加载中。因而等待超过 30s 不能自愈，必须触发新的 client-runtime 实例或由上游修复。
+
+#### 决策
+- 修订 C-051 的“每环境只建立一个页面连接世代”：每个环境先给首代完整 32s；若超时或列表失败，仅 reload 一次并等待 12s，让已启动服务上的新 SessionManager 重新拉取。
+- runner 的全新环境尝试从 3 次收紧为 2 次；恢复仍仅接受 `ERR_PANE_STALL`，普通断言不重试。
+- 在 upstream `deepseek-ai/deepseek-harness` 跟踪根因修复；CI 继续使用已发布 coherent rc.7 时保留这一有界兼容路径，上游版本升级并验证后再删除。
+
+#### 被否方案及原因
+- 坚持单一 32s 等待：rc.7 首败后没有 manager 内重试，且错误轴被投影掩盖，实测只会永久 pending。
+- 恢复 5×6s：过早中断正常冷请求，hosted 已证明会形成 16 次换环境恢复风暴。
+- 插件内定时调用 `sessions.list.refresh()`：产品插件不应为宿主 runtime 的传输恢复策略兜底，且会把测试兼容逻辑带入用户运行路径。
+- 继续最多 3 个全新环境：同环境已有一次有意义的 post-timeout 重试，第三个冷环境收益低而成本高。
+
+#### 影响面
+R-01-002、R-01-008、R-02-002 / E2E 验证基建、验证门禁
+
+### C-053 E2E 顺序执行以适配 hosted runner 资源
+日期: 2026-08-28
+
+#### 上下文
+C-049 依据本地单 spec 约 272MB 与双 worker 约 118～144s 的结果，假定 GitHub hosted runner 可稳定承载两套完整 dsh web + Chromium。首次 hosted run 实测 8/10 失败、16 次恢复；C-051 单等待本地双 worker 仍 4/10 失败、11 次恢复；C-052 的 32s + 12s 双代策略本地双 worker仍 2/10 失败、4 次恢复。相反，T-085 已记录 coherent rc.7 顺序执行 10/10、226.119s、0 次恢复。资源竞争会触发 rc.7 sessions 首推失败，而失败后无自愈；继续并发换来的墙钟收益不足以抵消门禁失真。
+
+#### 决策
+- 废弃 C-049 的固定 2 worker；E2E runner 固定顺序执行，每次只启动一套 dsh web + Chromium。
+- 保留 C-052 的首代完整等待、一次 post-timeout reload 与一次 fresh-environment recovery，覆盖 rc.7 已知无自愈边界。
+- 不提供并发配置：本地和 hosted 保持同一负载模型；只有升级到修复 sessions 自愈的 DSH 并获得 hosted 连续数据后才重新评估并发。
+
+#### 被否方案及原因
+- hosted 设 1、本地保留 2：门禁负载模型分叉，本地难以复现 hosted 的资源问题。
+- 二次等待继续加长：两套宿主并发会制造更多 transport timeout，增加等待不能消除竞争源。
+- 动态按 CPU/内存决定：不同机器走不同顺序，复现和性能基线继续漂移。
+
+#### 影响面
+R-01-002、R-01-008、R-02-002 / E2E 验证基建、验证门禁

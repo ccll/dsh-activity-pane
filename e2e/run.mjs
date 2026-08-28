@@ -1,8 +1,8 @@
-// E2E 套件运行器（C-045、C-046、C-047）：启动隔离测试环境，执行 e2e/specs/*.mjs。
+// E2E 套件运行器（C-045、C-046、C-047、C-051～C-053）：启动隔离测试环境，执行 e2e/specs/*.mjs。
 //
 // 每个 spec 默认导出 async ({ browser, page, url, mock, assert })：browser/page
-// 属于该次隔离环境；runner 负责环境、浏览器与 context 生命周期。最多并行两条
-// 独立 spec，在 GitHub hosted runner 资源内缩短墙钟时间。
+// 属于该次隔离环境；runner 负责环境、浏览器与 context 生命周期。spec 固定顺序
+// 执行，避免两套 dsh web + Chromium 竞争资源触发 rc.7 sessions 首推失败。
 // 浏览器二进制为项目内安装（PLAYWRIGHT_BROWSERS_PATH=0）。
 //
 // 用法：`node e2e/run.mjs`（全量）或 `node e2e/run.mjs mobile-drawer`（指定 spec）。
@@ -18,7 +18,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const { bootE2e } = await import("./boot.mjs");
 const { ERR_PANE_STALL } = await import("./helpers.mjs");
 const { chromium } = await import("playwright");
-const MAX_CONCURRENCY = 2;
+const MAX_CONCURRENCY = 1;
 
 const specDir = join(here, "specs");
 const requested = new Set(process.argv.slice(2).map((name) => (name.endsWith(".mjs") ? name : `${name}.mjs`)));
@@ -43,8 +43,8 @@ async function runSpec(name) {
 	const spec = (await import(pathToFileURL(join(specDir, name)).href)).default;
 	let lastError = null;
 	let recoveries = 0;
-	// 宿主 sessions 首推停滞可能随浏览器进程延续；恢复时同时更换服务环境与 Chromium。
-	for (let attempt = 0; attempt < 3; attempt += 1) {
+	// rc.7 sessions 首推在单次 post-timeout reload 后仍停滞时，只再换一次服务环境与 Chromium。
+	for (let attempt = 0; attempt < 2; attempt += 1) {
 		if (attempt > 0) {
 			recoveries += 1;
 			console.error(`e2e: RECOVER ${name}（上一环境 sessions 首推停滞，换浏览器与环境）`);

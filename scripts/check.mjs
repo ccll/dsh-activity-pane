@@ -3409,7 +3409,12 @@ assert.equal(e2eRunnerSource.match(/chromium\.launch\(/g)?.length, 1, "runner �
 assert.ok(e2eRunnerSource.includes("context = await browser.newContext()"), "每次隔离环境创建独立 browser context");
 assert.ok(e2eRunnerSource.includes("await browser?.close()"), "每次 spec/恢复尝试都关闭浏览器进程");
 assert.ok(!e2eRunnerSource.includes("sharedBrowser"), "不保留未使用或跨环境共享的浏览器进程");
-assert.ok(e2eRunnerSource.includes("const MAX_CONCURRENCY = 2") && e2eRunnerSource.includes("Math.min(MAX_CONCURRENCY, specFiles.length)"), "E2E worker pool 并发上限固定为 2");
+assert.ok(e2eRunnerSource.includes("const MAX_CONCURRENCY = 1") && e2eRunnerSource.includes("Math.min(MAX_CONCURRENCY, specFiles.length)"), "E2E 固定顺序执行，避免 hosted runner 资源竞争");
+assert.ok(e2eRunnerSource.includes("attempt < 2"), "sessions stall 最多换一次全新环境");
+const e2eHelperSource = await readFile(join(root, "e2e/helpers.mjs"), "utf8");
+assert.equal(e2eHelperSource.match(/page\.goto\(url/g)?.length, 1, "页面连接世代只由一条受控路径建立");
+assert.ok(e2eHelperSource.includes("const PANE_READY_TIMEOUTS_MS = [32_000, 12_000]"), "sessions 首代覆盖 unary timeout，首败后只允许一次短重拉");
+assert.ok(!e2eHelperSource.includes("attempt < 5"), "不恢复 5×6s 短世代请求风暴");
 
 // ---- GitHub CI 触发策略（C-050，T-086）----
 const ciWorkflowSource = await readFile(join(root, ".github/workflows/ci.yml"), "utf8");

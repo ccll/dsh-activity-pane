@@ -1,4 +1,4 @@
-// E2E 套件运行器（C-045、C-046、C-047、C-051～C-053）：启动隔离测试环境，执行 e2e/specs/*.mjs。
+// E2E 套件运行器（C-045、C-046、C-047、C-058）：启动隔离测试环境，执行 e2e/specs/*.mjs。
 //
 // 每个 spec 默认导出 async ({ browser, page, url, mock, assert })：browser/page
 // 属于该次隔离环境；runner 负责环境、浏览器与 context 生命周期。spec 固定顺序

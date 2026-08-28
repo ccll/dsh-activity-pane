@@ -2632,8 +2632,8 @@ assert.ok(bundle.includes("notifyLayoutChange"), "布局变化通知 sibling ove
 assert.ok(bundle.includes('window.dispatchEvent(new Event("resize"))'), "布局变化派发标准 resize 通知");
 assert.ok(bundle.includes("pane !== renderedPane"), "新窗格实例必须重置渲染签名");
 assert.ok(
-	clientSource.includes('const sig = `${listState}|${cardSignature(visibleEntries)}`;'),
-	"列表 phase 转换必须参与渲染签名，空列表不得冻结在加载/失败状态（T-087）",
+	clientSource.includes("const sig = JSON.stringify([listState, cardSignature(visibleEntries)]);"),
+	"列表 phase 转换必须参与结构化渲染签名，空列表不得冻结在加载/失败状态（T-087）",
 );
 // R-01-013/AC-02 回归：卡片标题必须随快照更新——单卡渲染异常不得冻结其余卡片
 // （此前渲染签名先于卡片循环提交且无异常隔离，故障卡及其后全部卡片永久滞留旧标题，
@@ -3423,7 +3423,8 @@ assert.ok(!e2eRunnerSource.includes("RECOVER") && !e2eRunnerSource.includes("sta
 const e2eHelperSource = await readFile(join(root, "e2e/helpers.mjs"), "utf8");
 assert.equal(e2eHelperSource.match(/page\.goto\(url/g)?.length, 1, "每个 spec 只建立一个页面连接世代");
 assert.ok(e2eHelperSource.includes("const PANE_READY_TIMEOUT_MS = 6_000"), "单页面连接世代使用固定 6s 观察窗口");
-assert.ok(!e2eHelperSource.includes("ERR_PANE_STALL") && !e2eHelperSource.includes("attempt <"), "helpers 不保留列表停滞专用恢复路径");
+assert.ok(!e2eHelperSource.includes("ERR_PANE_STALL"), "helpers 不保留列表停滞专用恢复错误码");
+assert.ok(e2eHelperSource.includes('throw new Error("窗格列表加载失败")'), "明确列表失败立即抛错，不等待超时或进入恢复");
 
 // ---- GitHub CI 触发策略（C-050，T-086）----
 const ciWorkflowSource = await readFile(join(root, ".github/workflows/ci.yml"), "utf8");

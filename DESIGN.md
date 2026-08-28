@@ -338,7 +338,7 @@ flowchart LR
 - 职责: 以真实浏览器对最终页面行为做端到端回归验证，为交互类验收点提供自动化锚点（T-082 首条 spec 锚定 R-01-001、R-01-002、R-01-010；T-083/T-084 迁移布局、滚动、跳转、调宽、回顶与卡面内容；T-085 加固 runner 并覆盖 R-01-002 跨客户端确认同步/恢复与 R-01-008 移动抽屉完整交互；T-088 覆盖 R-01-002 错误提醒的 provider→Host→SSE→浏览器跨边界路径；不承担任何产品行为）
 - 关键内部结构:
   - 隔离测试环境：每个 spec 使用独立 `$DSH_HOME` 临时目录 + 预置 settings.yaml（provider 指向 mock LLM）+ `dsh web --port 0`；插件经 `dsh plugin --profile web add` 以 link: 装入；spec 间会话与持久化状态互不可见。
-  - 浏览器生命周期：每个 spec/恢复尝试使用独立 Chromium 与主 context，结束后关闭；需要验证同服务多客户端语义的 spec 可在该 Chromium 内创建第二个 context，二者只共享对应 spec 的 dsh web 服务。C-047 的隔离策略避免 Chromium 跨环境复用放大宿主 sessions 首推竞态；runner 固定顺序执行，避免 hosted runner 同时承载两套 dsh web + Chromium 触发 rc.7 sessions 首推失败（C-053，废弃 C-049 并发策略）。
+  - 浏览器生命周期：每个 spec 使用独立 Chromium 与主 context，结束后关闭；需要验证同服务多客户端语义的 spec 可在该 Chromium 内创建第二个 context，二者只共享对应 spec 的 dsh web 服务。C-047 的隔离策略保证 spec 间浏览器状态不可见；runner 固定顺序执行以保持单机资源上限与日志顺序稳定（C-058，废弃 C-049 并发策略）。
   - mock LLM 剧本服务：OpenAI 兼容 `POST /chat/completions` 端点，按用户消息关键词选择 E2E 剧本——慢速流式（运行中）、ask_user_question tool_call（待回复）、立即 finish（完成提醒）、非重试型 HTTP 400（错误提醒）。
   - 驱动：Playwright 经真实 composer UI 发起会话，断言窗格可观察行为；不断言内部 DOM 结构，结构断言仅限宿主槽座等显式契约边界。
   - 失败语义：每个 spec 只建立一个 Chromium context、一个页面连接世代并观察 6s；普通断言、列表超时与明确列表失败均立即计为回归，不 reload、不换环境重试。列表 `pending/error → ready` 参与卡片渲染签名，空卡集合也会提交状态转换，避免签名短路把 DOM 冻结在「加载中」/「列表加载失败」；失败保存 screenshot 与服务端 stderr 尾部（C-058，废弃 C-053/C-055 的 sessions 专用恢复）。

@@ -6,7 +6,7 @@ id: T-089
 
 # T-089 测试影响门禁与高价值 E2E 完善
 
-状态: active
+状态: completed
 关联: C-045、C-046、C-057、C-058、C-059 → E2E 验证基建、验证门禁
 风险等级: standard
 
@@ -70,15 +70,24 @@ id: T-089
 
 | 维度 | 适用性/理由 | 可执行证据 |
 |---|---|---|
-| 成功 | 适用：PRD/DESIGN 变化必须显式重新审视测试，关键 UI 接缝有浏览器证据 | `tools/agentmap_lint.py::check_test_anchors`、`e2e/run.mjs::runSpec` |
-| 异常 | 适用：AC 改文未触碰证据、DESIGN 无测试影响记录、staged bundle 过期均必须失败 | `.githooks/pre-commit::for script`、`scripts/check.mjs::clientSource` |
-| 边界配置 | 适用：自动/E2E/人工证据按路径分类；纯措辞可结构化说明 none | `CONVENTIONS.md::测试锚点路径`、`scripts/acceptance.mjs::steps` |
-| 副作用 | 适用：pre-commit 不再以工作树重建结果冒充 staged 证据；开发 check/HMR 行为保留 | `.githooks/pre-commit::pre-commit.d`、`scripts/build-client.mjs::export async function build` |
+| 成功 | 适用：PRD/DESIGN 变化必须显式重新审视测试，关键 UI 接缝有浏览器证据 | `tools/test_impact_lint.py::evaluate`、`e2e/specs/loading-ready.mjs::loadingReady`、`e2e/specs/auto-update.mjs::runtimeCard` |
+| 异常 | 适用：AC 改文未触碰证据、DESIGN 无测试影响记录、staged bundle 过期均必须失败 | `tools/test_impact_lint.py::self_test`、`scripts/check-staged-client.mjs::stagedBundle` |
+| 边界配置 | 适用：自动/E2E/人工证据按路径分类；纯措辞只允许 exact subject、合法验证层、none 动作与具体理由 | `tools/test_impact_lint.py::valid_impact_row`、`tools/test_impact_lint.py::row_covers` |
+| 副作用 | 适用：pre-commit 不再以工作树重建结果冒充 staged 证据；开发 check/HMR 行为保留 | `scripts/check-staged-client.mjs::staged`、`scripts/build-client.mjs::export async function build` |
 | 性能 | 适用：diff 门禁仅扫描 Git 文本；E2E 不增加跨 spec 共享或重试 | `package.json::verify:fast`、`e2e/run.mjs::MAX_CONCURRENCY` |
 | 恢复 | 适用：普通 E2E 失败继续直接暴露，失败取证沿用 screenshot/stderr | `e2e/run.mjs::captureFailure` |
-| 兼容性 | 适用：canonical AgentMap lint 不修改，项目检查器仅依赖 Python 标准库与 Git | `tools/agentmap_lint.py::check_runtime_contract`、`scripts/build-client.mjs::readFile` |
-| 可观测性 | 适用：报告显示 AC 总数及 unit/e2e/manual 分类，并列出本次受影响 AC | `tools/agentmap_lint.py::print_result`、`e2e/run.mjs::suiteStart` |
+| 兼容性 | 适用：canonical AgentMap lint 不修改，项目检查器仅依赖 Python 3.7.9+ 标准库与 Git | `tools/agentmap_lint.py::check_runtime_contract`、`tools/test_impact_lint.py::run_git` |
+| 可观测性 | 适用：报告显示 AC 总数及 unit/e2e/manual 分类，并列出本次受影响 AC | `tools/test_impact_lint.py::Test impact report`、`e2e/run.mjs::suiteStart` |
 
 ## 终态与证据
 
-待实现完成后填写。
+- 实现: `34532be` 新增项目级 `tools/test_impact_lint.py`、pre-commit/pre-push 测试影响 hooks、自动/E2E/manual 分类报告与 staged client bundle 字节一致性门禁；`c7a639e` 新增 `loading-ready.mjs`，扩展 runtime tool→slow stream 与卡片/标题/窄条/移动抽屉/回顶键盘路径；`387de3e`、`dc8f3b6`、`764ae93` 按独立审核收紧目标 remote outgoing range、Git 错误处理、exact subject、验证层与 none 理由，并移除 R-01-014/AC-03 过度锚定。
+- 测试: `tools/test_impact_lint.py --self-test` 覆盖 AC 增改删、staged 证据、非法/空泛 none、DESIGN 记录、跨 remote 新 ref 与 Git 错误；临时 Git fixture 实测 staged source 变化而 bundle 未暂存时失败，重建并暂存后通过；定向 E2E 6/6 通过（64.638s）；最终 `pnpm verify` 12/12 spec 通过（E2E 132.576s），`pnpm verify:fast`、`git diff --check` 通过。首次完整 pre-push 的既有 completion-sync readiness 6s 超时直接失败、未重试；单 spec 诊断随后通过，最终完整套件通过。
+- DESIGN 对照: `DESIGN.md#E2E 验证基建` 已登记测试影响门禁、staged 产物门禁、runtime 剧本、显式 fragment loading 接缝与零重试隔离模型；实现未修改 canonical AgentMap lint，未复用 Chromium，默认 URL 不启用 loading 接缝。E2E 锚定由 55 提升到 62，R-01-014/AC-03 保留 unit/manual，不以部分证据过度声明。
+- commit: 34532be c7a639e 387de3e dc8f3b6 764ae93
+- review:
+  - 审核方: Standards reviewer `573397a8-54d9-4d50-8772-2ac6bf4ae345`；Spec reviewer `e8c3d162-57a1-4724-a2a7-19dc957fb959`
+  - 目的理解: 两位 reviewer 均先确认 T-089 要在不修改 canonical lint、不自动生成测试、不复用 Chromium和不增加 E2E 重试的前提下，实现 PRD/DESIGN diff 测试影响复审、staged source/bundle 一致性及运行态/loading/键盘浏览器证据。
+  - 执行方式: `code-review` skill，固定基线 `b9dd873...HEAD`；Standards 与 Spec 双轴并行初审，所有修复均由原 reviewer 复审。
+  - 问题与修复: Standards 初审发现结构化 row 未校验、新 remote ref 可能被其它 remote-tracking ref 漏检、Git 读取错误被吞；修复后又指出 `layer=none` 与空泛长理由仍可绕过。Spec 同时发现 R-01-014/AC-03 只测空列表却过度锚定。分别以目标 remote 范围、显式 Git missing/error 区分、合法层/动作/exact subject、none 语义词与负例、移除 AC-03 E2E 锚点并记录 unit 承接收敛。
+  - 复审结论: Standards 与 Spec 最终均通过；全部 findings 关闭，无新增 hard violation、规格缺失、行为错误、scope creep 或 Fowler smell。

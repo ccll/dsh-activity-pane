@@ -7,7 +7,7 @@ mutation: lifecycle
 # T-094 时间线圆点视觉同心与半透明外围恢复
 
 风险等级: standard
-状态: active
+状态: completed
 
 ## 背景与目标
 
@@ -57,8 +57,13 @@ mutation: lifecycle
 
 ## 终态与证据
 
-- 实现: 待填写。
-- 测试: 待填写。
-- DESIGN 对照: 待填写。
-- commit: 待填写。
-- review: 待填写。
+- 实现: `src/client.mjs` 将时间线节点恢复为 `left:0; top:3px; width:7px; height:7px` 的同心承载盒；1px 半透明 border 在盒内留出 5px 实心核，普通节点恢复 `0 0 0 1px` 半透明外围，running 节点恢复同色外围并保留 6px 光晕与 `dap-pulse`；竖线继续 `left:3px`，标题点保持 7px；`.dsh-plugin/client.js` 已重建。`DESIGN.md` 与 C-062 同步修订 C-061。
+- 测试: 测试先行改写 `scripts/check.mjs` 与 `e2e/specs/session-lifecycle.mjs`，旧实现分别因 7px 承载盒缺失而红（contract AssertionError；browser 实测 actual 5×5 vs expected 7×7），实施后转绿。browser E2E 在真实 Chromium 中验证 7px 同盒、5px 核、页面绝对同心、普通 1px/alpha 0.14 外围、running 1px/alpha 0.16 外围与 6px/alpha 0.65 光晕，并通过三次间隔 300ms 的 opacity 采样证明脉冲实际变化。`pnpm verify:fast` 通过；focused `session-lifecycle` 通过（10.406s）；最终 `pnpm verify` 12/12 通过（134.113s）；`git diff --check` 通过。现有 `http://127.0.0.1:3080/` 刷新后在 DPR 2 截图目验竖线从全部节点中心穿过、普通外围可见；computed style 实测节点/标题均 7px，三者页面中心均为 x=303.5，节点 border 1px、普通外围为 alpha 0.14 的 1px ring。
+- DESIGN 对照: R-01-009/AC-09 的「5px 视觉圆点、半透明外围、竖线同圆心」保持不变；`DESIGN.md` 已收敛到 C-062 的 7px 同相位承载盒、5px 实心核、普通/running 外围与原生圆角方案，标题点、行高、文字缩进、DOM、数据层和状态语义均未改变。
+- commit: de0eec5 （实现提交另含 f8cf1aa）。
+- review:
+  - 审核方: Standards reviewer `7e8e57df-70dd-485e-8db1-058f6589cfeb`；Spec reviewer `5249cd32-925f-4bc3-9880-d779f63a1e3b`。
+  - 目的理解: 修复实际 5px 圆盒与 7px 标题盒在不同 DPR 下的视觉相位偏移，恢复「7px 同心承载盒内 5px 实心核 + 1px 半透明外围」，保持标题点 7px、竖线同心及 running 光晕/脉冲不变。
+  - 执行方式: `code-review` skill，固定基线 `6d065e49d50139733fd94ec1b4e98998182053e6`，最终范围 `git diff 6d065e49...de0eec5`；Standards/Spec 双轴独立并行审核，finding 由同一审核方复审。
+  - 问题与修复: Standards 初审指出 E2E 仅判断 shadow 非空和动画名称，不能证明半透明外围、6px 光晕分层及脉冲实际发生；以 `de0eec5` 精确断言普通/running ring 与 glow 的 computed shadow，并跨时间采样 opacity。原 Standards reviewer 复审确认 finding 关闭；Spec 初审与最终复审均无 finding、无 scope creep。
+  - 复审结论: Standards 与 Spec 最终均通过，无遗留 hard violation、smell 或规格偏差。

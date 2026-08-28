@@ -6,7 +6,7 @@ id: T-086
 
 # T-086 main push 与 release tag CI 策略
 
-状态: active
+状态: completed
 关联: C-050 → E2E 验证基建
 风险等级: standard
 
@@ -48,13 +48,13 @@ id: T-086
 
 ## 终态与证据
 
-- 实现: 待填写
-- 测试: 待填写
-- DESIGN 对照: 待填写
-- commit: 待填写
+- 实现: workflow 最终仅保留 `workflow_dispatch`；main、tag 与 PR 均不自动触发。`.githooks/pre-push` 的本地 `pnpm verify` 为权威门禁，Release 保持手工创建；hosted runtime/cache/full-history 配置保留作显式诊断。
+- 测试: `pnpm verify` 在最终实现上 11/11 spec 通过（210.532s，sessions recovery 0）；`pnpm verify:fast` 与 `git diff --check` 通过；`gh run list --commit 8a48a23` 返回 `[]`，证明暂停提交未触发 hosted run。
+- DESIGN 对照: `DESIGN.md#E2E 验证基建`、`CONVENTIONS.md#验证门禁` 与 C-057 均描述 workflow_dispatch-only、本地 pre-push 权威门禁与手工 Release，无差异。
+- commit: 01c32e6 879c955 9fb88bb 8d20fab 8a48a23 0c9f014（workflow 策略、hosted 修复、暂停决策与审核收口）
 - review:
-  - 审核方: 待填写
-  - 目的理解: 待填写
-  - 执行方式: 待填写
-  - 问题与修复: 待填写
-  - 复审结论: 待填写
+  - 审核方: Standards reviewer `01529703-ddf8-4bd5-a90b-5a58dd06fd63`；Spec reviewer `a44a9e98-fcdf-40f1-a582-aa482debc36e`
+  - 目的理解: 暂停因 upstream sessions 首拉系统性假失败而失去信号价值的自动 hosted CI，同时保留手工诊断入口；提交/推送由本地完整门禁裁决，Release 不自动化。
+  - 执行方式: `code-review` skill，固定基线 `15cf561...HEAD`，Standards/Spec 双轴并行审核并由同一审核方复审。
+  - 问题与修复: 初审发现 T-086 性能/可观测性矩阵仍按自动 hosted 描述；`0c9f014` 改为本地 runner 墙钟/recovery 为日常证据、手工 hosted 仅作诊断。其余 CI 配置、CONVENTIONS、DESIGN、C-056/C-057 均一致。
+  - 复审结论: Standards 与 Spec 最终均通过，无未决 finding。

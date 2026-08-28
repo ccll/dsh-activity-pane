@@ -335,12 +335,12 @@ flowchart LR
 - 实现: 单端（浏览器 client bundle）
 
 ### E2E 验证基建
-- 职责: 以真实浏览器对最终页面行为做端到端回归验证，为交互类验收点提供自动化锚点（T-082 首条 spec 锚定 R-01-001、R-01-002、R-01-010；T-083/T-084 迁移布局、滚动、跳转、调宽、回顶与卡面内容；T-085 加固 runner 并覆盖 R-01-002 跨客户端确认同步/恢复与 R-01-008 移动抽屉完整交互；T-088 覆盖 R-01-002 错误提醒的 provider→Host→SSE→浏览器跨边界路径；T-089 补 R-01-009 tool→stream、R-01-014 loading→ready 与键盘路径；不承担产品数据源或恢复补偿）
+- 职责: 以真实浏览器对最终页面行为做端到端回归验证，为交互类验收点提供自动化锚点（T-082 首条 spec 锚定 R-01-001、R-01-002、R-01-010；T-083/T-084 迁移布局、滚动、跳转、调宽、回顶与卡面内容；T-085 加固 runner 并覆盖 R-01-002 跨客户端确认同步/恢复与 R-01-008 移动抽屉完整交互；T-088 覆盖 R-01-002 错误提醒的 provider→Host→SSE→浏览器跨边界路径；T-089 补 R-01-009 tool→stream、R-01-014 loading→ready 与键盘路径；T-090 补 R-01-014/AC-03 detail 渐进就绪中间帧；不承担产品数据源或恢复补偿）
 - 关键内部结构:
   - 隔离测试环境：每个 spec 使用独立 `$DSH_HOME` 临时目录 + 预置 settings.yaml（provider 指向 mock LLM）+ `dsh web --port 0`；插件经 `dsh plugin --profile web add` 以 link: 装入；spec 间会话与持久化状态互不可见。
   - 浏览器生命周期：每个 spec 使用独立 Chromium 与主 context，结束后关闭；需要验证同服务多客户端语义的 spec 可在该 Chromium 内创建第二个 context，二者只共享对应 spec 的 dsh web 服务。C-047 的隔离策略保证 spec 间浏览器状态不可见；runner 按 C-053 固定顺序执行以保持单机资源上限与日志顺序稳定，C-058 仅删除 sessions 专用恢复。
   - mock LLM 剧本服务：OpenAI 兼容 `POST /chat/completions` 端点，按用户消息关键词选择 E2E 剧本——慢速流式（运行中）、ask_user_question tool_call（待回复）、runtime 的 tool→回答后 slow stream（运行态时间线实时更新）、立即 finish（完成提醒）、非重试型 HTTP 400（错误提醒）。
-  - 可控加载接缝：仅当页面 URL fragment 显式携带 `dap-e2e-list-delay` 参数时，client 把首次非错误列表快照在渲染边界内短暂投影为 pending（上限 1s），到期只触发同一 `queueSync`；默认 URL 为零分支，不修改宿主 sessions、真实快照或页面连接世代。`loading-ready.mjs` 以 MutationObserver 证明 loading 帧实际提交，再验证同页 pending→ready 空态与 0/0，精确回归 C-058 的签名短路层级。
+  - 可控加载接缝：仅当页面 URL fragment 显式携带参数时启用且单项上限 1s；`dap-e2e-list-delay` 把首次非错误列表快照在渲染边界内短暂投影为 pending，到期只触发同一 `queueSync`；`dap-e2e-model-delay` 仅跳过 model directory 的抢先初值并延迟正式 native models RPC，不伪造 response。默认 URL 为零分支，不修改宿主 sessions、真实快照或页面连接世代。`loading-ready.mjs` 以 MutationObserver 证明列表 loading 帧实际提交及真实 slow 卡标题/时间线先呈现、model detail 后补齐。
   - 驱动：Playwright 经真实 composer UI 发起会话，断言窗格可观察行为；不断言内部 DOM 结构，结构断言仅限宿主槽座、可访问角色与列表状态等显式契约边界。
   - 失败语义：每个 spec 只建立一个 Chromium context、一个页面连接世代并观察 6s；普通断言、列表超时与明确列表失败均立即计为回归，不 reload、不换环境重试。列表 `pending/error → ready` 参与卡片渲染签名，空卡集合也会提交状态转换，避免签名短路把 DOM 冻结在「加载中」/「列表加载失败」；失败保存 screenshot 与服务端 stderr 尾部（C-058，废弃 C-053/C-055 的 sessions 专用恢复）。
   - 测试影响门禁：项目级 `tools/test_impact_lint.py` 比较 Git 基线与 working tree、index 或 outgoing commit 的 PRD AC 正文与 DESIGN 变化；AC 新增/修改必须触碰含 exact AC-ID 的 unit/E2E/manual 证据，或由同次变化的 active task 记录 `none` 理由；DESIGN 变化必须有同次 active task 的 `DESIGN` 测试影响行。检查器分别报告 unit、E2E 与 manual 锚定数，只证明证据被重新审视，不替代断言充分性审核，也不自动生成测试（C-059）。

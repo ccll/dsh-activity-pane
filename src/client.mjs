@@ -971,11 +971,16 @@ function apply(ctx) {
 	let clockTimer = null;
 	let syncScheduled = false;
 	let lastSig = "";
-	// E2E-only deterministic seam（T-089）：显式 URL 参数最多把本页首次列表 ready 呈现延后 1s，
-	// 用于证明 pending→ready 进入渲染签名；默认路径为 0，不改变服务、快照或生产时序。
-	const requestedListDelay = Number(new URLSearchParams(window.location.hash.slice(1)).get("dap-e2e-list-delay"));
+	// E2E-only deterministic seams（T-089/T-090）：显式 URL fragment 最多把本页首次列表 ready 呈现
+	// 或正式 models RPC 延后 1s；默认路径为 0，不伪造服务响应、快照或生产时序。
+	const e2eParams = new URLSearchParams(window.location.hash.slice(1));
+	const requestedListDelay = Number(e2eParams.get("dap-e2e-list-delay"));
 	const e2eListReadyAt = Number.isFinite(requestedListDelay) && requestedListDelay > 0
 		? Date.now() + Math.min(requestedListDelay, 1_000)
+		: 0;
+	const requestedModelDelay = Number(e2eParams.get("dap-e2e-model-delay"));
+	const e2eModelDelayMs = Number.isFinite(requestedModelDelay) && requestedModelDelay > 0
+		? Math.min(requestedModelDelay, 1_000)
 		: 0;
 	let e2eListReleaseTimer = null;
 	let renderedPane = null;
@@ -1290,7 +1295,7 @@ function apply(ctx) {
 			const subagent = isSubagentRow(byId[id], byId);
 			// 主会话先试模型目录订阅：store 已有当前选择时同步填充（随后 plan.model 为假、免发 RPC）；
 			// 子代理的目录不可用（宿主以 agent-busy 拒绝其模型 RPC），不建立订阅。
-			if (!subagent) subscribeModelDirectory(id, detail);
+			if (!subagent && e2eModelDelayMs === 0) subscribeModelDirectory(id, detail);
 			const snapshotReady = detail.snapshot?.openState === "open";
 			// 冷窗口兜底（R-01-009/AC-06、R-01-012/AC-12）：快照就绪但窗口缺开放回合起点
 			// （超长回合的 turn/start 在尾页窗口之外；等待/空闲会话不算缺口）或缺可锚
@@ -1317,7 +1322,10 @@ function apply(ctx) {
 				detail.model ??= { model: "", reasoning: "" };
 			} else if (plan.model && typeof api.models === "function") {
 				const promise = enqueueDetailLoad(() => Promise.resolve()
-					.then(() => api.models({ sessionId: id }))
+					.then(async () => {
+						if (e2eModelDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, e2eModelDelayMs));
+						return disposed ? null : api.models({ sessionId: id });
+					})
 					.then((response) => {
 						const value = apiValue(response);
 						if (!value) {

@@ -28,6 +28,8 @@ mutation: lifecycle
 3. 扩展 `loading-ready.mjs`：列表 ready 后发送真实 `e2e:slow` 会话，记录“标题/用户时间线已出现而 model 尚未出现”及“model/reasoning 随后出现”的有序证据。
 4. `scripts/check.mjs` 增加接缝边界 contract；重建 client bundle并同步 DESIGN/acceptance 映射。
 
+实现进度: 已按上述边界落地 model delay、同页 MutationObserver 两阶段断言及 DESIGN/acceptance 对照，正在执行完整验证与独立审核。
+
 ## 测试影响
 
 | 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |

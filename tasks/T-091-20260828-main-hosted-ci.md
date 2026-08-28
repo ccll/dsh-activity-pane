@@ -28,6 +28,8 @@ mutation: lifecycle
 3. 更新 check contract、CONVENTIONS 与 DESIGN；本地 pre-push 仍为推送前权威门禁，hosted 是推送后 clean-runner 独立裁决。
 4. 本次提交推送后观察自动 run 实际结果，不以 workflow YAML 静态解析代替 hosted 证据。
 
+实现进度: 已增加 main push trigger，并同步 workflow contract、CONVENTIONS 与 DESIGN；正在执行本地门禁、独立审核和推送后自动 hosted 实测。
+
 ## 测试影响
 
 | 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |

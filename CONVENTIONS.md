@@ -37,7 +37,7 @@ owner: agent 主笔，项目属主审批
 - 快速验证入口: `pnpm verify:fast`（AgentMap lint + 测试影响检查器 self-test/report + core 单测与 client bundle 契约）。
 - 权威验证入口: .githooks/pre-push
 - 完整验证命令: `pnpm verify`（快速入口 + 全量浏览器 E2E）；agent 任务结束与 pre-push 重放同一命令。
-- CI 门禁: 不适用：C-057 已暂停 main push、tag 与 PR 自动 hosted 运行，`.github/workflows/ci.yml` 仅保留 `workflow_dispatch` 诊断入口。C-058 已修复本项目 sessions readiness 根因，但恢复自动触发仍须先有手工 hosted 实测并另立决策；提交与推送以本地 `.githooks/pre-push` 的 `pnpm verify` 为当前权威门禁。
+- CI 门禁: 适用：C-060 在手工 hosted 诊断绿色后恢复 `.github/workflows/ci.yml` 于 main push 自动运行 pnpm verify，并保留 workflow_dispatch；不触发 PR 与 tag。提交与推送前以本地 pre-push 为权威阻断，main hosted 在推送后提供 clean-runner 独立裁决；Release 仍手工创建。
 - `.githooks/pre-commit.d/20-agentmap-lint.sh`：AgentMap 结构、追溯与派生报告。
 - `.githooks/pre-commit.d/25-test-impact.sh`：比较 HEAD 与 staged PRD/DESIGN，要求测试证据同步变化或由 staged active task 记录结构化 `none` 理由。
 - `.githooks/pre-commit.d/30-dsh-activity-pane-check.sh`：dsh-activity-pane 单测与 client bundle 契约校验（`node scripts/check.mjs`）。

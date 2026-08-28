@@ -7,7 +7,7 @@ mutation: lifecycle
 # T-091 恢复 main push hosted CI 独立裁决
 
 风险等级: standard
-状态: active
+状态: completed
 
 ## 背景与目标
 
@@ -57,4 +57,13 @@ mutation: lifecycle
 
 ## 终态与证据
 
-待实现完成后填写。
+- 实现: `1093aff` 为 `.github/workflows/ci.yml` 增加仅 main branch 的 push trigger，保留 workflow_dispatch，PR/tag 继续不触发；同步 `scripts/check.mjs`、CONVENTIONS 与 DESIGN。`1101a51` 按双轴审核把 trigger contract 收紧为完整 `on` block 精确相等，禁止其它 event/filter 绕过。
+- 测试: 手工恢复前基线 run `33177351704`（SHA `38913d1`）成功，job 2m36s；首次自动 push run `33179755933`（SHA `1093aff`）成功，job 2m48s；最终 contract fix 自动 push run `33180227331`（SHA `1101a51`）成功，job 2m30s。三次均执行 clean-runner `pnpm verify`、12/12 E2E、零 recovery；本地 pre-push 在两次推送前分别 12/12 通过（130.464s、134.555s），`pnpm check`、lint、staged bundle 与 `git diff --check` 通过。
+- DESIGN 对照: `DESIGN.md#E2E 验证基建` 与 C-060 一致：本地 pre-push 负责推送前阻断，main hosted 提供推送后 clean-runner 独立裁决；workflow_dispatch 保留，PR/tag/自动 Release 均未恢复，runtime/cache/history/timeout/screenshots/只读权限不变。
+- commit: 1093aff 1101a51
+- review:
+  - 审核方: Standards reviewer `e229ec2c-9f1e-45ac-a0f6-9d5c7e65327c`；Spec reviewer `e3b17c40-061b-471c-8cec-76b6830e9af4`
+  - 目的理解: 两位 reviewer 先确认 T-091 只恢复 main push，保留 workflow_dispatch 并继续排除 PR/tag；不得改变本地 pre-push、手工 Release、权限、runtime 或零重试语义，且必须观察真实自动 run。
+  - 执行方式: `code-review` skill，固定基线 `afa843a...HEAD`；双轴并行初审，修复后由原 reviewer 复审，并以 GitHub Actions push run 作运行边界证据。
+  - 问题与修复: Standards 与 Spec 均指出 substring contract 无法阻止 pull_request_target、多行 tags、其它 branch/filter 或注释文本绕过；Spec 另要求补足实际推送 run。修复为精确锁定完整顶层 `on` block，并完成 `1093aff`、`1101a51` 两次自动 push run。
+  - 复审结论: Standards 与 Spec 最终均通过，无新增 finding 或 scope creep；最终 hosted run `33180227331` success。

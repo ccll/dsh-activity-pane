@@ -3411,6 +3411,13 @@ assert.ok(e2eRunnerSource.includes("await browser?.close()"), "每次 spec/恢�
 assert.ok(!e2eRunnerSource.includes("sharedBrowser"), "不保留未使用或跨环境共享的浏览器进程");
 assert.ok(e2eRunnerSource.includes("const MAX_CONCURRENCY = 2") && e2eRunnerSource.includes("Math.min(MAX_CONCURRENCY, specFiles.length)"), "E2E worker pool 并发上限固定为 2");
 
+// ---- GitHub CI 触发策略（C-050，T-086）----
+const ciWorkflowSource = await readFile(join(root, ".github/workflows/ci.yml"), "utf8");
+assert.ok(!ciWorkflowSource.includes("pull_request:"), "不为未采用的 pull request 运行 CI");
+assert.ok(ciWorkflowSource.includes("branches: [main]"), "main push 触发 CI");
+assert.ok(ciWorkflowSource.includes('tags: ["v*"]'), "v* release tag 触发 CI");
+assert.ok(ciWorkflowSource.includes("workflow_dispatch:"), "允许手工重跑 CI");
+
 // ---- E2E 基建：mock LLM 剧本服务行为断言（C-045，T-082）----
 // 浏览器 spec 驱动真实 UI；三剧本的 SSE 形状与分流规则在此做 Node 级行为验证。
 const { startMockLlm } = await import("../e2e/mock-llm.mjs");

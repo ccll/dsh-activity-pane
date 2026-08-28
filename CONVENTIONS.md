@@ -35,7 +35,7 @@ owner: agent 主笔，项目属主审批
 - 快速验证入口: `pnpm verify:fast`（AgentMap lint + core 单测与 client bundle 契约）。
 - 权威验证入口: .githooks/pre-push
 - 完整验证命令: `pnpm verify`（快速入口 + 全量浏览器 E2E）；agent 任务结束、pre-push 与 CI 重放同一命令。
-- CI 门禁: 适用：`.github/workflows/ci.yml` 在 pull request 与 main push 上使用锁定的 Node、pnpm、dsh 与 Playwright Chromium 执行 pnpm verify，失败上传 E2E screenshot artifact。
+- CI 门禁: 适用：`.github/workflows/ci.yml` 在 main push、v* release tag 与手工触发时使用锁定的 Node、pnpm、dsh 与 Playwright Chromium 执行 pnpm verify，失败上传 E2E screenshot artifact；项目不接受 PR，不配置 required PR check。
 - `.githooks/pre-commit.d/20-agentmap-lint.sh`：AgentMap 结构、追溯与派生报告。
 - `.githooks/pre-commit.d/30-dsh-activity-pane-check.sh`：dsh-activity-pane 单测与 client bundle 契约校验（`node scripts/check.mjs`）。
 - `.githooks/pre-push.d/20-agentmap-lint.sh`：校验待推送历史的 AgentMap 不可变契约。

@@ -3435,7 +3435,8 @@ assert.ok(ciWorkflowSource.includes("node-version: 24.16.0"), "hosted Node 与�
 
 // ---- E2E 基建：mock LLM 剧本服务行为断言（C-045，T-082、T-088）----
 // 浏览器 spec 驱动真实 UI；四剧本的响应形状与分流规则在此做 Node 级行为验证。
-const { MOCK_ERROR_MESSAGE, startMockLlm } = await import("../e2e/mock-llm.mjs");
+const { startMockLlm } = await import("../e2e/mock-llm.mjs");
+const { MOCK_ERROR_MESSAGE } = await import("../e2e/helpers.mjs");
 const mock = await startMockLlm();
 try {
 	/** 请求 mock 并解析 SSE 负载序列（[DONE] 收尾）。 */

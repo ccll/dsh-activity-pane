@@ -115,6 +115,7 @@ const HERO_PLACEHOLDER = "Describe what you want to build";
 
 /** mock LLM 固定输出（与 e2e/mock-llm.mjs 剧本一致），spec 断言复用避免多处硬编码。 */
 export const MOCK_FAST_REPLY = "E2E 快速回合已完成。";
+export const MOCK_ERROR_MESSAGE = "E2E 模型故障探针";
 /** 隔离环境卡面显示的模型名（boot.mjs 种子为小写 id，显示名经宿主模型目录映射）。 */
 export const MOCK_MODEL = "DeepSeek-V4-Flash";
 

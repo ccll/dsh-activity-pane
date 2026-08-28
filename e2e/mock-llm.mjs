@@ -11,13 +11,12 @@
 // 用法：`node e2e/mock-llm.mjs`（监听 127.0.0.1 随机端口，就绪后向 stdout
 // 打印一行 JSON {"url": "http://127.0.0.1:<port>/v1"}）；或被 boot.mjs
 // import 调用 startMockLlm()。
-import { MOCK_FAST_REPLY } from "./helpers.mjs";
+import { MOCK_ERROR_MESSAGE, MOCK_FAST_REPLY } from "./helpers.mjs";
 
 import http from "node:http";
 
 const SLOW_CHUNKS = 24;
 const SLOW_INTERVAL_MS = 150;
-export const MOCK_ERROR_MESSAGE = "E2E 模型故障探针";
 
 /** 取消息文本（字符串或内容分片数组）。 */
 function messageText(msg) {
@@ -134,7 +133,7 @@ async function playFast(res, model) {
 	res.end();
 }
 
-const SCENARIOS = { slow: playSlow, ask: playAsk, fast: playFast };
+const SCENARIOS = { slow: playSlow, ask: playAsk, error: playError, fast: playFast };
 
 /**
  * 启动 mock LLM 服务。
@@ -159,15 +158,13 @@ export async function startMockLlm() {
 			}
 			const scenario = pickScenario(body);
 			scenarioLog.push(scenario);
-			if (scenario === "error") {
-				playError(res);
-				return;
+			if (scenario !== "error") {
+				res.writeHead(200, {
+					"content-type": "text/event-stream",
+					"cache-control": "no-cache",
+					connection: "keep-alive",
+				});
 			}
-			res.writeHead(200, {
-				"content-type": "text/event-stream",
-				"cache-control": "no-cache",
-				connection: "keep-alive",
-			});
 			try {
 				await SCENARIOS[scenario](res, body.model ?? "e2e-mock");
 			} catch {

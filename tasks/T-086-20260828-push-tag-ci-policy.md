@@ -42,9 +42,9 @@ id: T-086
 | 异常 | 适用：本地门禁任一步失败即阻止 push；手工 workflow 失败保留 E2E screenshot artifact | `.githooks/pre-push::pre-push.d`、`.github/workflows/ci.yml::Upload E2E failure screenshots` |
 | 边界配置 | 适用：pull request、main push 与任何 tag 均不自动触发 hosted CI | `.github/workflows/ci.yml::on` |
 | 副作用 | 适用：不自动运行 Actions、不创建 release、不写仓库内容，permissions 保持 contents read | `.github/workflows/ci.yml::permissions` |
-| 性能 | 适用：首次 hosted run 记录冷缓存步骤耗时，后续优化需有实测 | `.github/workflows/ci.yml::Cache coherent DSH runtime` |
+| 性能 | 适用：本地完整门禁汇总 11 个 spec 的墙钟与 sessions recovery 次数；手工 hosted 诊断才评估冷缓存耗时 | `e2e/run.mjs::elapsed`、`.github/workflows/ci.yml::Cache coherent DSH runtime` |
 | 兼容性 | 适用：沿用 T-085 锁定的 Node、pnpm、coherent DSH rc.7 与 Chromium | `.github/workflows/ci.yml::Install coherent DSH runtime` |
-| 可观测性 | 适用：GitHub run 与 tag commit 关联，失败 artifact 保留 7 天 | `.github/workflows/ci.yml::retention-days` |
+| 可观测性 | 适用：本地 runner 按 spec 输出 PASS/FAIL、总耗时与恢复次数；手工 hosted 失败时 artifact 保留 7 天 | `e2e/run.mjs::stallRecoveries`、`.github/workflows/ci.yml::retention-days` |
 
 ## 终态与证据
 

@@ -3035,6 +3035,17 @@ function apply(ctx) {
 		? Math.min(requestedModelDelay, 1_000)
 		: 0;
 	let e2eListReleaseTimer = null;
+	const e2eModelDelayWaiters = new Map();
+	function delayedModelCall(call) {
+		if (e2eModelDelayMs === 0) return Promise.resolve().then(call);
+		return new Promise((resolve) => {
+			const timer = setTimeout(() => {
+				e2eModelDelayWaiters.delete(timer);
+				resolve(disposed ? null : call());
+			}, e2eModelDelayMs);
+			e2eModelDelayWaiters.set(timer, resolve);
+		});
+	}
 	let renderedPane = null;
 	let boundPane = null;
 	let unbindPaneControls = null;
@@ -3083,8 +3094,8 @@ function apply(ctx) {
 			const job = loadQueue.shift();
 			loadInflight += 1;
 			job().finally(() => {
-				loadInflight -= 1;
-				pumpDetailLoads();
+				loadInflight = Math.max(0, loadInflight - 1);
+				if (!disposed) pumpDetailLoads();
 			});
 		}
 	}
@@ -3373,11 +3384,7 @@ function apply(ctx) {
 				// 子代理的 models 读取必被宿主以 agent-busy 拒绝：直接留空，不发注定失败的 RPC。
 				detail.model ??= { model: "", reasoning: "" };
 			} else if (plan.model && typeof api.models === "function") {
-				const promise = enqueueDetailLoad(() => Promise.resolve()
-					.then(async () => {
-						if (e2eModelDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, e2eModelDelayMs));
-						return disposed ? null : api.models({ sessionId: id });
-					})
+				const promise = enqueueDetailLoad(() => delayedModelCall(() => api.models({ sessionId: id }))
 					.then((response) => {
 						const value = apiValue(response);
 						if (!value) {
@@ -5201,6 +5208,11 @@ function apply(ctx) {
 		completeAcksById.clear();
 		if (clockTimer !== null) clearInterval(clockTimer);
 		if (e2eListReleaseTimer !== null) clearTimeout(e2eListReleaseTimer);
+		for (const [timer, resolve] of e2eModelDelayWaiters) {
+			clearTimeout(timer);
+			resolve(null);
+		}
+		e2eModelDelayWaiters.clear();
 		for (const [, rec] of livenessById) {
 			try {
 				rec.unsubscribe?.();

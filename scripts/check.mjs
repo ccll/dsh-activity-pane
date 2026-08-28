@@ -3418,6 +3418,7 @@ assert.ok(ciWorkflowSource.includes("branches: [main]"), "main push 触发 CI");
 assert.ok(ciWorkflowSource.includes('tags: ["v*"]'), "v* release tag 触发 CI");
 assert.ok(ciWorkflowSource.includes("workflow_dispatch:"), "允许手工重跑 CI");
 assert.ok(!ciWorkflowSource.includes("runner.tool_cache"), "job 级 env 不引用尚不可用的 runner context");
+assert.ok(ciWorkflowSource.includes("fetch-depth: 0"), "CI checkout 保留完整历史以验证 terminal task commit 证据");
 
 // ---- E2E 基建：mock LLM 剧本服务行为断言（C-045，T-082）----
 // 浏览器 spec 驱动真实 UI；三剧本的 SSE 形状与分流规则在此做 Node 级行为验证。

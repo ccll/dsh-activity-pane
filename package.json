@@ -37,7 +37,10 @@
     "test:e2e": "node e2e/run.mjs",
     "dev:watch": "node scripts/watch.mjs",
     "accept:manual": "node scripts/acceptance.mjs",
-    "lint": "python3 tools/agentmap_lint.py --report",
+    "lint:agentmap": "python3 tools/agentmap_lint.py --report",
+    "lint:test-impact": "python3 tools/test_impact_lint.py --self-test && python3 tools/test_impact_lint.py --report",
+    "lint": "pnpm lint:agentmap && pnpm lint:test-impact",
+    "check:staged-client": "node scripts/check-staged-client.mjs",
     "verify:fast": "pnpm lint && pnpm check",
     "verify": "pnpm verify:fast && pnpm test:e2e"
   },

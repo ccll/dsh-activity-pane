@@ -48,10 +48,15 @@ id: T-089
 |---|---|---|---|---|
 | DESIGN | 验证基建设计演进 | UNIT/E2E | update | tools 测试影响自测、staged bundle 负例、完整 pnpm verify |
 | R-01-005/AC-01 | 键盘路径补强，需求不变 | E2E | update | e2e/specs/navigation.mjs |
-| R-01-008/AC-02、R-01-008/AC-06 | 键盘路径补强，需求不变 | E2E | update | e2e/specs/mobile-drawer.mjs |
+| R-01-008/AC-02 | 键盘路径补强，需求不变 | E2E | update | e2e/specs/mobile-drawer.mjs |
+| R-01-008/AC-06 | 键盘路径补强，需求不变 | E2E | update | e2e/specs/mobile-drawer.mjs |
 | R-01-018/AC-02 | 键盘路径补强，需求不变 | E2E | update | e2e/specs/back-to-top.mjs |
-| R-01-009/AC-01～AC-03 | 运行态跨边界证据补强，需求不变 | E2E | add/update | mock LLM 剧本与运行态 spec |
-| R-01-014/AC-01、AC-03、AC-06 | 加载状态跨边界证据补强，需求不变 | E2E | add/update | 可控 loading→ready spec |
+| R-01-009/AC-01 | 进行中 tool partial 的浏览器窗口不稳定，需求不变 | UNIT | none | 保留 scripts/check.mjs 的工作项派生断言；E2E 只锚定落定 tool 与后续 stream，不过度声明 AC-01 |
+| R-01-009/AC-02 | 运行态 stream 时间线更新证据补强，需求不变 | E2E | update | mock LLM 剧本与 session-lifecycle spec |
+| R-01-009/AC-03 | 运行态状态变化证据补强，需求不变 | E2E | update | mock LLM 剧本与 session-lifecycle spec |
+| R-01-014/AC-01 | 列表 loading→ready 浏览器证据补强，需求不变 | E2E | add | 可控 loading-ready spec |
+| R-01-014/AC-03 | 同一页面渐进呈现证据补强，需求不变 | E2E | add | 可控 loading-ready spec |
+| R-01-014/AC-06 | 数量标识 loading→count 证据补强，需求不变 | E2E | add | 可控 loading-ready spec |
 
 ## 测试计划
 

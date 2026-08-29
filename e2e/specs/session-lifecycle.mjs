@@ -39,34 +39,41 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 			const elapsed = card?.querySelector(".dap-token-time");
 			const titleRow = card?.querySelector(".dap-row");
 			if (!progress || !track || !pct || !elapsed?.textContent || !titleRow) return null;
-			const textRight = (element) => {
+			const textRect = (element) => {
 				const range = document.createRange();
 				range.selectNodeContents(element);
-				return range.getBoundingClientRect().right;
+				return range.getBoundingClientRect();
 			};
+			const originalPaneWidth = pane.style.getPropertyValue("--dap-width");
+			pane.style.setProperty("--dap-width", "200px");
 			const progressRect = progress.getBoundingClientRect();
 			const trackRect = track.getBoundingClientRect();
 			const pctRect = pct.getBoundingClientRect();
-			const elapsedTextRight = textRight(elapsed);
+			const elapsedTextRight = textRect(elapsed).right;
 			const originalText = pct.textContent;
 			pct.textContent = "9%";
 			const widthAtOneDigit = pct.getBoundingClientRect().width;
-			const textRightAtOneDigit = textRight(pct);
+			const textAtOneDigit = textRect(pct);
 			pct.textContent = "100%";
 			const widthAtThreeDigits = pct.getBoundingClientRect().width;
-			const textRightAtThreeDigits = textRight(pct);
+			const textAtThreeDigits = textRect(pct);
 			pct.textContent = originalText;
+			if (originalPaneWidth === "") pane.style.removeProperty("--dap-width");
+			else pane.style.setProperty("--dap-width", originalPaneWidth);
 			return {
 				progressTop: progressRect.top,
 				progressBottom: progressRect.bottom,
 				trackRight: trackRect.right,
+				trackWidth: trackRect.width,
 				pctLeft: pctRect.left,
 				pctTop: pctRect.top,
 				pctBottom: pctRect.bottom,
 				widthAtOneDigit,
 				widthAtThreeDigits,
-				textRightAtOneDigit,
-				textRightAtThreeDigits,
+				textLeftAtOneDigit: textAtOneDigit.left,
+				textRightAtOneDigit: textAtOneDigit.right,
+				textLeftAtThreeDigits: textAtThreeDigits.left,
+				textRightAtThreeDigits: textAtThreeDigits.right,
 				elapsedTextRight,
 				titleContainsPct: titleRow.contains(pct),
 			};
@@ -86,6 +93,12 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 		Math.abs(progressGeometry.textRightAtOneDigit - progressGeometry.elapsedTextRight) <= 0.5 &&
 			Math.abs(progressGeometry.textRightAtThreeDigits - progressGeometry.elapsedTextRight) <= 0.5,
 		"百分比在固定占位内右对齐，9% 与 100% 的文字右缘均和下一行耗时右缘对齐（R-01-009/AC-06）",
+	);
+	assert.ok(
+		progressGeometry.trackWidth > 0 &&
+			progressGeometry.textLeftAtOneDigit >= progressGeometry.pctLeft - 0.5 &&
+			progressGeometry.textLeftAtThreeDigits >= progressGeometry.pctLeft - 0.5,
+		"200px 最窄窗格下进度条仍可见，9% 与 100% 均完整容纳于百分比固定占位（R-01-009/AC-06）",
 	);
 
 	// R-01-009/AC-09：真实浏览器裁决时间线点整体小于标题点，且与竖线同圆心；

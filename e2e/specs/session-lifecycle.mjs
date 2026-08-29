@@ -68,7 +68,9 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 				cardRight: cardRect.right,
 				progressTop: progressRect.top,
 				progressBottom: progressRect.bottom,
+				trackTop: trackRect.top,
 				trackRight: trackRect.right,
+				trackBottom: trackRect.bottom,
 				trackWidth: trackRect.width,
 				pctLeft: pctRect.left,
 				pctRight: pctRect.right,
@@ -89,6 +91,12 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 	assert.ok(
 		progressGeometry.pctTop < progressGeometry.progressBottom && progressGeometry.pctBottom > progressGeometry.progressTop,
 		"百分比与进度条位于同一进度行（R-01-009/AC-06）",
+	);
+	const pctCenter = (progressGeometry.pctTop + progressGeometry.pctBottom) / 2;
+	const trackCenter = (progressGeometry.trackTop + progressGeometry.trackBottom) / 2;
+	assert.ok(
+		trackCenter - pctCenter >= 0.5 && trackCenter - pctCenter <= 1.5,
+		"百分比行盒中心相对进度条中心上移约 1px，视觉不再偏下（R-01-009/AC-06）",
 	);
 	assert.equal(progressGeometry.titleContainsPct, false, "标题行不再承载进度百分比（R-01-009/AC-06）");
 	assert.ok(

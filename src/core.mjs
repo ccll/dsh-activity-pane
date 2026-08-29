@@ -1168,13 +1168,15 @@ export function escapeCssString(value) {
  *  windowComplete（R-01-009/AC-06、R-01-012/AC-12 冷窗口兜底）：快照已就绪但窗口缺
  *  锚点数据（开放回合起点或可锚用户行在窗口外）时为 false——此时仍发起一次 history
  *  补读，供进度锚点与指令锚行兜底。previewFallbackNeeded 表示最近卡的快照预览
- *  不完整，同样补读一次 history（R-01-013/AC-03、AC-04）。 */
+ *  不完整，同样补读一次 history（R-01-013/AC-03、AC-04）；durationFallbackNeeded 表示等待卡
+ *  需要在已加载的旧 history 之后再取一次最新回合边界（R-01-009/AC-12）。 */
 export function detailLoadPlan({
 	detail = {},
 	isSubagent = false,
 	snapshotReady = false,
 	historyNeeded = false,
 	previewFallbackNeeded = false,
+	durationFallbackNeeded = false,
 	windowComplete = true,
 	modelInflight = false,
 	historyInflight = false,
@@ -1184,7 +1186,8 @@ export function detailLoadPlan({
 		model: !isSubagent && !detail.model && !modelInflight,
 		history:
 			!historyInflight &&
-			((previewFallbackNeeded && detail.previewFallbackLoaded !== true) ||
+			((durationFallbackNeeded && detail.durationFallbackLoaded !== true) ||
+				(previewFallbackNeeded && detail.previewFallbackLoaded !== true) ||
 				(!detail.history && ((!snapshotReady && historyNeeded) || (snapshotReady === true && windowComplete === false)))),
 	};
 }
@@ -1734,7 +1737,7 @@ export function movedToActiveIds(prevRecentIds, active, recent) {
 export function lastTurnEndFromEvents(events) {
 	const list = Array.isArray(events) ? events : [];
 	for (let i = list.length - 1; i >= 0; i -= 1) {
-		const event = list[i]?.event;
+		const event = eventOf(list[i]);
 		if (event?.type !== "turn/end") continue;
 		const time = Number(event.time);
 		if (Number.isFinite(time)) return time;
@@ -1751,6 +1754,68 @@ export function lastTurnEndFromTimings(turnTimings) {
 		if (Number.isFinite(end) && (last === null || end > last)) last = end;
 	}
 	return last;
+}
+
+/** 回合边界时间归一：缺失、空字符串、非数值或非有限值均不可作为耗时端点。 */
+function durationTime(value) {
+	if (value == null || (typeof value === "string" && value.trim() === "") || (typeof value !== "number" && typeof value !== "string")) return null;
+	const time = Number(value);
+	return Number.isFinite(time) ? time : null;
+}
+
+/** 从 history 事件提取最近完整回合的固定耗时；回合起止不完整或逆序时忽略该回合。 */
+export function lastTurnDurationFromEvents(events) {
+	const starts = new Map();
+	let latestEnd = null;
+	let latestDuration = null;
+	for (const entry of Array.isArray(events) ? events : []) {
+		const event = eventOf(entry);
+		const turn = Number(event?.data?.turn);
+		const time = durationTime(event?.time);
+		if (!Number.isFinite(turn) || time === null) continue;
+		if (event.type === "turn/start") {
+			starts.set(turn, time);
+			continue;
+		}
+		if (event.type !== "turn/end") continue;
+		const start = starts.get(turn);
+		if (!Number.isFinite(start) || time < start) continue;
+		if (latestEnd === null || time > latestEnd) {
+			latestEnd = time;
+			latestDuration = time - start;
+		}
+	}
+	return latestDuration;
+}
+
+/** 从 turnTimings 提取最近完整回合的固定耗时；全部回合未结束或无效时返回 null。 */
+export function lastTurnDurationFromTimings(turnTimings) {
+	if (!(turnTimings instanceof Map)) return null;
+	let latestEnd = null;
+	let latestDuration = null;
+	for (const timing of turnTimings.values()) {
+		const start = durationTime(timing?.startTime);
+		const end = durationTime(timing?.endTime);
+		if (start === null || end === null || end < start) continue;
+		if (latestEnd === null || end > latestEnd) {
+			latestEnd = end;
+			latestDuration = end - start;
+		}
+	}
+	return latestDuration;
+}
+
+/** 在快照与 history 中按最近结束时刻选择同一最新完整回合的固定耗时。 */
+export function lastTurnDuration({ turnTimings = null, history = [] } = {}) {
+	const candidates = [
+		{ end: lastTurnEndFromTimings(turnTimings), duration: lastTurnDurationFromTimings(turnTimings) },
+		{ end: lastTurnEndFromEvents(history), duration: lastTurnDurationFromEvents(history) },
+	].filter((candidate) => candidate.end !== null && candidate.duration !== null);
+	let latest = null;
+	for (const candidate of candidates) {
+		if (latest === null || candidate.end > latest.end) latest = candidate;
+	}
+	return latest?.duration ?? null;
 }
 
 /**

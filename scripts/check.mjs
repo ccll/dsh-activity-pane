@@ -55,6 +55,9 @@ import {
 	needsHistorySnapshot,
 	lastTurnEndFromEvents,
 	lastTurnEndFromTimings,
+	lastTurnDurationFromEvents,
+	lastTurnDurationFromTimings,
+	lastTurnDuration,
 	pendingText,
 	progressHalfLifeSec,
 	progressOf,
@@ -255,6 +258,17 @@ assert.equal(
 	detailLoadPlan({ detail: { history: [], previewFallbackLoaded: true }, snapshotReady: true, previewFallbackNeeded: true }).history,
 	false,
 	"最近卡预览 fallback 已尝试后可见期内不热重试",
+);
+// R-01-009/AC-12：等待卡转入 awaiting 后，即使旧 history 已加载也必须补读最新边界。
+assert.equal(
+	detailLoadPlan({ detail: { history: [{ event: { seq: 1 } }] }, snapshotReady: true, durationFallbackNeeded: true }).history,
+	true,
+	"等待卡耗时 fallback 在已有旧 history 时仍发起一次最新 history 读取",
+);
+assert.equal(
+	detailLoadPlan({ detail: { history: [], durationFallbackLoaded: true }, snapshotReady: true, durationFallbackNeeded: true }).history,
+	false,
+	"等待卡耗时 fallback 已尝试后可见期内不重复读取",
 );
 // R-01-009/AC-06、R-01-012/AC-12 冷窗口兜底：快照就绪但窗口缺锚点数据（开放回合起点/用户行在窗口外）时补读 history
 assert.equal(
@@ -2217,6 +2231,69 @@ assert.equal(
 	2500,
 	"turnTimings 取最大 endTime，忽略未结束回合",
 );
+// ---- R-01-009/AC-12 等待卡保留最近完整回合耗时 ----
+assert.equal(
+	lastTurnDurationFromTimings(new Map([
+		[1, { startTime: 100, endTime: 900 }],
+		[2, { startTime: 1000 }],
+		[3, { startTime: 2000, endTime: 2500 }],
+	])),
+	500,
+	"turnTimings 取最近已结束回合的起止差值，不取更早回合或开放回合",
+);
+assert.equal(
+	lastTurnDurationFromTimings(new Map([[1, { startTime: 900, endTime: 100 }]])),
+	null,
+	"起点晚于终点时不生成虚假回合耗时",
+);
+assert.equal(lastTurnDurationFromTimings(new Map([[1, { startTime: 100 }]])), null, "无 endTime 不生成等待耗时");
+assert.equal(
+	lastTurnDurationFromEvents([
+		{ event: { type: "turn/start", time: 100, data: { turn: 1 } } },
+		{ event: { type: "turn/end", time: 900, data: { turn: 1 } } },
+		{ event: { type: "turn/start", time: 1000, data: { turn: 2 } } },
+		{ event: { type: "turn/end", time: 2500, data: { turn: 2 } } },
+	]),
+	1500,
+	"history 按同一 turn 配对并取最近已结束回合的耗时",
+);
+assert.equal(
+	lastTurnDurationFromEvents([
+		{ event: { type: "turn/start", time: 900, data: { turn: 1 } } },
+		{ event: { type: "turn/end", time: 100, data: { turn: 1 } } },
+	]),
+	null,
+	"history 起止逆序时不生成虚假回合耗时",
+);
+assert.equal(
+	lastTurnDurationFromEvents([
+		{ event: { type: "turn/start", time: null, data: { turn: 1 } } },
+		{ event: { type: "turn/end", time: 100, data: { turn: 1 } } },
+	]),
+	null,
+	"history 起点缺失时不把 null 当作时间零点",
+);
+assert.equal(
+	lastTurnDurationFromTimings(new Map([[1, { startTime: Number.NaN, endTime: 100 }]])),
+	null,
+	"turnTimings 起点非有限时不生成等待耗时",
+);
+assert.equal(
+	lastTurnDuration({
+		turnTimings: new Map([[1, { startTime: 100, endTime: 900 }]]),
+		history: [
+			{ event: { type: "turn/start", time: 1000, data: { turn: 2 } } },
+			{ event: { type: "turn/end", time: 1300, data: { turn: 2 } } },
+		],
+	}),
+	300,
+	"多来源时按最近结束时刻选择同一最新回合耗时",
+);
+assert.equal(
+	lastTurnDuration({ turnTimings: new Map([[1, { startTime: 100, endTime: 900 }]]), history: [] }),
+	800,
+	"无 history 时从 turnTimings 提取回合耗时",
+);
 const refineSnap = {
 	ids: ["sTurn", "sPrompt", "sNone"],
 	byId: {
@@ -2665,6 +2742,12 @@ assert.ok(
 	bundle.includes('makeEl("span", "dap-token-main")') && bundle.includes('makeEl("span", "dap-token-time")'),
 	"统计行双段结构：左列文本 + 右置时长（R-01-009/AC-05）",
 );
+assert.ok(bundle.includes("function renderTokenStats"), "运行卡统计行继续复用既有渲染逻辑（R-01-009/AC-05）");
+assert.ok(
+	bundle.includes("function renderAwaitingDuration") && bundle.includes("dap-await-head"),
+	"等待卡耗时与等待类型胶囊共用同行右置渲染（R-01-009/AC-12）",
+);
+assert.ok(bundle.includes("lastTurnDuration({"), "等待卡耗时由最近完整回合边界派生（R-01-009/AC-12）");
 assert.ok(bundle.includes("`输入 ${fmtTokens("), "统计行含输入/输出中文短标签（R-01-009/AC-05）");
 assert.ok(
 	bundle.indexOf("parts.push(`${Math.round(entry.rateTokS)} tok/s`") <
@@ -2741,8 +2824,9 @@ assert.ok(
 assert.ok(bundle.includes("function activeSessionIds(byId = {})"), "活动子代理沿 parentId 链补齐活动祖先");
 // ---- R-01-016/AC-01 等待卡保留最近工作项时间线 ----
 assert.ok(
-	bundle.includes('return [head, row, makeEl("div", "dap-trace"), foot];'),
-	"awaiting 骨架在标题行与末行两段（胶囊+正文）之间含时间线容器（R-01-016/AC-01，C-043）",
+	bundle.includes('awaitHead.append(capsule, makeEl("span", "dap-token-time"))') &&
+		bundle.includes('return [head, row, makeEl("div", "dap-trace"), foot];'),
+	"awaiting 骨架在标题行与末行两段（胶囊+正文）之间含时间线，并将耗时放在胶囊同行右侧（R-01-016/AC-01、R-01-009/AC-12，C-043）",
 );
 // ---- R-01-002/AC-10 完成提醒卡「移入历史」按钮 ----
 assert.ok(
@@ -2885,8 +2969,8 @@ assert.ok(bundle.includes("pruneSubscriptions(modelDirectorySubs, new Set())"), 
 assert.ok(bundle.includes("detail.modelLive"), "目录订阅已产值时晚到的一次性 RPC 不回写旧值");
 assert.ok(!bundle.includes("events.mux"), "不常驻全局 mux，当前会话使用原生 session subscribe");
 assert.ok(
-	bundle.indexOf('makeEl("div", "dap-track")') < bundle.indexOf('makeEl("div", "dap-token-stats")'),
-	"token 统计骨架位于进度条骨架之后",
+	bundle.includes('return [head, row, makeEl("div", "dap-trace"), progressRow, statsRow];'),
+	"running 卡 token 统计骨架位于进度条骨架之后",
 );
 assert.ok(
 	bundle.indexOf('statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"))') > -1,

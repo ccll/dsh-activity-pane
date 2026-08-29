@@ -1174,13 +1174,15 @@ function escapeCssString(value) {
  *  windowComplete（R-01-009/AC-06、R-01-012/AC-12 冷窗口兜底）：快照已就绪但窗口缺
  *  锚点数据（开放回合起点或可锚用户行在窗口外）时为 false——此时仍发起一次 history
  *  补读，供进度锚点与指令锚行兜底。previewFallbackNeeded 表示最近卡的快照预览
- *  不完整，同样补读一次 history（R-01-013/AC-03、AC-04）。 */
+ *  不完整，同样补读一次 history（R-01-013/AC-03、AC-04）；durationFallbackNeeded 表示等待卡
+ *  需要在已加载的旧 history 之后再取一次最新回合边界（R-01-009/AC-12）。 */
 function detailLoadPlan({
 	detail = {},
 	isSubagent = false,
 	snapshotReady = false,
 	historyNeeded = false,
 	previewFallbackNeeded = false,
+	durationFallbackNeeded = false,
 	windowComplete = true,
 	modelInflight = false,
 	historyInflight = false,
@@ -1190,7 +1192,8 @@ function detailLoadPlan({
 		model: !isSubagent && !detail.model && !modelInflight,
 		history:
 			!historyInflight &&
-			((previewFallbackNeeded && detail.previewFallbackLoaded !== true) ||
+			((durationFallbackNeeded && detail.durationFallbackLoaded !== true) ||
+				(previewFallbackNeeded && detail.previewFallbackLoaded !== true) ||
 				(!detail.history && ((!snapshotReady && historyNeeded) || (snapshotReady === true && windowComplete === false)))),
 	};
 }
@@ -1740,7 +1743,7 @@ function movedToActiveIds(prevRecentIds, active, recent) {
 function lastTurnEndFromEvents(events) {
 	const list = Array.isArray(events) ? events : [];
 	for (let i = list.length - 1; i >= 0; i -= 1) {
-		const event = list[i]?.event;
+		const event = eventOf(list[i]);
 		if (event?.type !== "turn/end") continue;
 		const time = Number(event.time);
 		if (Number.isFinite(time)) return time;
@@ -1757,6 +1760,68 @@ function lastTurnEndFromTimings(turnTimings) {
 		if (Number.isFinite(end) && (last === null || end > last)) last = end;
 	}
 	return last;
+}
+
+/** 回合边界时间归一：缺失、空字符串、非数值或非有限值均不可作为耗时端点。 */
+function durationTime(value) {
+	if (value == null || (typeof value === "string" && value.trim() === "") || (typeof value !== "number" && typeof value !== "string")) return null;
+	const time = Number(value);
+	return Number.isFinite(time) ? time : null;
+}
+
+/** 从 history 事件提取最近完整回合的固定耗时；回合起止不完整或逆序时忽略该回合。 */
+function lastTurnDurationFromEvents(events) {
+	const starts = new Map();
+	let latestEnd = null;
+	let latestDuration = null;
+	for (const entry of Array.isArray(events) ? events : []) {
+		const event = eventOf(entry);
+		const turn = Number(event?.data?.turn);
+		const time = durationTime(event?.time);
+		if (!Number.isFinite(turn) || time === null) continue;
+		if (event.type === "turn/start") {
+			starts.set(turn, time);
+			continue;
+		}
+		if (event.type !== "turn/end") continue;
+		const start = starts.get(turn);
+		if (!Number.isFinite(start) || time < start) continue;
+		if (latestEnd === null || time > latestEnd) {
+			latestEnd = time;
+			latestDuration = time - start;
+		}
+	}
+	return latestDuration;
+}
+
+/** 从 turnTimings 提取最近完整回合的固定耗时；全部回合未结束或无效时返回 null。 */
+function lastTurnDurationFromTimings(turnTimings) {
+	if (!(turnTimings instanceof Map)) return null;
+	let latestEnd = null;
+	let latestDuration = null;
+	for (const timing of turnTimings.values()) {
+		const start = durationTime(timing?.startTime);
+		const end = durationTime(timing?.endTime);
+		if (start === null || end === null || end < start) continue;
+		if (latestEnd === null || end > latestEnd) {
+			latestEnd = end;
+			latestDuration = end - start;
+		}
+	}
+	return latestDuration;
+}
+
+/** 在快照与 history 中按最近结束时刻选择同一最新完整回合的固定耗时。 */
+function lastTurnDuration({ turnTimings = null, history = [] } = {}) {
+	const candidates = [
+		{ end: lastTurnEndFromTimings(turnTimings), duration: lastTurnDurationFromTimings(turnTimings) },
+		{ end: lastTurnEndFromEvents(history), duration: lastTurnDurationFromEvents(history) },
+	].filter((candidate) => candidate.end !== null && candidate.duration !== null);
+	let latest = null;
+	for (const candidate of candidates) {
+		if (latest === null || candidate.end > latest.end) latest = candidate;
+	}
+	return latest?.duration ?? null;
 }
 
 /**
@@ -2515,6 +2580,14 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 [data-dsh-activity-pane] .dap-foot {
   display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
   min-width: 0; margin: 2px 0 0;
+}
+/* 等待类型胶囊与上一轮耗时同行：时长沿用运行统计行的右缘位置，不参与等待脉冲。 */
+[data-dsh-activity-pane] .dap-await-head {
+  display: flex; align-items: center; gap: 8px; align-self: stretch; min-width: 0;
+}
+[data-dsh-activity-pane] .dap-await-head .dap-token-time {
+  margin-left: auto; flex: none; font-size: 10px; line-height: 14px;
+  color: #8f9aaa; font-variant-numeric: tabular-nums;
 }
 [data-dsh-activity-pane] .dap-note-row {
   display: flex; align-items: center; gap: 6px; min-width: 0; align-self: stretch;
@@ -3332,7 +3405,7 @@ function apply(ctx) {
 		syncFromDirectory(); // 目录已被主窗口加载时立即同步，该会话免发一次性 RPC
 	}
 
-	function loadNativeDetails(ids, previewFallbackIds = new Set()) {
+	function loadNativeDetails(ids, previewFallbackIds = new Set(), durationFallbackIds = new Set()) {
 		const api = ctx.get("connection")?.api?.sessions;
 		if (!api) return;
 		const byId = getSnapshot(sessions, "list")?.byId ?? {};
@@ -3358,12 +3431,14 @@ function apply(ctx) {
 				liveStartTime: livenessById.get(id)?.liveness?.startTime ?? null,
 			});
 			const windowComplete = snapshotReady !== true || (!turnStartMissing && detail.snapshotHasAnchorableUserRow === true);
+			const durationFallbackNeeded = durationFallbackIds.has(id) && detail.durationFallbackLoaded !== true;
 			const plan = detailLoadPlan({
 				detail,
 				isSubagent: subagent,
 				snapshotReady,
 				historyNeeded: needsHistorySnapshot(detail.snapshot),
 				previewFallbackNeeded: previewFallbackIds.has(id),
+				durationFallbackNeeded,
 				windowComplete,
 				modelInflight: modelLoads.has(id),
 				historyInflight: historyLoads.has(id) || sessionOpenLoads.has(id),
@@ -3396,6 +3471,7 @@ function apply(ctx) {
 				modelPromises.push(promise);
 			}
 			if (plan.history && typeof api.history === "function") {
+				if (durationFallbackNeeded) detail.durationFallbackLoaded = true;
 				if (previewFallbackIds.has(id)) detail.previewFallbackLoaded = true;
 				const promise = enqueueDetailLoad(() => Promise.resolve()
 					.then(async () => {
@@ -3717,8 +3793,10 @@ function apply(ctx) {
 			// 正文行容器：正文文本 + 「移入历史」按钮（仅完成提醒卡显示，R-01-002/AC-10）。
 			const noteRow = makeEl("div", "dap-note-row");
 			noteRow.append(makeEl("div", "dap-note"), makeConfirmButton());
+			const awaitHead = makeEl("div", "dap-await-head");
+			awaitHead.append(capsule, makeEl("span", "dap-token-time"));
 			const foot = makeEl("div", "dap-foot");
-			foot.append(capsule, noteRow);
+			foot.append(awaitHead, noteRow);
 			return [head, row, makeEl("div", "dap-trace"), foot];
 		}
 		const row = makeEl("div", "dap-row");
@@ -4080,6 +4158,56 @@ function apply(ctx) {
 		}
 	}
 
+	/** 统计行渲染：运行卡写入速率、token 与耗时，旧骨架缺节点时就地补齐。 */
+	function renderTokenStats(el, entry) {
+		let stats = el.querySelector(".dap-token-stats");
+		if (stats === null) {
+			stats = makeEl("div", "dap-token-stats");
+			stats.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"));
+			stats.hidden = true;
+			el.append(stats);
+		}
+		let mainTextEl = stats.querySelector(".dap-token-main");
+		let timeEl = stats.querySelector(".dap-token-time");
+		if (mainTextEl === null || timeEl === null) {
+			mainTextEl = makeEl("span", "dap-token-main");
+			timeEl = makeEl("span", "dap-token-time");
+			stats.replaceChildren(mainTextEl, timeEl);
+		}
+		const parts = [];
+		if (Number.isFinite(entry.rateTokS) && entry.rateTokS > 0) parts.push(`${Math.round(entry.rateTokS)} tok/s`);
+		if (Number.isFinite(entry.cacheHitPct)) parts.push(`缓存 ${entry.cacheHitPct}%`);
+		if (Number.isFinite(entry.inputTokens) && entry.inputTokens >= 0) parts.push(`输入 ${fmtTokens(entry.inputTokens) ?? entry.inputTokens}`);
+		if (Number.isFinite(entry.outputTokens) && entry.outputTokens >= 0) parts.push(`输出 ${fmtTokens(entry.outputTokens) ?? entry.outputTokens}`);
+		const mainText = parts.join(" · ");
+		const timeText = Number.isFinite(entry.elapsedMs) && entry.elapsedMs >= 0 ? fmtElapsedMs(entry.elapsedMs) : "";
+		if (mainTextEl.textContent !== mainText) mainTextEl.textContent = mainText;
+		if (timeEl.textContent !== timeText) timeEl.textContent = timeText;
+		const statsHidden = mainText === "" && timeText === "";
+		if (stats.hidden !== statsHidden) stats.hidden = statsHidden;
+	}
+
+	/** 等待卡耗时写入：与等待类型胶囊同一行靠右，旧骨架缺该行时就地补齐。 */
+	function renderAwaitingDuration(el, entry) {
+		const foot = el.querySelector(".dap-foot");
+		if (foot === null) return;
+		let head = foot.querySelector(".dap-await-head");
+		if (head === null) {
+			const capsule = foot.querySelector(".dap-capsule");
+			if (capsule === null) return;
+			head = makeEl("div", "dap-await-head");
+			capsule.replaceWith(head);
+			head.append(capsule);
+		}
+		let time = head.querySelector(".dap-token-time");
+		if (time === null) {
+			time = makeEl("span", "dap-token-time");
+			head.append(time);
+		}
+		const text = Number.isFinite(entry.elapsedMs) && entry.elapsedMs >= 0 ? fmtElapsedMs(entry.elapsedMs) : "";
+		if (time.textContent !== text) time.textContent = text;
+	}
+
 	/** 时间线区加载指示：数据在途且尚无工作项时显示活动图标行（R-01-014/AC-02）。 */
 	function renderTraceLoading(container) {
 		if (container.dataset.loading === "true") return;
@@ -4185,28 +4313,7 @@ function apply(ctx) {
 				const width = `${Math.min(100, Math.max(0, entry.progress ?? 0))}%`;
 				if (fill.style.width !== width) fill.style.width = width;
 			}
-			const stats = el.querySelector(".dap-token-stats");
-			if (stats !== null) {
-				const parts = [];
-				if (Number.isFinite(entry.rateTokS) && entry.rateTokS > 0) parts.push(`${Math.round(entry.rateTokS)} tok/s`);
-				if (Number.isFinite(entry.cacheHitPct)) parts.push(`缓存 ${entry.cacheHitPct}%`);
-				if (Number.isFinite(entry.inputTokens) && entry.inputTokens >= 0) parts.push(`输入 ${fmtTokens(entry.inputTokens) ?? entry.inputTokens}`);
-				if (Number.isFinite(entry.outputTokens) && entry.outputTokens >= 0) parts.push(`输出 ${fmtTokens(entry.outputTokens) ?? entry.outputTokens}`);
-				const mainText = parts.join(" · ");
-				const timeText = Number.isFinite(entry.elapsedMs) && entry.elapsedMs >= 0 ? fmtElapsedMs(entry.elapsedMs) : "";
-				let mainTextEl = stats.querySelector(".dap-token-main");
-				let timeEl = stats.querySelector(".dap-token-time");
-				if (mainTextEl === null || timeEl === null) {
-					// 热装残留的旧版单文本段骨架：就地重建双段结构再写值。
-					mainTextEl = makeEl("span", "dap-token-main");
-					timeEl = makeEl("span", "dap-token-time");
-					stats.replaceChildren(mainTextEl, timeEl);
-				}
-				if (mainTextEl.textContent !== mainText) mainTextEl.textContent = mainText;
-				if (timeEl.textContent !== timeText) timeEl.textContent = timeText;
-				const statsHidden = mainText === "" && timeText === "";
-				if (stats.hidden !== statsHidden) stats.hidden = statsHidden;
-			}
+			renderTokenStats(el, entry);
 			return;
 		}
 
@@ -4238,6 +4345,7 @@ function apply(ctx) {
 		if (entry.kind === "awaiting") {
 			const traceContainer = el.querySelector(".dap-trace");
 			if (traceContainer !== null) renderTimelineArea(traceContainer, entry);
+			renderAwaitingDuration(el, entry);
 			const confirm = el.querySelector(".dap-confirm");
 			if (confirm !== null) {
 				// 激活锚点：只在结构重建时绑一次（卡片按 id 复用，kind 变化会重建骨架）。
@@ -4790,6 +4898,7 @@ function apply(ctx) {
 			const liveRecord = livenessById.get(entry.id);
 			const live = liveRecord?.liveness ?? null;
 			const detail = sessionDetailsById.get(entry.id);
+			if (entry.kind === "running" && detail) detail.durationFallbackLoaded = false;
 			const detailSnapshot = liveRecord?.snapshot ?? detail?.snapshot ?? null;
 			if (detail && detail.memoHistoryAnchorOf !== (detail.history ?? null)) {
 				detail.memoHistoryAnchorOf = detail.history ?? null;
@@ -4833,6 +4942,15 @@ function apply(ctx) {
 					);
 					detail.memoOpenTurnStart = openTurnStartFromEvents(detail.history, hint);
 				}
+			}
+			if (entry.kind === "awaiting" && detail) {
+				const history = detail.history ?? null;
+				if (detail.memoTurnDurationSnapshotOf !== detailSnapshot || detail.memoTurnDurationHistoryOf !== history) {
+					detail.memoTurnDurationSnapshotOf = detailSnapshot;
+					detail.memoTurnDurationHistoryOf = history;
+					detail.memoTurnDuration = lastTurnDuration({ turnTimings: detailSnapshot?.turnTimings, history });
+				}
+				entry.elapsedMs = detail.memoTurnDuration ?? null;
 			}
 			if (detail?.model) {
 				entry.model = detail.model.model;
@@ -4916,9 +5034,10 @@ function apply(ctx) {
 			entry.loadingPreviews = (!entry.userPreview || !entry.agentPreview) && historyLoads.has(entry.id);
 		}
 		// 补充数据读取优先级：当前会话最优先，活动区先于历史区（区内按显示顺序）。
+		const durationFallbackIds = new Set(active.filter((entry) => entry.kind === "awaiting").map((entry) => entry.id));
 		const detailIds = [...active, ...recent].map((entry) => entry.id);
 		detailIds.sort((a, b) => Number(String(b) === String(snapshot?.current)) - Number(String(a) === String(snapshot?.current)));
-		loadNativeDetails(detailIds, previewFallbackIds);
+		loadNativeDetails(detailIds, previewFallbackIds, durationFallbackIds);
 		const visibleIds = new Set([...active, ...recent].map((entry) => entry.id));
 		// 详情与 loads 记账同生命周期：离开可见集合即放行，重回可见时允许重拉/重试。
 		// 锚点记账不随可见性 prune：瞬时 loading 空帧不得误清（进度重置）；陈旧条目靠

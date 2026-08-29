@@ -1,4 +1,4 @@
-// R-01-001/AC-03～AC-06、R-01-002/AC-02、AC-06～AC-09、R-01-009/AC-02、R-01-009/AC-03、R-01-010/AC-04、R-01-017/AC-01、R-02-002/AC-01、R-02-002/AC-02
+// R-01-001/AC-03～AC-06、R-01-002/AC-02、AC-06～AC-09、R-01-009/AC-02、R-01-009/AC-03、R-01-009/AC-12、R-01-010/AC-04、R-01-017/AC-01、R-02-002/AC-01、R-02-002/AC-02
 // 状态自动更新（出现/完成/等待出现/等待解除四类变化，无需手动刷新）、活动区空态、
 // 折叠时间线不依赖 dsh-auto-collapse（本隔离环境按构造不含该插件，全套件功能断言
 // 即「不降级」证据）、外壳重挂载恢复不重复、全程控制台无插件报错与未捕获异常。
@@ -196,6 +196,16 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	assert.equal(blockedBadge.duration, "1.2s", "等待占比变化后列头数量胶囊仍保持固定 1.2s 周期（R-01-002/AC-07）");
 	const blockedPulse = await pulseSnapshot(page);
 	assert.ok(pulsePhaseDelta(blockedPulse) < 80, `新增阻塞等待后数量胶囊与等待卡末行应重新同相，实际最大相位差 ${pulsePhaseDelta(blockedPulse)}ms`);
+	// R-01-009/AC-12：本剧本第一回合直接进入阻塞等待，没有已结束上一轮；不得伪造耗时。
+	await until("阻塞等待不显示虚假耗时", () =>
+		runtimeCard.locator(".dap-token-time").textContent().then((text) => ((text ?? "").trim() === "" ? true : null)),
+	);
+	await page.waitForTimeout(1_300);
+	assert.equal(
+		((await runtimeCard.locator(".dap-token-time").textContent()) ?? "").trim(),
+		"",
+		"阻塞等待缺少已结束上一轮时不显示虚假耗时（R-01-009/AC-12）",
+	);
 	await page.getByText("确认继续执行").click();
 	await page.getByRole("button", { name: "Submit", exact: true }).click();
 	const earlyChunk = await until("时间线出现早期流式正文", async () => {

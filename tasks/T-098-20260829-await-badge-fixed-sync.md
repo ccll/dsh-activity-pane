@@ -6,7 +6,7 @@ id: T-098
 
 # T-098 数量胶囊固定同步脉冲
 
-状态: active
+状态: completed
 关联: R-01-002/AC-06、AC-07、AC-08 → 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -59,4 +59,15 @@ id: T-098
 
 ## 终态与证据
 
-状态: active
+状态: completed
+
+- 实现: `src/core.mjs` 删除等待占比到脉冲周期的派生与快慢端常量；`src/client.mjs` 将列头、折叠窄条与移动端「活动」按钮三处数量胶囊固定为 1.2s 亮度呼吸，以排序后的等待 id/类别集合和当前可见表面组成同步签名，并在等待集合、类别、桌面折叠/展开或移动抽屉开合变化时统一重启全部数量胶囊与等待卡末行胶囊/正文动画；签名仅在整轮渲染成功后提交；`.dsh-plugin/client.js` 已重建。回滚边界为 R-01-002/AC-06～AC-08 文档、固定/同步脉冲 CSS 与渲染逻辑、对应 contract/E2E/manual 证据及生成 bundle，不包含其它等待状态语义。
+- 测试: 测试先行时 `pnpm check` 在“数量徽标不再按等待占比派生或写入脉冲周期”断言处按预期失败；`pnpm build:client && pnpm check` 通过；focused `node e2e/run.mjs auto-update` 1/1 通过（最终 17.614s），验证固定 1.2s、全部等待卡同相、折叠/展开、移动按钮/抽屉与 blocked→done 类别转换；`pnpm verify` 最终 12/12 通过（134.898s）。首次最终全量运行曾在未改动的 `long-list.mjs` 等待 10 卡超时，随后 focused `long-list` 1/1 通过（21.577s），完整套件重跑全绿；`git diff --check` 干净。运行边界为隔离 `$DSH_HOME` + mock LLM 的 browser E2E。
+- DESIGN 对照: PRD R-01-002/AC-06、AC-07、AC-08，DOMAIN 等待行动不变量，DESIGN 徽标计数/等待三类呈现/数量徽标契约均已与实现一致；DECISIONS 追加 C-065 修订 C-037 的变速方案。
+- commit: 4df7c40
+- review:
+  - 审核方: Standards reviewer `21e4494f-e5b2-469f-81d6-159a072f6b32`；Spec reviewer `c8946839-5fa3-4b6a-99e2-062e1d920df5`。
+  - 目的理解: 将三处活动数量胶囊从等待占比变速改为固定 1.2s，并与所有等待卡末行类型胶囊/正文同步；等待集合、类别与可见表面变化后仍对相，同时保留 n/m、tone、底色、透明度、无描边外环及无等待时停止脉冲。
+  - 执行方式: `code-review` skill，以 HEAD `8642d5a` 为固定基线审核当前工作树；Standards/Spec 双轴独立审核，发现问题后由同一审核方复审至通过。
+  - 问题与修复: 首轮发现等待签名依赖顺序且过早提交、E2E 未覆盖全部卡与三处表面、桌面折叠/展开未直接触发同步；修复为排序集合 + 可见表面签名、`renderOk` 后提交、折叠/展开直接 `queueSync()`，并扩展全表面/全卡 E2E。复审又发现环形相位算法可假通过且缺少 blocked→done 类别转换证据；修复为“周期减最大环形间隙”算法并补类别转换后的全局同相断言。
+  - 复审结论: Standards 与 Spec 最终均通过，无新 finding。

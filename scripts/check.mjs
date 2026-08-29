@@ -2280,6 +2280,29 @@ assert.equal(
 );
 assert.equal(
 	lastTurnDuration({
+		turnTimings: new Map([
+			[1, { startTime: 100, endTime: 900 }],
+			[2, { endTime: 2500 }],
+		]),
+		history: [],
+	}),
+	800,
+	"turnTimings 最新孤立 end 不得与更早完整回合错配",
+);
+assert.equal(
+	lastTurnDuration({
+		turnTimings: new Map(),
+		history: [
+			{ event: { type: "turn/start", time: 100, data: { turn: 1 } } },
+			{ event: { type: "turn/end", time: 900, data: { turn: 1 } } },
+			{ event: { type: "turn/end", time: 2500, data: { turn: 2 } } },
+		],
+	}),
+	800,
+	"history 最新孤立 end 不得与更早完整回合错配",
+);
+assert.equal(
+	lastTurnDuration({
 		turnTimings: new Map([[1, { startTime: 100, endTime: 900 }]]),
 		history: [
 			{ event: { type: "turn/start", time: 1000, data: { turn: 2 } } },

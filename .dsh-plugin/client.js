@@ -1769,11 +1769,10 @@ function durationTime(value) {
 	return Number.isFinite(time) ? time : null;
 }
 
-/** 从 history 事件提取最近完整回合的固定耗时；回合起止不完整或逆序时忽略该回合。 */
-function lastTurnDurationFromEvents(events) {
+/** 从 history 提取最近完整回合的结束时刻与固定耗时；两者始终来自同一回合。 */
+function lastTurnDurationCandidateFromEvents(events) {
 	const starts = new Map();
-	let latestEnd = null;
-	let latestDuration = null;
+	let latest = null;
 	for (const entry of Array.isArray(events) ? events : []) {
 		const event = eventOf(entry);
 		const turn = Number(event?.data?.turn);
@@ -1785,38 +1784,38 @@ function lastTurnDurationFromEvents(events) {
 		}
 		if (event.type !== "turn/end") continue;
 		const start = starts.get(turn);
-		if (!Number.isFinite(start) || time < start) continue;
-		if (latestEnd === null || time > latestEnd) {
-			latestEnd = time;
-			latestDuration = time - start;
-		}
+		if (start === undefined || time < start) continue;
+		if (latest === null || time > latest.end) latest = { end: time, duration: time - start };
 	}
-	return latestDuration;
+	return latest;
 }
 
-/** 从 turnTimings 提取最近完整回合的固定耗时；全部回合未结束或无效时返回 null。 */
-function lastTurnDurationFromTimings(turnTimings) {
+/** 从 turnTimings 提取最近完整回合的结束时刻与固定耗时；两者始终来自同一回合。 */
+function lastTurnDurationCandidateFromTimings(turnTimings) {
 	if (!(turnTimings instanceof Map)) return null;
-	let latestEnd = null;
-	let latestDuration = null;
+	let latest = null;
 	for (const timing of turnTimings.values()) {
 		const start = durationTime(timing?.startTime);
 		const end = durationTime(timing?.endTime);
 		if (start === null || end === null || end < start) continue;
-		if (latestEnd === null || end > latestEnd) {
-			latestEnd = end;
-			latestDuration = end - start;
-		}
+		if (latest === null || end > latest.end) latest = { end, duration: end - start };
 	}
-	return latestDuration;
+	return latest;
+}
+
+/** 从 history 提取最近完整回合的固定耗时；回合起止不完整或逆序时忽略该回合。 */
+function lastTurnDurationFromEvents(events) {
+	return lastTurnDurationCandidateFromEvents(events)?.duration ?? null;
+}
+
+/** 从 turnTimings 提取最近完整回合的固定耗时；全部回合未结束或无效时返回 null。 */
+function lastTurnDurationFromTimings(turnTimings) {
+	return lastTurnDurationCandidateFromTimings(turnTimings)?.duration ?? null;
 }
 
 /** 在快照与 history 中按最近结束时刻选择同一最新完整回合的固定耗时。 */
 function lastTurnDuration({ turnTimings = null, history = [] } = {}) {
-	const candidates = [
-		{ end: lastTurnEndFromTimings(turnTimings), duration: lastTurnDurationFromTimings(turnTimings) },
-		{ end: lastTurnEndFromEvents(history), duration: lastTurnDurationFromEvents(history) },
-	].filter((candidate) => candidate.end !== null && candidate.duration !== null);
+	const candidates = [lastTurnDurationCandidateFromTimings(turnTimings), lastTurnDurationCandidateFromEvents(history)].filter(Boolean);
 	let latest = null;
 	for (const candidate of candidates) {
 		if (latest === null || candidate.end > latest.end) latest = candidate;

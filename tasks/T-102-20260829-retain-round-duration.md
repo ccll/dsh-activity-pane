@@ -6,7 +6,7 @@ id: T-102
 
 # T-102 等待状态保留上一轮耗时
 
-状态: active
+状态: completed
 关联: R-01-009/AC-12 → 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -63,4 +63,18 @@ id: T-102
 
 ## 终态与证据
 
-待实现。
+状态: completed
+
+- 实现: `src/core.mjs` 从 `turnTimings` 与 native history 提取同一最新完整回合的 `endTime - startTime`，拒绝缺失/非有限/逆序边界；`src/client.mjs` 在旧 history 后补读最新 history，等待卡将冻结耗时放在 `.dap-await-head` 等待类型胶囊同行最右侧，运行卡继续实时计时，recent 卡不增加耗时；`.dsh-plugin/client.js` 已同步重建。
+- 测试: 测试先行阶段 `node scripts/check.mjs` 在新导出尚未实现时按预期失败（`does not provide an export named 'lastTurnDuration'`）；实现后 `pnpm verify:fast` 通过。最终 `pnpm verify` 通过：AgentMap/test-impact lint、`scripts/check.mjs` 全部通过，12 个 browser spec 全部通过（`e2e: 全部 12 个 spec 通过（135930ms）`）；focused `session-lifecycle`、`auto-update`、`error-reminder` 均通过。`http://127.0.0.1:3080/` 返回 HTTP 200，刷新后 Playwright 确认 1 个 pane 与 `.dap-await-head` 样式已挂载。
+- DESIGN 对照: `DESIGN.md` 已同步 R-01-009 的 `elapsedMs`/`lastTurnDuration` 派生、native history 补读、等待类型胶囊同行右置与 running/recent 边界；`PRD.md` 新增 R-01-009/AC-12，`DOMAIN.md` 登记“最近回合耗时”，`DECISIONS.md` 追加 C-066；测试影响表记录 DESIGN 变更与 AC-12 证据。
+- commit: 86c1eab
+- commit: 787ab1c
+- commit: b20696a
+- commit: 15e5bf2
+- review:
+  - 审核方: Standards reviewer `f9c253e0-bd34-4504-b787-aa50fa5d507c`；Spec reviewer `c41088f3-160a-4acd-8df6-08788c895b51`。
+  - 目的理解: 保留 running 进入 done、blocked、error 后最近完整回合的真实固定耗时；不计等待时间、缺边界不造假，并让耗时与等待类型胶囊同行右置，保持 recent 卡与运行进度语义不变。
+  - 执行方式: `code-review` skill，以 `80f5c73` 为固定基线，审核 `git diff 80f5c73...HEAD`；Standards/Spec 双轴独立复审，覆盖实现、文档、测试与生成 bundle。
+  - 问题与修复: 初审发现跨来源选择可能将孤立最新 `end` 与较早完整回合耗时错配，已在 `787ab1c` 改为同一候选成对比较并增加 timings/history 回归；初审发现 blocked 正向、刷新恢复与 recent 非目标证据不足，已在 `b20696a`、`15e5bf2` 补齐。最终复审未发现 documented-standard、Fowler smell、spec 缺失、scope creep 或行为错误。
+  - 复审结论: Standards 0 findings；Spec 0 findings，最终通过。

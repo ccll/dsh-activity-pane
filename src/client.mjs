@@ -469,12 +469,16 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 [data-dsh-activity-pane] .dap-model:empty { display: none; }
 [data-dsh-activity-pane] .dap-note {
-  /* 多行正文（R-01-002/AC-09）：待回复卡的 Q 行列表以 \n 换行呈现（pre-line 保留
-     换行符、折叠其余空白）；完成提醒/错误提醒等单行正文不受影响（无换行符时不产生新行）。 */
-  min-width: 0; overflow: hidden; white-space: pre-line;
+  min-width: 0; overflow: hidden;
   font-size: 11px; line-height: 15px;
   color: color-mix(in srgb, currentColor 62%, transparent);
 }
+/* 待回复卡使用原生列表语义（R-01-002/AC-09，C-064）：单问 ul bullet，多问 ol 编号。 */
+[data-dsh-activity-pane] .dap-question-list {
+  margin: 0; padding-inline-start: 18px;
+}
+[data-dsh-activity-pane] .dap-question-list > li { padding-inline-start: 1px; }
+[data-dsh-activity-pane] .dap-question-ellipsis { list-style: none; }
 /* 等待卡末行两段容器（R-01-002/AC-08、AC-09、AC-13，C-043）：首行类型胶囊、其下为
    正文行（正文文字 + 完成提醒卡的「移入历史」按钮——胶囊与正文同闪，按钮不闪）。 */
 [data-dsh-activity-pane] .dap-foot {
@@ -1597,6 +1601,29 @@ function apply(ctx) {
 		return button;
 	}
 
+	/** 将结构化提问预览写成原生列表元素；动态文本只经 textContent 写入（R-01-002/AC-09）。 */
+	function renderQuestionPreview(note, preview) {
+		const items = Array.isArray(preview?.items)
+			? preview.items.filter((item) => Number.isInteger(item?.index) && item.index > 0 && typeof item.text === "string" && item.text !== "")
+			: [];
+		if (items.length === 0) return false;
+		const ordered = items.length > 1;
+		const list = makeEl(ordered ? "ol" : "ul", "dap-question-list");
+		for (const item of items) {
+			const itemEl = document.createElement("li");
+			if (ordered) itemEl.value = item.index;
+			itemEl.textContent = item.text;
+			list.append(itemEl);
+		}
+		if (preview.omitted === true) {
+			const omitted = makeEl("li", "dap-question-ellipsis");
+			omitted.textContent = "…";
+			list.append(omitted);
+		}
+		note.replaceChildren(list);
+		return true;
+	}
+
 	/** 陈旧等待卡骨架就地迁移（C-043 热装兼容）：旧版末行为「正文行 + 行尾类型徽标」单行，
 	 *  新版为「胶囊行 + 正文行」两段——把旧 noteRow 移入新的 .dap-foot 包裹并去掉行尾徽标，
 	 *  confirm 按钮节点复用（已绑定的 ack 监听不丢）。 */
@@ -1825,7 +1852,7 @@ function apply(ctx) {
 		});
 	}
 
-	/* 胶囊类型种类（R-01-002/AC-01、AC-02、AC-09、AC-13，C-043）：阻塞待确认/待审查/问题、
+	/* 胶囊类型种类（R-01-002/AC-01、AC-02、AC-09、AC-13，C-043、C-064）：阻塞待确认/待审查/提问、
 	 * 完成提醒（对勾）与错误提醒（感叹号）；未知种类不给图标（不冒充已知类型）。 */
 	const CAPSULE_ICON_KINDS = new Set(["approval", "plan-review", "question", "done", "error"]);
 
@@ -2082,7 +2109,7 @@ function apply(ctx) {
 			migrateAwaitingFoot(el);
 		}
 		if (capsule !== null || entry.kind === "awaiting") {
-			// 胶囊文字：blocked=待确认/待审查/问题（pendingText），done=「已完成」，error=「错误」。
+			// 胶囊文字：blocked=待确认/待审查/提问（pendingText），done=「已完成」，error=「错误」。
 			const capsuleText = el.querySelector(".dap-capsule-text");
 			const text =
 				entry.waitClass === "blocked"
@@ -2196,13 +2223,20 @@ function apply(ctx) {
 
 		const note = el.querySelector(".dap-note");
 		if (note !== null) {
-			const next =
-				entry.kind === "awaiting"
-					? (entry.noteText ?? "")
-					: entry.kind === "recent"
-						? fmtRecentTime(entry.activityAt)
-						: "";
-			if (note.textContent !== next) note.textContent = next;
+			const hasQuestionList =
+				entry.kind === "awaiting" &&
+				entry.waitClass === "blocked" &&
+				entry.pendingKind === "question" &&
+				renderQuestionPreview(note, entry.questionPreview);
+			if (!hasQuestionList) {
+				const next =
+					entry.kind === "awaiting"
+						? (entry.noteText ?? "")
+						: entry.kind === "recent"
+							? fmtRecentTime(entry.activityAt)
+							: "";
+				restoreTextField(note, next);
+			}
 		}
 	}
 
@@ -2781,16 +2815,12 @@ function apply(ctx) {
 				entry.model = detail.model.model;
 				entry.reasoning = detail.model.reasoning;
 			}
-			// 待回复卡末行补全（C-040 缺陷修复）：noteText 在 buildEntries 时以当时的
-			// details.timeline 派生，而快照路径的时间线在上面的循环里才按引用 memo 算出
-			// （首帧之前为空/旧值）；等待卡静止后常无下一帧重绘，提问标题将永远停留在
-			// 动作回落文案。时间线就绪后用同一核心纯函数对 question 卡重新求值；
-			// noteText 并入 cardSignature，值变化自然驱动本帧 DOM 写入。
-			// （history 冷路径异步到达本身携带一次 queueSync 重绘，不受此缺陷影响。）
+			// 待回复卡列表补全（C-040、C-064）：buildEntries 运行时快照时间线可能仍为空，
+			// 而上面的 memo 才在本帧算出结构化提问预览；等待卡静止后常无下一帧，因此在此
+			// 立即补入 questionPreview，由 cardSignature 驱动本帧 DOM 写入。
 			if (entry.kind === "awaiting" && entry.waitClass === "blocked" && entry.pendingKind === "question") {
 				const question = timelineQuestionPreview(entry.timeline);
-				if (typeof question === "string" && question !== "" && question !== entry.noteText)
-					entry.noteText = awaitNoteText("blocked", "question", question);
+				if (question !== null) entry.questionPreview = question;
 			}
 			// 字段级加载指示（R-01-014/AC-02）：补充数据在途时卡片对应位置显示活动图标。
 			entry.loadingModel = !detail?.model && modelLoads.has(entry.id);

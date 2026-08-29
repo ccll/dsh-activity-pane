@@ -1,4 +1,4 @@
-// R-01-001/AC-03～AC-06、R-01-002/AC-06～AC-07、R-01-009/AC-02、R-01-009/AC-03、R-01-010/AC-04、R-01-017/AC-01、R-02-002/AC-01、R-02-002/AC-02
+// R-01-001/AC-03～AC-06、R-01-002/AC-02、AC-06～AC-09、R-01-009/AC-02、R-01-009/AC-03、R-01-010/AC-04、R-01-017/AC-01、R-02-002/AC-01、R-02-002/AC-02
 // 状态自动更新（出现/完成/等待出现/等待解除四类变化，无需手动刷新）、活动区空态、
 // 折叠时间线不依赖 dsh-auto-collapse（本隔离环境按构造不含该插件，全套件功能断言
 // 即「不降级」证据）、外壳重挂载恢复不重复、全程控制台无插件报错与未捕获异常。
@@ -8,6 +8,7 @@ import { mainAreaHas, newSessionWithMessage, openApp, paneRegions, sendHeroMessa
 const TITLE_A = "e2e:fast 自动更新探针甲";
 const TITLE_B = "e2e:fast 自动更新探针乙";
 const TITLE_RUNTIME = "e2e:runtime 自动更新运行态探针";
+const TITLE_MULTI_ASK = "e2e:multiask 多问题列表探针";
 const DESKTOP_VIEWPORT = { width: 1280, height: 720 };
 const MOBILE_VIEWPORT = { width: 375, height: 700 };
 
@@ -126,6 +127,20 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 		const text = await runtimeCard.innerText().catch(() => "");
 		return text.includes("运行了命令") && text.includes("等待回答") && text.includes("E2E 探针问题") ? text : null;
 	});
+	const singleQuestionList = await runtimeCard.evaluate((card) => {
+		const capsule = card.querySelector(".dap-capsule-text");
+		const list = card.querySelector(".dap-note > ul");
+		return {
+			capsule: capsule?.textContent ?? "",
+			tag: list?.tagName ?? "",
+			items: [...(list?.querySelectorAll(":scope > li") ?? [])].map((item) => item.textContent),
+		};
+	});
+	assert.deepEqual(
+		singleQuestionList,
+		{ capsule: "提问", tag: "UL", items: ["E2E 探针问题：是否继续？"] },
+		"单问题待回复卡使用「提问」胶囊与 ul/li bullet list（R-01-002/AC-02、R-01-002/AC-09）",
+	);
 	const blockedBadge = await until("阻塞等待徽标就绪", async () => {
 		const value = await badgeSnapshot(page, "header");
 		return value?.tone === "blocked" ? value : null;
@@ -155,6 +170,31 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	const runtimeIndex = mock.scenarioLog.indexOf("runtime");
 	const slowAfterRuntime = mock.scenarioLog.indexOf("slow", runtimeIndex + 1);
 	assert.ok(runtimeIndex >= 0 && slowAfterRuntime > runtimeIndex, `runtime 应在 tool 请求后进入 slow，实际：${mock.scenarioLog}`);
+
+	// R-01-002/AC-02、R-01-002/AC-09：多个可展示问题使用 ol/li，编号来自原始问题位置。
+	await newSessionWithMessage(page, TITLE_MULTI_ASK);
+	const multiAskCard = page.locator('[data-dsh-activity-pane] [role="button"]').filter({ hasText: TITLE_MULTI_ASK }).first();
+	const multiQuestionList = await until("多问题编号列表就绪", async () =>
+		multiAskCard.evaluate((card) => {
+			const capsule = card.querySelector(".dap-capsule-text");
+			const list = card.querySelector(".dap-note > ol");
+			if (!list) return null;
+			return {
+				capsule: capsule?.textContent ?? "",
+				tag: list.tagName,
+				items: [...list.querySelectorAll(":scope > li:not(.dap-question-ellipsis)")].map((item) => ({ value: item.value, text: item.textContent })),
+			};
+		}),
+	);
+	assert.deepEqual(
+		multiQuestionList,
+		{
+			capsule: "提问",
+			tag: "OL",
+			items: [{ value: 1, text: "E2E 多问第一题？" }, { value: 2, text: "E2E 多问第二题？" }],
+		},
+		"多问题待回复卡使用「提问」胶囊与 ol/li 编号列表（R-01-002/AC-02、R-01-002/AC-09）",
+	);
 
 	// R-02-002/AC-02：加载、运行、等待、切换全程控制台无插件报错、无未捕获异常
 	// （控制台监听在 goto 之前挂接，槽座出现前的早期阶段也在覆盖范围内）。

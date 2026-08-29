@@ -3,8 +3,9 @@
 // 按用户消息中的 `e2e:<剧本名>` 关键词选择预编排剧本，在隔离测试环境中
 // 确定性制造会话活动：
 //   e2e:slow  —— 慢速流式输出（约 24 块 × 150ms），会话保持运行中数秒
-//   e2e:ask     —— ask_user_question 工具调用，回合转入待回复
-//   e2e:runtime —— 较慢的 ask_user_question 工具调用；回答后转入 slow 流式输出
+//   e2e:ask      —— 单问题 ask_user_question 工具调用，回合转入待回复
+//   e2e:multiask —— 多问题 ask_user_question 工具调用，回合转入待回复
+//   e2e:runtime  —— 较慢的 ask_user_question 工具调用；回答后转入 slow 流式输出
 //   e2e:error   —— 返回非重试型 HTTP 400，回合以稳定错误结束
 //   e2e:fast    —— 立即完成（默认剧本，关键词缺省时同样走这里）
 // 普通 tool 结果后续请求以短文本 stop 收口；runtime 的 tool 结果进入 slow。
@@ -41,7 +42,7 @@ function pickScenario(body) {
 	const runtime = userTexts.some((text) => text.includes("e2e:runtime"));
 	if (hasToolResult) return runtime ? "slow" : "fast";
 	for (let i = userTexts.length - 1; i >= 0; i -= 1) {
-		const match = userTexts[i].match(/e2e:(slow|ask|runtime|error|fast)/);
+		const match = userTexts[i].match(/e2e:(slow|multiask|ask|runtime|error|fast)/);
 		if (match) return match[1];
 	}
 	return "fast";
@@ -88,6 +89,13 @@ const ASK_QUESTION_ARGUMENTS = JSON.stringify({
 	],
 });
 
+const MULTI_ASK_QUESTION_ARGUMENTS = JSON.stringify({
+	questions: [
+		{ id: "e2e-q1", question: "E2E 多问第一题？", options: [{ label: "甲", description: "选择甲" }] },
+		{ id: "e2e-q2", question: "E2E 多问第二题？", options: [{ label: "乙", description: "选择乙" }] },
+	],
+});
+
 /** 慢速流式剧本：分块吐文本，让会话保持运行数秒。客户端中途断开（响应流关闭）即停止。 */
 async function playSlow(res, model, streamLog = []) {
 	for (let i = 1; i <= SLOW_CHUNKS; i += 1) {
@@ -104,9 +112,9 @@ async function playSlow(res, model, streamLog = []) {
 }
 
 /** 待回复剧本：ask_user_question 工具调用后收尾，回合等待用户行动。 */
-async function playAsk(res, model, fragmentDelayMs = 20) {
-	send(res, chunk(model, { role: "assistant", content: "需要先确认一个问题。\n" }));
-	const argFragments = [ASK_QUESTION_ARGUMENTS.slice(0, 40), ASK_QUESTION_ARGUMENTS.slice(40)];
+async function playAsk(res, model, fragmentDelayMs = 20, args = ASK_QUESTION_ARGUMENTS) {
+	send(res, chunk(model, { role: "assistant", content: "需要先确认问题。\n" }));
+	const argFragments = [args.slice(0, 40), args.slice(40)];
 	const deltas = [
 		{ index: 0, id: "call_e2e_ask", type: "function", function: { name: "ask_user_question", arguments: argFragments[0] } },
 		{ index: 0, function: { arguments: argFragments[1] } },
@@ -141,6 +149,7 @@ async function playFast(res, model) {
 const SCENARIOS = {
 	slow: playSlow,
 	ask: playAsk,
+	multiask: (res, model) => playAsk(res, model, 20, MULTI_ASK_QUESTION_ARGUMENTS),
 	runtime: playAsk,
 	error: playError,
 	fast: playFast,

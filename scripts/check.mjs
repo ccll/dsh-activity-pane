@@ -377,10 +377,10 @@ assert.equal(
 	false,
 	"空目标 id 不误判收起",
 );
-// ---- R-01-002/AC-01 待确认 ｜ R-01-002/AC-02 待审查/问题 ----
+// ---- R-01-002/AC-01 待确认 ｜ R-01-002/AC-02 待审查/提问 ----
 assert.equal(pendingText("approval"), "待确认");
 assert.equal(pendingText("plan-review"), "待审查");
-assert.equal(pendingText("question"), "问题");
+assert.equal(pendingText("question"), "提问");
 assert.equal(pendingText("approval"), "待确认");
 
 // ---- R-01-002/AC-03 完成提醒以绿色成功卡面呈现（C-040） ----
@@ -388,11 +388,10 @@ assert.equal(pendingText("approval"), "待确认");
 // 完成提醒卡不再显示类型徽标：pendingText 仅为阻塞等待承载（C-040）。
 assert.equal(pendingText("unknown-kind"), "待处理");
 
-// ---- R-01-002/AC-09 等待卡末行提示：动作+后果；待回复为提问 Q 行列表；完成提醒固定文案 ----
+// ---- R-01-002/AC-09 等待卡末行提示：动作+后果；待回复的问题由结构化列表另行承载 ----
 assert.equal(awaitNoteText("blocked", "approval"), "等待你确认授权后继续");
 assert.equal(awaitNoteText("blocked", "plan-review"), "等待你审查计划后继续");
 assert.equal(awaitNoteText("blocked", "question"), "等待你回答问题后继续", "问题不可得时回落动作说明");
-assert.equal(awaitNoteText("blocked", "question", "Q：采用哪个方案方向？"), "Q：采用哪个方案方向？", "待回复末行为提问 Q 行列表，不带「等待你回答：」前缀");
 assert.equal(awaitNoteText("done", undefined), "继续对话，或移入历史");
 // 宽度上界回归（R-01-002/AC-09）：done 末行须与「移入历史」按钮同排在默认 280px 窗格
 // 单行完整可见——内容区约 258px，按钮+gap 约占 66px，留文字约 192px；11px 全角字宽
@@ -406,73 +405,60 @@ assert.equal(awaitNoteText("done", undefined), "继续对话，或移入历史")
 }
 assert.equal(awaitNoteText("blocked", "unknown-kind"), "等待你处理后继续", "未知阻塞种类中性兜底（评审修正）");
 
-// ---- R-01-002/AC-09 提问 Q 行列表：逐条取问题正文首行、剥尾冒号、单条 Q：/多条 Qn: 前缀、最多 3 行 ----
-assert.equal(
+// ---- R-01-002/AC-09 结构化提问预览：保留原始序号，最多 3 条并携带省略语义 ----
+assert.deepEqual(
 	askQuestionsPreview(JSON.stringify({ questions: [{ header: "方案确认", question: "采用哪个方案方向？", options: [] }] })),
-	"Q：采用哪个方案方向？",
-	"单条问题的正文以「Q：」前缀展示（不显示 header，header 仅作正文缺失时回落）",
+	{ items: [{ index: 1, text: "采用哪个方案方向？" }], omitted: false },
+	"单个可展示问题保留为结构化条目，渲染层据此使用 bullet list",
 );
-assert.equal(
+assert.deepEqual(
 	askQuestionsPreview(JSON.stringify({ questions: [{ header: "演示选择", question: "这是一个测试用的单项选择题，你会看到哪种效果？" }, { header: "多选演示", question: "再多试一个可多选的问题（可以都不选直接跳过吗？不行的话随便点）：" }] })),
-	"Q1: 这是一个测试用的单项选择题，你会看到哪种效果？\nQ2: 再多试一个可多选的问题（可以都不选直接跳过吗？不行的话随便点）",
-	"多条问题逐条以「Qn: 」前缀分行展示；行尾多余冒号剥除",
+	{
+		items: [
+			{ index: 1, text: "这是一个测试用的单项选择题，你会看到哪种效果？" },
+			{ index: 2, text: "再多试一个可多选的问题（可以都不选直接跳过吗？不行的话随便点）" },
+		],
+		omitted: false,
+	},
+	"多个问题逐条保留并剥除行尾多余冒号，渲染层据此使用编号列表",
 );
-assert.equal(
-	askQuestionsPreview(JSON.stringify({ questions: [{ question: "采用哪个方案方向？" }] })),
-	"Q：采用哪个方案方向？",
-	"未给出 header 时回落问题正文首行",
-);
-assert.equal(
-	askQuestionsPreview(JSON.stringify({ questions: [{ header: "", question: "空 header 回落正文" }] })),
-	"Q：空 header 回落正文",
-	"空字符串 header 视同缺失",
-);
-assert.equal(
+assert.deepEqual(
 	askQuestionsPreview(JSON.stringify({ questions: [{ question: "第一行\n第二行不应出现" }] })),
-	"Q：第一行",
-	"多行问题取物理首行而非折叠拼接",
+	{ items: [{ index: 1, text: "第一行" }], omitted: false },
+	"多行问题只取物理首行",
 );
-assert.equal(
-	askQuestionsPreview(JSON.stringify({ questions: [{ header: "短标题\n长描述不应混入" }] })),
-	"Q：短标题",
-	"header 同样只取物理首行（仅作正文缺失回落）",
-);
-assert.equal(
+assert.deepEqual(
 	askQuestionsPreview(JSON.stringify({ questions: [{ header: "仅头问题" }, { question: "第二题" }] })),
-	"Q1: 仅头问题\nQ2: 第二题",
-	"多条问题逐条展示：header 仅作该条正文缺失时的回落",
+	{ items: [{ index: 1, text: "仅头问题" }, { index: 2, text: "第二题" }], omitted: false },
+	"问题正文缺失时回落该条 header",
 );
-assert.equal(
+assert.deepEqual(
 	askQuestionsPreview(JSON.stringify({ questions: [{ question: "问1" }, { question: "问2" }, { question: "问3" }, { question: "问4" }] })),
-	"Q1: 问1\nQ2: 问2\nQ3: 问3\n…",
-	"最多展示 3 条问题，其后以省略行收尾",
+	{ items: [{ index: 1, text: "问1" }, { index: 2, text: "问2" }, { index: 3, text: "问3" }], omitted: true },
+	"最多展示 3 条问题并携带省略项语义",
 );
-assert.equal(
-	askQuestionsPreview(JSON.stringify({ questions: [{ question: "问1" }, { question: "问2" }, { question: "问3" }] })),
-	"Q1: 问1\nQ2: 问2\nQ3: 问3",
-	"恰 3 条问题全部展示、不加省略行",
-);
-assert.equal(
+assert.deepEqual(
 	askQuestionsPreview(JSON.stringify({ questions: [{ question: "问1" }, { options: [] }, { question: "问3" }, { question: "问4" }] })),
-	"Q1: 问1\nQ3: 问3\nQ4: 问4",
-	"中间问题不可得时跳过且不占号，编号按原数组位置延续",
+	{ items: [{ index: 1, text: "问1" }, { index: 3, text: "问3" }, { index: 4, text: "问4" }], omitted: false },
+	"中间问题不可得时跳过，编号仍对应原数组位置",
 );
-assert.equal(
+assert.deepEqual(
 	askQuestionsPreview(JSON.stringify({ questions: [{ options: [] }, { question: "问2" }] })),
-	"Q2: 问2",
-	"原始多余 1 条时即使展示仅 1 行也保留 Qn: 前缀（C-042：单条前缀按原始条数判定）",
+	{ items: [{ index: 2, text: "问2" }], omitted: false },
+	"只有一个可展示问题时仍保留其原始位置，渲染层按可展示条数选择 bullet list",
 );
 assert.equal(askQuestionsPreview(JSON.stringify({ questions: [{ options: [] }] })), null, "各条均无 header 也无正文时返回 null，由调用方回落动作说明");
 assert.equal(askQuestionsPreview("not-json"), null);
 assert.equal(askQuestionsPreview(JSON.stringify({ questions: [] })), null);
 assert.equal(askQuestionsPreview(undefined), null);
-// 提问 Q 行列表穿透折叠分组上浮组行；无提问行时返回 null。
-assert.equal(
+const timelineQuestions = { items: [{ index: 1, text: "要合并回 main 吗？" }, { index: 2, text: "需要先跑测试吗？" }], omitted: false };
+assert.deepEqual(
 	timelineQuestionPreview([
 		{ fold: true, label: "正在运行", question: null },
-		{ fold: true, label: "正在运行", question: "Q1: 要合并回 main 吗？\nQ2: 需要先跑测试吗？" },
+		{ fold: true, label: "正在运行", question: timelineQuestions },
 	]),
-	"Q1: 要合并回 main 吗？\nQ2: 需要先跑测试吗？",
+	timelineQuestions,
+	"结构化提问预览穿透折叠分组上浮组行",
 );
 assert.equal(timelineQuestionPreview([{ fold: true, label: "已思考" }]), null);
 assert.equal(timelineQuestionPreview(undefined), null);
@@ -798,33 +784,29 @@ assert.equal(pendingEntries[0].pendingText, "待确认");
 assert.equal(pendingEntries[0].waitClass, "blocked", "待确认为阻塞等待（R-01-002/AC-08）");
 assert.equal(pendingEntries[0].pendingKind, "approval");
 assert.equal(pendingEntries[0].noteText, "等待你确认授权后继续", "阻塞等待备注行说明动作与后果（R-01-002/AC-09）");
-// 待回复卡：备注行附时间线末条 ask 工作项的提问 Q 行列表（R-01-002/AC-09）。
+// 待回复卡：条目携带时间线末条 ask 工作项的结构化提问预览（R-01-002/AC-09）。
 const questionSnap = {
 	ids: ["sQ"],
 	byId: { sQ: { id: "sQ", displayTitle: "主Q", running: false, pendingInteraction: "question" } },
 	current: null,
 };
+const questionPreview = {
+	items: [
+		{ index: 1, text: "这是一个测试用的单项选择题，你会看到哪种效果？" },
+		{ index: 2, text: "再多试一个可多选的问题（可以都不选直接跳过吗？不行的话随便点）" },
+	],
+	omitted: false,
+};
 const questionEntries = buildEntries(questionSnap, [], {
-	sQ: {
-		timeline: [
-			{
-				fold: true,
-				label: "正在运行",
-				summary: "等待回答",
-				question: "Q1: 这是一个测试用的单项选择题，你会看到哪种效果？\nQ2: 再多试一个可多选的问题（可以都不选直接跳过吗？不行的话随便点）",
-			},
-		],
-	},
+	sQ: { timeline: [{ fold: true, label: "正在运行", summary: "等待回答", question: questionPreview }] },
 });
-assert.equal(questionEntries[0].pendingText, "问题");
+assert.equal(questionEntries[0].pendingText, "提问");
 assert.equal(questionEntries[0].pendingKind, "question");
-assert.equal(
-	questionEntries[0].noteText,
-	"Q1: 这是一个测试用的单项选择题，你会看到哪种效果？\nQ2: 再多试一个可多选的问题（可以都不选直接跳过吗？不行的话随便点）",
-	"待回复末行为提问 Q 行列表，不带「等待你回答：」前缀",
-);
+assert.equal(questionEntries[0].noteText, "等待你回答问题后继续", "提问列表由 questionPreview 单独承载，noteText 保留回落文案");
+assert.deepEqual(questionEntries[0].questionPreview, questionPreview, "待回复条目携带结构化提问列表");
 const questionFallback = buildEntries(questionSnap, [], { sQ: { timeline: [] } });
 assert.equal(questionFallback[0].noteText, "等待你回答问题后继续", "问题不可得时回落动作说明");
+assert.equal(questionFallback[0].questionPreview, null, "问题不可得时不创建空列表");
 
 // ---- R-01-002/AC-06 计数徽标底色跟随等待构成（C-040、C-043）：错误 > 阻塞 > 完成 ----
 assert.equal(awaitBadgeTone([]), null, "无等待行动无 tone");
@@ -3106,11 +3088,16 @@ assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"] .dap-foot :is(.dap-capsule, .dap-note)'),
 	"三类等待卡的胶囊与正文脉冲由同一 data-wait 作用域规则驱动（R-01-002/AC-08，C-043）",
 );
-// 多行承载（R-01-002/AC-09，C-041）：末行正文以 pre-line 保留 Q 行列表换行符；
-// 完成提醒/错误提醒/recent 单行正文无换行符，行为不受影响。
+// 语义化提问列表（R-01-002/AC-09，C-064）：单问 ul、多问 ol，动态文本不解析 HTML。
 assert.ok(
-	bundle.includes('[data-dsh-activity-pane] .dap-note {\n  /* 多行正文（R-01-002/AC-09）：待回复卡的 Q 行列表以 \\n 换行呈现（pre-line 保留\n     换行符、折叠其余空白）；完成提醒/错误提醒等单行正文不受影响（无换行符时不产生新行）。 */\n  min-width: 0; overflow: hidden; white-space: pre-line;'),
-	"末行正文以 pre-line 承载提问 Q 行列表多行（R-01-002/AC-09，C-041）",
+	bundle.includes('const list = makeEl(ordered ? "ol" : "ul", "dap-question-list")') &&
+		bundle.includes("itemEl.value = item.index") &&
+		bundle.includes("itemEl.textContent = item.text"),
+	"待回复正文以 ul/ol/li 语义元素渲染，编号保留原始位置且动态文字只写 textContent（R-01-002/AC-09，C-064）",
+);
+assert.ok(
+	bundle.includes(".dap-question-list") && bundle.includes(".dap-question-ellipsis { list-style: none; }"),
+	"提问列表使用卡片内缩进并隐藏省略项 marker（R-01-002/AC-09，C-064）",
 );
 assert.ok(!bundle.includes("dap-badge-flash") && !bundle.includes("awaitBadgeFlash"), "标题区徽标闪烁机制整体移除：闪烁不再出现在卡片标题行（R-01-002/AC-08，C-040）");
 assert.ok(
@@ -3130,14 +3117,13 @@ assert.ok(
 );
 assert.equal(awaitBadgeTone([{ kind: "awaiting", waitClass: "blocked" }]), "blocked", "tone 判定收敛到核心纯函数单点（R-01-002/AC-06）");
 assert.ok(bundle.includes('rec.el.setAttribute("data-wait", entry.waitClass)'), "等待类别经 data-wait 属性承载（R-01-002/AC-08）");
-assert.ok(bundle.includes('entry.noteText ?? ""'), "末行正文由核心单点派生（R-01-002/AC-09）");
-// 缺陷回归（C-040）：noteText 派生时快照路径的时间线尚未按引用 memo 完成，
-// 等待卡静止后无下一帧导致待回复末行永远停留动作回落文案——时间线就绪后必须
-// 以同一核心纯函数对 question 卡补全重派生。
+assert.ok(bundle.includes('entry.noteText ?? ""'), "非提问末行正文与提问回落文案仍由核心单点派生（R-01-002/AC-09）");
+// 缺陷回归（C-040）：快照路径的时间线在 buildEntries 后才完成 memo，待回复卡静止后
+// 常无下一帧；时间线就绪后必须在同一帧补全结构化 questionPreview。
 assert.ok(
 	bundle.includes('timelineQuestionPreview(entry.timeline)') &&
-		bundle.includes('entry.noteText = awaitNoteText("blocked", "question", question)'),
-	"待回复卡在时间线就绪后补全提问标题派生，不依赖下一帧重绘（R-01-002/AC-09 时序缺陷回归）",
+		bundle.includes("entry.questionPreview = question"),
+	"待回复卡在时间线就绪后补全结构化提问预览，不依赖下一帧重绘（R-01-002/AC-09 时序缺陷回归）",
 );
 // R-01-002/AC-03、AC-04 完成提醒卡绿色成功卡面（C-040）：深色静态暗绿底+绿描边光晕，浅色取 success 别名。
 assert.ok(

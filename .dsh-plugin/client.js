@@ -24,7 +24,7 @@ window.__ModuleLoader__.load({
 const PENDING_LABELS = {
 	approval: "待确认",
 	"plan-review": "待审查",
-	question: "问题",
+	question: "提问",
 };
 
 /** 阻塞等待备注行动作说明（R-01-002/AC-09）：说明等待的具体动作与「不答就无法继续」的后果。 */
@@ -45,7 +45,7 @@ const PENDING_UNKNOWN_NOTE = "等待你处理后继续";
 const ROUND_DONE_NOTE = "继续对话，或移入历史";
 
 /** 错误提醒信息截断上限（宿主登记 lastTurnEndError 与客户端渲染共用，C-043）：
- *  错误信息只为提示用户会话出错了，超长正文无展示价值；与 Q 行列表单行上界同量级。 */
+ *  错误信息只为提示用户会话出错了，超长正文无展示价值；与提问列表单项上界同量级。 */
 const ERROR_NOTE_MAX = 120;
 
 /** 错误提醒正文回落文案（R-01-002/AC-13，C-043）：error 回合无可用错误信息时使用。 */
@@ -285,11 +285,10 @@ function askStatusSummary(root, status) {
 	return null;
 }
 
-/** 取 ask_user_question 参数中各条提问的展示文本（R-01-002/AC-09）：逐条取问题正文
- *  物理首行（正文缺失时回落 header，仍不可得则跳过该条），并剥除行尾多余冒号
- *  （如「…随便点）：」→「…随便点）」）；以「Q1: …\nQ2: …」多行文本输出，仅一条
- *  问题时前缀简化为「Q：」不带编号；最多输出 3 条，其后仍有未展示问题时以省略行
- *  「…」收尾。结构不符或全部问题均不可得返回 null，由调用方回落动作说明。 */
+/** 取 ask_user_question 参数中的结构化问题预览（R-01-002/AC-09，C-064）：逐条取
+ *  问题正文物理首行（正文缺失时回落 header，仍不可得则跳过该条），剥除行尾多余
+ *  冒号，并保留原始 1 基序号；最多返回 3 条，仍有可展示问题时 omitted=true。
+ *  结构不符或全部问题均不可得返回 null，由调用方回落动作说明。 */
 function askQuestionsPreview(argsRaw, max = 60) {
 	if (typeof argsRaw !== "string" || argsRaw === "") return null;
 	let parsed;
@@ -299,7 +298,6 @@ function askQuestionsPreview(argsRaw, max = 60) {
 		return null;
 	}
 	if (!isRecord(parsed) || !Array.isArray(parsed.questions)) return null;
-	const single = parsed.questions.length === 1;
 	const items = [];
 	for (let i = 0; i < parsed.questions.length; i += 1) {
 		const item = parsed.questions[i];
@@ -307,15 +305,14 @@ function askQuestionsPreview(argsRaw, max = 60) {
 		const text = firstPhysicalLine(item.question, max) || firstPhysicalLine(item.header, max);
 		const stripped = text.replace(/[：:]+\s*$/, "");
 		if (stripped === "") continue;
-		items.push({ index: i, text: stripped });
+		items.push({ index: i + 1, text: stripped });
 	}
 	if (items.length === 0) return null;
-	const lines = [];
-	for (const { index, text } of items.slice(0, 3)) {
-		lines.push(`${single ? "Q：" : `Q${index + 1}: `}${text}`);
-	}
-	if (items.length > 3) lines.push("…");
-	return lines.join("\n");
+	return { items: items.slice(0, 3), omitted: items.length > 3 };
+}
+
+function isQuestionPreview(value) {
+	return isRecord(value) && Array.isArray(value.items) && value.items.length > 0;
 }
 
 function timelineToolItem(root, fallbackView = null, cwd = "") {
@@ -364,7 +361,7 @@ function timelineToolItem(root, fallbackView = null, cwd = "") {
 		text: name,
 		summary: detail,
 		detail,
-		// 提问正文随工作项携带（R-01-002/AC-09）：待回复卡备注行直接展示全部问题的 Q 行列表。
+		// 结构化提问预览随工作项携带（R-01-002/AC-09，C-064），供待回复卡渲染原生列表。
 		question: name === "ask_user_question" ? askQuestionsPreview(argsRaw) : null,
 		status,
 	};
@@ -568,8 +565,8 @@ function foldMemberOf(item) {
 			summary: typeof item.summary === "string" ? item.summary : "",
 			text: "",
 			icon: typeof item.icon === "string" ? item.icon : undefined,
-			// 提问正文穿透折叠层（R-01-002/AC-09）：供待回复卡备注行从组行取回 Q 行列表。
-			question: typeof item.question === "string" ? item.question : null,
+			// 结构化提问预览穿透折叠层（R-01-002/AC-09，C-064），供待回复卡渲染列表。
+			question: isQuestionPreview(item.question) ? item.question : null,
 			status: item.status,
 			live: item.live === true,
 		};
@@ -1081,14 +1078,10 @@ function pendingText(kind) {
 	return PENDING_LABELS[kind] ?? PENDING_UNKNOWN_LABEL;
 }
 
-/** 等待卡末行提示（R-01-002/AC-09，C-040）：阻塞等待说明动作与后果（待回复直出
- *  提问的 Q 行多行列表——每条问题正文、单条为「Q：」前缀、最多 3 条省略行收尾、
- *  行尾多余冒号剥除）；完成提醒固定引导新指令或移入历史。questionPreview 为时间线
- *  末条 ask 工作项携带的该展示文本（可为 null）。 */
-function awaitNoteText(waitClass, pendingKind, questionPreview = null) {
+/** 等待卡普通末行提示（R-01-002/AC-09，C-040、C-064）：待确认/待审查说明动作
+ *  与后果；待回复在结构化问题不可得时回落动作说明；完成提醒固定引导新指令或移入历史。 */
+function awaitNoteText(waitClass, pendingKind) {
 	if (waitClass === "done") return ROUND_DONE_NOTE;
-	if (pendingKind === "question" && typeof questionPreview === "string" && questionPreview !== "")
-		return questionPreview;
 	return PENDING_NOTES[pendingKind] ?? PENDING_UNKNOWN_NOTE;
 }
 
@@ -1107,13 +1100,13 @@ function awaitBadgeTone(entries) {
 	return tone;
 }
 
-/** 时间线末条 ask_user_question 工作项携带的提问展示文本（多行 Q 列表；折叠组行
- *  同样上浮该字段）；不存在时返回 null（R-01-002/AC-09）。 */
+/** 时间线末条 ask_user_question 工作项携带的结构化提问预览；折叠组行同样上浮该字段。
+ *  不存在时返回 null（R-01-002/AC-09，C-064）。 */
 function timelineQuestionPreview(timeline) {
 	const rows = Array.isArray(timeline) ? timeline : [];
 	for (let i = rows.length - 1; i >= 0; i -= 1) {
 		const question = rows[i]?.question;
-		if (typeof question === "string" && question !== "") return question;
+		if (isQuestionPreview(question)) return question;
 	}
 	return null;
 }
@@ -1453,11 +1446,13 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 			const workspace = m.isSub
 				? { title: "", key: "" }
 				: workspaceInfoForSession(id, workspaceItems ?? [], byId);
-			// 完成确认判定单点（R-01-002，C-040）：pendingText/waitClass/noteText 三字段共用；
+			// 完成确认判定单点（R-01-002，C-040、C-064）：pendingText/waitClass/noteText/questionPreview 共用；
 			// 错误提醒（C-043）优先于完成提醒（同一回合登记只能有一个 lastTurnEndKind）。
 			const doneWait = !m.pending && m.done && !m.running && !m.delegating;
 			const errWait = !m.pending && m.err && !m.running && !m.delegating;
 			const errorNote = entryErrorNote(completionFor(id, completions));
+			const questionPreview =
+				m.pending && m.row.pendingInteraction === "question" ? timelineQuestionPreview(timeline) : undefined;
 			entries.push({
 				id,
 				parentId: m.isSub ? String(parentId) : null,
@@ -1494,16 +1489,13 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 							: undefined,
 				pendingKind: m.pending ? m.row.pendingInteraction : undefined,
 				noteText: m.pending
-					? awaitNoteText(
-							"blocked",
-							m.row.pendingInteraction,
-							m.row.pendingInteraction === "question" ? timelineQuestionPreview(timeline) : null,
-						)
+					? awaitNoteText("blocked", m.row.pendingInteraction)
 					: errWait
 						? errorNote
 						: doneWait
 							? ROUND_DONE_NOTE
 							: undefined,
+				questionPreview: m.pending && m.row.pendingInteraction === "question" ? (questionPreview ?? null) : undefined,
 			});
 		}
 		for (const child of childIds.get(id) ?? []) visit(child, depth + 1);
@@ -1596,6 +1588,7 @@ function cardSignature(entries) {
 			entry.pendingText ?? null,
 			entry.waitClass ?? null,
 			entry.noteText ?? null,
+			entry.questionPreview ?? null,
 			entry.activityAt ?? null,
 			entry.progress ?? null,
 			entry.loadingModel ?? null,
@@ -2521,12 +2514,16 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 [data-dsh-activity-pane] .dap-model:empty { display: none; }
 [data-dsh-activity-pane] .dap-note {
-  /* 多行正文（R-01-002/AC-09）：待回复卡的 Q 行列表以 \n 换行呈现（pre-line 保留
-     换行符、折叠其余空白）；完成提醒/错误提醒等单行正文不受影响（无换行符时不产生新行）。 */
-  min-width: 0; overflow: hidden; white-space: pre-line;
+  min-width: 0; overflow: hidden;
   font-size: 11px; line-height: 15px;
   color: color-mix(in srgb, currentColor 62%, transparent);
 }
+/* 待回复卡使用原生列表语义（R-01-002/AC-09，C-064）：单问 ul bullet，多问 ol 编号。 */
+[data-dsh-activity-pane] .dap-question-list {
+  margin: 0; padding-inline-start: 18px;
+}
+[data-dsh-activity-pane] .dap-question-list > li { padding-inline-start: 1px; }
+[data-dsh-activity-pane] .dap-question-ellipsis { list-style: none; }
 /* 等待卡末行两段容器（R-01-002/AC-08、AC-09、AC-13，C-043）：首行类型胶囊、其下为
    正文行（正文文字 + 完成提醒卡的「移入历史」按钮——胶囊与正文同闪，按钮不闪）。 */
 [data-dsh-activity-pane] .dap-foot {
@@ -3649,6 +3646,29 @@ function apply(ctx) {
 		return button;
 	}
 
+	/** 将结构化提问预览写成原生列表元素；动态文本只经 textContent 写入（R-01-002/AC-09）。 */
+	function renderQuestionPreview(note, preview) {
+		const items = Array.isArray(preview?.items)
+			? preview.items.filter((item) => Number.isInteger(item?.index) && item.index > 0 && typeof item.text === "string" && item.text !== "")
+			: [];
+		if (items.length === 0) return false;
+		const ordered = items.length > 1;
+		const list = makeEl(ordered ? "ol" : "ul", "dap-question-list");
+		for (const item of items) {
+			const itemEl = document.createElement("li");
+			if (ordered) itemEl.value = item.index;
+			itemEl.textContent = item.text;
+			list.append(itemEl);
+		}
+		if (preview.omitted === true) {
+			const omitted = makeEl("li", "dap-question-ellipsis");
+			omitted.textContent = "…";
+			list.append(omitted);
+		}
+		note.replaceChildren(list);
+		return true;
+	}
+
 	/** 陈旧等待卡骨架就地迁移（C-043 热装兼容）：旧版末行为「正文行 + 行尾类型徽标」单行，
 	 *  新版为「胶囊行 + 正文行」两段——把旧 noteRow 移入新的 .dap-foot 包裹并去掉行尾徽标，
 	 *  confirm 按钮节点复用（已绑定的 ack 监听不丢）。 */
@@ -3877,7 +3897,7 @@ function apply(ctx) {
 		});
 	}
 
-	/* 胶囊类型种类（R-01-002/AC-01、AC-02、AC-09、AC-13，C-043）：阻塞待确认/待审查/问题、
+	/* 胶囊类型种类（R-01-002/AC-01、AC-02、AC-09、AC-13，C-043、C-064）：阻塞待确认/待审查/提问、
 	 * 完成提醒（对勾）与错误提醒（感叹号）；未知种类不给图标（不冒充已知类型）。 */
 	const CAPSULE_ICON_KINDS = new Set(["approval", "plan-review", "question", "done", "error"]);
 
@@ -4134,7 +4154,7 @@ function apply(ctx) {
 			migrateAwaitingFoot(el);
 		}
 		if (capsule !== null || entry.kind === "awaiting") {
-			// 胶囊文字：blocked=待确认/待审查/问题（pendingText），done=「已完成」，error=「错误」。
+			// 胶囊文字：blocked=待确认/待审查/提问（pendingText），done=「已完成」，error=「错误」。
 			const capsuleText = el.querySelector(".dap-capsule-text");
 			const text =
 				entry.waitClass === "blocked"
@@ -4248,13 +4268,20 @@ function apply(ctx) {
 
 		const note = el.querySelector(".dap-note");
 		if (note !== null) {
-			const next =
-				entry.kind === "awaiting"
-					? (entry.noteText ?? "")
-					: entry.kind === "recent"
-						? fmtRecentTime(entry.activityAt)
-						: "";
-			if (note.textContent !== next) note.textContent = next;
+			const hasQuestionList =
+				entry.kind === "awaiting" &&
+				entry.waitClass === "blocked" &&
+				entry.pendingKind === "question" &&
+				renderQuestionPreview(note, entry.questionPreview);
+			if (!hasQuestionList) {
+				const next =
+					entry.kind === "awaiting"
+						? (entry.noteText ?? "")
+						: entry.kind === "recent"
+							? fmtRecentTime(entry.activityAt)
+							: "";
+				restoreTextField(note, next);
+			}
 		}
 	}
 
@@ -4833,16 +4860,12 @@ function apply(ctx) {
 				entry.model = detail.model.model;
 				entry.reasoning = detail.model.reasoning;
 			}
-			// 待回复卡末行补全（C-040 缺陷修复）：noteText 在 buildEntries 时以当时的
-			// details.timeline 派生，而快照路径的时间线在上面的循环里才按引用 memo 算出
-			// （首帧之前为空/旧值）；等待卡静止后常无下一帧重绘，提问标题将永远停留在
-			// 动作回落文案。时间线就绪后用同一核心纯函数对 question 卡重新求值；
-			// noteText 并入 cardSignature，值变化自然驱动本帧 DOM 写入。
-			// （history 冷路径异步到达本身携带一次 queueSync 重绘，不受此缺陷影响。）
+			// 待回复卡列表补全（C-040、C-064）：buildEntries 运行时快照时间线可能仍为空，
+			// 而上面的 memo 才在本帧算出结构化提问预览；等待卡静止后常无下一帧，因此在此
+			// 立即补入 questionPreview，由 cardSignature 驱动本帧 DOM 写入。
 			if (entry.kind === "awaiting" && entry.waitClass === "blocked" && entry.pendingKind === "question") {
 				const question = timelineQuestionPreview(entry.timeline);
-				if (typeof question === "string" && question !== "" && question !== entry.noteText)
-					entry.noteText = awaitNoteText("blocked", "question", question);
+				if (question !== null) entry.questionPreview = question;
 			}
 			// 字段级加载指示（R-01-014/AC-02）：补充数据在途时卡片对应位置显示活动图标。
 			entry.loadingModel = !detail?.model && modelLoads.has(entry.id);

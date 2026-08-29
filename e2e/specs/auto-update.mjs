@@ -164,10 +164,18 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	const regionsAfterSwitch = await paneRegions(page);
 	assert.ok(regionsAfterSwitch.active.includes(TITLE_A) && regionsAfterSwitch.active.includes(TITLE_B), "两张卡片在重挂载后保持");
 
-	// R-01-001/AC-03、R-01-009/AC-02、AC-03：runtime 剧本先产生真实 ask tool，
+	// R-01-001/AC-03、R-01-009/AC-02、AC-03：先完成一轮，再让同一会话进入 runtime ask tool，
 	// 窗格呈现已落定的工具分组；回答后同一会话进入 slow 流式输出并原地更新时间线。
-	await newSessionWithMessage(page, TITLE_RUNTIME);
-	const runtimeCard = page.locator('[data-dsh-activity-pane] [role="button"]').filter({ hasText: TITLE_RUNTIME }).first();
+	await newSessionWithMessage(page, `e2e:fast ${TITLE_RUNTIME}`);
+	const runtimeCard = page.locator('[data-dsh-activity-pane] [role="button"][data-current]').first();
+	await until("首回合完成并可发送第二轮", async () => {
+		const text = await runtimeCard.innerText().catch(() => "");
+		return text.includes("已完成") && text.includes("移入历史") ? text : null;
+	});
+	const composer = page.locator('textarea[placeholder="Message the agent"]');
+	await until("第二轮 composer 就绪", async () => (await composer.count()) > 0 ? true : null);
+	await composer.fill(TITLE_RUNTIME);
+	await composer.press("Enter");
 	await until("tool 工作项落定并进入等待行动", async () => {
 		const text = await runtimeCard.innerText().catch(() => "");
 		return text.includes("运行了命令") && text.includes("等待回答") && text.includes("E2E 探针问题") ? text : null;
@@ -196,15 +204,28 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	assert.equal(blockedBadge.duration, "1.2s", "等待占比变化后列头数量胶囊仍保持固定 1.2s 周期（R-01-002/AC-07）");
 	const blockedPulse = await pulseSnapshot(page);
 	assert.ok(pulsePhaseDelta(blockedPulse) < 80, `新增阻塞等待后数量胶囊与等待卡末行应重新同相，实际最大相位差 ${pulsePhaseDelta(blockedPulse)}ms`);
-	// R-01-009/AC-12：本剧本第一回合直接进入阻塞等待，没有已结束上一轮；不得伪造耗时。
-	await until("阻塞等待不显示虚假耗时", () =>
-		runtimeCard.locator(".dap-token-time").textContent().then((text) => ((text ?? "").trim() === "" ? true : null)),
+	// R-01-009/AC-12：已有上一轮时阻塞等待卡保留固定耗时，且与等待胶囊同行右置。
+	const blockedElapsed = await until("阻塞等待保留上一轮耗时", () =>
+		runtimeCard.evaluate((card) => {
+			const time = card.querySelector(".dap-await-head .dap-token-time");
+			const capsule = card.querySelector(".dap-await-head .dap-capsule");
+			const row = card.querySelector(".dap-await-head");
+			if (!time?.textContent || !capsule || !row) return null;
+			return {
+				text: time.textContent,
+				sameRow: time.parentElement === capsule.parentElement,
+				rightAligned: Math.abs(time.getBoundingClientRect().right - row.getBoundingClientRect().right) <= 1,
+			};
+		}),
 	);
+	assert.match(blockedElapsed.text, /^\d+(?:m\d+s|s)$/, "阻塞等待卡右下角显示固定上一轮耗时（R-01-009/AC-12）");
+	assert.equal(blockedElapsed.sameRow, true, "阻塞等待耗时与等待类型胶囊处于同一行（R-01-009/AC-12）");
+	assert.equal(blockedElapsed.rightAligned, true, "阻塞等待耗时贴合等待类型胶囊行最右侧（R-01-009/AC-12）");
 	await page.waitForTimeout(1_300);
 	assert.equal(
 		((await runtimeCard.locator(".dap-token-time").textContent()) ?? "").trim(),
-		"",
-		"阻塞等待缺少已结束上一轮时不显示虚假耗时（R-01-009/AC-12）",
+		blockedElapsed.text,
+		"阻塞等待期间耗时保持冻结，不把等待时间计入（R-01-009/AC-12）",
 	);
 	await page.getByText("确认继续执行").click();
 	await page.getByRole("button", { name: "Submit", exact: true }).click();

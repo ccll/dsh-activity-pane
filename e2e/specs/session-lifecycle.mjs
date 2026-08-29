@@ -234,4 +234,9 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 		if (!regions || regions.active.includes(TITLE)) return null;
 		return regions.recent.includes(TITLE) ? regions : null;
 	});
+	assert.equal(
+		await page.locator('[data-dsh-activity-pane] [data-kind="recent"] .dap-token-time').count(),
+		0,
+		"最近历史卡不新增回合耗时行（R-01-009/AC-12）",
+	);
 }

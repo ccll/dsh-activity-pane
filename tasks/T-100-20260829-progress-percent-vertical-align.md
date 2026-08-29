@@ -7,7 +7,7 @@ mutation: lifecycle
 # T-100 进度百分比视觉上移
 
 风险等级: standard
-状态: active
+状态: completed
 
 ## 背景与目标
 
@@ -55,8 +55,13 @@ mutation: lifecycle
 
 ## 终态与证据
 
-- 实现: 待填写。
-- 测试: 待填写。
-- DESIGN 对照: 待填写。
-- commit: 待填写。
-- review: 待填写。
+- 实现: `src/client.mjs` 为 `.dap-pct` 增加 `transform: translateY(-1px)`，仅改变视觉绘制位置，不改变 flex 布局占位、5ch 固定宽、水平右对齐、进度条或统计行位置；`.dsh-plugin/client.js` 已同步重建。
+- 测试: 测试先行——E2E 新增百分比行盒中心相对进度条中心上移约 1px 的几何断言后，旧实现按预期失败；实现后 focused `session-lifecycle` 通过。`pnpm verify:fast` 通过；最终 `pnpm verify` 全部 12 个 spec 通过（132668ms）；`git diff --check` 干净。现有 `http://127.0.0.1:3080/` 经 Playwright 刷新确认新样式已加载（`transform: matrix(1, 0, 0, 1, 0, -1)`、`textAlign: right`、宽度 `33.3594px`）。回滚边界为 PRD/DESIGN、`src/client.mjs`、生成 bundle、`session-lifecycle` E2E 与人工验收中的 T-100 对应变更，不影响其它行为。
+- DESIGN 对照: 与 R-01-009/AC-06 及 DESIGN 的运行卡外观、渲染期字段、回合进度条目一致：百分比保持同行、水平右缘与固定占位，仅以不改变布局的 `translateY(-1px)` 相对进度条中心视觉上移；无差异。
+- commit: ad88edf
+- review:
+  - 审核方: 独立 Standards reviewer `T100 standards final`；独立 Spec reviewer `T100 spec final`。
+  - 目的理解: 百分比当前几何居中但视觉重心偏下；目标是在保持 5ch、水平右缘、进度条/统计行位置与卡片行高不变的前提下，将 `.dap-pct` 相对进度条中心视觉上移 1px；关联 T-100、PRD R-01-009/AC-06 与 DESIGN。
+  - 执行方式: `code-review` skill，以 `bffc87f` 为固定基线审核 `bffc87f...ad88edf`；Standards/Spec 双轴独立核查源码、生成 bundle、browser E2E、map 与验收证据。
+  - 问题与修复: Standards Hard 0、Judgement 0；Spec findings 0，无需修复。
+  - 复审结论: 双轴最终通过。

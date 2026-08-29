@@ -21,6 +21,19 @@ This plugin attempts to answer these questions by providing an **activity sessio
 </p>
 <p align="center"><sub>Mobile <a href="assets/screenshot-mobile-dark.png">dark drawer</a> · <a href="assets/screenshot-mobile-light.png">light drawer</a> of the same clean isolated environment running a simulated coding task</sub></p>
 
+## Install
+
+```sh
+dsh plugin --profile web add dsh-activity-pane
+```
+
+The npm package ships prebuilt, so no local build step is needed. If the pane does not appear after installing, restart `dsh web` once.
+
+## Requirements
+
+- DSH (DeepSeek Harness) web, tested against `@deepseek-ai/dsh@0.1.0-rc.7`.
+- No third-party plugin dependencies: the pane only consumes DSH's native session and workspace services, and uninstalling is fully reversible.
+
 ## Acknowledgments & Disclaimers
 
 - This project was inspired by the [`dsh-answer-pet`](https://github.com/Nanki-nn/dsh-answer-pet) plugin: it borrows the session-card design idea, adjusted and re-implemented to fit my own usage habits and preferences. Many thanks to the original author for the creativity!
@@ -29,6 +42,8 @@ This plugin attempts to answer these questions by providing an **activity sessio
 - 99.99% of this project's code and documentation was written and reviewed by AI, so bugs and doc/code drift are quite likely. If you run into any problems, please open an issue.
 
 ## Adjustments Compared to dsh-answer-pet
+
+> This project began as a personal re-take on [`dsh-answer-pet`](https://github.com/Nanki-nn/dsh-answer-pet), so the checklist below is phrased as a comparison against it — if you have never used that plugin, simply read it as the feature list.
 
 - [x] **From floating overlay to docked pane**: on desktop, a persistent edge-docked column is added to the right of the left-sidebar workspaces; on mobile, a fixed drawer hidden by default is expanded via the "Activity" button in the session header, without squeezing the main conversation layout.
 - [x] **No pet icon features**: pet-related features are not supported; the UI focuses on session activity itself.
@@ -41,3 +56,7 @@ This plugin attempts to answer these questions by providing an **activity sessio
 - [x] **Session navigation**: clicking or keyboard-activating a session card jumps to that session's page, and the current session stays highlighted.
 - [x] **Session metadata**: session cards show the current model name and reasoning level.
 - [x] **Polished desktop & mobile interactions**: the desktop pane can collapse, be resized by dragging, and remember its width; mobile uses a fixed drawer that does not squeeze the main conversation layout; long lists get independent scrolling and a back-to-top button.
+
+## License
+
+MIT — see [LICENSE](LICENSE) for the full text.

@@ -21,6 +21,19 @@ DSH (DeepSeek Harness) 一大痛点是缺少活动会话与历史会话的管理
 </p>
 <p align="center"><sub>同一干净隔离环境中模拟编程任务的 <a href="assets/screenshot-mobile-dark.png">移动端深色抽屉</a> · <a href="assets/screenshot-mobile-light.png">移动端浅色抽屉</a></sub></p>
 
+## 安装
+
+```sh
+dsh plugin --profile web add dsh-activity-pane
+```
+
+npm 包内置预构建产物，无需本地构建步骤。安装后如窗格未出现，重启一次 `dsh web` 即可。
+
+## 环境要求
+
+- DSH (DeepSeek Harness) Web，经 `@deepseek-ai/dsh@0.1.0-rc.7` 实测验证。
+- 无第三方插件依赖：窗格只消费 DSH 原生会话与工作区服务，卸载可逆。
+
 ## 感谢与声明
 
 - 本项目灵感来自 [`dsh-answer-pet`](https://github.com/Nanki-nn/dsh-answer-pet) 插件，借鉴了其中会话卡片的设计思路，并按自己的使用习惯与喜好做了调整与重新实现，感谢原作者的创意！
@@ -29,6 +42,8 @@ DSH (DeepSeek Harness) 一大痛点是缺少活动会话与历史会话的管理
 - 本项目代码与文档 99.99% 由 AI 编写与审核，大概率存在 bug 与文档/代码不同步等问题，使用中如遇到问题请提交 issue。
 
 ## 相比 dsh-answer-pet 的调整
+
+> 本项目始于对 [`dsh-answer-pet`](https://github.com/Nanki-nn/dsh-answer-pet) 的个人再造，下表以该插件为对照写成——如果您没用过它，直接当作功能清单阅读即可。
 
 - [x] **从浮层改为固定窗格**：桌面端在左边栏工作区的右侧增加常驻贴边列；移动端使用默认隐藏的固定抽屉，通过会话头部的「活动」按钮展开，不挤压主会话布局。
 - [x] **去除宠物图标功能**：不支持宠物相关功能，界面聚焦于会话活动本身。
@@ -41,3 +56,7 @@ DSH (DeepSeek Harness) 一大痛点是缺少活动会话与历史会话的管理
 - [x] **加入会话导航跳转**：点击或键盘激活会话卡片可跳转到对应会话页面，当前会话保持高亮。
 - [x] **增加会话元信息**：会话卡片中显示当前使用的模型名称和推理级别。
 - [x] **完善桌面与移动交互**：桌面窗格可折叠、拖拽调宽并记忆宽度；移动端使用不挤压主会话布局的固定抽屉；长列表提供独立滚动与回到顶部按钮。
+
+## 许可证
+
+MIT，完整文本见 [LICENSE](LICENSE)。

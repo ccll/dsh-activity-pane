@@ -7,7 +7,7 @@ mutation: lifecycle
 # T-096 进度百分比移至进度条后
 
 风险等级: standard
-状态: active
+状态: completed
 
 ## 背景与目标
 
@@ -57,7 +57,7 @@ mutation: lifecycle
 - 实现: `src/client.mjs` 新增 `.dap-progress` 进度行，标题行移除 `.dap-pct`；进度行依次承载可伸缩 `.dap-track` 与 4ch 固定宽 `.dap-pct`，统计行顺序不变；`.dsh-plugin/client.js` 已重建。
 - 测试: 测试先行新增 browser E2E，裁决百分比右置、同行、脱离标题行及 9%→100% 占位宽度稳定；focused `session-lifecycle` 通过（9.567s）；`pnpm verify:fast` 通过；最终 `pnpm verify` 12/12 通过（134.266s）；`pnpm lint:agentmap` 与 `git diff --check` 通过；现有 `http://127.0.0.1:3080/` 刷新验证窗格已加载含 `.dap-progress` 与 `.dap-pct { width: 4ch; }` 的新 bundle。
 - DESIGN 对照: R-01-009/AC-06 与 DESIGN 已明确标题行不承载百分比，进度行按进度条、百分比顺序同行呈现；百分比固定 4ch 占位，进度计算、标题内容、统计行与其它布局未改变。
-- commit: 待提交。
+- commit: 520a602
 - review:
   - 审核方: Standards reviewer `9e1685ba-9307-427e-8849-e872ad730131`；Spec reviewer `69ea1d56-ba15-4975-9c0e-9234be1bc158`。
   - 目的理解: 将运行卡标题后的进度百分比移到进度条右侧并同行呈现，保持位数变化时占位稳定，不改变进度计算、标题内容、统计行与其它布局。

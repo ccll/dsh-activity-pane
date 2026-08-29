@@ -46,6 +46,8 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 			};
 			const originalPaneWidth = pane.style.getPropertyValue("--dap-width");
 			pane.style.setProperty("--dap-width", "200px");
+			const paneRect = pane.getBoundingClientRect();
+			const cardRect = card.getBoundingClientRect();
 			const progressRect = progress.getBoundingClientRect();
 			const trackRect = track.getBoundingClientRect();
 			const pctRect = pct.getBoundingClientRect();
@@ -61,11 +63,15 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 			if (originalPaneWidth === "") pane.style.removeProperty("--dap-width");
 			else pane.style.setProperty("--dap-width", originalPaneWidth);
 			return {
+				paneWidth: paneRect.width,
+				paneRight: paneRect.right,
+				cardRight: cardRect.right,
 				progressTop: progressRect.top,
 				progressBottom: progressRect.bottom,
 				trackRight: trackRect.right,
 				trackWidth: trackRect.width,
 				pctLeft: pctRect.left,
+				pctRight: pctRect.right,
 				pctTop: pctRect.top,
 				pctBottom: pctRect.bottom,
 				widthAtOneDigit,
@@ -95,10 +101,15 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 		"百分比在固定占位内右对齐，9% 与 100% 的文字右缘均和下一行耗时右缘对齐（R-01-009/AC-06）",
 	);
 	assert.ok(
-		progressGeometry.trackWidth > 0 &&
+		Math.abs(progressGeometry.paneWidth - 200) <= 0.5 &&
+			progressGeometry.trackWidth > 0 &&
 			progressGeometry.textLeftAtOneDigit >= progressGeometry.pctLeft - 0.5 &&
-			progressGeometry.textLeftAtThreeDigits >= progressGeometry.pctLeft - 0.5,
-		"200px 最窄窗格下进度条仍可见，9% 与 100% 均完整容纳于百分比固定占位（R-01-009/AC-06）",
+			progressGeometry.textLeftAtThreeDigits >= progressGeometry.pctLeft - 0.5 &&
+			progressGeometry.textRightAtOneDigit <= progressGeometry.pctRight + 0.5 &&
+			progressGeometry.textRightAtThreeDigits <= progressGeometry.pctRight + 0.5 &&
+			progressGeometry.pctRight <= progressGeometry.cardRight + 0.5 &&
+			progressGeometry.cardRight <= progressGeometry.paneRight + 0.5,
+		"窗格实际为 200px 最窄宽时进度条仍可见，9% 与 100% 均完整容纳且不越过卡片或窗格右界（R-01-009/AC-06）",
 	);
 
 	// R-01-009/AC-09：真实浏览器裁决时间线点整体小于标题点，且与竖线同圆心；

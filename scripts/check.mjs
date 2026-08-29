@@ -9,13 +9,10 @@ import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-	AWAIT_PERIOD_FAST_S,
-	AWAIT_PERIOD_SLOW_S,
 	askQuestionsPreview,
 	awaitBadgeStats,
 	awaitBadgeTone,
 	awaitNoteText,
-	awaitPulsePeriod,
 	timelineQuestionPreview,
 	buildEntries,
 	buildRecent,
@@ -80,11 +77,6 @@ import {
 	shouldDismissDrawerOnActivation,
 	suppressComposerAutofocus,
 } from "../src/navigation.mjs";
-
-// R-01-002/AC-07 周期端点耦合钉：AWAIT_PERIOD_SLOW_S 与 CSS var(--dap-await-period, 1.6s)
-// 缺省值必须同步（JS 未写入时回落 CSS 缺省），改动任一侧须同次变更另一侧。
-assert.equal(AWAIT_PERIOD_SLOW_S, 1.6, "慢端周期常量与 CSS 缺省值耦合，改任一处必须同步");
-assert.equal(AWAIT_PERIOD_FAST_S, 0.5, "快端上限常量与 DESIGN/单测文档值耦合");
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -854,17 +846,6 @@ assert.deepEqual(
 	{ waiting: 2, blocked: 1, total: 3 },
 	"分子=awaiting 主会话数，分母=running+awaiting 主会话数；blocked 只计阻塞等待",
 );
-// ---- R-01-002/AC-07 脉冲周期：随等待行动占比单调加快、两端封闭、非法输入不脉冲 ----
-assert.equal(awaitPulsePeriod(0, 3), null, "无等待行动返回 null：不脉冲");
-assert.equal(awaitPulsePeriod(-1, 3), null, "负分子归一为不脉冲");
-assert.equal(awaitPulsePeriod(2, 1), null, "分子大于分母视为非法输入");
-assert.equal(awaitPulsePeriod(2, undefined), null, "非法分母归一为不脉冲");
-assert.equal(awaitPulsePeriod(1, 1), 0.5, "全部活动主会话处于等待行动时达到频率上限（最短周期）");
-const periodQuarter = awaitPulsePeriod(1, 4);
-const periodHalf = awaitPulsePeriod(2, 4);
-const periodThreeQuarters = awaitPulsePeriod(3, 4);
-assert.ok(periodHalf < periodQuarter && periodThreeQuarters < periodHalf, "等待行动占比越高周期越短（频率单调加快）");
-assert.ok(periodThreeQuarters > 0.5 && periodQuarter < 1.6, "部分等待行动的周期落在封闭区间内");
 // ---- R-01-001/AC-01 可重复的确定性渲染（见下） ｜ R-02-003/AC-01 渲染签名去重 ----
 const e1 = buildEntries(snapshot, workspaces);
 const e2 = buildEntries(snapshot, workspaces);
@@ -2622,7 +2603,7 @@ assert.ok(bundle.includes("notifyLayoutChange"), "布局变化通知 sibling ove
 assert.ok(bundle.includes('window.dispatchEvent(new Event("resize"))'), "布局变化派发标准 resize 通知");
 assert.ok(bundle.includes("pane !== renderedPane"), "新窗格实例必须重置渲染签名");
 assert.ok(
-	clientSource.includes("const sig = JSON.stringify([listState, cardSignature(visibleEntries)]);"),
+	clientSource.includes("const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface]);"),
 	"列表 phase 转换必须参与结构化渲染签名，空列表不得冻结在加载/失败状态（T-087）",
 );
 // R-01-013/AC-02 回归：卡片标题必须随快照更新——单卡渲染异常不得冻结其余卡片
@@ -3100,11 +3081,7 @@ assert.ok(
 	"提问列表使用卡片内缩进并隐藏省略项 marker（R-01-002/AC-09，C-064）",
 );
 assert.ok(!bundle.includes("dap-badge-flash") && !bundle.includes("awaitBadgeFlash"), "标题区徽标闪烁机制整体移除：闪烁不再出现在卡片标题行（R-01-002/AC-08，C-040）");
-assert.ok(
-	bundle.includes('prevWait !== entry.waitClass') && bundle.includes('node.style.animation = "none"') &&
-		bundle.includes('rec.el.querySelectorAll(".dap-foot .dap-capsule, .dap-foot .dap-note")'),
-	"原地跨类转换（done↔blocked↔error）时胶囊与正文动画一次性同步重启对齐相位（R-01-002/AC-08，C-043 复审修复）",
-);
+assert.ok(!bundle.includes("prevWait !== entry.waitClass"), "跨类转换已收敛到等待队列全局同步，不再单卡重复重启（R-01-002/AC-07、AC-08，C-065）");
 assert.ok(!bundle.includes('dot.style.animation = "none"'), "相位重启目标随标题圆点静止而移除，重启只作用于末行元素（R-01-002/AC-08，C-040）");
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"] .dap-dot {\n  animation: none;\n  background: var(--dap-wait-color, #58c98f);'),
@@ -3167,12 +3144,10 @@ assert.ok(
 		bundle.includes("rgb(252, 233, 234)"),
 	"浅色主题徽标 error 色调取淡红错误底（R-01-002/AC-06，C-043）",
 );
-// R-01-001/AC-04、AC-05、AC-06 徽标 n/m 计数；R-01-002/AC-06、AC-07 同色等待占比脉冲
+// R-01-001/AC-04、AC-05、AC-06 徽标 n/m 计数；R-01-002/AC-06、AC-07 固定同步脉冲
 assert.ok(bundle.includes("text: `${waiting}/${total}`,"), "数量徽标以 n/m 分数形式呈现");
-assert.ok(
-	bundle.includes("awaitBadgeStats(active)") && bundle.includes("awaitPulsePeriod(waiting, total)"),
-	"计数与脉冲周期由核心纯函数单点派生（脉冲按等待行动占比）",
-);
+assert.ok(bundle.includes("awaitBadgeStats(active)"), "数量统计由核心纯函数单点派生");
+assert.ok(!bundle.includes("awaitPulsePeriod") && !bundle.includes("--dap-await-period"), "数量徽标不再按等待占比派生或写入脉冲周期（R-01-002/AC-07）");
 assert.ok(
 	bundle.includes("[data-dsh-activity-pane] .dap-count[data-awaiting] {\n  /* 底色/透明度与等待卡完全一致、无描边与外环") &&
 		bundle.includes("[data-dsh-activity-pane] .dap-rail-count[data-awaiting] {\n  background: rgba(46, 42, 26, 0.97);") &&
@@ -3194,11 +3169,15 @@ assert.ok(
 );
 assert.ok(!bundle.includes("linear-gradient(180deg, #ffb4b4, #f06a72)") && !bundle.includes("#2a1012"), "数量徽标不再使用红色渐变旧配色（时间线错误态红色不受影响）");
 assert.equal(
-	(bundle.match(/animation: dap-await-pulse var\(--dap-await-period/g) ?? []).length,
+	(bundle.match(/animation: dap-await-pulse 1\.2s ease-in-out infinite/g) ?? []).length,
 	3,
-	"列头/窄条/移动开关三处镜像面统一接入占比驱动脉冲（R-01-002/AC-07）",
+	"列头/窄条/移动开关三处数量胶囊统一使用固定 1.2s 脉冲（R-01-002/AC-07）",
 );
-assert.ok(bundle.includes('el.style.setProperty("--dap-await-period", next)'), "渲染层按等待占比写入脉冲周期自定义属性");
+assert.ok(
+	bundle.includes("function syncAwaitPulse(nodes)") && bundle.includes("pulseSignature !== nextPulseSignature") &&
+		bundle.includes('pulseSurface = desktopQuery.matches') && bundle.includes("pulseSignature = nextPulseSignature;"),
+	"等待集合、类别或可见表面变化时统一重启，并在渲染成功后提交签名（R-01-002/AC-07、AC-08）",
+);
 assert.ok(
 	bundle.includes(
 		"body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting],\nbody:not([data-ds-dark-theme]) .dap-toggle[data-awaiting] .dap-toggle-count {\n  background: rgb(253, 244, 208);\n}",
@@ -3350,7 +3329,7 @@ assert.ok(
 	"按钮显隐收敛到 syncTopBtn 单点：scrollTop 超 TOP_THRESHOLD 显示、阈值内隐藏（复用既有 scroll 监听，无新增监听）",
 );
 assert.ok(
-	bundle.includes('pane.setAttribute("data-collapsed", "false");\n\t\t\tnotifyLayoutChange();\n\t\t\t// 折叠期间 display:none 可能令 scrollTop 归零而不派发 scroll 事件，展开时同步一次。\n\t\t\tsyncTopBtn();'),
+	bundle.includes('pane.setAttribute("data-collapsed", "false");\n\t\t\tqueueSync();\n\t\t\tnotifyLayoutChange();\n\t\t\t// 折叠期间 display:none 可能令 scrollTop 归零而不派发 scroll 事件，展开时同步一次。\n\t\t\tsyncTopBtn();'),
 	"窄条展开时同步一次按钮显隐（折叠期 scrollTop 归零不一定派发 scroll 事件，R-01-018/AC-03）",
 );
 assert.ok(

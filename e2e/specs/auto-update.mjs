@@ -20,15 +20,41 @@ async function badgeSnapshot(page, surface) {
 		const owner = name === "toggle" ? toggle : count;
 		if (!count || !owner) return null;
 		const style = getComputedStyle(count);
+		const animation = count.getAnimations()[0];
 		return {
 			text: count.textContent.trim(),
 			awaiting: owner.hasAttribute("data-awaiting"),
 			tone: owner.getAttribute("data-tone"),
-			period: count.style.getPropertyValue("--dap-await-period"),
 			background: style.backgroundColor,
 			animation: style.animationName,
+			duration: style.animationDuration,
+			currentTime: animation?.currentTime ?? null,
 		};
 	}, surface);
+}
+
+async function pulseSnapshot(page) {
+	return page.evaluate(() => {
+		const pane = document.querySelector("[data-dsh-activity-pane]");
+		const nodes = [
+			pane?.querySelector(".dap-count[data-awaiting]"),
+			...(pane?.querySelectorAll('.dap-card[data-kind="awaiting"] .dap-foot :is(.dap-capsule, .dap-note)') ?? []),
+		].filter(Boolean);
+		return nodes.map((node) => {
+			const style = getComputedStyle(node);
+			const animation = node.getAnimations()[0];
+			return { name: style.animationName, duration: style.animationDuration, currentTime: animation?.currentTime ?? null };
+		});
+	});
+}
+
+function pulsePhaseDelta(values, period = 1200) {
+	const times = values.map((value) => value.currentTime).filter(Number.isFinite);
+	if (times.length !== values.length || times.length === 0) return Infinity;
+	const phases = times.map((time) => ((time % period) + period) % period).sort((a, b) => a - b);
+	let maxGap = phases[0] + period - phases.at(-1);
+	for (let index = 1; index < phases.length; index += 1) maxGap = Math.max(maxGap, phases[index] - phases[index - 1]);
+	return period - maxGap;
 }
 
 export default async function autoUpdate({ page, url, mock, assert }) {
@@ -71,8 +97,15 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	});
 	assert.equal(doneHeader.text, "1/1", "列头数量徽标显示等待行动数/活动主会话总数");
 	assert.equal(doneHeader.background, "rgba(32, 41, 35, 0.97)", "完成提醒列头徽标使用完成卡绿色底色");
-	assert.equal(doneHeader.period, "0.500s", "全部活动主会话等待时列头徽标达到脉冲频率上限");
 	assert.equal(doneHeader.animation, "dap-await-pulse", "存在等待行动时列头徽标开启脉冲");
+	assert.equal(doneHeader.duration, "1.2s", "列头数量胶囊使用与等待卡末行相同的固定 1.2s 周期（R-01-002/AC-07）");
+	const donePulse = await pulseSnapshot(page);
+	assert.deepEqual(donePulse.map(({ name, duration }) => ({ name, duration })), [
+		{ name: "dap-await-pulse", duration: "1.2s" },
+		{ name: "dap-pulse", duration: "1.2s" },
+		{ name: "dap-pulse", duration: "1.2s" },
+	], "列头数量胶囊与等待卡末行胶囊/正文同频");
+	assert.ok(pulsePhaseDelta(donePulse) < 80, `列头数量胶囊与等待卡末行应同相，实际最大相位差 ${pulsePhaseDelta(donePulse)}ms`);
 
 	await page.getByRole("button", { name: "收起活动会话窗格" }).click();
 	const doneRail = await until("完成提醒窄条徽标就绪", async () => {
@@ -80,11 +113,16 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 		return value?.tone === "done" ? value : null;
 	});
 	assert.deepEqual(
-		{ text: doneRail.text, background: doneRail.background, period: doneRail.period, animation: doneRail.animation },
-		{ text: "1/1", background: "rgba(32, 41, 35, 0.97)", period: "0.500s", animation: "dap-await-pulse" },
-		"折叠窄条徽标与列头使用同一完成 tone、底色与脉冲",
+		{ text: doneRail.text, background: doneRail.background, duration: doneRail.duration, animation: doneRail.animation },
+		{ text: "1/1", background: "rgba(32, 41, 35, 0.97)", duration: "1.2s", animation: "dap-await-pulse" },
+		"折叠窄条徽标与列头使用同一完成 tone、底色与固定脉冲",
 	);
+	assert.ok(Number.isFinite(doneRail.currentTime) && doneRail.currentTime < 250, `折叠切换后窄条胶囊应从统一相位起步，实际 ${doneRail.currentTime}ms`);
 	await page.getByRole("button", { name: /活动会话/ }).last().click();
+	await until("展开后列头与全部等待卡重新同相", async () => {
+		const values = await pulseSnapshot(page);
+		return values.length >= 3 && pulsePhaseDelta(values) < 80 ? values : null;
+	});
 
 	await page.setViewportSize(MOBILE_VIEWPORT);
 	const doneToggle = await until("完成提醒移动开关徽标就绪", async () => {
@@ -92,10 +130,17 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 		return value?.tone === "done" ? value : null;
 	});
 	assert.deepEqual(
-		{ text: doneToggle.text, background: doneToggle.background, period: doneToggle.period, animation: doneToggle.animation },
-		{ text: "1/1", background: "rgba(32, 41, 35, 0.97)", period: "0.500s", animation: "dap-await-pulse" },
-		"移动开关徽标与列头使用同一完成 tone、底色与脉冲",
+		{ text: doneToggle.text, background: doneToggle.background, duration: doneToggle.duration, animation: doneToggle.animation },
+		{ text: "1/1", background: "rgba(32, 41, 35, 0.97)", duration: "1.2s", animation: "dap-await-pulse" },
+		"移动开关徽标与列头使用同一完成 tone、底色与固定脉冲",
 	);
+	assert.ok(Number.isFinite(doneToggle.currentTime) && doneToggle.currentTime < 250, `切到移动端后活动按钮胶囊应从统一相位起步，实际 ${doneToggle.currentTime}ms`);
+	await page.locator(".dap-toggle").click();
+	await until("移动抽屉列头与全部等待卡重新同相", async () => {
+		const values = await pulseSnapshot(page);
+		return values.length >= 3 && pulsePhaseDelta(values) < 80 ? values : null;
+	});
+	await page.getByRole("button", { name: "收起活动会话窗格" }).click();
 	await page.setViewportSize(DESKTOP_VIEWPORT);
 
 	// R-01-017/AC-01：本隔离环境未安装 dsh-auto-collapse，时间线仍以折叠分组呈现
@@ -148,7 +193,9 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	assert.match(blockedBadge.text, /^\d+\/\d+$/, "阻塞等待时列头保持 n/m 计数（R-01-001/AC-04～AC-06）");
 	assert.equal(blockedBadge.background, "rgba(46, 42, 26, 0.97)", "阻塞等待时列头徽标使用与阻塞卡一致的金色底（R-01-002/AC-06）");
 	assert.equal(blockedBadge.animation, "dap-await-pulse", "阻塞等待时列头徽标持续脉冲（R-01-002/AC-06）");
-	assert.match(blockedBadge.period, /^\d+(?:\.\d+)?s$/, "阻塞等待时列头徽标写入占比驱动周期（R-01-002/AC-07）");
+	assert.equal(blockedBadge.duration, "1.2s", "等待占比变化后列头数量胶囊仍保持固定 1.2s 周期（R-01-002/AC-07）");
+	const blockedPulse = await pulseSnapshot(page);
+	assert.ok(pulsePhaseDelta(blockedPulse) < 80, `新增阻塞等待后数量胶囊与等待卡末行应重新同相，实际最大相位差 ${pulsePhaseDelta(blockedPulse)}ms`);
 	await page.getByText("确认继续执行").click();
 	await page.getByRole("button", { name: "Submit", exact: true }).click();
 	const earlyChunk = await until("时间线出现早期流式正文", async () => {
@@ -167,6 +214,8 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 		const text = await runtimeCard.innerText().catch(() => "");
 		return !text.includes("等待回答") && text.includes("已完成") ? text : null;
 	});
+	const resolvedPulse = await pulseSnapshot(page);
+	assert.ok(pulsePhaseDelta(resolvedPulse) < 80, `阻塞等待转完成提醒后全部数量胶囊与等待卡末行应重新同相，实际最大相位差 ${pulsePhaseDelta(resolvedPulse)}ms`);
 	const runtimeIndex = mock.scenarioLog.indexOf("runtime");
 	const slowAfterRuntime = mock.scenarioLog.indexOf("slow", runtimeIndex + 1);
 	assert.ok(runtimeIndex >= 0 && slowAfterRuntime > runtimeIndex, `runtime 应在 tool 请求后进入 slow，实际：${mock.scenarioLog}`);

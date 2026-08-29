@@ -1150,19 +1150,6 @@ export function countBadgeState(listState, waiting, total, blocked = 0) {
 	};
 }
 
-// 脉冲周期端点：全部活动主会话处于等待行动时达到最快上限（R-01-002/AC-07）；单个等待起步时最慢。
-export const AWAIT_PERIOD_FAST_S = 0.5;
-export const AWAIT_PERIOD_SLOW_S = 1.6;
-
-/** 等待行动占比 → 徽标脉冲周期（秒）：随 r=n/m 单调加快、两端封闭——全部活动主会话
- *  等待行动取 AWAIT_PERIOD_FAST_S 上限频率；无等待行动或非法输入返回 null 表示不脉冲。 */
-export function awaitPulsePeriod(waiting, total) {
-	const n = Number.isFinite(waiting) ? Math.max(0, Math.floor(waiting)) : 0;
-	const m = Number.isFinite(total) ? Math.max(0, Math.floor(total)) : 0;
-	if (n <= 0 || m <= 0 || n > m) return null;
-	return AWAIT_PERIOD_SLOW_S - (AWAIT_PERIOD_SLOW_S - AWAIT_PERIOD_FAST_S) * (n / m);
-}
-
 /** CSS 字符串字面量转义（用于属性选择器的加引号形式）：先反斜杠后引号，再处理 CSS 字符串
  *  不允许的换行/回车/换页（码位转义）与 NUL（替换字符），顺序不可颠倒。 */
 export function escapeCssString(value) {

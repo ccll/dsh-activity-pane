@@ -1156,19 +1156,6 @@ function countBadgeState(listState, waiting, total, blocked = 0) {
 	};
 }
 
-// 脉冲周期端点：全部活动主会话处于等待行动时达到最快上限（R-01-002/AC-07）；单个等待起步时最慢。
-const AWAIT_PERIOD_FAST_S = 0.5;
-const AWAIT_PERIOD_SLOW_S = 1.6;
-
-/** 等待行动占比 → 徽标脉冲周期（秒）：随 r=n/m 单调加快、两端封闭——全部活动主会话
- *  等待行动取 AWAIT_PERIOD_FAST_S 上限频率；无等待行动或非法输入返回 null 表示不脉冲。 */
-function awaitPulsePeriod(waiting, total) {
-	const n = Number.isFinite(waiting) ? Math.max(0, Math.floor(waiting)) : 0;
-	const m = Number.isFinite(total) ? Math.max(0, Math.floor(total)) : 0;
-	if (n <= 0 || m <= 0 || n > m) return null;
-	return AWAIT_PERIOD_SLOW_S - (AWAIT_PERIOD_SLOW_S - AWAIT_PERIOD_FAST_S) * (n / m);
-}
-
 /** CSS 字符串字面量转义（用于属性选择器的加引号形式）：先反斜杠后引号，再处理 CSS 字符串
  *  不允许的换行/回车/换页（码位转义）与 NUL（替换字符），顺序不可颠倒。 */
 function escapeCssString(value) {
@@ -2133,12 +2120,12 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-count[data-awaiting] {
   /* 底色/透明度与等待卡完全一致、无描边与外环（R-01-002/AC-06）；脉冲走亮度呼吸而非整体
-     不透明度——半透明会让底色透进列头背景；周期由 --dap-await-period 驱动（AC-07）。
+     不透明度——半透明会让底色透进列头背景；固定 1.2s 并与等待卡末行同步（AC-07、C-065）。
      任一等待行动即脉冲：三类等待行动行为一致（C-037）。
      底色跟随等待构成（C-040、C-043）：默认金（阻塞在即），tone=done 取完成提醒同款暗绿、
      tone=error 取错误提醒同款暗红（错误 > 阻塞 > 完成 优先级）。 */
   background: rgba(46, 42, 26, 0.97);
-  animation: dap-await-pulse var(--dap-await-period, 1.6s) ease-in-out infinite;
+  animation: dap-await-pulse 1.2s ease-in-out infinite;
 }
 [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="done"],
 [data-dsh-activity-pane] .dap-rail-count[data-awaiting][data-tone="done"],
@@ -2269,7 +2256,7 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-rail-count[data-awaiting] {
   background: rgba(46, 42, 26, 0.97);
-  animation: dap-await-pulse var(--dap-await-period, 1.6s) ease-in-out infinite;
+  animation: dap-await-pulse 1.2s ease-in-out infinite;
 }
 /* 桌面拖拽调宽手柄（R-01-015）：右缘 6px 命中区，拖拽实时写入 --dap-width；
    折叠窄条与移动端抽屉不提供拖拽（下方两处媒体查询隐藏）。 */
@@ -2466,10 +2453,9 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-capsule-icon:empty { display: none; }
 [data-dsh-activity-pane] .dap-capsule-icon svg { display: block; width: 12px; height: 12px; }
-/* 等待三类的末行脉冲（R-01-002/AC-08，C-043）：闪烁载体为卡片末行——类型胶囊与正文
-   文字同频同相闪烁（三类一致）；「移入历史」按钮不闪。骨架挂载与 kind 重建路径下各元素
-   天然同帧起步；原地跨类转换的相位对齐由渲染层在 data-wait 变化时同步重启（见 syncCards），
-   标题状态点三类均静止。 */
+/* 等待三类的末行脉冲（R-01-002/AC-07、AC-08，C-043、C-065）：闪烁载体为卡片末行——
+   类型胶囊与正文固定以 1.2s 同频同相闪烁；「移入历史」按钮不闪。等待队列变化时渲染层
+   将全部末行元素与三处数量胶囊统一重启对相；标题状态点三类均静止。 */
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"] .dap-foot :is(.dap-capsule, .dap-note) {
   animation: dap-pulse 1.2s ease-in-out infinite;
 }
@@ -2782,7 +2768,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 .dap-toggle[data-awaiting] .dap-toggle-count {
   background: rgba(46, 42, 26, 0.97);
-  animation: dap-await-pulse var(--dap-await-period, 1.6s) ease-in-out infinite;
+  animation: dap-await-pulse 1.2s ease-in-out infinite;
 }
 /* 移动端抽屉透明遮罩：抽屉打开时铺满视口、点击收起抽屉（R-01-008/AC-03）。
    完全透明不占布局；z-index 介于主会话与抽屉（2147482990）之间；抽屉打开期间
@@ -3023,6 +3009,8 @@ function apply(ctx) {
 	let clockTimer = null;
 	let syncScheduled = false;
 	let lastSig = "";
+	/** 等待条目 id/类别队列签名：变化时统一重启数量胶囊与等待卡末行动画对相（R-01-002/AC-07、AC-08）。 */
+	let pulseSignature = "";
 	// E2E-only deterministic seams（T-089/T-090）：显式 URL fragment 最多把本页首次列表 ready 呈现
 	// 或正式 models RPC 延后 1s；默认路径为 0，不伪造服务响应、快照或生产时序。
 	const e2eParams = new URLSearchParams(window.location.hash.slice(1));
@@ -3299,14 +3287,14 @@ function apply(ctx) {
 		return response?.result?.ok === true ? response.result.value : null;
 	}
 
-	/** 徽标等待脉冲周期写入：period 为 null 时移除自定义属性（回落 CSS 缺省）；值未变不写。 */
-	function setAwaitPulsePeriod(el, period) {
-		if (period === null) {
-			if (el.style.getPropertyValue("--dap-await-period") !== "") el.style.removeProperty("--dap-await-period");
-			return;
-		}
-		const next = `${period.toFixed(3)}s`;
-		if (el.style.getPropertyValue("--dap-await-period") !== next) el.style.setProperty("--dap-await-period", next);
+	/** 同帧重启等待提醒动画：数量胶囊保持亮度呼吸，卡片末行保持 opacity 脉冲，
+	 *  只统一周期起点，不改变各自视觉载体（R-01-002/AC-07、AC-08，C-065）。 */
+	function syncAwaitPulse(nodes) {
+		const activeNodes = [...new Set(nodes)].filter((node) => node?.isConnected);
+		if (activeNodes.length === 0) return;
+		for (const node of activeNodes) node.style.animation = "none";
+		void activeNodes[0].offsetWidth;
+		for (const node of activeNodes) node.style.animation = "";
 	}
 
 	/** 模型目录订阅（R-01-012/AC-16，C-024）：订阅原生 modelDirectories 服务的
@@ -3474,6 +3462,7 @@ function apply(ctx) {
 		pane.setAttribute("data-open", open ? "true" : "false");
 		backdrop.toggleAttribute("data-drawer-open", open);
 		toggle.toggleAttribute("data-drawer-open", open);
+		queueSync();
 	}
 	function notifyLayoutChange() {
 		try {
@@ -3495,6 +3484,7 @@ function apply(ctx) {
 			}
 			collapsed = true;
 			pane.setAttribute("data-collapsed", "true");
+			queueSync();
 			notifyLayoutChange();
 		};
 		// Enter/Space 键盘激活与 click 同路径（R-01-011/AC-03、R-01-008/AC-02）。
@@ -3510,6 +3500,7 @@ function apply(ctx) {
 		const onRailClick = () => {
 			collapsed = false;
 			pane.setAttribute("data-collapsed", "false");
+			queueSync();
 			notifyLayoutChange();
 			// 折叠期间 display:none 可能令 scrollTop 归零而不派发 scroll 事件，展开时同步一次。
 			syncTopBtn();
@@ -4560,23 +4551,9 @@ function apply(ctx) {
 		// 等待三类（R-01-002/AC-08、AC-13，C-043）：blocked=阻塞等待（金色卡面、胶囊+正文闪烁），
 		// done=完成提醒（绿色成功卡面、胶囊+正文闪烁、按钮不闪），error=错误提醒（红色卡面、
 		// 胶囊+正文闪烁、无按钮）。
-		const prevWait = rec.el.getAttribute("data-wait");
 		if (entry.waitClass === "blocked" || entry.waitClass === "done" || entry.waitClass === "error")
 			rec.el.setAttribute("data-wait", entry.waitClass);
 		else rec.el.removeAttribute("data-wait");
-		if (
-			(entry.waitClass === "blocked" || entry.waitClass === "done" || entry.waitClass === "error") &&
-			prevWait !== null && prevWait !== "" && prevWait !== entry.waitClass
-		) {
-			// 原地跨类转换（done↔blocked↔error）：卡片骨架按 id 复用不重建，胶囊与正文的
-			// 动画不会自行归零而类型图标经 replaceChildren 会重新起步——一并重启对齐相位，
-			// 同频同相不漂移（R-01-002/AC-08；骨架挂载/kind 重建路径天然同帧无需处理）。
-			for (const node of rec.el.querySelectorAll(".dap-foot .dap-capsule, .dap-foot .dap-note")) {
-				node.style.animation = "none";
-				void node.offsetWidth;
-				node.style.animation = "";
-			}
-		}
 		rec.el.setAttribute(
 			"aria-label",
 			`${entry.workspaceTitle ? entry.workspaceTitle + " - " : ""}${entry.title}${
@@ -4769,6 +4746,7 @@ function apply(ctx) {
 		if (pane !== renderedPane) {
 			renderedPane = pane;
 			lastSig = "";
+			pulseSignature = "";
 			prevRenderedActiveIds = new Set();
 			prevRenderedRecentIds = new Set();
 			// 旧窗格已脱离文档：其在飞平移的 transitionend 不再触发，逐元素取消避免残留。
@@ -4952,9 +4930,13 @@ function apply(ctx) {
 		cancelStaleOpenRetries({ currentId: snapshot?.current ?? null, activatedId: lastActivatedId });
 
 		const visibleEntries = [...active, ...recent];
+		const pulseSurface = desktopQuery.matches
+			? collapsed ? "rail" : "header"
+			: pane.getAttribute("data-open") === "true" ? "drawer" : "toggle";
 		// listState 参与签名：空列表从 pending/error → ready 时卡集合不变，若只比较卡片
-		// 会被提前返回冻结在「加载中」/「列表加载失败」；状态转换同样是可观察渲染输入。
-		const sig = JSON.stringify([listState, cardSignature(visibleEntries)]);
+		// 会被提前返回冻结在「加载中」/「列表加载失败」；数量胶囊可见面变化同样需要
+		// 进入渲染，以便与当前可见等待卡末行重新对相（R-01-002/AC-07）。
+		const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface]);
 		if (sig === lastSig) return;
 		const hueByWorkspace = resolveWorkspaceHues(visibleEntries.map((entry) => entry.workspaceKey));
 		// 跨区迁移（双向，R-01-010/AC-07）：DOM 写入前量取旧卡矩形并克隆 ghost。
@@ -5028,7 +5010,6 @@ function apply(ctx) {
 		const railCount = pane.querySelector(".dap-rail-count");
 		const { waiting, blocked, total } = awaitBadgeStats(active);
 		const badge = countBadgeState(listState, waiting, total, blocked);
-		const awaitPeriod = badge.awaiting ? awaitPulsePeriod(waiting, total) : null;
 		const badgeTone = awaitBadgeTone(active);
 		for (const el of [count, railCount])
 			if (el !== null) {
@@ -5037,7 +5018,6 @@ function apply(ctx) {
 				if (badge.awaiting && badgeTone !== null) el.setAttribute("data-tone", badgeTone);
 				else el.removeAttribute("data-tone");
 				if (el.getAttribute("aria-label") !== badge.ariaText) el.setAttribute("aria-label", badge.ariaText);
-				setAwaitPulsePeriod(el, awaitPeriod);
 			}
 		const toggleCount = toggle.querySelector(".dap-toggle-count");
 		if (toggleCount !== null) {
@@ -5045,7 +5025,21 @@ function apply(ctx) {
 			toggle.toggleAttribute("data-awaiting", badge.awaiting);
 			if (badge.awaiting && badgeTone !== null) toggle.setAttribute("data-tone", badgeTone);
 			else toggle.removeAttribute("data-tone");
-			setAwaitPulsePeriod(toggleCount, awaitPeriod);
+		}
+		const nextPulseSignature = JSON.stringify([
+			pulseSurface,
+			active
+				.filter((entry) => entry.kind === "awaiting")
+				.map((entry) => `${entry.id}:${entry.waitClass ?? ""}`)
+				.sort(),
+		]);
+		if (pulseSignature !== nextPulseSignature) {
+			syncAwaitPulse([
+				count,
+				railCount,
+				toggleCount,
+				...pane.querySelectorAll('.dap-card[data-kind="awaiting"] .dap-foot :is(.dap-capsule, .dap-note)'),
+			]);
 		}
 		pane.toggleAttribute("data-collapsed", collapsed);
 		const headerExpanded = collapsed ? "false" : "true";
@@ -5056,6 +5050,7 @@ function apply(ctx) {
 		// 同步重试的机会，避免故障被签名吞掉后卡片永久滞留（R-01-013/AC-02）。
 		if (renderOk) {
 			lastSig = sig;
+			pulseSignature = nextPulseSignature;
 			prevRenderedActiveIds = new Set(active.map((entry) => String(entry.id)));
 			prevRenderedRecentIds = new Set(recent.map((entry) => String(entry.id)));
 		}

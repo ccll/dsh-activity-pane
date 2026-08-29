@@ -43,10 +43,12 @@ export default async function longList({ page, url, assert }) {
 	for (let n = 1; n < SESSION_COUNT; n += 1) {
 		await newSessionWithMessage(page, title(n));
 	}
-	await until("10 张卡片全部进入活动区", async () => {
+	// 创建为逐条 UI 自动化，全套件并发下典型耗时 19~20s；宿主高负载时会超过 30s。
+	// 断言语义只要求全部卡片最终进入活动区（R-01-004/AC-01），不锚定创建时长。
+	await until(`${SESSION_COUNT} 张卡片全部进入活动区`, async () => {
 		const count = await page.locator("[data-dsh-activity-pane]").getByText("探针", { exact: false }).count();
 		return count >= SESSION_COUNT ? true : null;
-	}, 30_000);
+	}, 60_000);
 
 	// R-01-004/AC-01：列表超高时最早卡片（排序在底部）初始不可见，窗格内滚动后可见（全部卡片可达）。
 	await until("底卡初始不可见（列表超高）", async () => {

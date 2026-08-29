@@ -41,7 +41,7 @@ id: T-102
 | R-01-002 | 完成/阻塞/错误等待卡结构与提醒语义保持不变 | UNIT/E2E | regression | awaiting 骨架只在胶囊同行增加右置耗时，不改变胶囊、正文、按钮与脉冲 |
 | R-01-016 | 等待卡时间线仍保留 | E2E | regression | 既有生命周期与 auto-update 等待卡时间线断言继续通过 |
 | DESIGN | 等待卡耗时同行右置与 native 回合边界来源 | UNIT/E2E | update | `scripts/check.mjs#R-01-009/AC-12`、三类等待卡 browser 断言覆盖设计落点 |
-| 恢复 | 页面刷新后的等待卡仍能从 native 数据恢复耗时 | E2E | add | error reminder 刷新断言同时检查固定耗时 |
+| 恢复 | 页面刷新后的完成/阻塞/错误等待卡仍能从 native 数据恢复耗时 | E2E | add | session-lifecycle、auto-update、error-reminder 刷新断言同时检查固定耗时 |
 
 ## 验证矩阵
 
@@ -51,7 +51,7 @@ id: T-102
 | 异常 | 适用：缺失起点、缺失终点、负时长与非法 history 不显示虚假耗时；阻塞首回合没有上一轮时为空 | `package.json::check`、`scripts/check.mjs#R-01-009/AC-12`、`package.json::test:e2e`、`e2e/specs/auto-update.mjs#R-01-009/AC-12` |
 | 边界配置 | 适用：运行卡仍实时增长，等待卡冻结；零时长合法显示 `0s` | `package.json::check`、`scripts/check.mjs#R-01-009/AC-12`、`package.json::test:e2e`、`e2e/specs/session-lifecycle.mjs#R-01-009/AC-12` |
 | 副作用 | 适用：等待卡不显示进度条、统计左列或确认按钮语义不变，最近历史卡不新增耗时 | `package.json::check`、`scripts/check.mjs#R-01-009/AC-12`、`package.json::test:e2e`、`e2e/specs/auto-update.mjs#R-01-009/AC-12` |
-| 恢复 | 适用：刷新/重连后的错误提醒仍显示相同耗时 | `package.json::test:e2e`、`e2e/specs/error-reminder.mjs#R-01-009/AC-12` |
+| 恢复 | 适用：刷新/重连后的完成、阻塞与错误提醒仍显示相同耗时 | `package.json::test:e2e`、`e2e/specs/session-lifecycle.mjs#R-01-009/AC-12`、`e2e/specs/auto-update.mjs#R-01-009/AC-12`、`e2e/specs/error-reminder.mjs#R-01-009/AC-12` |
 
 ## 测试计划
 

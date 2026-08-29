@@ -223,6 +223,15 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 		completedElapsed.text,
 		"完成提醒等待期间耗时保持冻结，不把等待时间计入（R-01-009/AC-12）",
 	);
+	await openApp(page, url);
+	const refreshedCompletedElapsed = await until("刷新后恢复完成提醒耗时", () =>
+		page.evaluate((title) => {
+			const card = [...(document.querySelector("[data-dsh-activity-pane]")?.querySelectorAll('[role="button"]') ?? [])]
+				.find((candidate) => candidate.innerText.includes(title));
+			return card?.querySelector(".dap-await-head .dap-token-time")?.textContent || null;
+		}, TITLE),
+	);
+	assert.equal(refreshedCompletedElapsed, completedElapsed.text, "完成提醒刷新后仍保留同一轮耗时（R-01-009/AC-12）");
 
 	// R-01-002/AC-10：激活确认按钮不触发会话跳转；R-01-010/AC-01、AC-02：
 	// 确认后条目离开活动区、进入历史区。

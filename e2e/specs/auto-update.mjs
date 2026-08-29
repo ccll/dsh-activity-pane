@@ -227,6 +227,11 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 		blockedElapsed.text,
 		"阻塞等待期间耗时保持冻结，不把等待时间计入（R-01-009/AC-12）",
 	);
+	await openApp(page, url);
+	const refreshedBlockedElapsed = await until("刷新后恢复阻塞等待耗时", () =>
+		runtimeCard.locator(".dap-token-time").textContent().then((text) => (text ?? "").trim() || null),
+	);
+	assert.equal(refreshedBlockedElapsed, blockedElapsed.text, "阻塞等待刷新后仍保留同一轮耗时（R-01-009/AC-12）");
 	await page.getByText("确认继续执行").click();
 	await page.getByRole("button", { name: "Submit", exact: true }).click();
 	const earlyChunk = await until("时间线出现早期流式正文", async () => {

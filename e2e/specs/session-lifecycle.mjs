@@ -28,6 +28,49 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 	const duringRun = await paneRegions(page);
 	assert.ok(!duringRun.active.includes("已完成"), "流式期间不呈现「已完成」");
 
+	// R-01-009/AC-06：百分比与进度条同行并紧跟其右侧，标题行不再承载百分比。
+	const progressGeometry = await until("运行卡进度行就绪", () =>
+		page.evaluate((title) => {
+			const pane = document.querySelector("[data-dsh-activity-pane]");
+			const card = [...(pane?.querySelectorAll('[role="button"]') ?? [])].find((candidate) => candidate.innerText.includes(title));
+			const progress = card?.querySelector(".dap-progress");
+			const track = card?.querySelector(".dap-track");
+			const pct = card?.querySelector(".dap-pct");
+			const titleRow = card?.querySelector(".dap-row");
+			if (!progress || !track || !pct || !titleRow) return null;
+			const progressRect = progress.getBoundingClientRect();
+			const trackRect = track.getBoundingClientRect();
+			const pctRect = pct.getBoundingClientRect();
+			const originalText = pct.textContent;
+			pct.textContent = "9%";
+			const widthAtOneDigit = pct.getBoundingClientRect().width;
+			pct.textContent = "100%";
+			const widthAtThreeDigits = pct.getBoundingClientRect().width;
+			pct.textContent = originalText;
+			return {
+				progressTop: progressRect.top,
+				progressBottom: progressRect.bottom,
+				trackRight: trackRect.right,
+				pctLeft: pctRect.left,
+				pctTop: pctRect.top,
+				pctBottom: pctRect.bottom,
+				widthAtOneDigit,
+				widthAtThreeDigits,
+				titleContainsPct: titleRow.contains(pct),
+			};
+		}, TITLE),
+	);
+	assert.ok(progressGeometry.pctLeft >= progressGeometry.trackRight, "百分比位于进度条右侧（R-01-009/AC-06）");
+	assert.ok(
+		progressGeometry.pctTop < progressGeometry.progressBottom && progressGeometry.pctBottom > progressGeometry.progressTop,
+		"百分比与进度条位于同一进度行（R-01-009/AC-06）",
+	);
+	assert.equal(progressGeometry.titleContainsPct, false, "标题行不再承载进度百分比（R-01-009/AC-06）");
+	assert.ok(
+		Math.abs(progressGeometry.widthAtOneDigit - progressGeometry.widthAtThreeDigits) <= 0.5,
+		"百分比从 9% 变化到 100% 时保持固定宽度，进度条右端不跳动（R-01-009/AC-06）",
+	);
+
 	// R-01-009/AC-09：真实浏览器裁决时间线点整体小于标题点，且与竖线同圆心；
 	// running 节点继续以光晕和脉冲表达当前活动。
 	const dotGeometry = await until("运行卡时间线圆点几何就绪", () =>

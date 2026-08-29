@@ -2552,8 +2552,12 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   background: color-mix(in srgb, currentColor 14%, transparent);
 }
 /* 运行卡富化（对齐 answer-pet 卡片；MIT 参考，见 README）。 */
+[data-dsh-activity-pane] .dap-progress {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+}
+[data-dsh-activity-pane] .dap-progress .dap-track { flex: 1 1 auto; min-width: 0; }
 [data-dsh-activity-pane] .dap-pct {
-  flex: none; font-size: 12px; line-height: 15px; font-weight: 700;
+  flex: none; width: 4ch; font-size: 12px; line-height: 15px; font-weight: 700;
   color: #9fe8c4; font-variant-numeric: tabular-nums;
 }
 [data-dsh-activity-pane] .dap-token-stats {
@@ -3706,16 +3710,17 @@ function apply(ctx) {
 			foot.append(capsule, noteRow);
 			return [head, row, makeEl("div", "dap-trace"), foot];
 		}
-		// 运行卡：上下文 + 标题 + 最近工作项 + 进度条 + token 底行。
 		const row = makeEl("div", "dap-row");
-		row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-pct"));
+		row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
 		const track = makeEl("div", "dap-track");
 		track.append(makeEl("div", "dap-fill"));
+		const progressRow = makeEl("div", "dap-progress");
+		progressRow.append(track, makeEl("span", "dap-pct"));
 		// 统计行双段结构：左列 token/速率/命中率（超长省略号截断），时长固定最右（R-01-009/AC-05）。
 		const statsRow = makeEl("div", "dap-token-stats");
 		statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"));
 		statsRow.hidden = true;
-		return [head, row, makeEl("div", "dap-trace"), track, statsRow];
+		return [head, row, makeEl("div", "dap-trace"), progressRow, statsRow];
 	}
 
 	function createInlineIcon({ viewBox, width = 12, height = 12, parts }) {

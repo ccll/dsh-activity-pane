@@ -36,16 +36,25 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 			const progress = card?.querySelector(".dap-progress");
 			const track = card?.querySelector(".dap-track");
 			const pct = card?.querySelector(".dap-pct");
+			const elapsed = card?.querySelector(".dap-token-time");
 			const titleRow = card?.querySelector(".dap-row");
-			if (!progress || !track || !pct || !titleRow) return null;
+			if (!progress || !track || !pct || !elapsed?.textContent || !titleRow) return null;
+			const textRight = (element) => {
+				const range = document.createRange();
+				range.selectNodeContents(element);
+				return range.getBoundingClientRect().right;
+			};
 			const progressRect = progress.getBoundingClientRect();
 			const trackRect = track.getBoundingClientRect();
 			const pctRect = pct.getBoundingClientRect();
+			const elapsedTextRight = textRight(elapsed);
 			const originalText = pct.textContent;
 			pct.textContent = "9%";
 			const widthAtOneDigit = pct.getBoundingClientRect().width;
+			const textRightAtOneDigit = textRight(pct);
 			pct.textContent = "100%";
 			const widthAtThreeDigits = pct.getBoundingClientRect().width;
+			const textRightAtThreeDigits = textRight(pct);
 			pct.textContent = originalText;
 			return {
 				progressTop: progressRect.top,
@@ -56,6 +65,9 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 				pctBottom: pctRect.bottom,
 				widthAtOneDigit,
 				widthAtThreeDigits,
+				textRightAtOneDigit,
+				textRightAtThreeDigits,
+				elapsedTextRight,
 				titleContainsPct: titleRow.contains(pct),
 			};
 		}, TITLE),
@@ -69,6 +81,11 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 	assert.ok(
 		Math.abs(progressGeometry.widthAtOneDigit - progressGeometry.widthAtThreeDigits) <= 0.5,
 		"百分比从 9% 变化到 100% 时保持固定宽度，进度条右端不跳动（R-01-009/AC-06）",
+	);
+	assert.ok(
+		Math.abs(progressGeometry.textRightAtOneDigit - progressGeometry.elapsedTextRight) <= 0.5 &&
+			Math.abs(progressGeometry.textRightAtThreeDigits - progressGeometry.elapsedTextRight) <= 0.5,
+		"百分比在固定占位内右对齐，9% 与 100% 的文字右缘均和下一行耗时右缘对齐（R-01-009/AC-06）",
 	);
 
 	// R-01-009/AC-09：真实浏览器裁决时间线点整体小于标题点，且与竖线同圆心；

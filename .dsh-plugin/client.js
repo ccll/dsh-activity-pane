@@ -2540,7 +2540,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 [data-dsh-activity-pane] .dap-progress .dap-track { flex: 1 1 auto; min-width: 0; }
 [data-dsh-activity-pane] .dap-pct {
-  flex: none; width: 4ch; font-size: 12px; line-height: 15px; font-weight: 700;
+  flex: none; width: 5ch; font-size: 12px; line-height: 15px; font-weight: 700; text-align: right;
   color: #9fe8c4; font-variant-numeric: tabular-nums;
 }
 [data-dsh-activity-pane] .dap-token-stats {

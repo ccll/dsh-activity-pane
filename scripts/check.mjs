@@ -369,10 +369,10 @@ assert.equal(
 	false,
 	"空目标 id 不误判收起",
 );
-// ---- R-01-002/AC-01 待确认 ｜ R-01-002/AC-02 待审查/提问 ----
+// ---- R-01-002/AC-01 待确认 ｜ R-01-002/AC-02 待审查/提问中 ----
 assert.equal(pendingText("approval"), "待确认");
 assert.equal(pendingText("plan-review"), "待审查");
-assert.equal(pendingText("question"), "提问");
+assert.equal(pendingText("question"), "提问中");
 assert.equal(pendingText("approval"), "待确认");
 
 // ---- R-01-002/AC-03 完成提醒以绿色成功卡面呈现（C-040） ----
@@ -792,7 +792,7 @@ const questionPreview = {
 const questionEntries = buildEntries(questionSnap, [], {
 	sQ: { timeline: [{ fold: true, label: "正在运行", summary: "等待回答", question: questionPreview }] },
 });
-assert.equal(questionEntries[0].pendingText, "提问");
+assert.equal(questionEntries[0].pendingText, "提问中");
 assert.equal(questionEntries[0].pendingKind, "question");
 assert.equal(questionEntries[0].noteText, "等待你回答问题后继续", "提问列表由 questionPreview 单独承载，noteText 保留回落文案");
 assert.deepEqual(questionEntries[0].questionPreview, questionPreview, "待回复条目携带结构化提问列表");

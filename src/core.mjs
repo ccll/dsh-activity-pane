@@ -18,7 +18,7 @@
 const PENDING_LABELS = {
 	approval: "待确认",
 	"plan-review": "待审查",
-	question: "提问",
+	question: "提问中",
 };
 
 /** 阻塞等待备注行动作说明（R-01-002/AC-09）：说明等待的具体动作与「不答就无法继续」的后果。 */

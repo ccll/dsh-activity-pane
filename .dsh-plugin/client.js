@@ -24,7 +24,7 @@ window.__ModuleLoader__.load({
 const PENDING_LABELS = {
 	approval: "待确认",
 	"plan-review": "待审查",
-	question: "提问",
+	question: "提问中",
 };
 
 /** 阻塞等待备注行动作说明（R-01-002/AC-09）：说明等待的具体动作与「不答就无法继续」的后果。 */
@@ -4145,7 +4145,7 @@ function apply(ctx) {
 			migrateAwaitingFoot(el);
 		}
 		if (capsule !== null || entry.kind === "awaiting") {
-			// 胶囊文字：blocked=待确认/待审查/提问（pendingText），done=「已完成」，error=「错误」。
+			// 胶囊文字：blocked=待确认/待审查/提问中（pendingText），done=「已完成」，error=「错误」。
 			const capsuleText = el.querySelector(".dap-capsule-text");
 			const text =
 				entry.waitClass === "blocked"

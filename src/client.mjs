@@ -2113,7 +2113,7 @@ function apply(ctx) {
 			migrateAwaitingFoot(el);
 		}
 		if (capsule !== null || entry.kind === "awaiting") {
-			// 胶囊文字：blocked=待确认/待审查/提问（pendingText），done=「已完成」，error=「错误」。
+			// 胶囊文字：blocked=待确认/待审查/提问中（pendingText），done=「已完成」，error=「错误」。
 			const capsuleText = el.querySelector(".dap-capsule-text");
 			const text =
 				entry.waitClass === "blocked"

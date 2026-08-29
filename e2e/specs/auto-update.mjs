@@ -183,8 +183,8 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	});
 	assert.deepEqual(
 		singleQuestionList,
-		{ capsule: "提问", tag: "UL", items: ["E2E 探针问题：是否继续？"] },
-		"单问题待回复卡使用「提问」胶囊与 ul/li bullet list（R-01-002/AC-02、R-01-002/AC-09）",
+		{ capsule: "提问中", tag: "UL", items: ["E2E 探针问题：是否继续？"] },
+		"单问题待回复卡使用「提问中」胶囊与 ul/li bullet list（R-01-002/AC-02、R-01-002/AC-09）",
 	);
 	const blockedBadge = await until("阻塞等待徽标就绪", async () => {
 		const value = await badgeSnapshot(page, "header");
@@ -238,11 +238,11 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	assert.deepEqual(
 		multiQuestionList,
 		{
-			capsule: "提问",
+			capsule: "提问中",
 			tag: "OL",
 			items: [{ value: 1, text: "E2E 多问第一题？" }, { value: 2, text: "E2E 多问第二题？" }],
 		},
-		"多问题待回复卡使用「提问」胶囊与 ol/li 编号列表（R-01-002/AC-02、R-01-002/AC-09）",
+		"多问题待回复卡使用「提问中」胶囊与 ol/li 编号列表（R-01-002/AC-02、R-01-002/AC-09）",
 	);
 
 	// R-02-002/AC-02：加载、运行、等待、切换全程控制台无插件报错、无未捕获异常

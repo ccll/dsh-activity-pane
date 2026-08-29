@@ -6,7 +6,7 @@ id: T-101
 
 # T-101 提问等待胶囊文字改为「提问中」
 
-状态: active
+状态: completed
 关联: R-01-002/AC-02 → 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -58,4 +58,15 @@ id: T-101
 
 ## 终态与证据
 
-状态: active
+状态: completed
+
+- 实现: `src/core.mjs` 的 `PENDING_LABELS.question` 由「提问」改为「提问中」，胶囊文字继续由核心单点归一；`src/client.mjs` 胶囊文字注释同步；`.dsh-plugin/client.js` 已重建。回滚边界为本任务涉及的 R-01-002 文档与胶囊文字证据，不包含时间线 ask 工具行标签、等待结构与其他胶囊。
+- 测试: 测试先行确认旧实现在 `scripts/check.mjs` 的 `pendingText("question")` 断言处按预期失败；`pnpm verify:fast` 通过（agentmap lint 128/128、test impact ~R-01-002/AC-02、check 全绿）；focused `node e2e/run.mjs auto-update` 1/1 通过；`pnpm verify` 12/12 通过（132.1s），真实浏览器断言单问/多问待回复卡胶囊「提问中」；`git diff --check` 干净。运行边界为隔离 `$DSH_HOME` + mock LLM 的 `e2e:runtime` 单问与 `e2e:multiask` 多问剧本。
+- DESIGN 对照: PRD R-01-002/AC-02、DOMAIN 阻塞等待、DESIGN 等待三类呈现的胶囊文字已与实现一致；时间线 ask_user_question「提问」标签（非胶囊）与待确认/待审查/完成/错误胶囊按非目标保持不变。
+- commit: 65e9cc4
+- review:
+  - 审核方: Standards reviewer `4e98efd3-e903-4397-8a11-8e21b1c8a182`；Spec reviewer `b201d30b-a520-46e8-94dc-ca9472847dc3`。
+  - 目的理解: 将阻塞等待 question 种类胶囊文字由「提问」改为「提问中」，同步 PRD/DESIGN/DOMAIN 与 unit/E2E/manual 锚点；时间线 ask 工具行标签与其它胶囊刻意不改。
+  - 执行方式: `code-review` skill，以 HEAD `1bf1e97` 为固定基线审核当前工作树（`git diff HEAD`）；Standards/Spec 双轴独立并行。
+  - 问题与修复: Standards 轴无 finding；Spec 轴报告工作树整体 diff 含无关的 README/截图改动，经确认系基线前即存在的未提交工作、非本任务引入，执行 agent 以提交拆分为前提（本任务提交仅含任务文件，README/截图保持未提交另案处置）修复后由同一 Spec reviewer 复审通过。
+  - 复审结论: 双轴均通过，无保留 finding。

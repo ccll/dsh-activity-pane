@@ -6,7 +6,7 @@ id: T-097
 
 # T-097 提问胶囊与语义化问题列表
 
-状态: active
+状态: completed
 关联: R-01-002/AC-02、AC-09 → 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -60,12 +60,12 @@ id: T-097
 
 ## 终态与证据
 
-状态: active
+状态: completed
 
 - 实现: `src/core.mjs` 将待回复胶囊 canonical label 改为「提问」，`askQuestionsPreview` 改为 `{ items: [{ index, text }], omitted }` 结构化预览并经时间线/折叠组/awaiting 条目传递；`src/client.mjs` 在一个可展示问题时渲染 `ul/li`、多个时渲染 `ol/li` 并以 `li.value` 保留原始序号，省略项隐藏 marker，动态文字只经 `textContent` 写入；`.dsh-plugin/client.js` 已重建。回滚边界为本任务涉及的 R-01-002 文档、提问预览字段、列表渲染/CSS、multiask fixture 与对应验证证据，不包含 T-096 的进度行改动。
 - 测试: 测试先行确认旧实现在 `pendingText("question")` 断言处按预期失败；`pnpm build:client && pnpm check` 通过；focused `node e2e/run.mjs auto-update` 1/1 通过（15.460s），真实浏览器验证单问 `UL` 与多问 `OL`；`pnpm verify` 12/12 通过（133.221s）；最终重建 bundle 后 `pnpm verify:fast` 通过；`git diff --check` 干净。运行边界为隔离 `$DSH_HOME` + mock LLM 的 `e2e:runtime` 单问与 `e2e:multiask` 多问剧本。
 - DESIGN 对照: PRD R-01-002/AC-02、AC-09、DOMAIN 阻塞等待、DESIGN 核心结构/等待三类呈现/稳定签名已与实现一致；DECISIONS 追加 C-064，保留 C-041/C-043 历史。
-- commit: 待提交。
+- commit: f14b732
 - review:
   - 审核方: Standards reviewer `cdd16834-c1c1-4849-8cda-3f424867e3c2`；Spec reviewer `509ed56c-f5a1-45e9-83ff-934409c1d54b`。
   - 目的理解: 将待回复胶囊「问题」改为「提问」，并把 Q 前缀纯文本改为原生 `ul/ol/li`；保留正文/header 回落、物理首行、尾冒号剥除、最多 3 条、原始序号、等待视觉/解除语义与动态内容安全。

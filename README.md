@@ -1,41 +1,43 @@
 # dsh-activity-pane
 
-DSH (DeepSeek Harness) 一大痛点是缺少活动会话与历史会话的管理，重度用户在同时运行跨越多个工作区的多个会话时，无法一目了然的掌控全局，尤其当 DSH 原生左边栏工作区的会话积累过多之后，活动会话的信息过于分散，无法解答以下问题：
-- 现在有多少个会话在并行跑？
-- 哪些会话启动了子代理甚至孙代理会话？它们有多少？
-- 每个会话现在正在做什么？它们的进度如何？跑了多长时间？
-- 每个会话使用什么模型？什么推理级别？输出速率、缓存命中率和 token 使用情况如何？
-- 哪些会话的 agent 轮次最近刚结束，需要我行动？
-- 过去一段时间我在哪些会话里交互过？最近的指令与结论是什么？
+English | [简体中文](README.zh-CN.md)
+
+One of the pain points of DSH (DeepSeek Harness) is the lack of management for active and historical sessions. Heavy users who run multiple sessions across multiple workspaces at the same time have no way to take in the whole picture at a glance. In particular, once sessions pile up in DSH's native left-sidebar workspaces, the information about active sessions becomes so scattered that it can no longer answer questions like:
+- How many sessions are running in parallel right now?
+- Which sessions have spawned sub-agents or even grandchild sub-agents, and how many are there?
+- What is each session doing right now? What is its progress? How long has it been running?
+- Which model and reasoning level does each session use? What are its output rate, cache hit rate, and token usage?
+- Which sessions have just finished an agent round and are waiting for my action?
+- Which sessions have I interacted with recently? What were the latest instructions and conclusions?
 - ...
 
-本插件试图解决这些问题，提供了一个**活动会话总览窗格**：将正在运行的会话、子会话、轮次完成后等待行动的会话、近期活跃过的历史会话，集中在一个窗格内进行整体展示。
+This plugin attempts to answer these questions by providing an **activity session overview pane**: running sessions, sub-sessions, sessions waiting for action after finishing a round, and recently active past sessions are brought together and presented as a whole in a single pane.
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/screenshot-desktop-dark.png">
-    <img src="assets/screenshot-desktop-light.png" width="1000" alt="隔离演示环境中的活动会话总览窗格：展示运行统计、子代理层级、提问等待、完成提醒、错误提醒和最近历史">
+    <img src="assets/screenshot-desktop-light.png" width="1000" alt="Activity session overview pane in an isolated demo environment: showing run stats, sub-agent hierarchy, question prompts, completion reminders, error reminders, and recent history">
   </picture>
 </p>
-<p align="center"><sub>同一干净隔离环境中模拟编程任务的 <a href="assets/screenshot-mobile-dark.png">移动端深色抽屉</a> · <a href="assets/screenshot-mobile-light.png">移动端浅色抽屉</a></sub></p>
+<p align="center"><sub>Mobile <a href="assets/screenshot-mobile-dark.png">dark drawer</a> · <a href="assets/screenshot-mobile-light.png">light drawer</a> of the same clean isolated environment running a simulated coding task</sub></p>
 
-## 感谢与声明
+## Acknowledgments & Disclaimers
 
-- 本项目灵感来自 [`dsh-answer-pet`](https://github.com/Nanki-nn/dsh-answer-pet) 插件，借鉴了其中会话卡片的设计思路，并按自己的使用习惯与喜好做了调整与重新实现，感谢原作者的创意！
-- 折叠时间线的分组语义改编自 MIT 许可的 [`dsh-auto-collapse`](https://github.com/a179-sanae/dsh-auto-collapse) 插件（数据层移植，无运行时依赖），感谢原作者。
-- 时间线正文行与最近卡的 agent 角色机器人图标采用 ISC 许可的 [Lucide](https://lucide.dev) `bot` 图标几何，感谢 Lucide 贡献者。
-- 本项目代码与文档 99.99% 由 AI 编写与审核，大概率存在 bug 与文档/代码不同步等问题，使用中如遇到问题请提交 issue。
+- This project was inspired by the [`dsh-answer-pet`](https://github.com/Nanki-nn/dsh-answer-pet) plugin: it borrows the session-card design idea, adjusted and re-implemented to fit my own usage habits and preferences. Many thanks to the original author for the creativity!
+- The grouping semantics of the collapsed timeline are adapted from the MIT-licensed [`dsh-auto-collapse`](https://github.com/a179-sanae/dsh-auto-collapse) plugin (a data-layer port with no runtime dependency). Thanks to the original author.
+- The agent-role bot icons on the timeline body rows and recent cards adopt the geometry of the ISC-licensed [Lucide](https://lucide.dev) `bot` icon. Thanks to the Lucide contributors.
+- 99.99% of this project's code and documentation was written and reviewed by AI, so bugs and doc/code drift are quite likely. If you run into any problems, please open an issue.
 
-## 相比 dsh-answer-pet 的调整
+## Adjustments Compared to dsh-answer-pet
 
-- [x] **从浮层改为固定窗格**：桌面端在左边栏工作区的右侧增加常驻贴边列；移动端使用默认隐藏的固定抽屉，通过会话头部的「活动」按钮展开，不挤压主会话布局。
-- [x] **去除宠物图标功能**：不支持宠物相关功能，界面聚焦于会话活动本身。
-- [x] **原生数据源订阅**：直接订阅 DSH 原生 `sessions` / `workspaces` 服务的推送式快照；时间线最多显示 4 个折叠工作项行，保留最近用户指令与真实执行中的工作项。
-- [x] **增加历史会话列表**：窗格分为「活动会话」和「最近历史」两个区域，非活动主会话在最近 24 小时内仍可快速找回。
-- [x] **强化等待行动提醒**：阻塞等待、完成提醒与错误提醒分别以金色、绿色和红色卡片标识；提问直接预览问题列表，完成提醒经卡片上的「移入历史」按钮显式确认；状态由宿主侧持久化并在所有客户端间同步，刷新页面或另开窗口不会丢失未确认的完成提醒和尚未被新回合覆盖的错误提醒。
-- [x] **显示子/孙会话层级**：子代理以连接线和紧凑卡片嵌套在母会话下；母会话自身回合结束但仍有活动后代时继续按运行中呈现，子代理结束且没有活动后代后从活动区消失；历史区只保留主会话。
-- [x] **显示工作区名称并参与排序**：会话卡片显示带稳定色彩的工作区徽标，会话排序与左侧边栏中的工作区顺序保持一致。
-- [x] **展示当前工作与运行统计**：活动卡以最多 4 行折叠时间线展示最近指令、思考与工具调用；运行中卡片还显示回合进度、输出速率、缓存命中率、输入/输出 token 与运行时长。
-- [x] **加入会话导航跳转**：点击或键盘激活会话卡片可跳转到对应会话页面，当前会话保持高亮。
-- [x] **增加会话元信息**：会话卡片中显示当前使用的模型名称和推理级别。
-- [x] **完善桌面与移动交互**：桌面窗格可折叠、拖拽调宽并记忆宽度；移动端使用不挤压主会话布局的固定抽屉；长列表提供独立滚动与回到顶部按钮。
+- [x] **From floating overlay to docked pane**: on desktop, a persistent edge-docked column is added to the right of the left-sidebar workspaces; on mobile, a fixed drawer hidden by default is expanded via the "Activity" button in the session header, without squeezing the main conversation layout.
+- [x] **No pet icon features**: pet-related features are not supported; the UI focuses on session activity itself.
+- [x] **Native data-source subscription**: directly subscribes to the push snapshots of DSH's native `sessions` / `workspaces` services; the timeline shows at most 4 collapsed work-item rows, keeping the latest user instruction and the work item actually being executed.
+- [x] **Recent session list**: the pane is split into "Active sessions" and "Recent history" areas; main sessions that are inactive but were active within the last 24 hours can be quickly found again.
+- [x] **Stronger waiting-for-action reminders**: blocked waits, completion reminders, and error reminders are marked with gold, green, and red cards respectively; questions are previewed directly as a question list, and completion reminders are explicitly acknowledged via the "Move to history" button on the card; the state is persisted on the host side and synced across all clients, so refreshing the page or opening another window never loses unacknowledged completion reminders or error reminders not yet overwritten by a new round.
+- [x] **Sub/grandchild session hierarchy**: sub-agents are nested under their parent session with connector lines and compact cards; a parent whose own round has ended but that still has active descendants keeps rendering as running, and disappears from the active area once its sub-agents have ended and no active descendants remain; the history area keeps main sessions only.
+- [x] **Workspace names displayed and factored into ordering**: session cards show a workspace badge with a stable color, and session ordering follows the workspace order in the left sidebar.
+- [x] **Current work and run stats**: active cards show the latest instruction, thinking, and tool calls in a collapsed timeline of at most 4 rows; running cards also show round progress, output rate, cache hit rate, input/output tokens, and run duration.
+- [x] **Session navigation**: clicking or keyboard-activating a session card jumps to that session's page, and the current session stays highlighted.
+- [x] **Session metadata**: session cards show the current model name and reasoning level.
+- [x] **Polished desktop & mobile interactions**: the desktop pane can collapse, be resized by dragging, and remember its width; mobile uses a fixed drawer that does not squeeze the main conversation layout; long lists get independent scrolling and a back-to-top button.

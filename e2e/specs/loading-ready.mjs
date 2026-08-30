@@ -6,11 +6,17 @@ import { dismissNotice, MOCK_MODEL, paneRegions, sendHeroMessage, until } from "
 const DETAIL_TITLE = "e2e:slow detail 渐进探针";
 
 export default async function loadingReady({ page, url, assert }) {
+	await page.setViewportSize({ width: 375, height: 700 });
 	await page.addInitScript(({ detailTitle, model }) => {
-		window.__dapLoadingEvidence = { active: false, recent: false, count: false, detailWithoutModel: false, detailWithModel: false };
+		window.__dapLoadingEvidence = { active: false, recent: false, count: false, toggle: false, detailWithoutModel: false, detailWithModel: false };
 		const inspect = () => {
 			const pane = document.querySelector("[data-dsh-activity-pane]");
 			if (!pane) return;
+			const toggleSpinner = document.querySelector(".dap-toggle .dap-toggle-count .dap-spinner");
+			if (toggleSpinner) {
+				const rect = toggleSpinner.getBoundingClientRect();
+				if (rect.width > 0 && rect.height > 0 && getComputedStyle(toggleSpinner).animationName === "dap-spin") window.__dapLoadingEvidence.toggle = true;
+			}
 			if (pane.querySelector(".dap-list")?.innerText.includes("加载中")) window.__dapLoadingEvidence.active = true;
 			if (pane.querySelector(".dap-recent")?.innerText.includes("加载中")) window.__dapLoadingEvidence.recent = true;
 			if (pane.querySelector(".dap-count")?.getAttribute("aria-label") === "活动会话计数加载中") window.__dapLoadingEvidence.count = true;
@@ -45,13 +51,15 @@ export default async function loadingReady({ page, url, assert }) {
 	}, 6_000);
 	const listEvidence = await page.evaluate(() => window.__dapLoadingEvidence);
 	assert.deepEqual(
-		{ active: listEvidence.active, recent: listEvidence.recent, count: listEvidence.count },
-		{ active: true, recent: true, count: true },
-		"pending 阶段实际呈现双区加载状态与加载中计数",
+		{ active: listEvidence.active, recent: listEvidence.recent, count: listEvidence.count, toggle: listEvidence.toggle },
+		{ active: true, recent: true, count: true, toggle: true },
+		"pending 阶段实际呈现双区加载状态、加载中计数与移动按钮 spinner",
 	);
 	assert.ok(ready.active.includes("暂无活动会话"), "ready 空列表显示真实空态，而非继续显示 loading");
-	assert.equal((await page.locator("[data-dsh-activity-pane] .dap-count").innerText()).trim(), "0/0", "ready 后数量标识切换为 0/0");
-	assert.equal(await page.locator("[data-dsh-activity-pane] .dap-spinner").count(), 0, "ready 后列表级与数量级加载指示均移除");
+	assert.equal((await page.locator("[data-dsh-activity-pane] .dap-count").innerText()).trim(), "0/0", "ready 后列头数量标识切换为 0/0");
+	assert.equal((await page.locator(".dap-toggle .dap-toggle-count").innerText()).trim(), "0/0", "ready 后移动按钮数量标识切换为 0/0");
+	assert.equal(await page.locator("[data-dsh-activity-pane] .dap-spinner").count(), 0, "ready 后窗格内加载指示移除");
+	assert.equal(await page.locator(".dap-toggle .dap-spinner").count(), 0, "ready 后移动按钮加载指示移除");
 
 	await sendHeroMessage(page, DETAIL_TITLE);
 	const detailEvidence = await until("卡片先呈现可用内容再补齐 model detail", async () => {

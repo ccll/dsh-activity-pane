@@ -703,7 +703,8 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   display: flex; align-items: center; justify-content: center; gap: 6px;
 }
 /* 加载指示：列表/卡片字段在途时的活动图标（R-01-014）。 */
-[data-dsh-activity-pane] .dap-spinner {
+[data-dsh-activity-pane] .dap-spinner,
+.dap-toggle .dap-toggle-count .dap-spinner {
   width: 10px; height: 10px; flex: none; border-radius: 50%;
   border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
   border-top-color: color-mix(in srgb, currentColor 85%, transparent);

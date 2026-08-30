@@ -55,14 +55,19 @@ id: T-103
 - 使用 Ruby/Python YAML parser 或 GitHub Actions parser 检查 workflow 语法。
 - 在本地运行 `pnpm verify:fast`，确认现有代码与生成 bundle 仍通过。
 - 完成 npm Trusted Publisher 设置后，以一个版本匹配的 release 或 `workflow_dispatch` run 验证 OIDC 发布。
-- 发布验证后运行 `npm view`，并确认 GitHub Actions 日志没有读取长期 npm token。
+- 发布验证后运行 `npm view`，确认 workflow 源码未配置长期 `NPM_TOKEN`，并以 npm registry 的 `trustedPublisher` 与 provenance metadata 确认 OIDC 发布身份。
 
 ## 终态与证据
 
-状态: active
+状态: completed
 
-- 实现: `.github/workflows/npm-publish.yml` 已创建，待 npm Trusted Publisher 设置与版本/tag 对齐后验证。
-- 测试: 待执行。
-- DESIGN 对照: 不改变产品设计；仅新增 Release 发布自动化边界。
-- commit: 待提交。
-- review: 待独立审核。
+- 实现: `.github/workflows/npm-publish.yml` 已推送；GitHub Release `v0.2.1` 使用精确 tag、版本校验、快速门禁和 npm Trusted Publishing OIDC 成功发布。
+- 测试: 本地 `pnpm verify:fast`、完整 `pnpm verify` 与 pre-push 完整门禁通过；完整验证包含 12 个 E2E spec。GitHub main CI run `33289807346` 通过；npm 发布 workflow run `33289926745` 通过。`npm view dsh-activity-pane@0.2.1` 确认版本、latest dist-tag、tarball、SLSA provenance attestation；registry metadata 的 `_npmUser.trustedPublisher` 确认发布身份为 GitHub Actions OIDC。
+- DESIGN 对照: 不改变产品设计；仅新增 Release 发布自动化边界。公开的旧 `v0.2.0` tag 保持不变，以 `v0.2.1` 完成 package/tag 对齐。
+- commit: c140033、bd398a9。
+- review:
+  - 审核方: `982ca9d3-6c0b-46ac-9c89-33f4f8655ea6`（Standards）；`07c6a1ab-2658-4c7a-a77b-21a769f1bee1`（Spec）。
+  - 目的理解: 在人工确认的 GitHub Release 上，以精确 tag 和 package 版本校验保护 npm 发布，通过 OIDC 完成无长期 token 的非交互发布，完整 E2E 仍由 main CI 负责。
+  - 执行方式: `code-review` skill；固定基线 `1f1dcd1`；最终范围 `git diff 1f1dcd1...bd398a9`，含 workflow 与 v0.2.1 版本对齐提交。
+  - 问题与修复: 初审修复 C-067 影响面格式、`workflow_dispatch` 绕过未 published Release 的风险，并移除非必要的 dsh-market 承诺；Primitive Obsession 为 workflow 字符串边界上的弱判断性 smell，保留不影响正确性。
+  - 复审结论: Standards 与 Spec 最终均为 0 findings；Trusted Publisher 外部设置、OIDC provenance 与实际 npm 发布均已验证通过。

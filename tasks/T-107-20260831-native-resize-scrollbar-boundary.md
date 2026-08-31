@@ -6,7 +6,7 @@ mutation: lifecycle
 
 # T-107 原生式调宽与滚动条命中边界
 
-状态: active
+状态: completed
 关联: R-01-004/AC-03、R-01-015 → 窗格渲染器
 风险等级: standard
 
@@ -63,4 +63,16 @@ mutation: lifecycle
 
 ## 终态与证据
 
-待实现。
+状态: completed
+
+- 实现: `src/client.mjs` 保留右缘 6px pointer-capture 调宽手柄，移除 hover/拖动高亮；`.dap-scroll` 以 `--dsh-scrollbar-width` 完整右侧 inset 配合 `scrollbar-gutter: stable`，严格避开 native scrollbar；鼠标进入窗格经 `data-pointer-inside` 显示 scrollbar，离开且滚动停止后隐藏；`.dsh-plugin/client.js` 已同步重建。`e2e/run.mjs` 移除 Playwright 默认 `--hide-scrollbars`，使 native thumb 可在自动 E2E 中命中。
+- 测试: `pnpm verify:fast` 通过；`pnpm test:e2e long-list`、`resize`、`mobile-drawer` 均通过；最终 `pnpm verify` 通过，13 个 E2E spec 全部通过；headed `/opt/google/chrome/chrome` 对 `http://127.0.0.1:3080/` 实测 handle 仍在 pane 右缘且背景透明、指针进入显示 thumb、scrollbar thumb 拖动使 `scrollTop` 增加而 pane 宽度不变、离开并等待约 600ms 后 thumb 隐藏；`pnpm check:staged-client` 与 `git diff --check` 通过。
+- DESIGN 对照: `PRD.md` 的 `R-01-004/AC-03` 已扩展为滚动或鼠标进入窗格显示、离开且停滚后隐藏；`DESIGN.md` 记录与 DSH AppFrame 同类的透明 pointer-capture 手柄、完整 scrollbar inset、stable gutter 与双路径显隐；`DECISIONS.md` 追加 `C-071` 记录不左移手柄的选择。
+- commit: 7d4fd67
+- commit: 236f6bb
+- review:
+  - 审核方: Standards reviewer `50c3dc9b-edf5-4a32-a093-1c9cde1407a2`；Spec reviewer `9b34cc9c-d6fd-4cc5-8479-a20f4f81a805`。
+  - 目的理解: 在不整体左移 pane 右缘调宽手柄的前提下，复现 DSH 左边栏的窄透明 cursor-only 边界，让鼠标进入窗格显示 scrollbar，并使 native thumb 拖动与 pane 调宽互不误触发；关联 `R-01-004/AC-03`、`R-01-015`、`C-071` 与 `T-107`。
+  - 执行方式: `code-review` skill；固定基线 `1772c70c7fd4784ba106444914fe0171a0c1204a`，审核范围 `git diff 1772c70c7fd4784ba106444914fe0171a0c1204a...HEAD`，含提交 `7d4fd67` 与 `236f6bb`；Standards/Spec 双轴并行审核，发现修复后由同一审核方复审。
+  - 问题与修复: Spec 初审指出 native thumb 拖动、pointer leave 隐藏缺少 E2E 行为断言，以及半宽 inset 仍可能与 handle 重叠；修复为完整 `--dsh-scrollbar-width` inset，`e2e/run.mjs` 移除 `--hide-scrollbars`，`e2e/specs/long-list.mjs` 增加实际 thumb 拖动、pane width 不变与离开 600ms 后隐藏断言。Standards 初审与复审均无 finding。
+  - 复审结论: Standards reviewer 无 findings；Spec reviewer 确认 missing/partial、scope creep、wrong implementation 均无 findings，任务目标与追溯证据闭合。

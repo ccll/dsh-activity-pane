@@ -64,7 +64,7 @@ export default async function recentInfiniteScroll({ page, url, mock, assert }) 
 	assert.ok(firstPage[0].includes(expectedDate), "历史卡显示本地绝对月日（R-01-013/AC-05）");
 	assert.match(firstPage[0], /(刚刚|\d+分钟前|\d+小时前|\d+天前|\d+周前|\d+个月前|\d+年前)/, "历史卡同时显示相对活动时间（R-01-013/AC-05）");
 	assert.ok(!firstPage.some((text) => text.includes(titles[10])), "第二批首个会话尚未进入首批 DOM（R-01-019/AC-01）");
-	const loadMore = page.getByRole("button", { name: "加载更多会话", exact: true });
+	const loadMore = page.getByRole("button", { name: "加载更多...", exact: true });
 	await until("历史区显示加载更多按钮", async () => (await loadMore.isVisible().catch(() => false)) ? true : null);
 	const regionsAfterCreation = await paneRegions(page);
 	assert.ok(regionsAfterCreation && titles.every((title) => !regionsAfterCreation.active.includes(title)), "已移入历史的会话不与活动区重复（R-01-019/AC-04）");

@@ -3758,7 +3758,7 @@ function apply(ctx) {
 					<div class="dap-list" tabindex="-1"><div class="dap-tracks" aria-hidden="true"></div></div>
 					<div class="dap-recent">
 						<div class="dap-recent-head"><span>最近历史</span></div>
-						<button class="dap-recent-more" type="button" hidden>加载更多会话</button>
+						<button class="dap-recent-more" type="button" hidden>加载更多...</button>
 					</div>
 				</div>
 				<button class="dap-top" type="button" aria-label="回到顶部" title="回到顶部" hidden></button>

@@ -3487,7 +3487,7 @@ assert.ok(bundle.includes("const RECENT_PAGE_SIZE = 10;"), "生成 bundle 保留
 assert.ok(bundle.includes('const recent = recentCandidates.slice(0, recentVisibleCount);'), "历史区只渲染当前可见候选前缀（R-01-019/AC-01）");
 assert.ok(bundle.includes('const nextCount = Math.min(recentVisibleCount + RECENT_PAGE_SIZE, recentTotal);'), "按钮激活后追加最多一个 10 条批次（R-01-019/AC-02）");
 assert.ok(
-	bundle.includes('<button class="dap-recent-more" type="button" hidden>加载更多会话</button>') &&
+	bundle.includes('<button class="dap-recent-more" type="button" hidden>加载更多...</button>') &&
 		bundle.includes('recentMore?.addEventListener("click", onRecentMoreClick);'),
 	"历史区底部提供原生加载更多按钮并绑定显式激活（R-01-019/AC-02）",
 );

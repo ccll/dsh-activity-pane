@@ -13,7 +13,7 @@ mutation: lifecycle
 ## 背景与目标
 
 - 背景: T-104 将历史会话改为客户端分批呈现，但当前滚动到底部会自动追加下一批；实际使用中用户容易被动加载过多不想查看的历史内容。
-- 目标: 历史区有更多候选时，在列表底部显示一个可访问的「加载更多会话」按钮；用户激活后才追加后续最多 10 条会话。
+- 目标: 历史区有更多候选时，在列表底部显示一个可访问的「加载更多...」按钮；用户激活后才追加后续最多 10 条会话。
 - 保持: 首批最多 10 条、剩余不足 10 条时全部追加、候选过滤与 `activityAt` 排序、活动/历史互斥、已显示卡片与详情读取、独立滚动、回到顶部、桌面与移动端抽屉行为。
 - 非目标: 不改 DSH native `session.list` 的全量快照契约，不引入虚拟列表或新的数据路由；滚动到底部、IntersectionObserver 或首批未撑满视口均不再触发追加。
 
@@ -37,7 +37,7 @@ mutation: lifecycle
 | 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |
 |---|---|---|---|---|
 | R-01-019/AC-01 | 首批未撑满视口不再自动补页；首批仍最多 10 条 | UNIT/E2E/MANUAL | update | `scripts/check.mjs#R-01-019/AC-01`、`e2e/specs/recent-infinite-scroll.mjs#R-01-019/AC-01`、`scripts/acceptance.mjs#R-01-019/AC-01` |
-| R-01-019/AC-02 | 触底追加改为用户激活底部「加载更多会话」按钮 | UNIT/E2E/MANUAL | update | `scripts/check.mjs#R-01-019/AC-02`、`e2e/specs/recent-infinite-scroll.mjs#R-01-019/AC-02`、`scripts/acceptance.mjs#R-01-019/AC-02` |
+| R-01-019/AC-02 | 触底追加改为用户激活底部「加载更多...」按钮 | UNIT/E2E/MANUAL | update | `scripts/check.mjs#R-01-019/AC-02`、`e2e/specs/recent-infinite-scroll.mjs#R-01-019/AC-02`、`scripts/acceptance.mjs#R-01-019/AC-02` |
 | R-01-019/AC-03 | 剩余批次与耗尽后按钮显隐保持可判定 | UNIT/E2E/MANUAL | update | `scripts/check.mjs#R-01-019/AC-03`、`e2e/specs/recent-infinite-scroll.mjs#R-01-019/AC-03`、`scripts/acceptance.mjs#R-01-019/AC-03` |
 | R-01-019/AC-04 | 手动追加不改变活动/历史互斥、独立滚动与回顶 | E2E/MANUAL | regression | `e2e/specs/recent-infinite-scroll.mjs#R-01-019/AC-04`、`e2e/specs/long-list.mjs#R-01-004/AC-01`、`e2e/specs/back-to-top.mjs#R-01-018/AC-01`、`scripts/acceptance.mjs#R-01-019/AC-04` |
 | R-01-014/AC-02～AC-05 | 详情读取仍只覆盖已显示历史卡，追加后按可见性加载 | UNIT/E2E | regression | `scripts/check.mjs#R-01-014/AC-02`、`e2e/specs/recent-infinite-scroll.mjs#R-01-019/AC-02` |

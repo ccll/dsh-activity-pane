@@ -6,7 +6,7 @@ id: T-104
 
 # T-104 历史会话无限滚动分页
 
-状态: active
+状态: completed
 关联: R-01-010/AC-01～AC-10 → 活动状态模型、窗格渲染器；R-01-019/AC-01～AC-04 → 窗格渲染器
 风险等级: standard
 
@@ -66,4 +66,16 @@ id: T-104
 
 ## 终态与证据
 
-待实现。
+状态: completed
+
+- 实现: `src/core.mjs::buildRecent` 移除 24 小时与 20 条截断，保留既有过滤、未来时间防御、`activityAt` 精化排序并增加相同时间的稳定 session id tie-break；`src/client.mjs` 以 `recentVisibleCount` 首批/追加最多 10 条，使用历史尾部 sentinel、`IntersectionObserver` 与 scroll fallback，保留已展开页并仅为可见历史卡读取详情；`.dsh-plugin/client.js` 已同步重建。`scripts/bench.mjs`、`scripts/check.mjs` 已同步核心签名与回归断言。
+- 测试: `pnpm verify:fast` 通过（AgentMap/test-impact lint、`scripts/check.mjs` 全部通过）；focused `pnpm test:e2e recent-infinite-scroll` 通过（`e2e: 全部 1 个 spec 通过（51718ms）`），覆盖首批/后续/末批、去重、active/history 互斥、回顶、IntersectionObserver 缺失 fallback、桌面与 375x700 移动抽屉独立滚动；最终 `pnpm verify` 通过（13 个 browser spec 全部通过，`e2e: 全部 13 个 spec 通过（191275ms）`）。`node scripts/bench.mjs` 通过；刷新 `http://127.0.0.1:3080/` 后 Playwright 确认 pane、`.dap-scroll`、`.dap-recent-tail` 已挂载，heading 为「最近历史」，HTTP 200。
+- DESIGN 对照: `PRD.md` 将 R-01-010/AC-01 收敛为当前可见非活动主会话并新增 R-01-019/AC-01～AC-04；`DESIGN.md`、`DOMAIN.md`、`README.zh-CN.md` 与 `DECISIONS.md#C-068` 同步客户端分批呈现、详情按可见批次读取、滚动触底追加和非目标边界；T-104 验证矩阵记录 UNIT/E2E/MANUAL 证据。
+- commit: 6cebde5
+- commit: ff11efb
+- review:
+  - 审核方: Standards reviewer `4f9b5f78-6d5c-4a1c-ae7a-2b662ec35c09`；Spec reviewer `63d2596e-2f17-4ce0-a6f8-39d6b575987f`。
+  - 目的理解: 在不改 DSH native `session.list` 契约的前提下，取消历史时间/条数上限，以最近活动时间稳定排序，客户端首批与触底分批呈现更早的非活动主会话；详情只按可见卡加载，并保持 active/history 互斥、独立滚动、导航与桌面/移动交互。
+  - 执行方式: `code-review` skill，以 `5d055a6a6dda818e0d8e98dc99c835fcbcdbd2b7` 为固定基线，审核当前工作树差异（包含未跟踪 E2E/task），Standards/Spec 双轴独立审核并由同一 reviewer 复审修复项。
+  - 问题与修复: Standards 初审指出验证矩阵声称 observer fallback 但缺少可执行证据，已补充缺失 `IntersectionObserver` 的 E2E；初审指出无用 `_windowMs` 保留，已移除并更新全部调用。Spec 初审指出列表 pending 会回退首批、`rootMargin` 提前追加、移动抽屉分页缺少验证，分别改为保留已展开页、`rootMargin: "0px"` 到底触发、补充 375x700 抽屉 E2E；另将 PRD AC-01 明确为首批未撑满视口可自动补齐，消除与设计的语义张力。
+  - 复审结论: Standards 0 findings；Spec 0 findings，最终通过。

@@ -6,7 +6,7 @@ mutation: lifecycle
 
 # T-106 历史会话改为手动加载
 
-状态: active
+状态: completed
 关联: R-01-019/AC-01～AC-04 → 窗格渲染器；R-01-004/AC-01～AC-04、R-01-018/AC-01～AC-04 → 窗格渲染器
 风险等级: standard
 
@@ -65,4 +65,16 @@ mutation: lifecycle
 
 ## 终态与证据
 
-待实现。
+状态: completed
+
+- 实现: `src/client.mjs` 移除历史区 `.dap-recent-tail`、`IntersectionObserver`、scroll fallback 与首批自动补页；以原生 `<button class="dap-recent-more">` 在有未呈现候选时显示「加载更多...」，用户点击后复用 `loadMoreRecent()` 追加最多 10 条，追加期间防重复，候选耗尽后隐藏；`.dsh-plugin/client.js` 已同步重建。`PRD.md`、`DESIGN.md`、`DOMAIN.md`、README、DECISIONS、测试与人工验收已同步。
+- 测试: 测试先行的旧实现 `pnpm check` 按预期在手动分页 bundle 契约处失败；实现后 `pnpm check` 与 `pnpm verify:fast` 通过，focused `pnpm test:e2e recent-infinite-scroll` 通过（首批 10 条、滚动到底部不追加、按钮点击追加、末批隐藏、桌面/移动独立滚动）；最终 `pnpm verify` 通过（13 个 browser spec 全部通过，`e2e: 全部 13 个 spec 通过（188399ms）`）。刷新 `http://127.0.0.1:3080/` 后 Playwright 确认 HTTP 200、窗格挂载，按钮文案为「加载更多...」且无历史候选时正确隐藏；`git diff --check` 干净。
+- DESIGN 对照: `R-01-019/AC-01～AC-03` 已从触底自动追加收敛为首批不自动补页、底部按钮显式追加与耗尽隐藏；`R-01-019/AC-04` 的活动/历史互斥、独立滚动与回顶保持不变；详情按可见历史卡读取、桌面/移动抽屉、native `session.list` 非目标边界均无差异。
+- commit: 23d9446
+- commit: 38d0161
+- review:
+  - 审核方: Standards reviewer `72fad444-aa3f-4e4c-bd62-12a09ae8d77b`；Spec reviewer `e79321d8-2d80-4519-9880-ad34b9deb331`。
+  - 目的理解: 在不改 DSH native `session.list` 契约的前提下，将历史会话从滚动触底自动追加改为用户激活「加载更多...」按钮后按最多 10 条追加；保留历史候选过滤、排序、详情渐进读取、活动/历史互斥、独立滚动及桌面/移动行为；关联 `R-01-019`、`DESIGN` 与 T-106。
+  - 执行方式: `code-review` skill；固定基线 `f08e8a8`，审核范围 `git diff f08e8a8...38d0161` 及两个提交；Standards/Spec 双轴独立审核。
+  - 问题与修复: Spec 初审无 finding。Standards 初审指出 task 尚处 `active` 且终态证据未填写，已在本终态更新补齐实现、测试、DESIGN 对照、commit 与 review 证据；初审提及旧按钮文案，复核当前 task、PRD、DESIGN、DOMAIN、README 与测试均已统一为「加载更多...」。Fowler baseline 无 finding。
+  - 复审结论: Spec 0 findings；Standards 的实现代码、文档、测试与提交规范无 finding，task 终态证据已补齐。

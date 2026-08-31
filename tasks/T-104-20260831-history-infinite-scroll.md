@@ -57,12 +57,12 @@ id: T-104
 
 | 维度 | 适用性/理由 | 可执行证据 |
 |---|---|---|
-| 成功 | 适用：首批 10 条、触底追加 10 条并可继续浏览所有候选 | `package.json::check`、`scripts/check.mjs#R-01-019/AC-01` |
-| 异常 | 适用：详情读取失败仍降级并在卡片重新可见时重试；观察者缺失不阻断窗格 | `package.json::check`、`scripts/check.mjs#R-01-014/AC-05`、`scripts/check.mjs#R-01-019/AC-02` |
-| 边界配置 | 适用：0 条、少于 10 条、恰好 10/11 条、相同 activityAt、首批未撑满视口 | `package.json::check`、`scripts/check.mjs#R-01-019/AC-01`、`scripts/check.mjs#R-01-019/AC-03` |
-| 副作用 | 适用：active/recent 不重复，追加不改变主会话滚动，回顶与移动抽屉保持可用 | `package.json::check`、`scripts/check.mjs#R-01-019/AC-04` |
-| 性能 | 适用：未展示历史卡不发 models/history 读取；现有并发池上限保持 3 | `package.json::check`、`scripts/check.mjs#R-01-014/AC-02` |
-| 恢复 | 适用：列表刷新/窗格重挂载后分页状态与卡片缓存收敛，不残留 observer/listener | `package.json::check`、`scripts/check.mjs#R-01-019/AC-04` |
+| 成功 | 适用：首批 10 条、触底追加 10 条并可继续浏览所有候选 | `package.json::test:e2e`、`e2e/specs/recent-infinite-scroll.mjs#R-01-019/AC-01`、`package.json::accept:manual`、`scripts/acceptance.mjs#R-01-019/AC-01` |
+| 异常 | 适用：详情读取失败仍降级并在卡片重新可见时重试；观察者缺失不阻断窗格 | `package.json::check`、`scripts/check.mjs#R-01-014/AC-05`、`package.json::test:e2e`、`e2e/specs/recent-infinite-scroll.mjs#R-01-019/AC-02` |
+| 边界配置 | 适用：0 条、少于 10 条、恰好 10/11 条、相同 activityAt、首批未撑满视口 | `package.json::check`、`scripts/check.mjs#R-01-019/AC-01`、`package.json::test:e2e`、`e2e/specs/recent-infinite-scroll.mjs#R-01-019/AC-03` |
+| 副作用 | 适用：active/recent 不重复，追加不改变主会话滚动，回顶与移动抽屉保持可用 | `package.json::test:e2e`、`e2e/specs/long-list.mjs#R-01-004/AC-01`、`e2e/specs/back-to-top.mjs#R-01-018/AC-01`、`package.json::accept:manual`、`scripts/acceptance.mjs#R-01-019/AC-04` |
+| 性能 | 适用：未展示历史卡不发 models/history 读取；现有并发池上限保持 3 | `package.json::check`、`scripts/check.mjs#R-01-014/AC-02`、`package.json::test:e2e`、`e2e/specs/recent-infinite-scroll.mjs#R-01-019/AC-01` |
+| 恢复 | 适用：列表刷新/窗格重挂载后分页状态与卡片缓存收敛，不残留 observer/listener | `package.json::test:e2e`、`e2e/specs/auto-update.mjs#R-02-002/AC-01`、`package.json::check`、`scripts/check.mjs#R-01-019/AC-04` |
 
 ## 终态与证据
 

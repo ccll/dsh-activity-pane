@@ -65,6 +65,8 @@ export default async function longList({ page, url, assert }) {
 	const resizeBox = await resize.boundingBox();
 	assert.ok(scrollBox && resizeBox, "滚动区与调宽手柄均有包围盒");
 	const pointerY = resizeBox.y + resizeBox.height / 2;
+	// 先把 pointer 明确移出 pane，避免 headed runner 的初始鼠标位置恰好落在手柄。
+	await page.mouse.move(box.x + box.width + 100, pointerY);
 	await page.mouse.move(resizeBox.x + resizeBox.width / 2, pointerY);
 	await until("指针进入调宽区后滚动条显示", async () => {
 		const visible = await page.evaluate(() => {
@@ -82,17 +84,56 @@ export default async function longList({ page, url, assert }) {
 		"rgba(0, 0, 0, 0)",
 		"调宽手柄悬停不绘制高亮区域",
 	);
-	const scrollbarX = resizeBox.x - 1;
-	await page.mouse.move(scrollbarX, scrollBox.y + scrollBox.height / 2);
+	const scrollbarX = Math.floor(scrollBox.x + scrollBox.width - 1);
+	const scrollbarY = scrollBox.y + scrollBox.height / 2;
+	await page.mouse.move(scrollbarX, scrollbarY);
 	const scrollbarHit = await page.evaluate(({ x, y }) => {
 		const target = document.elementFromPoint(x, y);
 		return {
 			inScroll: Boolean(target?.closest(".dap-scroll")),
 			inResize: Boolean(target?.closest(".dap-resize")),
 		};
-	}, { x: scrollbarX, y: scrollBox.y + scrollBox.height / 2 });
+	}, { x: scrollbarX, y: scrollbarY });
 	assert.equal(scrollbarHit.inScroll, true, "调宽区左侧仍由滚动区接收 native scrollbar 指针");
 	assert.equal(scrollbarHit.inResize, false, "native scrollbar 指针不再命中调宽手柄");
+
+	// 真正拖动 native thumb：scrollbar 位于滚动区右端，鼠标不会进入调宽 handle。
+	const nativeDragY = scrollBox.y + 20;
+	const nativeBefore = await page.evaluate(() => {
+		const pane = document.querySelector("[data-dsh-activity-pane]");
+		const scrollEl = pane?.querySelector(".dap-scroll");
+		return { top: scrollEl?.scrollTop ?? 0, width: pane?.getBoundingClientRect().width ?? 0 };
+	});
+	await page.mouse.move(scrollbarX, nativeDragY);
+	await page.mouse.down();
+	await page.mouse.move(scrollbarX, nativeDragY + 180, { steps: 12 });
+	await page.mouse.up();
+	await until("拖动 native thumb 后列表滚动", async () => {
+		const top = await scroll.evaluate((el) => el.scrollTop);
+		return top > nativeBefore.top ? top : null;
+	});
+	const nativeAfter = await page.evaluate(() => {
+		const pane = document.querySelector("[data-dsh-activity-pane]");
+		const scrollEl = pane?.querySelector(".dap-scroll");
+		return { top: scrollEl?.scrollTop ?? 0, width: pane?.getBoundingClientRect().width ?? 0 };
+	});
+	assert.ok(nativeAfter.top > nativeBefore.top, "native thumb 拖动改变 scrollTop");
+	assert.ok(Math.abs(nativeAfter.width - nativeBefore.width) < 0.5, "native thumb 拖动不改变 pane 宽度");
+
+	await page.mouse.move(box.x + box.width + 100, pointerY);
+	await until("指针离开且停止滚动后隐藏滚动条", async () => {
+		const hidden = await page.evaluate(() => {
+			const pane = document.querySelector("[data-dsh-activity-pane]");
+			const scrollEl = pane?.querySelector(".dap-scroll");
+			const thumb = scrollEl === null || scrollEl === undefined
+				? ""
+				: getComputedStyle(scrollEl, "::-webkit-scrollbar-thumb").backgroundColor;
+			return !pane?.matches("[data-pointer-inside]")
+				&& !scrollEl?.matches("[data-scrolling]")
+				&& thumb === "rgba(0, 0, 0, 0)";
+		});
+		return hidden ? true : null;
+	}, 3_000);
 
 	await wheelOver(page, box, 400, 20);
 	await until("滚动后底卡可见", () => cardVisibleInPane(page, LONG_TITLE));

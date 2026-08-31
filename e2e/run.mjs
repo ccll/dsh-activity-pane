@@ -54,7 +54,9 @@ async function runSpec(name) {
 		env = await bootE2e();
 		bootMs = Date.now() - start;
 		const browserStart = Date.now();
-		browser = await chromium.launch();
+		// Native scrollbar hit-testing is part of the UI contract; Playwright's
+		// headless default adds --hide-scrollbars, so keep the real gutter.
+		browser = await chromium.launch({ ignoreDefaultArgs: ["--hide-scrollbars"] });
 		context = await browser.newContext();
 		page = await context.newPage();
 		browserMs = Date.now() - browserStart;

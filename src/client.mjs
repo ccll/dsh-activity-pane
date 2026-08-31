@@ -123,7 +123,7 @@ const CSS = `
   padding: 0 0 10px;
   /* Keep the native scrollbar just left of the edge handle, as in the host
      sidebar; stable keeps the list geometry unchanged when overflow appears. */
-  margin-right: calc(var(--dsh-scrollbar-width, 8px) / 2);
+  margin-right: var(--dsh-scrollbar-width, 8px);
   scrollbar-gutter: stable;
 }
 /* 滚动条在滚动或鼠标进入窗格时显示（R-01-004/AC-03，与外壳侧栏一致）：thumb 默认透明，

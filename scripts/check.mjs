@@ -3472,6 +3472,8 @@ assert.ok(
 assert.ok(bundle.includes(".dap-scroll::-webkit-scrollbar-thumb {\n  background: transparent;"), "滚动条 thumb 默认透明（不滚动时不显示）");
 assert.ok(bundle.includes(".dap-scroll[data-scrolling]::-webkit-scrollbar-thumb"), "滚动中经 data-scrolling 显示滚动条");
 assert.ok(bundle.includes("[data-dsh-activity-pane][data-pointer-inside] .dap-scroll::-webkit-scrollbar-thumb"), "鼠标进入窗格经 data-pointer-inside 显示滚动条");
+assert.ok(bundle.includes("[data-dsh-activity-pane][data-pointer-inside] .dap-scroll::-webkit-scrollbar-thumb:hover"), "鼠标悬停 native thumb 使用高 specificity hover 规则");
+assert.ok(bundle.includes("var(--dsh-scrollbar-thumb-hover"), "native thumb hover 读取 DSH 主题 hover token");
 assert.ok(bundle.includes("scrollbar-gutter: stable;"), "滚动区稳定预留 native scrollbar 槽位");
 assert.ok(bundle.includes("margin-right: var(--dsh-scrollbar-width, 8px);"), "滚动区右侧按 DSH scrollbar 宽度留出调宽边界");
 assert.ok(

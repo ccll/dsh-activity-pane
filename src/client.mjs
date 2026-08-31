@@ -127,8 +127,8 @@ const CSS = `
   scrollbar-gutter: stable;
 }
 /* 滚动条在滚动或鼠标进入窗格时显示（R-01-004/AC-03，与外壳侧栏一致）：thumb 默认透明，
-   经 data-scrolling/data-pointer-inside 显示。Firefox 路径必须在 @supports 门内——非 auto 的
-   scrollbar-color 会让 Chromium 丢弃该元素的 ::-webkit-scrollbar 规则。 */
+   经 data-scrolling/data-pointer-inside 显示，悬停时读取主题 hover token。Firefox 路径必须在
+   @supports 门内——非 auto 的 scrollbar-color 会让 Chromium 丢弃该元素的 ::-webkit-scrollbar 规则。 */
 [data-dsh-activity-pane] .dap-scroll::-webkit-scrollbar-thumb {
   background: transparent;
 }
@@ -137,6 +137,9 @@ const CSS = `
 }
 [data-dsh-activity-pane][data-pointer-inside] .dap-scroll::-webkit-scrollbar-thumb {
   background: var(--dsh-scrollbar-thumb, color-mix(in srgb, currentColor 25%, transparent));
+}
+[data-dsh-activity-pane][data-pointer-inside] .dap-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--dsh-scrollbar-thumb-hover, color-mix(in srgb, currentColor 40%, transparent));
 }
 @supports not selector(::-webkit-scrollbar) {
   [data-dsh-activity-pane] .dap-scroll { scrollbar-color: transparent transparent; }

@@ -1,6 +1,6 @@
 {
   "name": "dsh-activity-pane",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "packageManager": "pnpm@11.5.0",
   "engines": {
     "node": ">=20"

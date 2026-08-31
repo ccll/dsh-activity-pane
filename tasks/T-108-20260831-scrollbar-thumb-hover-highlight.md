@@ -6,7 +6,7 @@ mutation: lifecycle
 
 # T-108 原生滚动条滑块悬停高亮
 
-状态: active
+状态: completed
 关联: R-01-004/AC-03 → 窗格渲染器
 风险等级: standard
 
@@ -27,10 +27,9 @@ mutation: lifecycle
 
 1. 更新 `R-01-004/AC-03`，增加 scrollbar thumb 悬停时使用更醒目主题色的可观察承诺。
 2. 在 `src/client.mjs` 的现有 WebKit scrollbar 规则后增加一条带 `data-pointer-inside` 的高 specificity `::-webkit-scrollbar-thumb:hover` 规则，读取既有 `--dsh-scrollbar-thumb-hover`，只补 CSS cascade，不引入新的状态或依赖。
-3. 在 `scripts/check.mjs` 固定 hover selector 与 hover token 的 bundle 契约。
-4. 在 `scripts/check.mjs` 固定 hover selector 与主题 token；保留 `e2e/specs/long-list.mjs` 对 scrollbar 显示、命中与拖动的回归，并更新 `scripts/acceptance.mjs` 的真实浏览器视觉验收。Playwright synthetic mouse 不暴露 Chromium 原生 scrollbar pseudo 的 OS hover 状态，因此 hover 色由 CSS 契约与 headed GUI 验收证明。
-5. 重建 `.dsh-plugin/client.js`，运行快速验证、focused E2E、完整验证与 headed GUI probe。
-6. 调用 `code-review` skill 做独立 Standards/Spec 双轴审核，finding 清零后关闭 task。
+3. 在 `scripts/check.mjs` 固定 hover selector 与主题 token；保留 `e2e/specs/long-list.mjs` 对 scrollbar 显示、命中与拖动的回归，并更新 `scripts/acceptance.mjs` 的真实浏览器视觉验收。Playwright synthetic mouse 不暴露 Chromium 原生 scrollbar pseudo 的 OS hover 状态，因此 hover 色由 CSS 契约与 headed GUI 验收证明。
+4. 重建 `.dsh-plugin/client.js`，运行快速验证、focused E2E、完整验证与 headed GUI probe。
+5. 调用 `code-review` skill 做独立 Standards/Spec 双轴审核，finding 清零后关闭 task。
 
 ## 测试影响
 
@@ -60,4 +59,15 @@ mutation: lifecycle
 
 ## 终态与证据
 
-待实现。
+状态: completed
+
+- 实现: `src/client.mjs` 增加带 `data-pointer-inside` 的高 specificity `::-webkit-scrollbar-thumb:hover` 规则，读取现有 `--dsh-scrollbar-thumb-hover`；不新增 JavaScript hover 状态、不改变 scrollbar/resize 几何，`.dsh-plugin/client.js` 已同步重建。
+- 测试: `pnpm verify:fast` 通过；`pnpm test:e2e long-list` 通过；最终 `pnpm verify` 通过，13 个 E2E spec 全部通过；headed `/opt/google/chrome/chrome` 刷新 `http://127.0.0.1:3080/` 确认 hover selector 已加载且主题 token 为 `rgb(212, 212, 212)`；Playwright synthetic mouse 不暴露 Chromium 原生 scrollbar pseudo 的 OS hover 状态，真实视觉步骤已加入 `scripts/acceptance.mjs`；commit hook 的 bundle check 与 `git diff --check` 通过。
+- DESIGN 对照: `PRD.md` 的 `R-01-004/AC-03` 已加入 scrollbar thumb hover 高亮承诺；`DESIGN.md` 记录 WebKit 使用 `--dsh-scrollbar-thumb-hover`、Firefox 标准路径由浏览器派生 hover 状态；`scripts/check.mjs` 固定 selector/token bundle 契约。
+- commit: 9b54533
+- review:
+  - 审核方: Standards reviewer `8af14ce7-c08c-4586-843e-4cb82cb48788`；Spec reviewer `10be00f7-4798-4bf7-a6ee-6ca7f7ce878c`。
+  - 目的理解: 在不改变 T-107 建立的右缘调宽、native scrollbar 命中与指针显隐边界的前提下，让 activity-pane 的 thumb 悬停颜色复现 DSH 原生左边栏的主题 hover 状态；关联 `R-01-004/AC-03`、`R-01-015` 与 `T-108`。
+  - 执行方式: `code-review` skill；固定基线 `a61e1d617d858e638d998ec7b4c0257b76c09933`，审核范围 `git diff a61e1d617d858e638d998ec7b4c0257b76c09933...HEAD`，含提交 `9b54533`；Standards/Spec 双轴并行审核，发现修复后由同一审核方复审。
+  - 问题与修复: Standards 初审发现 E2E 中重复的 native thumb pointer move，已删除并由同一 reviewer 复审清零；Spec 初审发现 hover selector specificity 不足以压过 `data-pointer-inside` 基础规则，已改为带 `data-pointer-inside` 的高 specificity selector 并同步 bundle/check，由同一 reviewer 复审清零。
+  - 复审结论: Standards reviewer 无 documented standard hard violations 或 baseline smells；Spec reviewer 确认 missing/partial、scope creep、wrong implementation 均无 findings，任务目标与追溯证据闭合。

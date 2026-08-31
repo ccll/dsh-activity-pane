@@ -3476,14 +3476,29 @@ assert.ok(
 	bundle.includes('scroll?.removeEventListener("scroll", onScroll);') && bundle.includes('if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);'),
 	"unbind 同步清理滚动监听与隐藏定时器（R-02-003/AC-02）",
 );
-assert.ok(bundle.includes("recentObserver?.disconnect();"), "unbind 同步清理历史分页观察者（R-01-019/AC-04）");
+assert.ok(
+	bundle.includes('recentMore?.removeEventListener("click", onRecentMoreClick);') && !bundle.includes("recentObserver?.disconnect();"),
+	"unbind 同步清理加载更多按钮监听，历史分页不再保留 observer（R-02-003/AC-02）",
+);
 
-// R-01-019/AC-01～AC-04 历史候选与分页渲染契约
+// R-01-019/AC-01～AC-04 历史候选与手动分页渲染契约
 assert.equal(RECENT_PAGE_SIZE, 10, "历史分页批次固定为 10 条（R-01-019/AC-01）");
 assert.ok(bundle.includes("const RECENT_PAGE_SIZE = 10;"), "生成 bundle 保留 10 条历史分页批次配置（R-01-019/AC-01）");
 assert.ok(bundle.includes('const recent = recentCandidates.slice(0, recentVisibleCount);'), "历史区只渲染当前可见候选前缀（R-01-019/AC-01）");
-assert.ok(bundle.includes('const nextCount = Math.min(recentVisibleCount + RECENT_PAGE_SIZE, recentTotal);'), "触底追加最多一个 10 条批次（R-01-019/AC-02）");
-assert.ok(bundle.includes('new window.IntersectionObserver') && bundle.includes('class="dap-recent-tail"'), "历史区使用底部观察锚点触发追加（R-01-019/AC-02）");
+assert.ok(bundle.includes('const nextCount = Math.min(recentVisibleCount + RECENT_PAGE_SIZE, recentTotal);'), "按钮激活后追加最多一个 10 条批次（R-01-019/AC-02）");
+assert.ok(
+	bundle.includes('<button class="dap-recent-more" type="button" hidden>加载更多会话</button>') &&
+		bundle.includes('recentMore?.addEventListener("click", onRecentMoreClick);'),
+	"历史区底部提供原生加载更多按钮并绑定显式激活（R-01-019/AC-02）",
+);
+assert.ok(
+	!bundle.includes("new window.IntersectionObserver") && !bundle.includes('class="dap-recent-tail"') && !bundle.includes("maybeLoadMoreRecent"),
+	"历史分页不再由 IntersectionObserver、尾部 sentinel 或滚动检查自动触发（R-01-019/AC-01、AC-02）",
+);
+assert.ok(
+	bundle.includes("recentMore.hidden = !recentHasMore;") && bundle.includes("recentMore.disabled = recentAppendQueued;"),
+	"仍有候选时显示按钮、追加期间禁用，候选耗尽后隐藏（R-01-019/AC-03）",
+);
 assert.ok(bundle.includes('recentHasMore = recent.length < recentTotal;'), "历史候选耗尽后停止追加（R-01-019/AC-03）");
 
 // R-01-018 回到顶部悬浮图标按钮

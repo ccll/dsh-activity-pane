@@ -185,7 +185,7 @@ flowchart LR
 ## 运行时、并发与失败语义
 
 - 响应式渲染：订阅会话/工作区列表快照，任一变化即排队一次重绘；`cardSignature` 防止"渲染→写 DOM→再渲染"反馈循环（R-02-003）。工作项时间线与消息预览按快照/历史引用 memo（引用不变即命中缓存），`conversationTimeline`/`messagePreviews` 自尾部反向扫描、取够目标条数即停，长会话不做全序扫描；会话区 DOM 行索引每次渲染构建一次供当次全部工作项共用。
-- 历史分页运行时：`buildRecent` 每帧只负责候选过滤与确定性排序，`窗格渲染器` 以 `recentVisibleCount` 对结果取前缀；原生 `IntersectionObserver` 观察历史区尾部到达滚动视口底部，滚动检查作为兼容兜底，追加一次最多 10 条并以 guard 合并重复触发；首批未填满滚动视口时继续补页，触底追加不改变既有 `scrollTop`。详情读取目标只包含活动条目和当前已显示历史条目，未显示候选不会触发 models/history 读取；列表短暂 pending 不回退已展开页，窗格重挂载才恢复首批（R-01-019、R-01-014）。
+- 历史分页运行时：`buildRecent` 每帧只负责候选过滤与确定性排序，`窗格渲染器` 以 `recentVisibleCount` 对结果取前缀；历史区底部仅在仍有候选时显示原生「加载更多会话」按钮，用户激活后追加一次最多 10 条并以 guard 合并重复触发；首批未填满滚动视口或滚动到底部均不自动补页，手动追加不改变既有 `scrollTop`。详情读取目标只包含活动条目和当前已显示历史条目，未显示候选不会触发 models/history 读取；列表短暂 pending 不回退已展开页，窗格重挂载才恢复首批（R-01-019、R-01-014）。
 - 宿主 DOM 观察：槽座迟到由 body `MutationObserver` 通知唤醒；绑定后 center → body 的祖先链逐级以 `childList` 观察，任一级断裂（含高于 parent 的视图级重挂载）即重装并恢复窗格；center 只观察直接子节点处理 seat/center 重挂载，conversation seat 子树只观察流式 `childList` 变化，插件 pane 子树不进入观察范围（R-02-002、R-02-003）。
 - 并发安全：重绘经 rAF/微任务合并，同一时刻至多进行一次；卡片按 id 复用，保证顺序稳定（R-01-004、R-02-003）。
 - 迁移动画并发语义：动画不阻塞渲染循环；ghost 与受影响卡片平移均为独立呈现层状态，生命周期由 `transitionend` 收口（平移收口过滤冒泡：仅本元素 `transform` 过渡生效，子元素过渡事件不消耗收口）、不引入定时器；动画期间新渲染照常进行，同一 id 再次迁移时旧 ghost 移除并按最新帧重新判定，平移中的卡片以当前视觉矩形为起点重新计算反向位移；平移状态在卡片摘除、窗格重建与卸载时同步取消（R-01-010/AC-07、AC-10）。
@@ -232,12 +232,12 @@ flowchart LR
 | R-01-016 | 活动状态模型 | 等待卡时间线 | src/client.mjs |
 | R-01-017 | 活动状态模型 | 折叠分组派生（唯一时间线形态） | src/core.mjs、src/client.mjs |
 | R-01-018 | 窗格渲染器 | 回到顶部悬浮按钮 | src/client.mjs |
-| R-01-019 | 窗格渲染器 | 历史分页与触底追加 | src/client.mjs |
+| R-01-019 | 窗格渲染器 | 历史分页与手动追加 | src/client.mjs |
 ## 产品契约
 
 - 活动卡片集合：`活动状态模型#buildEntries(snapshot, workspaceItems, detailsById, completions, delegatingIds)` 产出已排序的活动卡片条目数组（R-01-001）；`completions` 入参（Map id → `{ lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }`，来自宿主侧 ack 状态）使完成提醒/错误提醒中会话以 awaiting 条目保留在活动区（R-01-002/AC-05、AC-13、R-01-010/AC-06）。
 - 最近历史集合：`活动状态模型#buildRecent(snapshot, workspaceItems, now)` 产出当前非活动、仅主会话且仍被会话服务列出的全部历史候选，按最后活动时间倒序（同时间以会话 id 稳定排序）（R-01-010）；`completions` 入参把完成提醒/错误提醒中会话排除在历史区外（R-01-010/AC-06）；`turnEnds` 入参（id → 已知回合结束时刻）驱动时间精化：条目 `activityAt` 取宿主列表时间与回合结束时刻的较新者，未提供时刻时即宿主列表时间（R-01-010/AC-03、AC-08、AC-09）。
-- 历史分页：`窗格渲染器` 保留 `recentVisibleCount`，初始显示 10 条；`.dap-scroll` 底部 sentinel 到达滚动视口底部时追加最多 10 条，已显示条目不移除、不重复；历史候选不再追加时停止触发，窗格重挂载时恢复首批状态，列表短暂 pending 后保持已展开页（R-01-019）。
+- 历史分页：`窗格渲染器` 保留 `recentVisibleCount`，初始显示 10 条；历史区底部在仍有候选时显示「加载更多会话」按钮，用户激活后追加最多 10 条，已显示条目不移除、不重复；候选耗尽后隐藏按钮，滚动到底部不触发追加，窗格重挂载时恢复首批状态，列表短暂 pending 后保持已展开页（R-01-019）。
 - 完成提醒判定：`活动状态模型#completionReminder(row, completion, isSub)` 纯函数判定主会话的完成提醒成立——`lastTurnEnd > ackedAt` 且该完成未被更近的活动条件（running/阻塞等待）或委托周期抑制（R-01-002/AC-03、AC-05、R-01-010/AC-06）。
 - 错误提醒判定：`活动状态模型#errorReminder(row, completion, isSub)` 纯函数判定主会话的错误提醒成立——`lastTurnEndKind === 'error'` 且未被更近的活动条件（running/阻塞等待）或委托周期抑制；不消费 `ackedAt`，随新回合结束（`lastTurnEndKind` 覆盖）解除（R-01-002/AC-13）。
 - ack 状态通道契约（宿主侧）：`GET /dsh-activity-pane/api/acks` 返回全量快照 `{ [sessionId]: { lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt } }`；`GET /dsh-activity-pane/api/acks/stream` 为 SSE 推送（连接时先发全量快照，此后每次变更广播 `state` 事件）；`POST /dsh-activity-pane/api/ack` 接收 `{ sessionId }` 写回 `ackedAt` 并向全部连接广播。（宿主侧路由与协议，属完成确认宿主侧子系统；客户端只经受信 fetch/EventSource 消费，不新增轮询。）
@@ -314,7 +314,7 @@ flowchart LR
 
 ### 窗格渲染器
 - 职责:
-  - 窗格结构与交互：挂载窗格、双区绘制、历史分页与触底追加、独立滚动、回到顶部悬浮按钮、卡片激活跳转、桌面折叠、移动端抽屉、真实布局参与（实现 R-01-004、R-01-005、R-01-006、R-01-007、R-01-008、R-01-011、R-01-018、R-01-019）
+  - 窗格结构与交互：挂载窗格、双区绘制、历史分页与手动追加、独立滚动、回到顶部悬浮按钮、卡片激活跳转、桌面折叠、移动端抽屉、真实布局参与（实现 R-01-004、R-01-005、R-01-006、R-01-007、R-01-008、R-01-011、R-01-018、R-01-019）
   - 内容呈现与加载：轮内状态订阅生命周期、加载状态模型与渐进呈现、历史卡片可见页详情加载、重挂载自愈（实现 R-01-009、R-01-010、R-01-012、R-01-013、R-01-014、R-01-016、R-01-019、R-02-002、R-02-004）
   - 桌面调宽：右缘拖拽手柄实时调宽、范围夹取与 localStorage 持久化（实现 R-01-015）
 - 关键内部结构:

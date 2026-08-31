@@ -2164,7 +2164,7 @@ const CLOCK_MS = 1000;
 const RECENT_TIME_REFRESH_MS = 60_000;
 /** 冷数据读取并发池上限：慢网下避免几十张卡片的 models/history 一次性挤占通道。 */
 const LOAD_CONCURRENCY = 3;
-/** 历史分页每批数量；分页本身只由历史区候选数量决定。 */
+/** 历史分页每批数量；后续批次只由底部按钮显式加载。 */
 const RECENT_PAGE_SIZE = 10;
 /** 「回到顶部」悬浮按钮显隐阈值：scrollTop 超过该值（px）时显示（R-01-018/AC-01）。 */
 const TOP_THRESHOLD = 200;
@@ -2320,13 +2320,29 @@ const CSS = `
   color: color-mix(in srgb, currentColor 52%, transparent);
   text-transform: uppercase;
 }
-/* 历史分页尾部只提供 IntersectionObserver 锚点，不占用可见内容。 */
-[data-dsh-activity-pane] .dap-recent-tail {
-  width: 1px;
-  height: 1px;
+/* 历史分页只在用户明确激活底部按钮后追加（R-01-019/AC-02）。 */
+[data-dsh-activity-pane] .dap-recent-more {
+  align-self: center;
   flex: none;
-  pointer-events: none;
+  min-width: 132px;
+  padding: 5px 10px;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, currentColor 7%, transparent);
+  color: color-mix(in srgb, currentColor 70%, transparent);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
 }
+[data-dsh-activity-pane] .dap-recent-more:hover,
+[data-dsh-activity-pane] .dap-recent-more:focus-visible {
+  background: color-mix(in srgb, currentColor 13%, transparent);
+  color: inherit;
+}
+[data-dsh-activity-pane] .dap-recent-more:focus-visible { outline: 2px solid color-mix(in srgb, currentColor 45%, transparent); outline-offset: 1px; }
+[data-dsh-activity-pane] .dap-recent-more[disabled] { cursor: wait; opacity: 0.6; }
+[data-dsh-activity-pane] .dap-recent-more[hidden] { display: none; }
 /* 折叠：仅桌面生效；窄条 + 竖排标题与计数（R-01-011/AC-04）。 */
 [data-dsh-activity-pane] .dap-rail {
   display: none;
@@ -3606,36 +3622,16 @@ function apply(ctx) {
 		queueSync();
 		return true;
 	}
-	function maybeLoadMoreRecent(scroll) {
-		if (scroll === null || !recentHasMore || recentAppendQueued) return;
-		const tail = scroll.querySelector(".dap-recent-tail");
-		if (tail === null) return;
-		const rootRect = scroll.getBoundingClientRect();
-		const tailRect = tail.getBoundingClientRect();
-		if (rootRect.height <= 0 || tailRect.height <= 0) return;
-		if (tailRect.top <= rootRect.bottom && tailRect.bottom >= rootRect.top) loadMoreRecent();
-	}
 	function bindPaneControls(pane) {
 		const header = pane.querySelector(".dap-header");
 		const rail = pane.querySelector(".dap-rail");
 		const resize = pane.querySelector(".dap-resize");
 		const scroll = pane.querySelector(".dap-scroll");
 		const topBtn = pane.querySelector(".dap-top");
-		const recentTail = pane.querySelector(".dap-recent-tail");
-		let recentObserver = null;
-		if (scroll !== null && recentTail !== null && typeof window.IntersectionObserver === "function") {
-			try {
-				recentObserver = new window.IntersectionObserver(
-					(entries) => {
-						if (entries.some((entry) => entry.isIntersecting)) loadMoreRecent();
-					},
-					{ root: scroll, rootMargin: "0px" },
-				);
-				recentObserver.observe(recentTail);
-			} catch {
-				recentObserver = null;
-			}
-		}
+		const recentMore = pane.querySelector(".dap-recent-more");
+		const onRecentMoreClick = () => {
+			if (loadMoreRecent() && recentMore !== null) recentMore.disabled = true;
+		};
 		// 标题行整体即收起控件，两端断点一致：桌面折叠为窄条（R-01-011/AC-03）；
 		// 移动端断点解释为收起抽屉，而非折叠窄条（R-01-008/AC-02、R-01-011/AC-06）。
 		const onHeaderActivate = () => {
@@ -3708,7 +3704,6 @@ function apply(ctx) {
 			queueTrackSync(); // 滚动停在小数相位后重对齐轨道层（rAF 合帧）
 			scroll.setAttribute("data-scrolling", "");
 			syncTopBtn();
-			maybeLoadMoreRecent(scroll);
 			if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);
 			scrollHideTimer = setTimeout(() => {
 				scrollHideTimer = null;
@@ -3724,6 +3719,7 @@ function apply(ctx) {
 		header?.addEventListener("keydown", onHeaderKeydown);
 		rail?.addEventListener("click", onRailClick);
 		scroll?.addEventListener("scroll", onScroll, { passive: true });
+		recentMore?.addEventListener("click", onRecentMoreClick);
 		topBtn?.addEventListener("click", onTopClick);
 		resize?.addEventListener("pointerdown", onResizeDown);
 		return () => {
@@ -3731,7 +3727,7 @@ function apply(ctx) {
 			header?.removeEventListener("keydown", onHeaderKeydown);
 			rail?.removeEventListener("click", onRailClick);
 			scroll?.removeEventListener("scroll", onScroll);
-			recentObserver?.disconnect();
+			recentMore?.removeEventListener("click", onRecentMoreClick);
 			if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);
 			topBtn?.removeEventListener("click", onTopClick);
 			resize?.removeEventListener("pointerdown", onResizeDown);
@@ -3762,7 +3758,7 @@ function apply(ctx) {
 					<div class="dap-list" tabindex="-1"><div class="dap-tracks" aria-hidden="true"></div></div>
 					<div class="dap-recent">
 						<div class="dap-recent-head"><span>最近历史</span></div>
-						<div class="dap-recent-tail" aria-hidden="true"></div>
+						<button class="dap-recent-more" type="button" hidden>加载更多会话</button>
 					</div>
 				</div>
 				<button class="dap-top" type="button" aria-label="回到顶部" title="回到顶部" hidden></button>
@@ -5217,6 +5213,11 @@ function apply(ctx) {
 		if (recentSection !== null) {
 			recentSection.hidden = listState === "ready" && recent.length === 0;
 			ensureListStatus(recentSection, listState !== "ready" && recent.length === 0, listState === "loading" ? "加载中…" : "列表加载失败", { loading: listState === "loading" });
+			const recentMore = recentSection.querySelector(".dap-recent-more");
+			if (recentMore !== null) {
+				recentMore.hidden = !recentHasMore;
+				recentMore.disabled = recentAppendQueued;
+			}
 		}
 		runMoveGhosts(movePlans);
 		if (shiftRects !== null) runShiftAnimations(shiftRects);
@@ -5277,9 +5278,8 @@ function apply(ctx) {
 		const headerExpanded = collapsed ? "false" : "true";
 		if (headerEl !== null && headerEl.getAttribute("aria-expanded") !== headerExpanded)
 			headerEl.setAttribute("aria-expanded", headerExpanded);
-		// 首批未撑满视口时，尾部检查会按同一批大小继续补齐；追加只排队一帧，避免
-		// observer/scroll 双路径在同一帧重复增长（R-01-019/AC-01、AC-02）。
-		maybeLoadMoreRecent(pane.querySelector(".dap-scroll"));
+		// 历史分页只由底部按钮显式触发；追加只排队一帧，避免重复点击造成重复增长
+		//（R-01-019/AC-01～AC-03）。
 
 		// 渲染签名在整轮 DOM 写入全部成功后提交：任何一步失败都保留下一轮
 		// 同步重试的机会，避免故障被签名吞掉后卡片永久滞留（R-01-013/AC-02）。

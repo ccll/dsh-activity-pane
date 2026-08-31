@@ -3467,10 +3467,23 @@ assert.ok(
 );
 
 // R-01-004/AC-03
-// 滚动条仅滚动时显示：thumb 默认透明、data-scrolling 时显示；Firefox 路径在 @supports 门内。
+// 滚动条随滚动或鼠标指针进入窗格显示：thumb 默认透明、data-scrolling/data-pointer-inside 时显示；
+// Firefox 路径在 @supports 门内，native scrollbar 与右缘调宽手柄保持可分别命中。
 assert.ok(bundle.includes(".dap-scroll::-webkit-scrollbar-thumb {\n  background: transparent;"), "滚动条 thumb 默认透明（不滚动时不显示）");
 assert.ok(bundle.includes(".dap-scroll[data-scrolling]::-webkit-scrollbar-thumb"), "滚动中经 data-scrolling 显示滚动条");
+assert.ok(bundle.includes("[data-dsh-activity-pane][data-pointer-inside] .dap-scroll::-webkit-scrollbar-thumb"), "鼠标进入窗格经 data-pointer-inside 显示滚动条");
+assert.ok(bundle.includes("scrollbar-gutter: stable;"), "滚动区稳定预留 native scrollbar 槽位");
+assert.ok(bundle.includes("margin-right: calc(var(--dsh-scrollbar-width, 8px) / 2);"), "滚动区右侧按 DSH scrollbar 宽度留出调宽边界");
+assert.ok(
+	bundle.includes("[data-dsh-activity-pane] .dap-resize {\n  position: absolute;\n  top: 0; right: 0; bottom: 0;"),
+	"调宽手柄保持在 pane 右缘",
+);
+assert.ok(!bundle.includes(".dap-resize:hover"), "调宽手柄悬停不绘制高亮区域");
+assert.ok(bundle.includes('pane.addEventListener("pointerenter", onPanePointerEnter)'), "鼠标进入窗格绑定滚动条显示");
+assert.ok(bundle.includes('pane.addEventListener("pointerleave", onPanePointerLeave)'), "鼠标离开窗格绑定滚动条隐藏");
+assert.ok(bundle.includes('pane.removeEventListener("pointerenter", onPanePointerEnter)') && bundle.includes('pane.removeEventListener("pointerleave", onPanePointerLeave)'), "unbind 清理窗格指针监听（R-02-003/AC-02）");
 assert.ok(bundle.includes("@supports not selector(::-webkit-scrollbar)") && bundle.includes("scrollbar-color: transparent transparent"), "Firefox 路径以 @supports 门隔离（防 Chromium 丢弃伪元素规则）");
+assert.ok(bundle.includes("[data-dsh-activity-pane][data-pointer-inside] .dap-scroll {\n    scrollbar-color:"), "Firefox 路径经 data-pointer-inside 显示滚动条");
 assert.ok(bundle.includes('scroll?.addEventListener("scroll", onScroll, { passive: true })'), "滚动监听置位 data-scrolling");
 assert.ok(
 	bundle.includes('scroll?.removeEventListener("scroll", onScroll);') && bundle.includes('if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);'),

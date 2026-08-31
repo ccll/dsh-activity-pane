@@ -56,6 +56,44 @@ export default async function longList({ page, url, assert }) {
 		return visible ? null : true;
 	});
 	const box = await paneBox(page);
+
+	// R-01-004/AC-03：调宽手柄保持在 pane 右缘，但不遮挡 native scrollbar；
+	// 鼠标进入窗格即显示滚动条，手柄只提供 cursor affordance、不绘制高亮。
+	const scroll = page.locator("[data-dsh-activity-pane] .dap-scroll");
+	const resize = page.locator("[data-dsh-activity-pane] .dap-resize");
+	const scrollBox = await scroll.boundingBox();
+	const resizeBox = await resize.boundingBox();
+	assert.ok(scrollBox && resizeBox, "滚动区与调宽手柄均有包围盒");
+	const pointerY = resizeBox.y + resizeBox.height / 2;
+	await page.mouse.move(resizeBox.x + resizeBox.width / 2, pointerY);
+	await until("指针进入调宽区后滚动条显示", async () => {
+		const visible = await page.evaluate(() => {
+			const pane = document.querySelector("[data-dsh-activity-pane]");
+			const scrollEl = pane?.querySelector(".dap-scroll");
+			const thumb = scrollEl === null || scrollEl === undefined
+				? ""
+				: getComputedStyle(scrollEl, "::-webkit-scrollbar-thumb").backgroundColor;
+			return pane?.matches("[data-pointer-inside]") && thumb !== "rgba(0, 0, 0, 0)";
+		});
+		return visible ? true : null;
+	});
+	assert.equal(
+		await resize.evaluate((el) => getComputedStyle(el).backgroundColor),
+		"rgba(0, 0, 0, 0)",
+		"调宽手柄悬停不绘制高亮区域",
+	);
+	const scrollbarX = resizeBox.x - 1;
+	await page.mouse.move(scrollbarX, scrollBox.y + scrollBox.height / 2);
+	const scrollbarHit = await page.evaluate(({ x, y }) => {
+		const target = document.elementFromPoint(x, y);
+		return {
+			inScroll: Boolean(target?.closest(".dap-scroll")),
+			inResize: Boolean(target?.closest(".dap-resize")),
+		};
+	}, { x: scrollbarX, y: scrollBox.y + scrollBox.height / 2 });
+	assert.equal(scrollbarHit.inScroll, true, "调宽区左侧仍由滚动区接收 native scrollbar 指针");
+	assert.equal(scrollbarHit.inResize, false, "native scrollbar 指针不再命中调宽手柄");
+
 	await wheelOver(page, box, 400, 20);
 	await until("滚动后底卡可见", () => cardVisibleInPane(page, LONG_TITLE));
 

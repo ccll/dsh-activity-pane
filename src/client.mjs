@@ -121,9 +121,13 @@ const CSS = `
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
   padding: 0 0 10px;
+  /* Keep the native scrollbar just left of the edge handle, as in the host
+     sidebar; stable keeps the list geometry unchanged when overflow appears. */
+  margin-right: calc(var(--dsh-scrollbar-width, 8px) / 2);
+  scrollbar-gutter: stable;
 }
-/* 滚动条仅在滚动时显示（R-01-004/AC-03，与外壳侧栏一致）：thumb 默认透明，滚动中
-   经 data-scrolling 显示。Firefox 路径必须在 @supports 门内——非 auto 的
+/* 滚动条在滚动或鼠标进入窗格时显示（R-01-004/AC-03，与外壳侧栏一致）：thumb 默认透明，
+   经 data-scrolling/data-pointer-inside 显示。Firefox 路径必须在 @supports 门内——非 auto 的
    scrollbar-color 会让 Chromium 丢弃该元素的 ::-webkit-scrollbar 规则。 */
 [data-dsh-activity-pane] .dap-scroll::-webkit-scrollbar-thumb {
   background: transparent;
@@ -131,9 +135,15 @@ const CSS = `
 [data-dsh-activity-pane] .dap-scroll[data-scrolling]::-webkit-scrollbar-thumb {
   background: var(--dsh-scrollbar-thumb, color-mix(in srgb, currentColor 25%, transparent));
 }
+[data-dsh-activity-pane][data-pointer-inside] .dap-scroll::-webkit-scrollbar-thumb {
+  background: var(--dsh-scrollbar-thumb, color-mix(in srgb, currentColor 25%, transparent));
+}
 @supports not selector(::-webkit-scrollbar) {
   [data-dsh-activity-pane] .dap-scroll { scrollbar-color: transparent transparent; }
   [data-dsh-activity-pane] .dap-scroll[data-scrolling] {
+    scrollbar-color: var(--dsh-scrollbar-thumb, color-mix(in srgb, currentColor 25%, transparent)) transparent;
+  }
+  [data-dsh-activity-pane][data-pointer-inside] .dap-scroll {
     scrollbar-color: var(--dsh-scrollbar-thumb, color-mix(in srgb, currentColor 25%, transparent)) transparent;
   }
 }
@@ -253,7 +263,8 @@ const CSS = `
   background: rgba(46, 42, 26, 0.97);
   animation: dap-await-pulse 1.2s ease-in-out infinite;
 }
-/* 桌面拖拽调宽手柄（R-01-015）：右缘 6px 命中区，拖拽实时写入 --dap-width；
+/* 桌面拖拽调宽手柄（R-01-015）：右缘 6px 透明命中区，拖拽实时写入 --dap-width；
+   滚动区在其左侧留出 native scrollbar 命中带，手柄只改变光标、不绘制 hover 高亮；
    折叠窄条与移动端抽屉不提供拖拽（下方两处媒体查询隐藏）。 */
 [data-dsh-activity-pane] .dap-resize {
   position: absolute;
@@ -262,10 +273,6 @@ const CSS = `
   cursor: col-resize;
   touch-action: none;
   z-index: 6;
-}
-[data-dsh-activity-pane] .dap-resize:hover,
-[data-dsh-activity-pane] .dap-resize[data-dragging] {
-  background: color-mix(in srgb, currentColor 18%, transparent);
 }
 /* 桌面：窗格作为中间列内的真实 flex 行元素参与布局——中间列被置为行方向，
    窗格固定宽、会话区弹性收缩，整个会话内容被真实挤到右边；折叠时收窄为窄条。 */
@@ -1526,6 +1533,15 @@ function apply(ctx) {
 		const syncTopBtn = () => {
 			if (topBtn !== null && scroll !== null) topBtn.hidden = scroll.scrollTop <= TOP_THRESHOLD;
 		};
+		// 鼠标进入窗格即显示 scrollbar（R-01-004/AC-03）；触摸指针不改变桌面滚动条可见状态。
+		const onPanePointerEnter = (event) => {
+			if (event.pointerType !== "mouse") return;
+			pane.setAttribute("data-pointer-inside", "");
+		};
+		const onPanePointerLeave = (event) => {
+			if (event.pointerType !== "mouse") return;
+			pane.removeAttribute("data-pointer-inside");
+		};
 		const onRailClick = () => {
 			collapsed = false;
 			pane.setAttribute("data-collapsed", "false");
@@ -1568,8 +1584,9 @@ function apply(ctx) {
 			resize.addEventListener("pointercancel", onResizeUp);
 			resize.setPointerCapture(event.pointerId);
 		};
-		// 滚动条仅滚动时显示（R-01-004/AC-03）：滚动即置位，停滚 600ms 后隐藏。
-		// 同一监听承载「回到顶部」按钮显隐（R-01-018/AC-01、AC-03）：回顶后的收口不经额外事件，
+		// 滚动条随滚动或窗格内鼠标指针显示（R-01-004/AC-03）：滚动即置位，停滚 600ms 后收口；
+		// 指针离开后若仍在滚动拖尾内则保持显示，拖尾结束后隐藏。同一监听承载「回到顶部」按钮显隐
+		//（R-01-018/AC-01、AC-03）：回顶后的收口不经额外事件，
 		// 由平滑滚动触发的 scroll 事件自然完成。
 		let scrollHideTimer = null;
 		const onScroll = () => {
@@ -1590,6 +1607,8 @@ function apply(ctx) {
 		header?.addEventListener("click", onHeaderActivate);
 		header?.addEventListener("keydown", onHeaderKeydown);
 		rail?.addEventListener("click", onRailClick);
+		pane.addEventListener("pointerenter", onPanePointerEnter);
+		pane.addEventListener("pointerleave", onPanePointerLeave);
 		scroll?.addEventListener("scroll", onScroll, { passive: true });
 		recentMore?.addEventListener("click", onRecentMoreClick);
 		topBtn?.addEventListener("click", onTopClick);
@@ -1598,6 +1617,9 @@ function apply(ctx) {
 			header?.removeEventListener("click", onHeaderActivate);
 			header?.removeEventListener("keydown", onHeaderKeydown);
 			rail?.removeEventListener("click", onRailClick);
+			pane.removeEventListener("pointerenter", onPanePointerEnter);
+			pane.removeEventListener("pointerleave", onPanePointerLeave);
+			pane.removeAttribute("data-pointer-inside");
 			scroll?.removeEventListener("scroll", onScroll);
 			recentMore?.removeEventListener("click", onRecentMoreClick);
 			if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);

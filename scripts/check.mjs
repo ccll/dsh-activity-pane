@@ -33,7 +33,9 @@ import {
 	openTurnStartMissing,
 	escapeCssString,
 	firstPhysicalLine,
+	fmtAbsoluteDateTime,
 	fmtElapsedMs,
+	fmtRelativeAge,
 	fmtTokens,
 	isActiveRow,
 	shouldSubscribeToSession,
@@ -897,6 +899,35 @@ assert.equal(fmtElapsedMs(193_000), "3m13s", "时长分秒格式");
 assert.equal(fmtElapsedMs(NaN), "", "NaN 时长归一为空");
 assert.equal(fmtElapsedMs(Infinity), "", "Infinity 时长归一为空");
 assert.equal(fmtElapsedMs(-1), "", "负时长归一为空");
+// R-01-013/AC-05：历史卡同时显示本地绝对日期时间与相对年龄，异常输入不制造虚假时间。
+const relativeMinute = 60_000;
+const relativeHour = 60 * relativeMinute;
+const relativeDay = 24 * relativeHour;
+assert.equal(fmtRelativeAge(0), "刚刚", "小于一分钟显示刚刚");
+assert.equal(fmtRelativeAge(2 * relativeMinute + 1), "2分钟前", "分钟级相对时间");
+assert.equal(fmtRelativeAge(3 * relativeHour + 1), "3小时前", "小时级相对时间");
+assert.equal(fmtRelativeAge(2 * relativeDay + 1), "2天前", "天级相对时间");
+assert.equal(fmtRelativeAge(2 * 7 * relativeDay + 1), "2周前", "周级相对时间");
+assert.equal(fmtRelativeAge(2 * 30 * relativeDay + 1), "2个月前", "月级相对时间");
+assert.equal(fmtRelativeAge(2 * 365 * relativeDay + 1), "2年前", "年级相对时间");
+assert.equal(fmtRelativeAge(NaN), "", "NaN 相对时间归一为空");
+assert.equal(fmtRelativeAge(Infinity), "", "Infinity 相对时间归一为空");
+assert.equal(fmtRelativeAge(-1), "", "负相对时间归一为空");
+const sameYearActivity = new Date(2026, 7, 31, 14, 32);
+const sameYearNow = new Date(2026, 8, 1, 9, 0);
+assert.equal(
+	fmtAbsoluteDateTime(sameYearActivity.getTime(), sameYearNow.getTime()),
+	`${sameYearActivity.toLocaleDateString([], { month: "2-digit", day: "2-digit" })} ${sameYearActivity.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+	"当前年份绝对时间省略年份但保留月日时分",
+);
+const priorYearActivity = new Date(2025, 11, 31, 23, 50);
+assert.equal(
+	fmtAbsoluteDateTime(priorYearActivity.getTime(), sameYearNow.getTime()),
+	`${priorYearActivity.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" })} ${priorYearActivity.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+	"跨年份绝对时间补充年份",
+);
+assert.equal(fmtAbsoluteDateTime(null, sameYearNow.getTime()), "", "缺失绝对时间归一为空");
+assert.equal(fmtAbsoluteDateTime(NaN, sameYearNow.getTime()), "", "非法绝对时间归一为空");
 
 // R-01-012/AC-01
 // R-01-012/AC-02
@@ -2747,8 +2778,8 @@ assert.ok(bundle.includes("notifyLayoutChange"), "布局变化通知 sibling ove
 assert.ok(bundle.includes('window.dispatchEvent(new Event("resize"))'), "布局变化派发标准 resize 通知");
 assert.ok(bundle.includes("pane !== renderedPane"), "新窗格实例必须重置渲染签名");
 assert.ok(
-	clientSource.includes("const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface]);"),
-	"列表 phase 转换必须参与结构化渲染签名，空列表不得冻结在加载/失败状态（T-087）",
+	clientSource.includes("const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature]);"),
+	"列表 phase 与历史时间文案必须参与结构化渲染签名，空列表不得冻结在加载/失败状态（T-087）",
 );
 // R-01-013/AC-02 回归：卡片标题必须随快照更新——单卡渲染异常不得冻结其余卡片
 // （此前渲染签名先于卡片循环提交且无异常隔离，故障卡及其后全部卡片永久滞留旧标题，
@@ -2994,7 +3025,8 @@ assert.ok(!bundle.includes("serviceTimer"), "服务发现不得保留后台定�
 assert.ok(!bundle.includes("frameProbeTimer"), "宿主 frame 发现不得保留后台定时器");
 assert.ok(bundle.includes("conversationObserver"), "流式 DOM 观察绑定到 conversation seat");
 assert.ok(bundle.includes("centerObserver"), "宿主结构变化通过 center 直接子节点通知处理");
-assert.ok(bundle.includes("setInterval(() => queueSync(), CLOCK_MS)"), "仅保留运行时长显示所需的单一 1 秒时钟");
+assert.ok(bundle.includes("setInterval(() => queueSync(), CLOCK_MS)"), "运行卡时长继续使用独立的 1 秒时钟");
+assert.ok(bundle.includes("RECENT_TIME_REFRESH_MS") && bundle.includes("syncRecentTimeClock"), "历史卡相对时间使用独立的分钟级刷新时钟（R-01-013/AC-05）");
 // R-01-014/AC-01
 // R-01-014/AC-02
 // R-01-014/AC-03
@@ -3188,6 +3220,7 @@ assert.ok(
 assert.ok(bundle.includes("lastTurnEndFromEvents") && bundle.includes("lastTurnEndFromTimings"), "回合结束时刻提取进入 bundle（R-01-010/AC-08）");
 assert.ok(bundle.includes("delegatingIds, turnEnds)"), "turnEnds 注入 buildRecent（R-01-010/AC-09）");
 assert.ok(bundle.includes("fmtRecentTime(entry.activityAt)"), "最近卡渲染读取精化后的 activityAt（R-01-010/AC-08）");
+assert.ok(bundle.includes("fmtRelativeAge") && bundle.includes("最后活动 ·"), "最近卡同时显示绝对日期时间与相对活动时间（R-01-013/AC-05）");
 
 assert.ok(
 	bundle.indexOf('[data-kind="recent"] {') < bundle.indexOf(".dap-card[data-opening]"),

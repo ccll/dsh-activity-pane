@@ -32,6 +32,8 @@ const INDENT_PX = 16;
 const MOBILE_BREAKPOINT = "767px";
 /** 运行卡时钟：只要存在运行中会话，就以该周期刷新时长显示。 */
 const CLOCK_MS = 1000;
+/** 历史卡相对时间刷新周期；无需每秒重绘整列。 */
+const RECENT_TIME_REFRESH_MS = 60_000;
 /** 冷数据读取并发池上限：慢网下避免几十张卡片的 models/history 一次性挤占通道。 */
 const LOAD_CONCURRENCY = 3;
 /** 历史分页每批数量；分页本身只由历史区候选数量决定。 */
@@ -954,12 +956,15 @@ function livenessFromSnapshot(snap) {
 	return { startTime };
 }
 
-function fmtRecentTime(ts) {
+/** 历史卡时间同时给出本地绝对日期时分与相对年龄；跨年份的绝对日期带年份。 */
+function fmtRecentTime(ts, now = Date.now()) {
 	try {
-		return `最近 ${new Date(ts).toLocaleTimeString([], {
-			hour: "2-digit",
-			minute: "2-digit",
-		})}`;
+		const value = Number(ts);
+		const current = Number(now);
+		const absolute = fmtAbsoluteDateTime(ts, now);
+		if (!absolute) return "";
+		const relative = fmtRelativeAge(current - value);
+		return relative ? `最后活动 · ${absolute} · ${relative}` : `最后活动 · ${absolute}`;
 	} catch {
 		return "";
 	}
@@ -993,6 +998,7 @@ function apply(ctx) {
 	let sessionUnsubscribe = null;
 	let workspaceUnsubscribe = null;
 	let clockTimer = null;
+	let recentTimeTimer = null;
 	let syncScheduled = false;
 	let lastSig = "";
 	/** 等待条目 id/类别队列签名：变化时统一重启数量胶囊与等待卡末行动画对相（R-01-002/AC-07、AC-08）。 */
@@ -2408,6 +2414,16 @@ function apply(ctx) {
 		}
 	}
 
+	/** 历史卡相对时间只需分钟级刷新；无历史卡时停止定时器，避免空窗格常驻唤醒。 */
+	function syncRecentTimeClock(wanted) {
+		if (wanted && recentTimeTimer === null) {
+			recentTimeTimer = setInterval(() => queueSync(), RECENT_TIME_REFRESH_MS);
+		} else if (!wanted && recentTimeTimer !== null) {
+			clearInterval(recentTimeTimer);
+			recentTimeTimer = null;
+		}
+	}
+
 	function getSessionSnapshot(session) {
 		try {
 			return session?.getSnapshot?.() ?? null;
@@ -2616,11 +2632,14 @@ function apply(ctx) {
 		if (entry.waitClass === "blocked" || entry.waitClass === "done" || entry.waitClass === "error")
 			rec.el.setAttribute("data-wait", entry.waitClass);
 		else rec.el.removeAttribute("data-wait");
+		const recentTimeText = entry.kind === "recent" ? fmtRecentTime(entry.activityAt) : "";
 		rec.el.setAttribute(
 			"aria-label",
 			`${entry.workspaceTitle ? entry.workspaceTitle + " - " : ""}${entry.title}${
 				entry.pendingText ? "，" + entry.pendingText : ""
-			}${(entry.waitClass === "done" || entry.waitClass === "error") && entry.noteText ? "，" + entry.noteText : ""}`,
+			}${(entry.waitClass === "done" || entry.waitClass === "error") && entry.noteText ? "，" + entry.noteText : ""}${
+				recentTimeText ? "，" + recentTimeText : ""
+			}`,
 		);
 		renderCardInto(rec.el, entry, hueByWorkspace);
 		// 只有顺序/归属真正变化时才移动 DOM：每次渲染无条件 appendChild 会把所有
@@ -2978,6 +2997,7 @@ function apply(ctx) {
 		recentTotal = recentCandidates.length;
 		const recent = recentCandidates.slice(0, recentVisibleCount);
 		recentHasMore = recent.length < recentTotal;
+		syncRecentTimeClock(recent.length > 0);
 		// 预览只对当前显示的 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
 		// 完成瞬间的窗口快照可能先有用户消息、后到 agent reply；缺任一预览时补读一次 history。
 		const previewFallbackIds = new Set();
@@ -3018,7 +3038,9 @@ function apply(ctx) {
 		// listState 参与签名：空列表从 pending/error → ready 时卡集合不变，若只比较卡片
 		// 会被提前返回冻结在「加载中」/「列表加载失败」；数量胶囊可见面变化同样需要
 		// 进入渲染，以便与当前可见等待卡末行重新对相（R-01-002/AC-07）。
-		const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface]);
+		// 历史卡的相对活动时间随分钟级时钟变化，纳入签名后只在文案实际变化时重绘。
+		const recentTimeSignature = recent.map((entry) => fmtRecentTime(entry.activityAt));
+		const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature]);
 		if (sig === lastSig) return;
 		const hueByWorkspace = resolveWorkspaceHues(visibleEntries.map((entry) => entry.workspaceKey));
 		// 跨区迁移（双向，R-01-010/AC-07）：DOM 写入前量取旧卡矩形并克隆 ghost。
@@ -3314,6 +3336,7 @@ function apply(ctx) {
 		window.removeEventListener("pageshow", onPageShow);
 		completeAcksById.clear();
 		if (clockTimer !== null) clearInterval(clockTimer);
+		if (recentTimeTimer !== null) clearInterval(recentTimeTimer);
 		if (e2eListReleaseTimer !== null) clearTimeout(e2eListReleaseTimer);
 		for (const [timer, resolve] of e2eModelDelayWaiters) {
 			clearTimeout(timer);

@@ -1881,6 +1881,41 @@ export function fmtElapsedMs(ms) {
 	return `${Math.floor(s / 60)}m${s % 60}s`;
 }
 
+/** 历史卡相对活动时间：按分钟、小时、天、周、月、年分级；负值返回空。 */
+export function fmtRelativeAge(ageMs) {
+	if (!Number.isFinite(ageMs) || ageMs < 0) return "";
+	const minute = 60_000;
+	const hour = 60 * minute;
+	const day = 24 * hour;
+	if (ageMs < minute) return "刚刚";
+	if (ageMs < hour) return `${Math.floor(ageMs / minute)}分钟前`;
+	if (ageMs < day) return `${Math.floor(ageMs / hour)}小时前`;
+	if (ageMs < 7 * day) return `${Math.floor(ageMs / day)}天前`;
+	if (ageMs < 30 * day) return `${Math.floor(ageMs / (7 * day))}周前`;
+	if (ageMs < 365 * day) return `${Math.floor(ageMs / (30 * day))}个月前`;
+	return `${Math.floor(ageMs / (365 * day))}年前`;
+}
+
+/** 历史卡绝对活动时间：使用浏览器/宿主本地时区，当前年份省略年份，跨年补年份。 */
+export function fmtAbsoluteDateTime(ts, now = Date.now()) {
+	if (ts === null || ts === undefined || now === null || now === undefined) return "";
+	try {
+		const value = Number(ts);
+		const current = Number(now);
+		const date = new Date(value);
+		const today = new Date(current);
+		if (!Number.isFinite(value) || !Number.isFinite(current) || !Number.isFinite(date.getTime()) || !Number.isFinite(today.getTime())) return "";
+		const dateOptions = { month: "2-digit", day: "2-digit" };
+		if (date.getFullYear() !== today.getFullYear()) dateOptions.year = "numeric";
+		return `${date.toLocaleDateString([], dateOptions)} ${date.toLocaleTimeString([], {
+			hour: "2-digit",
+			minute: "2-digit",
+		})}`;
+	} catch {
+		return "";
+	}
+}
+
 /** token 计数的人性化短格式，例如 "847"、"1.2k"；非有限非负时返回 null。 */
 /** token 计数紧凑缩写，镜像原生统计行 formatTokens：847 / 12.2K / 517K / 2.8M——
  *  千以下原样；K/M 档缩写值百位以上取整、不足百位保留一位小数；非法输入返回 null 不展示。 */

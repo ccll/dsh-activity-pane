@@ -58,6 +58,10 @@ export default async function recentInfiniteScroll({ page, url, mock, assert }) 
 	// R-01-019/AC-01：超过 10 条时首屏只呈现最近 10 条，顺序由最后活动时间决定。
 	const firstPage = await waitForRecentOrder(page, titles.slice().reverse().slice(0, 10), "历史区首批 10 条详情就绪");
 	assert.equal(firstPage.length, 10, "历史区首批只呈现 10 张卡片（R-01-019/AC-01）");
+	const expectedDate = await page.evaluate(() => new Date().toLocaleDateString([], { month: "2-digit", day: "2-digit" }));
+	assert.ok(firstPage[0].includes("最后活动"), "历史卡显示最后活动标签（R-01-013/AC-05）");
+	assert.ok(firstPage[0].includes(expectedDate), "历史卡显示本地绝对月日（R-01-013/AC-05）");
+	assert.match(firstPage[0], /(刚刚|\d+分钟前|\d+小时前|\d+天前|\d+周前|\d+个月前|\d+年前)/, "历史卡同时显示相对活动时间（R-01-013/AC-05）");
 	assert.ok(!firstPage.some((text) => text.includes(titles[10])), "第二批首个会话尚未进入首批 DOM（R-01-019/AC-01）");
 
 	// R-01-019/AC-02、R-01-019/AC-04：滚动历史区到底只追加一批，既有卡片保留，主会话滚动不受影响。

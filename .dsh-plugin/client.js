@@ -1600,11 +1600,6 @@ function listLoadState(snapshot) {
 	return "ready";
 }
 
-/** 历史窗口：会话最后一次活动距现在不超过该毫秒数则视为"最近使用过"。 */
-const HISTORY_WINDOW_MS = 24 * 60 * 60 * 1000;
-/** 历史区最多展示的最近会话条数。 */
-const HISTORY_MAX = 20;
-
 /** 会话行是否为某主会话的直属子代理。 */
 function isSubagentRow(row, byId = {}) {
 	const id = row?.parentId;
@@ -1708,7 +1703,7 @@ function entryErrorNote(completion) {
 
 /**
  * 活动区→历史区迁移检测（R-01-010/AC-07）：上一帧活动区 id 在本帧离开活动区且出现于
- * 历史区即判定为一次迁移；彻底消失（归档、滑出历史窗口）不判定。prevActiveIds 为上一帧
+ * 历史区即判定为一次迁移；彻底消失（归档、不再被会话服务列出）不判定。prevActiveIds 为上一帧
  * 已渲染的活动区 id 集合，active/recent 为本帧派生条目。
  */
 function movedToRecentIds(prevActiveIds, active, recent) {
@@ -1724,7 +1719,7 @@ function movedToRecentIds(prevActiveIds, active, recent) {
 
 /**
  * 历史区→活动区迁移检测（R-01-010/AC-07）：上一帧历史区 id 在本帧离开历史区且出现于
- * 活动区即判定为一次反向迁移；彻底消失（归档、滑出历史窗口）不判定。prevRecentIds 为上一帧
+ * 活动区即判定为一次反向迁移；彻底消失（归档、不再被会话服务列出）不判定。prevRecentIds 为上一帧
  * 已渲染的历史区 id 集合，active/recent 为本帧派生条目。与 movedToRecentIds 镜像对称。
  */
 function movedToActiveIds(prevRecentIds, active, recent) {
@@ -1824,16 +1819,12 @@ function lastTurnDuration({ turnTimings = null, history = [] } = {}) {
 }
 
 /**
- * 构建最近历史区条目：当前非活动、且在历史窗口内最后一次活动过的**主会话**
- * （子代理是临时工作单元，不入最近历史；故需同时排除表白会话与已结束子代理），
- * 按最后活动时间从新到旧，最多 HISTORY_MAX 条。blank 会话不出现（从未用过）；
- * 归档会话不出现——原生 runtime 会立即清空对归档会话的选中，列出它只会得到
- * 一张点了回落到新会话界面的死卡。完成确认中的会话留在活动区，不入历史区；
- * 委托周期（含耗尽空窗）中的会话同样留在活动区（delegatingIds，分区不变量）。
- * 窗口候选判定用宿主列表时间（下界）；turnEnds（id → 已知回合结束时刻）驱动
- * 时间精化：条目 activityAt 取宿主列表时间与回合结束时刻的较新者（R-01-010/AC-08、AC-09）。
+ * 构建历史区条目：当前非活动的**主会话**，按最后活动时间从新到旧返回完整候选集合。
+ * 子代理是临时工作单元，不入历史区；归档、空会话、完成/错误提醒与委托周期中的会话
+ * 也不入历史区。历史区不再按时间窗口或条数截断；turnEnds（id → 已知回合结束时刻）驱动
+ * activityAt 精化（R-01-010、R-01-019）。
  */
-function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS, detailsById = {}, archivedIds = [], completions = null, delegatingIds = null, turnEnds = null) {
+function buildRecent(snapshot, workspaceItems, now, detailsById = {}, archivedIds = [], completions = null, delegatingIds = null, turnEnds = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
@@ -1854,7 +1845,7 @@ function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS
 		if (isActiveRow(row, byId, activeIds)) continue;
 		const updatedAt = Number(row.updatedAt);
 		if (!Number.isFinite(updatedAt)) continue;
-		if (updatedAt > now || now - updatedAt > windowMs) continue;
+		if (Number.isFinite(now) && updatedAt > now) continue;
 		const turnEnd = Number(mapValue(turnEnds, id));
 		const activityAt = Number.isFinite(turnEnd) ? Math.max(updatedAt, turnEnd) : updatedAt;
 		const details = mapValue(detailsById, id) ?? {};
@@ -1878,8 +1869,14 @@ function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS
 		});
 	}
 
-	entries.sort((a, b) => b.activityAt - a.activityAt);
-	return entries.slice(0, HISTORY_MAX);
+	entries.sort((a, b) => {
+		const byActivity = b.activityAt - a.activityAt;
+		if (byActivity !== 0) return byActivity;
+		const aId = String(a.id);
+		const bId = String(b.id);
+		return aId < bId ? -1 : aId > bId ? 1 : 0;
+	});
+	return entries;
 }
 
 /** 毫秒时长的人性化短格式，例如 "47s"、"3m12s"。 */
@@ -2130,6 +2127,8 @@ const MOBILE_BREAKPOINT = "767px";
 const CLOCK_MS = 1000;
 /** 冷数据读取并发池上限：慢网下避免几十张卡片的 models/history 一次性挤占通道。 */
 const LOAD_CONCURRENCY = 3;
+/** 历史分页每批数量；分页本身只由历史区候选数量决定。 */
+const RECENT_PAGE_SIZE = 10;
 /** 「回到顶部」悬浮按钮显隐阈值：scrollTop 超过该值（px）时显示（R-01-018/AC-01）。 */
 const TOP_THRESHOLD = 200;
 
@@ -2283,6 +2282,13 @@ const CSS = `
   letter-spacing: 0.06em;
   color: color-mix(in srgb, currentColor 52%, transparent);
   text-transform: uppercase;
+}
+/* 历史分页尾部只提供 IntersectionObserver 锚点，不占用可见内容。 */
+[data-dsh-activity-pane] .dap-recent-tail {
+  width: 1px;
+  height: 1px;
+  flex: none;
+  pointer-events: none;
 }
 /* 折叠：仅桌面生效；窄条 + 竖排标题与计数（R-01-011/AC-04）。 */
 [data-dsh-activity-pane] .dap-rail {
@@ -3132,6 +3138,11 @@ function apply(ctx) {
 	const cardsById = new Map();
 	/** 历史区卡片 id → { el } 复用表。 */
 	const recentCardsById = new Map();
+	/** 历史区渐进呈现状态：候选由核心完整派生，DOM 与详情读取只覆盖当前前缀。 */
+	let recentVisibleCount = RECENT_PAGE_SIZE;
+	let recentTotal = 0;
+	let recentHasMore = false;
+	let recentAppendQueued = false;
 	/** 运行中会话原生快照订阅：id → { unsubscribe, liveness, snapshot }。 */
 	const livenessById = new Map();
 	/** 委托周期进度锚点记账：id → progressAnchor 状态（R-01-009/AC-06）。 */
@@ -3545,12 +3556,45 @@ function apply(ctx) {
 			window.dispatchEvent(new Event("resize"));
 		} catch {}
 	}
+	function loadMoreRecent() {
+		if (disposed || !recentHasMore || recentAppendQueued) return false;
+		const nextCount = Math.min(recentVisibleCount + RECENT_PAGE_SIZE, recentTotal);
+		if (nextCount <= recentVisibleCount) return false;
+		recentAppendQueued = true;
+		recentVisibleCount = nextCount;
+		queueSync();
+		return true;
+	}
+	function maybeLoadMoreRecent(scroll) {
+		if (scroll === null || !recentHasMore || recentAppendQueued) return;
+		const tail = scroll.querySelector(".dap-recent-tail");
+		if (tail === null) return;
+		const rootRect = scroll.getBoundingClientRect();
+		const tailRect = tail.getBoundingClientRect();
+		if (rootRect.height <= 0 || tailRect.height <= 0) return;
+		if (tailRect.top <= rootRect.bottom && tailRect.bottom >= rootRect.top) loadMoreRecent();
+	}
 	function bindPaneControls(pane) {
 		const header = pane.querySelector(".dap-header");
 		const rail = pane.querySelector(".dap-rail");
 		const resize = pane.querySelector(".dap-resize");
 		const scroll = pane.querySelector(".dap-scroll");
 		const topBtn = pane.querySelector(".dap-top");
+		const recentTail = pane.querySelector(".dap-recent-tail");
+		let recentObserver = null;
+		if (scroll !== null && recentTail !== null && typeof window.IntersectionObserver === "function") {
+			try {
+				recentObserver = new window.IntersectionObserver(
+					(entries) => {
+						if (entries.some((entry) => entry.isIntersecting)) loadMoreRecent();
+					},
+					{ root: scroll, rootMargin: "0px" },
+				);
+				recentObserver.observe(recentTail);
+			} catch {
+				recentObserver = null;
+			}
+		}
 		// 标题行整体即收起控件，两端断点一致：桌面折叠为窄条（R-01-011/AC-03）；
 		// 移动端断点解释为收起抽屉，而非折叠窄条（R-01-008/AC-02、R-01-011/AC-06）。
 		const onHeaderActivate = () => {
@@ -3623,6 +3667,7 @@ function apply(ctx) {
 			queueTrackSync(); // 滚动停在小数相位后重对齐轨道层（rAF 合帧）
 			scroll.setAttribute("data-scrolling", "");
 			syncTopBtn();
+			maybeLoadMoreRecent(scroll);
 			if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);
 			scrollHideTimer = setTimeout(() => {
 				scrollHideTimer = null;
@@ -3645,6 +3690,7 @@ function apply(ctx) {
 			header?.removeEventListener("keydown", onHeaderKeydown);
 			rail?.removeEventListener("click", onRailClick);
 			scroll?.removeEventListener("scroll", onScroll);
+			recentObserver?.disconnect();
 			if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);
 			topBtn?.removeEventListener("click", onTopClick);
 			resize?.removeEventListener("pointerdown", onResizeDown);
@@ -3674,7 +3720,8 @@ function apply(ctx) {
 				<div class="dap-scroll">
 					<div class="dap-list" tabindex="-1"><div class="dap-tracks" aria-hidden="true"></div></div>
 					<div class="dap-recent">
-						<div class="dap-recent-head"><span>最近历史 · 24h</span></div>
+						<div class="dap-recent-head"><span>最近历史</span></div>
+						<div class="dap-recent-tail" aria-hidden="true"></div>
 					</div>
 				</div>
 				<button class="dap-top" type="button" aria-label="回到顶部" title="回到顶部" hidden></button>
@@ -4857,6 +4904,10 @@ function apply(ctx) {
 			pulseSignature = "";
 			prevRenderedActiveIds = new Set();
 			prevRenderedRecentIds = new Set();
+			recentVisibleCount = RECENT_PAGE_SIZE;
+			recentTotal = 0;
+			recentHasMore = false;
+			recentAppendQueued = false;
 			// 旧窗格已脱离文档：其在飞平移的 transitionend 不再触发，逐元素取消避免残留。
 			for (const el of [...shiftCleanups.keys()]) cancelShift(el);
 		}
@@ -4876,6 +4927,8 @@ function apply(ctx) {
 			}
 		}
 		const listState = listLoadState(snapshot);
+		// 只消费上一轮追加请求；列表短暂 pending 时保留已展开页，ready 后继续从同一前缀呈现。
+		recentAppendQueued = false;
 		const workspaceSnapshot = getSnapshot(workspaces, "list");
 		const workspaceItems = workspaceSnapshot?.items ?? [];
 		const archivedSessionIds = workspaceSnapshot?.archivedSessionIds ?? [];
@@ -5014,8 +5067,11 @@ function apply(ctx) {
 			}
 			if (detail.memoTurnEnd != null) turnEnds[id] = detail.memoTurnEnd;
 		}
-		const recent = buildRecent(snapshot, workspaceItems, now, undefined, sessionDetailsById, archivedSessionIds, completeAcksById, delegatingIds, turnEnds);
-		// 预览只对 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
+		const recentCandidates = buildRecent(snapshot, workspaceItems, now, sessionDetailsById, archivedSessionIds, completeAcksById, delegatingIds, turnEnds);
+		recentTotal = recentCandidates.length;
+		const recent = recentCandidates.slice(0, recentVisibleCount);
+		recentHasMore = recent.length < recentTotal;
+		// 预览只对当前显示的 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
 		// 完成瞬间的窗口快照可能先有用户消息、后到 agent reply；缺任一预览时补读一次 history。
 		const previewFallbackIds = new Set();
 		for (const entry of recent) {
@@ -5033,7 +5089,7 @@ function apply(ctx) {
 			if (!entry.userPreview || !entry.agentPreview) previewFallbackIds.add(entry.id);
 			entry.loadingPreviews = (!entry.userPreview || !entry.agentPreview) && historyLoads.has(entry.id);
 		}
-		// 补充数据读取优先级：当前会话最优先，活动区先于历史区（区内按显示顺序）。
+		// 补充数据读取优先级：当前会话最优先，活动区先于当前已显示历史页（区内按显示顺序）。
 		const durationFallbackIds = new Set(active.filter((entry) => entry.kind === "awaiting").map((entry) => entry.id));
 		const detailIds = [...active, ...recent].map((entry) => entry.id);
 		detailIds.sort((a, b) => Number(String(b) === String(snapshot?.current)) - Number(String(a) === String(snapshot?.current)));
@@ -5164,6 +5220,9 @@ function apply(ctx) {
 		const headerExpanded = collapsed ? "false" : "true";
 		if (headerEl !== null && headerEl.getAttribute("aria-expanded") !== headerExpanded)
 			headerEl.setAttribute("aria-expanded", headerExpanded);
+		// 首批未撑满视口时，尾部检查会按同一批大小继续补齐；追加只排队一帧，避免
+		// observer/scroll 双路径在同一帧重复增长（R-01-019/AC-01、AC-02）。
+		maybeLoadMoreRecent(pane.querySelector(".dap-scroll"));
 
 		// 渲染签名在整轮 DOM 写入全部成功后提交：任何一步失败都保留下一轮
 		// 同步重试的机会，避免故障被签名吞掉后卡片永久滞留（R-01-013/AC-02）。

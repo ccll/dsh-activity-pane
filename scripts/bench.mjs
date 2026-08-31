@@ -75,7 +75,7 @@ function renderPass() {
 			entry.timeline = detail.memoTimeline;
 		}
 	}
-	const recent = buildRecent(listSnapshot, [], Date.now(), undefined, detailsById);
+	const recent = buildRecent(listSnapshot, [], Date.now(), detailsById);
 	for (const entry of recent) {
 		const detail = detailsById.get(entry.id);
 		if (!detail) continue;
@@ -115,7 +115,7 @@ function legacyRenderPass() {
 		legacyScanAll(detail.snapshot); // 旧渲染循环 timeline 重算
 		legacyScanAll(detail.snapshot); // 旧渲染循环 previews 重算
 	}
-	const recent = buildRecent(listSnapshot, [], Date.now(), undefined, detailsById);
+	const recent = buildRecent(listSnapshot, [], Date.now(), detailsById);
 	for (const entry of recent) {
 		const detail = detailsById.get(entry.id);
 		if (!detail?.snapshot) continue;

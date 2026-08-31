@@ -754,11 +754,11 @@ const drainGapIdle = {
 	current: null,
 };
 assert.equal(
-	buildRecent(drainGapIdle, [], 2000, undefined, {}, [], null, new Set(["root"])).length,
+	buildRecent(drainGapIdle, [], 2000, {}, [], null, new Set(["root"])).length,
 	0,
 	"耗尽空窗内委托周期会话不入最近历史（R-01-010 分区不变量）",
 );
-assert.equal(buildRecent(drainGapIdle, [], 2000, undefined, {}, [], null).length, 1, "委托周期结束后才入最近历史");
+assert.equal(buildRecent(drainGapIdle, [], 2000, {}, [], null).length, 1, "委托周期结束后才入最近历史");
 // delegationActive：耗尽宽限内视为委托周期（空窗保持），超时退出。
 assert.equal(delegationActive({ mode: "delegating", anchor: 1000, turnStart: 9000, drainedAt: null }, 50000), true, "委托周期中视为活动");
 assert.equal(delegationActive({ mode: "delegating", anchor: 1000, turnStart: 9000, drainedAt: 30000 }, 31000), true, "耗尽宽限内视为活动（空窗保持运行呈现）");
@@ -2069,7 +2069,8 @@ assert.notEqual(
 	cardSignature(entries),
 	"缓存命中率变化签名必变",
 );
-// ---- R-01-010/AC-01 非活动且 24h 内→最近历史区 ----
+// ---- R-01-010/AC-01 非活动主会话→最近历史区（不设时间窗口） ----
+const RECENT_PAGE_SIZE = 10;
 const NOW = 2_000_000_000_000; // 固定时钟便于确定性断言
 // 注意：completed:true 的主会话是"待打开"的活动卡（在活动区），不属历史区；
 // 真实"最近历史"是已处理（running:false 且无未确认完成）的非活动会话；
@@ -2090,19 +2091,19 @@ const recentSnap = {
 const recentUncompleted = buildRecent(recentSnap, [], NOW);
 assert.deepEqual(
 	recentUncompleted.map((e) => e.id),
-	["sAwait", "sB"],
-	"completed 边沿标志不参与活动/历史判定；无完成登记时按历史窗口入历史区（C-030）",
+	["sAwait", "sB", "sOld"],
+	"completed 边沿标志不参与活动/历史判定；无完成登记时所有非活动主会话均入历史区（C-030）",
 );
 // 完成登记存在时（未确认完成）：待开 E 显示为完成提醒并排除出历史区（AC-03、R-01-010/AC-06）。
 const recentAcks = new Map([
 	["sAwait", { lastTurnEnd: NOW - 1_000, ackedAt: null }],
 	["sAwait2", { lastTurnEnd: NOW - 900, ackedAt: NOW - 2_000 }],
 ]);
-const recent = buildRecent(recentSnap, [], NOW, undefined, {}, [], recentAcks);
+const recent = buildRecent(recentSnap, [], NOW, {}, [], recentAcks);
 assert.deepEqual(
 	recent.map((e) => e.id),
-	["sB"],
-	"完成登记表中未确认完成的会话留在活动区、排除出历史区；已确认的不再排除（仍按窗口入区）",
+	["sB", "sOld"],
+	"完成登记表中未确认完成的会话留在活动区、排除出历史区；已确认的不再排除",
 );
 assert.deepEqual(
 	[recent[0].model, recent[0].reasoning, recent[0].userPreview, recent[0].agentPreview],
@@ -2117,7 +2118,7 @@ assert.deepEqual(messagePreviews({ history: [] }), { userPreview: "", agentPrevi
 // R-01-013/AC-04
 // R-01-013/AC-05
 // R-01-013/AC-06
-const recentWithPreviews = buildRecent(recentSnap, [], NOW, undefined, {
+const recentWithPreviews = buildRecent(recentSnap, [], NOW, {
 	sB: {
 		model: { model: "Model M", reasoning: "High" },
 		previews: { userPreview: "用户首行", agentPreview: "回复首行" },
@@ -2169,7 +2170,7 @@ const viaRunToIdle = buildEntries(
 	[],
 );
 assert.deepEqual(viaRunToIdle.map((e) => e.id), ["sB"], "运行中会话在活动区");
-const recentAfterIdle = buildRecent(recentSnap, [], NOW, undefined, {}, [], recentAcks);
+const recentAfterIdle = buildRecent(recentSnap, [], NOW, {}, [], recentAcks);
 assert.ok(recentAfterIdle.some((e) => e.id === "sB"), "转为非活动后进入历史区");
 
 // ---- R-01-010/AC-03 历史区按最后活动时间从新到旧 ----
@@ -2191,6 +2192,52 @@ assert.deepEqual(
 	["r3", "r1", "r2"],
 	"历史区按最后活动时间倒序",
 );
+
+// ---- R-01-019/AC-01～AC-03 历史候选不再截断，按 10 条分批呈现 ----
+const manyRecentIds = Array.from({ length: RECENT_PAGE_SIZE * 2 + 1 }, (_, index) => `page-${index}`);
+const manyRecent = buildRecent(
+	{
+		ids: manyRecentIds,
+		byId: Object.fromEntries(manyRecentIds.map((id, index) => [id, {
+			id,
+			displayTitle: id,
+			running: false,
+			updatedAt: NOW - index,
+		}])),
+		current: null,
+	},
+	[],
+	NOW,
+);
+assert.equal(manyRecent.length, manyRecentIds.length, "历史候选超过 20 条时不再被核心截断（R-01-019/AC-01）");
+assert.deepEqual(
+	manyRecent.slice(0, RECENT_PAGE_SIZE).map((entry) => entry.id),
+	manyRecentIds.slice(0, RECENT_PAGE_SIZE),
+	"历史首批按最近顺序取 10 条（R-01-019/AC-01）",
+);
+assert.deepEqual(
+	manyRecent.slice(RECENT_PAGE_SIZE, RECENT_PAGE_SIZE * 2).map((entry) => entry.id),
+	manyRecentIds.slice(RECENT_PAGE_SIZE, RECENT_PAGE_SIZE * 2),
+	"历史第二批紧接首批取后续 10 条（R-01-019/AC-02）",
+);
+assert.deepEqual(
+	manyRecent.slice(RECENT_PAGE_SIZE * 2).map((entry) => entry.id),
+	manyRecentIds.slice(RECENT_PAGE_SIZE * 2),
+	"历史末批只取剩余会话且不会越界重复（R-01-019/AC-03）",
+);
+const tiedRecent = buildRecent(
+	{
+		ids: ["tie-z", "tie-a"],
+		byId: {
+			"tie-z": { id: "tie-z", displayTitle: "Z", running: false, updatedAt: NOW },
+			"tie-a": { id: "tie-a", displayTitle: "A", running: false, updatedAt: NOW },
+		},
+		current: null,
+	},
+	[],
+	NOW,
+);
+assert.deepEqual(tiedRecent.map((entry) => entry.id), ["tie-a", "tie-z"], "相同 activityAt 时以会话 id 稳定排序");
 
 // ---- R-01-010/AC-08 最后活动时间：turn/end 提取与 max 归一 ----
 assert.equal(lastTurnEndFromEvents([]), null, "空 history 无回合结束时刻");
@@ -2326,7 +2373,7 @@ const refineSnap = {
 	},
 	current: null,
 };
-const refined = buildRecent(refineSnap, [], NOW, undefined, {}, [], null, null, {
+const refined = buildRecent(refineSnap, [], NOW, {}, [], null, null, {
 	sTurn: NOW - 2_000, // 回合结束晚于宿主时间 → 精化为回合结束时刻
 	sPrompt: NOW - 3_000, // 回合结束早于宿主时间（消息未处理）→ 取较新者
 });
@@ -2343,19 +2390,18 @@ assert.deepEqual(
 	[["sPrompt", NOW - 1_000], ["sNone", NOW - 5_000], ["sTurn", NOW - 10_000]],
 	"回合结束时刻在途时先按宿主列表时间判定、排序与显示（R-01-010/AC-09）",
 );
-// 窗口下界语义：宿主时间超窗的会话不读取历史，即使回合在窗内结束也不入区（C-020 明示缺口）。
+// 无时间窗口语义：宿主时间较早的非活动会话仍进入历史区，已知 turn/end 继续精化排序（C-068）。
 const crossWindow = buildRecent(
 	{ ids: ["sLong"], byId: { sLong: { id: "sLong", displayTitle: "长回合", running: false, updatedAt: NOW - 25 * 3_600_000 } }, current: null },
 	[],
 	NOW,
-	undefined,
 	{},
 	[],
 	null,
 	null,
 	{ sLong: NOW - 1_000 },
 );
-assert.equal(crossWindow.length, 0, "宿主时间超窗的会话不入历史区（跨窗长回合缺口，C-020）");
+assert.deepEqual(crossWindow.map((entry) => [entry.id, entry.activityAt]), [["sLong", NOW - 1_000]], "较早宿主时间的非活动会话仍进入历史区（C-068）");
 
 // ---- R-01-002/AC-03、AC-05、AC-10～AC-12、R-01-010/AC-06 完成确认：未确认完成提醒保留活动卡；
 //     显式确认（按钮）或新回合隐式更替后解除；打开/切走/刷新不解除（C-030）----
@@ -2384,7 +2430,7 @@ assert.deepEqual(
 	"完成提醒计入徽标等待分子但不计阻塞（R-01-002/AC-06）",
 );
 assert.deepEqual(
-	buildRecent(holdSnap, [], NOW, undefined, {}, [], acks(1000)).map((e) => e.id),
+	buildRecent(holdSnap, [], NOW, {}, [], acks(1000)).map((e) => e.id),
 	[],
 	"未确认完成提醒不入历史区（分区不变量）",
 );
@@ -2399,7 +2445,7 @@ assert.deepEqual(
 	"确认后完成提醒解除、退出活动区",
 );
 assert.deepEqual(
-	buildRecent(holdSnap, [], NOW, undefined, {}, [], ackedMap).map((e) => e.id),
+	buildRecent(holdSnap, [], NOW, {}, [], ackedMap).map((e) => e.id),
 	["sB"],
 	"确认后会话进入历史区",
 );
@@ -2457,7 +2503,7 @@ assert.deepEqual(
 	"错误提醒计入徽标等待分子但不计阻塞（R-01-002/AC-06）",
 );
 assert.deepEqual(
-	buildRecent(holdSnap, [], NOW, undefined, {}, [], errAcks("error", "boom")).map((e) => e.id),
+	buildRecent(holdSnap, [], NOW, {}, [], errAcks("error", "boom")).map((e) => e.id),
 	[],
 	"错误提醒中会话不入历史区（分区不变量，R-01-010/AC-06）",
 );
@@ -2503,7 +2549,7 @@ assert.deepEqual(
 	["sB"],
 	"上一帧活动区 id 离开活动区且出现于历史区判定为迁移",
 );
-assert.deepEqual(movedToRecentIds(new Set(["sB"]), [], []), [], "彻底消失（归档/滑出历史窗口）不判定为迁移");
+assert.deepEqual(movedToRecentIds(new Set(["sB"]), [], []), [], "彻底消失（归档/不再被会话服务列出）不判定为迁移");
 assert.deepEqual(movedToRecentIds(new Set(), [{ id: "sB" }], []), [], "上一帧不在活动区不判定为迁移");
 assert.deepEqual(movedToRecentIds(new Set(["sB"]), [{ id: "sB" }], []), [], "仍在活动区不判定为迁移");
 
@@ -2513,7 +2559,7 @@ assert.deepEqual(
 	["rB"],
 	"上一帧历史区 id 离开历史区且出现于活动区判定为反向迁移",
 );
-assert.deepEqual(movedToActiveIds(new Set(["rB"]), [], []), [], "彻底消失（归档/滑出历史窗口）不判定为反向迁移");
+assert.deepEqual(movedToActiveIds(new Set(["rB"]), [], []), [], "彻底消失（归档/不再被会话服务列出）不判定为反向迁移");
 assert.deepEqual(movedToActiveIds(new Set(), [{ id: "rB" }], []), [], "上一帧不在历史区不判定为反向迁移");
 assert.deepEqual(movedToActiveIds(new Set(["rB"]), [], [{ id: "rB" }]), [], "仍在历史区不判定为反向迁移");
 
@@ -2544,14 +2590,13 @@ const recentArchived = buildRecent(
 	},
 	[],
 	NOW,
-	undefined,
 	{},
 	["sGone"],
 );
 assert.deepEqual(
 	recentArchived.map((e) => e.id),
 	["sKeep"],
-	"归档会话即使在 24h 窗口内也不入最近历史",
+	"归档会话即使仍被会话服务列出也不入最近历史",
 );
 assert.deepEqual(
 	buildRecent(
@@ -2565,7 +2610,6 @@ assert.deepEqual(
 		},
 		[],
 		NOW,
-		undefined,
 		{},
 		new Set(["sGone"]),
 	).map((e) => e.id),
@@ -3395,7 +3439,19 @@ assert.ok(bundle.includes(".dap-scroll::-webkit-scrollbar-thumb {\n  background:
 assert.ok(bundle.includes(".dap-scroll[data-scrolling]::-webkit-scrollbar-thumb"), "滚动中经 data-scrolling 显示滚动条");
 assert.ok(bundle.includes("@supports not selector(::-webkit-scrollbar)") && bundle.includes("scrollbar-color: transparent transparent"), "Firefox 路径以 @supports 门隔离（防 Chromium 丢弃伪元素规则）");
 assert.ok(bundle.includes('scroll?.addEventListener("scroll", onScroll, { passive: true })'), "滚动监听置位 data-scrolling");
-assert.ok(bundle.includes('scroll?.removeEventListener("scroll", onScroll);\n\t\t\tif (scrollHideTimer !== null) clearTimeout(scrollHideTimer);'), "unbind 同步清理滚动监听与隐藏定时器（R-02-003/AC-02）");
+assert.ok(
+	bundle.includes('scroll?.removeEventListener("scroll", onScroll);') && bundle.includes('if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);'),
+	"unbind 同步清理滚动监听与隐藏定时器（R-02-003/AC-02）",
+);
+assert.ok(bundle.includes("recentObserver?.disconnect();"), "unbind 同步清理历史分页观察者（R-01-019/AC-04）");
+
+// R-01-019/AC-01～AC-04 历史候选与分页渲染契约
+assert.equal(RECENT_PAGE_SIZE, 10, "历史分页批次固定为 10 条（R-01-019/AC-01）");
+assert.ok(bundle.includes("const RECENT_PAGE_SIZE = 10;"), "生成 bundle 保留 10 条历史分页批次配置（R-01-019/AC-01）");
+assert.ok(bundle.includes('const recent = recentCandidates.slice(0, recentVisibleCount);'), "历史区只渲染当前可见候选前缀（R-01-019/AC-01）");
+assert.ok(bundle.includes('const nextCount = Math.min(recentVisibleCount + RECENT_PAGE_SIZE, recentTotal);'), "触底追加最多一个 10 条批次（R-01-019/AC-02）");
+assert.ok(bundle.includes('new window.IntersectionObserver') && bundle.includes('class="dap-recent-tail"'), "历史区使用底部观察锚点触发追加（R-01-019/AC-02）");
+assert.ok(bundle.includes('recentHasMore = recent.length < recentTotal;'), "历史候选耗尽后停止追加（R-01-019/AC-03）");
 
 // R-01-018 回到顶部悬浮图标按钮
 // R-01-018/AC-01、R-01-018/AC-03：骨架按钮默认 hidden，滚动监听按 TOP_THRESHOLD 阈值揭隐/隐藏；

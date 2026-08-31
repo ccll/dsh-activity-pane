@@ -1594,11 +1594,6 @@ export function listLoadState(snapshot) {
 	return "ready";
 }
 
-/** 历史窗口：会话最后一次活动距现在不超过该毫秒数则视为"最近使用过"。 */
-export const HISTORY_WINDOW_MS = 24 * 60 * 60 * 1000;
-/** 历史区最多展示的最近会话条数。 */
-export const HISTORY_MAX = 20;
-
 /** 会话行是否为某主会话的直属子代理。 */
 export function isSubagentRow(row, byId = {}) {
 	const id = row?.parentId;
@@ -1702,7 +1697,7 @@ function entryErrorNote(completion) {
 
 /**
  * 活动区→历史区迁移检测（R-01-010/AC-07）：上一帧活动区 id 在本帧离开活动区且出现于
- * 历史区即判定为一次迁移；彻底消失（归档、滑出历史窗口）不判定。prevActiveIds 为上一帧
+ * 历史区即判定为一次迁移；彻底消失（归档、不再被会话服务列出）不判定。prevActiveIds 为上一帧
  * 已渲染的活动区 id 集合，active/recent 为本帧派生条目。
  */
 export function movedToRecentIds(prevActiveIds, active, recent) {
@@ -1718,7 +1713,7 @@ export function movedToRecentIds(prevActiveIds, active, recent) {
 
 /**
  * 历史区→活动区迁移检测（R-01-010/AC-07）：上一帧历史区 id 在本帧离开历史区且出现于
- * 活动区即判定为一次反向迁移；彻底消失（归档、滑出历史窗口）不判定。prevRecentIds 为上一帧
+ * 活动区即判定为一次反向迁移；彻底消失（归档、不再被会话服务列出）不判定。prevRecentIds 为上一帧
  * 已渲染的历史区 id 集合，active/recent 为本帧派生条目。与 movedToRecentIds 镜像对称。
  */
 export function movedToActiveIds(prevRecentIds, active, recent) {
@@ -1818,16 +1813,12 @@ export function lastTurnDuration({ turnTimings = null, history = [] } = {}) {
 }
 
 /**
- * 构建最近历史区条目：当前非活动、且在历史窗口内最后一次活动过的**主会话**
- * （子代理是临时工作单元，不入最近历史；故需同时排除表白会话与已结束子代理），
- * 按最后活动时间从新到旧，最多 HISTORY_MAX 条。blank 会话不出现（从未用过）；
- * 归档会话不出现——原生 runtime 会立即清空对归档会话的选中，列出它只会得到
- * 一张点了回落到新会话界面的死卡。完成确认中的会话留在活动区，不入历史区；
- * 委托周期（含耗尽空窗）中的会话同样留在活动区（delegatingIds，分区不变量）。
- * 窗口候选判定用宿主列表时间（下界）；turnEnds（id → 已知回合结束时刻）驱动
- * 时间精化：条目 activityAt 取宿主列表时间与回合结束时刻的较新者（R-01-010/AC-08、AC-09）。
+ * 构建历史区条目：当前非活动的**主会话**，按最后活动时间从新到旧返回完整候选集合。
+ * 子代理是临时工作单元，不入历史区；归档、空会话、完成/错误提醒与委托周期中的会话
+ * 也不入历史区。历史区不再按时间窗口或条数截断；turnEnds（id → 已知回合结束时刻）驱动
+ * activityAt 精化（R-01-010、R-01-019）。
  */
-export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WINDOW_MS, detailsById = {}, archivedIds = [], completions = null, delegatingIds = null, turnEnds = null) {
+export function buildRecent(snapshot, workspaceItems, now, detailsById = {}, archivedIds = [], completions = null, delegatingIds = null, turnEnds = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
@@ -1848,7 +1839,7 @@ export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WI
 		if (isActiveRow(row, byId, activeIds)) continue;
 		const updatedAt = Number(row.updatedAt);
 		if (!Number.isFinite(updatedAt)) continue;
-		if (updatedAt > now || now - updatedAt > windowMs) continue;
+		if (Number.isFinite(now) && updatedAt > now) continue;
 		const turnEnd = Number(mapValue(turnEnds, id));
 		const activityAt = Number.isFinite(turnEnd) ? Math.max(updatedAt, turnEnd) : updatedAt;
 		const details = mapValue(detailsById, id) ?? {};
@@ -1872,8 +1863,14 @@ export function buildRecent(snapshot, workspaceItems, now, windowMs = HISTORY_WI
 		});
 	}
 
-	entries.sort((a, b) => b.activityAt - a.activityAt);
-	return entries.slice(0, HISTORY_MAX);
+	entries.sort((a, b) => {
+		const byActivity = b.activityAt - a.activityAt;
+		if (byActivity !== 0) return byActivity;
+		const aId = String(a.id);
+		const bId = String(b.id);
+		return aId < bId ? -1 : aId > bId ? 1 : 0;
+	});
+	return entries;
 }
 
 /** 毫秒时长的人性化短格式，例如 "47s"、"3m12s"。 */

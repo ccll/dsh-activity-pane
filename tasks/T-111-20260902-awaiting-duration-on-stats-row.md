@@ -6,7 +6,7 @@ id: T-111
 
 # T-111 等待卡耗时归位统计行
 
-状态: active
+状态: completed
 关联: R-01-009/AC-12 → 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -50,7 +50,7 @@ id: T-111
 | 成功 | 适用：done、blocked、error 等待卡均在 `.dap-token-stats` 最右侧显示固定耗时，统计字段仍在左侧 | `scripts/check.mjs#R-01-009/AC-12`、`package.json::check`、`e2e/specs/session-lifecycle.mjs::R-01-009/AC-12`、`e2e/specs/auto-update.mjs::R-01-009/AC-12`、`e2e/specs/error-reminder.mjs::R-01-009/AC-12` |
 | 异常 | 适用：统计字段缺失时不伪造；耗时缺少有效边界时不显示；胶囊行不残留重复耗时 | `scripts/check.mjs#R-01-009/AC-12`、`package.json::check`、`e2e/specs/error-reminder.mjs::R-01-009/AC-12` |
 | 边界配置 | 适用：统计全空但耗时可用时仍显示统计行；等待卡不显示进度条/条纹；窄卡统计左侧允许省略而耗时保持右侧可见 | `scripts/check.mjs#R-01-009/AC-12`、`package.json::check`、`e2e/specs/session-lifecycle.mjs::R-01-009/AC-12` |
-| 副作用 | 适用：等待胶囊、正文、按钮、时间线、等待脉冲、最近卡统计与固定耗时取值不变 | `e2e/specs/auto-update.mjs::R-01-002/AC-09`、`e2e/specs/error-reminder.mjs::R-01-002/AC-10`、`e2e/specs/session-lifecycle.mjs::R-01-013/AC-12`、`scripts/check.mjs#R-01-009/AC-12`、`package.json::check` |
+| 副作用 | 适用：等待胶囊、正文、按钮、时间线、等待脉冲、最近卡统计与固定耗时取值不变 | `e2e/specs/auto-update.mjs::R-01-009/AC-12`、`e2e/specs/error-reminder.mjs::R-01-002/AC-10`、`e2e/specs/session-lifecycle.mjs::R-01-013/AC-12`、`scripts/check.mjs#R-01-009/AC-12`、`package.json::check` |
 | 恢复 | 适用：页面刷新后三类等待卡仍从既有 retained/projection 恢复统计行耗时 | `e2e/specs/session-lifecycle.mjs::R-01-009/AC-12`、`e2e/specs/auto-update.mjs::R-01-009/AC-12`、`e2e/specs/error-reminder.mjs::R-01-009/AC-12` |
 
 ## 测试计划
@@ -63,15 +63,15 @@ id: T-111
 
 ## 终态与证据
 
-状态: active
+状态: completed
 
-- 实现: 待实现。
-- 测试: 待运行。
-- DESIGN 对照: 待实现后填写。
-- commit: 待提交。
+- 实现: `src/client.mjs` 移除 awaiting 统计行的 `showTime: false` 特例，使固定回合耗时与运行卡一样显示在 `.dap-token-stats` 最右侧；awaiting 骨架不再为 `.dap-await-head` 创建耗时节点，并清理旧热装骨架残留；`.dsh-plugin/client.js` 已同步重建。
+- 测试: 先行更新 bundle/E2E 契约后，`pnpm verify:fast` 通过，focused `pnpm exec node e2e/run.mjs session-lifecycle auto-update error-reminder` 通过（完成/阻塞/错误等待的统计行位置、冻结、刷新恢复与胶囊同行无重复耗时），最终 `pnpm verify` 通过（13 个 E2E spec 全部通过）；现有 `http://127.0.0.1:3080/` 刷新后 HTTP 200、窗格挂载 1 个；`git diff --check` 与提交 hook bundle check 通过。
+- DESIGN 对照: `PRD.md` 更新 `R-01-009/AC-12` 为统计行最右侧耗时契约；`DESIGN.md`、`DOMAIN.md`、README 与人工验收同步等待卡布局；`scripts/check.mjs` 与三类等待 E2E 同步位置和去重断言；T-110 保持终态不变。
+- commit: 21a9476
 - review:
-  - 审核方: 待审核。
-  - 目的理解: 待审核。
-  - 执行方式: 待审核。
-  - 问题与修复: 待审核。
-  - 复审结论: 待审核。
+  - 审核方: Standards reviewer `6c1f11d9-3fc0-4f49-b7f0-2ee93f04b308`；Spec reviewer `b73fc3fe-0e1e-4df1-b35c-65557d46fd66`。
+  - 目的理解: 在不改变耗时取值、等待期间冻结、刷新恢复、token 统计、等待类型和最近卡语义的前提下，将 done、blocked、error 等待卡的固定耗时从胶囊同行移回 `.dap-token-stats` 最右侧，与运行卡保持一致。
+  - 执行方式: `code-review` skill；固定基线 `32f660b969c497e92e03d5160c5afc775ede6a60`，审核范围 `git diff 32f660b...HEAD`，含提交 `21a9476`；Standards/Spec 双轴并行审核。
+  - 问题与修复: Spec 未发现 finding。Standards 无 documented-standard hard violation；指出三类 E2E 中存在重复耗时断言，以及需求契约、源码、生成 bundle、测试和文档的跨文件同步属于 baseline smell 判断项；这些均是本需求的必要证据/生成产物同步，未扩大范围重构。
+  - 复审结论: Spec 轴通过；Standards 轴通过；无阻断 finding，T-111 实现与追溯证据闭合。

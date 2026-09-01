@@ -1,4 +1,4 @@
-// R-01-001/AC-03～AC-06、R-01-002/AC-02、AC-06～AC-09、R-01-009/AC-02、R-01-009/AC-03、R-01-009/AC-12、R-01-010/AC-04、R-01-017/AC-01、R-02-002/AC-01、R-02-002/AC-02
+// R-01-001/AC-03～AC-06、R-01-002/AC-02、AC-06～AC-09、R-01-009/AC-02、R-01-009/AC-03、R-01-009/AC-12、R-01-009/AC-13、R-01-010/AC-04、R-01-017/AC-01、R-02-002/AC-01、R-02-002/AC-02
 // 状态自动更新（出现/完成/等待出现/等待解除四类变化，无需手动刷新）、活动区空态、
 // 折叠时间线不依赖 dsh-auto-collapse（本隔离环境按构造不含该插件，全套件功能断言
 // 即「不降级」证据）、外壳重挂载恢复不重复、全程控制台无插件报错与未捕获异常。
@@ -221,17 +221,47 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	assert.match(blockedElapsed.text, /^\d+(?:m\d+s|s)$/, "阻塞等待卡右下角显示固定上一轮耗时（R-01-009/AC-12）");
 	assert.equal(blockedElapsed.sameRow, true, "阻塞等待耗时与等待类型胶囊处于同一行（R-01-009/AC-12）");
 	assert.equal(blockedElapsed.rightAligned, true, "阻塞等待耗时贴合等待类型胶囊行最右侧（R-01-009/AC-12）");
+	// R-01-009/AC-13：阻塞等待卡同样保留进入等待前最后已知的 token 统计。
+	const blockedStats = await until("阻塞等待保留上一轮统计", async () => runtimeCard.evaluate((card) => {
+		const stats = card.querySelector(".dap-token-stats");
+		const main = stats?.querySelector(".dap-token-main");
+		const foot = card.querySelector(".dap-foot");
+		if (!stats || stats.hidden || !main?.textContent?.trim() || !foot) return null;
+		return {
+			main: main.textContent.trim(),
+			beforeAwaitingFoot: stats.nextElementSibling === foot,
+			duplicateTime: stats.querySelector(".dap-token-time")?.textContent.trim() ?? "",
+		};
+	}));
+	assert.match(blockedStats.main, /tok\/s/, "阻塞等待统计行保留 tok/s 输出速率（R-01-009/AC-13）");
+	assert.match(blockedStats.main, /缓存 \d+%/, "阻塞等待统计行保留缓存命中率（R-01-009/AC-13）");
+	assert.match(blockedStats.main, /输入/, "阻塞等待统计行保留计费输入 token（R-01-009/AC-13）");
+	assert.match(blockedStats.main, /输出/, "阻塞等待统计行保留输出 token（R-01-009/AC-13）");
+	assert.equal(blockedStats.beforeAwaitingFoot, true, "阻塞等待统计行位于时间线之后、等待提示之前（R-01-009/AC-13）");
+	assert.equal(blockedStats.duplicateTime, "", "阻塞等待统计行不重复显示等待类型同行耗时（R-01-009/AC-13）");
 	await page.waitForTimeout(1_300);
 	assert.equal(
-		((await runtimeCard.locator(".dap-token-time").textContent()) ?? "").trim(),
+		((await runtimeCard.locator(".dap-await-head .dap-token-time").textContent()) ?? "").trim(),
 		blockedElapsed.text,
 		"阻塞等待期间耗时保持冻结，不把等待时间计入（R-01-009/AC-12）",
 	);
+	assert.equal(
+		((await runtimeCard.locator(".dap-token-main").textContent()) ?? "").trim(),
+		blockedStats.main,
+		"阻塞等待期间 token 统计保持冻结（R-01-009/AC-13）",
+	);
 	await openApp(page, url);
 	const refreshedBlockedElapsed = await until("刷新后恢复阻塞等待耗时", () =>
-		runtimeCard.locator(".dap-token-time").textContent().then((text) => (text ?? "").trim() || null),
+		runtimeCard.locator(".dap-await-head .dap-token-time").textContent().then((text) => (text ?? "").trim() || null),
 	);
 	assert.equal(refreshedBlockedElapsed, blockedElapsed.text, "阻塞等待刷新后仍保留同一轮耗时（R-01-009/AC-12）");
+	const refreshedBlockedStats = await until("刷新后恢复阻塞等待统计", () =>
+		runtimeCard.locator(".dap-token-main").textContent().then((text) => (text ?? "").trim() || null),
+	);
+	assert.match(refreshedBlockedStats, /tok\/s/, "阻塞等待刷新后恢复 tok/s 输出速率（R-01-009/AC-13）");
+	assert.match(refreshedBlockedStats, /缓存 \d+%/, "阻塞等待刷新后恢复缓存命中率（R-01-009/AC-13）");
+	assert.match(refreshedBlockedStats, /输入/, "阻塞等待刷新后恢复计费输入 token（R-01-009/AC-13）");
+	assert.match(refreshedBlockedStats, /输出/, "阻塞等待刷新后恢复输出 token（R-01-009/AC-13）");
 	await page.getByText("确认继续执行").click();
 	await page.getByRole("button", { name: "Submit", exact: true }).click();
 	const earlyChunk = await until("时间线出现早期流式正文", async () => {

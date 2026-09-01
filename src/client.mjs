@@ -1779,9 +1779,12 @@ function apply(ctx) {
 			noteRow.append(makeEl("div", "dap-note"), makeConfirmButton());
 			const awaitHead = makeEl("div", "dap-await-head");
 			awaitHead.append(capsule, makeEl("span", "dap-token-time"));
+			const statsRow = makeEl("div", "dap-token-stats");
+			statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"));
+			statsRow.hidden = true;
 			const foot = makeEl("div", "dap-foot");
 			foot.append(awaitHead, noteRow);
-			return [head, row, makeEl("div", "dap-trace"), foot];
+			return [head, row, makeEl("div", "dap-trace"), statsRow, foot];
 		}
 		const row = makeEl("div", "dap-row");
 		row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
@@ -2142,14 +2145,19 @@ function apply(ctx) {
 		}
 	}
 
-	/** 统计行渲染：运行卡与最近卡写入速率、token 与耗时，旧骨架缺节点时就地补齐。 */
-	function renderTokenStats(el, entry) {
+	/** 统计行渲染：运行卡与最近卡写入速率、token 与耗时，旧骨架缺节点时就地补齐。等待卡复用左侧字段，耗时由等待类型同行承载。 */
+	function renderTokenStats(el, entry, { showTime = true } = {}) {
 		let stats = el.querySelector(".dap-token-stats");
 		if (stats === null) {
 			stats = makeEl("div", "dap-token-stats");
 			stats.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"));
 			stats.hidden = true;
-			el.append(stats);
+			const foot = entry.kind === "awaiting" ? el.querySelector(".dap-foot") : null;
+			if (foot !== null) el.insertBefore(stats, foot);
+			else el.append(stats);
+		} else if (entry.kind === "awaiting") {
+			const foot = el.querySelector(".dap-foot");
+			if (foot !== null && stats.nextElementSibling !== foot) el.insertBefore(stats, foot);
 		}
 		let mainTextEl = stats.querySelector(".dap-token-main");
 		let timeEl = stats.querySelector(".dap-token-time");
@@ -2164,7 +2172,7 @@ function apply(ctx) {
 		if (Number.isFinite(entry.inputTokens) && entry.inputTokens >= 0) parts.push(`输入 ${fmtTokens(entry.inputTokens) ?? entry.inputTokens}`);
 		if (Number.isFinite(entry.outputTokens) && entry.outputTokens >= 0) parts.push(`输出 ${fmtTokens(entry.outputTokens) ?? entry.outputTokens}`);
 		const mainText = parts.join(" · ");
-		const timeText = Number.isFinite(entry.elapsedMs) && entry.elapsedMs >= 0 ? fmtElapsedMs(entry.elapsedMs) : "";
+		const timeText = showTime && Number.isFinite(entry.elapsedMs) && entry.elapsedMs >= 0 ? fmtElapsedMs(entry.elapsedMs) : "";
 		if (mainTextEl.textContent !== mainText) mainTextEl.textContent = mainText;
 		if (timeEl.textContent !== timeText) timeEl.textContent = timeText;
 		const statsHidden = mainText === "" && timeText === "";
@@ -2330,6 +2338,7 @@ function apply(ctx) {
 		if (entry.kind === "awaiting") {
 			const traceContainer = el.querySelector(".dap-trace");
 			if (traceContainer !== null) renderTimelineArea(traceContainer, entry);
+			renderTokenStats(el, entry, { showTime: false });
 			renderAwaitingDuration(el, entry);
 			const confirm = el.querySelector(".dap-confirm");
 			if (confirm !== null) {
@@ -2976,6 +2985,16 @@ function apply(ctx) {
 			// 复用既有列表订阅，无新增轮询（R-01-009/AC-05、R-02-004/AC-02）。
 			const projection = snapshot?.byId?.[entry.id]?.projectionValues;
 			const projectionStats = statsFromProjection(projection);
+			if (entry.kind === "awaiting") {
+				// 等待期间冻结运行停止前的最后已知统计；刷新/无留存时回退当前列表投影。
+				const retained = detail?.lastRuntimeStats;
+				Object.assign(entry, {
+					outputTokens: retained?.outputTokens ?? projectionStats.outputTokens,
+					inputTokens: retained?.inputTokens ?? projectionStats.inputTokens,
+					cacheHitPct: retained?.cacheHitPct ?? projectionStats.cacheHitPct,
+					rateTokS: retained?.rateTokS ?? projectionStats.rateTokS,
+				});
+			}
 			// 委托周期锚点（R-01-009/AC-06）：全部活动条目逐帧记账——锚点不因呈现翻转
 			// （委托期与 awaiting 互转）或瞬时不可见而丢失，仅 dispose 时整体清除；周期内
 			// 进度连续（含 settle 处理回合），周期外由宿主回合起点驱动（新回合归零）。

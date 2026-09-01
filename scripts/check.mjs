@@ -2853,6 +2853,15 @@ assert.ok(
 	"统计行双段结构：左列文本 + 右置时长（R-01-009/AC-05）",
 );
 assert.ok(bundle.includes("function renderTokenStats"), "运行卡统计行继续复用既有渲染逻辑（R-01-009/AC-05）");
+// R-01-009/AC-13 等待卡保留进入等待前最后已知的 token 统计
+assert.ok(
+	bundle.includes('return [head, row, makeEl("div", "dap-trace"), statsRow, foot];'),
+	"等待卡骨架在时间线后保留统计行（R-01-009/AC-13）",
+);
+assert.ok(
+	bundle.includes("renderTokenStats(el, entry, { showTime: false })"),
+	"等待卡复用统计行但不重复显示等待类型同行耗时（R-01-009/AC-13）",
+);
 assert.ok(
 	bundle.includes("function renderAwaitingDuration") && bundle.includes("dap-await-head"),
 	"等待卡耗时与等待类型胶囊共用同行右置渲染（R-01-009/AC-12）",
@@ -2943,8 +2952,8 @@ assert.ok(bundle.includes("function activeSessionIds(byId = {})"), "活动子代
 // ---- R-01-016/AC-01 等待卡保留最近工作项时间线 ----
 assert.ok(
 	bundle.includes('awaitHead.append(capsule, makeEl("span", "dap-token-time"))') &&
-		bundle.includes('return [head, row, makeEl("div", "dap-trace"), foot];'),
-	"awaiting 骨架在标题行与末行两段（胶囊+正文）之间含时间线，并将耗时放在胶囊同行右侧（R-01-016/AC-01、R-01-009/AC-12，C-043）",
+		bundle.includes('return [head, row, makeEl("div", "dap-trace"), statsRow, foot];'),
+	"awaiting 骨架在标题行与统计行、末行两段（胶囊+正文）之间含时间线，并将耗时放在胶囊同行右侧（R-01-016/AC-01、R-01-009/AC-12，C-043）",
 );
 // ---- R-01-002/AC-10 完成提醒卡「移入历史」按钮 ----
 assert.ok(

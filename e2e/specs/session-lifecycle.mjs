@@ -1,4 +1,4 @@
-// R-01-001/AC-01、R-01-001/AC-02、R-01-002/AC-03、R-01-002/AC-10、R-01-009/AC-09、R-01-009/AC-12、R-01-010/AC-01、R-01-010/AC-02、R-01-013/AC-12、R-01-010/AC-04
+// R-01-001/AC-01、R-01-001/AC-02、R-01-002/AC-03、R-01-002/AC-10、R-01-009/AC-09、R-01-009/AC-12、R-01-009/AC-13、R-01-010/AC-01、R-01-010/AC-02、R-01-013/AC-12、R-01-010/AC-04
 // 会话生命周期端到端：空态 → e2e:slow 剧本运行卡 → 完成提醒卡 → 确认移入历史区。
 // 只断言用户可观察的呈现（区域文字、按钮、页面 URL），不依赖内部 DOM 结构（C-045）。
 
@@ -213,6 +213,27 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 	assert.match(completedElapsed.text, /^\d+(?:m\d+s|s)$/, "完成提醒卡右下角显示固定上一轮耗时（R-01-009/AC-12）");
 	assert.equal(completedElapsed.sameRow, true, "完成提醒耗时与等待类型胶囊处于同一行（R-01-009/AC-12）");
 	assert.equal(completedElapsed.rightAligned, true, "完成提醒耗时贴合等待类型胶囊行最右侧（R-01-009/AC-12）");
+	// R-01-009/AC-13：完成提醒保留进入等待前最后已知的四项 token 统计，耗时仍由等待类型同行承载。
+	const readCompletedStats = () => page.evaluate((title) => {
+		const card = [...(document.querySelector("[data-dsh-activity-pane]")?.querySelectorAll('[role="button"]') ?? [])]
+			.find((candidate) => candidate.innerText.includes(title));
+		const stats = card?.querySelector(".dap-token-stats");
+		const main = stats?.querySelector(".dap-token-main");
+		const foot = card?.querySelector(".dap-foot");
+		if (!card || !stats || stats.hidden || !main?.textContent?.trim() || !foot) return null;
+		return {
+			main: main.textContent.trim(),
+			beforeAwaitingFoot: stats.nextElementSibling === foot,
+			duplicateTime: stats.querySelector(".dap-token-time")?.textContent.trim() ?? "",
+		};
+	}, TITLE);
+	const completedStats = await until("完成提醒保留上一轮统计", readCompletedStats);
+	assert.match(completedStats.main, /tok\/s/, "完成提醒统计行保留 tok/s 输出速率（R-01-009/AC-13）");
+	assert.match(completedStats.main, /缓存 \d+%/, "完成提醒统计行保留缓存命中率（R-01-009/AC-13）");
+	assert.match(completedStats.main, /输入/, "完成提醒统计行保留计费输入 token（R-01-009/AC-13）");
+	assert.match(completedStats.main, /输出/, "完成提醒统计行保留输出 token（R-01-009/AC-13）");
+	assert.equal(completedStats.beforeAwaitingFoot, true, "完成提醒统计行位于时间线之后、等待提示之前（R-01-009/AC-13）");
+	assert.equal(completedStats.duplicateTime, "", "等待卡统计行不重复显示等待类型同行耗时（R-01-009/AC-13）");
 	await page.waitForTimeout(1_300);
 	assert.equal(
 		await page.evaluate((title) => {
@@ -223,6 +244,14 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 		completedElapsed.text,
 		"完成提醒等待期间耗时保持冻结，不把等待时间计入（R-01-009/AC-12）",
 	);
+	const completedStatsAfterWait = await readCompletedStats();
+	assert.equal(completedStatsAfterWait?.main, completedStats.main, "完成提醒等待期间 token 统计保持冻结（R-01-009/AC-13）");
+	assert.match(completedStats.main, /tok\/s/, "完成提醒统计行保留 tok/s 输出速率（R-01-009/AC-13）");
+	assert.match(completedStats.main, /缓存 \d+%/, "完成提醒统计行保留缓存命中率（R-01-009/AC-13）");
+	assert.match(completedStats.main, /输入/, "完成提醒统计行保留计费输入 token（R-01-009/AC-13）");
+	assert.match(completedStats.main, /输出/, "完成提醒统计行保留输出 token（R-01-009/AC-13）");
+	assert.equal(completedStats.beforeAwaitingFoot, true, "完成提醒统计行位于时间线之后、等待提示之前（R-01-009/AC-13）");
+	assert.equal(completedStats.duplicateTime, "", "等待卡统计行不重复显示等待类型同行耗时（R-01-009/AC-13）");
 	await openApp(page, url);
 	const refreshedCompletedElapsed = await until("刷新后恢复完成提醒耗时", () =>
 		page.evaluate((title) => {
@@ -232,6 +261,11 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 		}, TITLE),
 	);
 	assert.equal(refreshedCompletedElapsed, completedElapsed.text, "完成提醒刷新后仍保留同一轮耗时（R-01-009/AC-12）");
+	const refreshedCompletedStats = await until("刷新后恢复完成提醒统计", readCompletedStats);
+	assert.match(refreshedCompletedStats.main, /tok\/s/, "完成提醒刷新后恢复 tok/s 输出速率（R-01-009/AC-13）");
+	assert.match(refreshedCompletedStats.main, /缓存 \d+%/, "完成提醒刷新后恢复缓存命中率（R-01-009/AC-13）");
+	assert.match(refreshedCompletedStats.main, /输入/, "完成提醒刷新后恢复计费输入 token（R-01-009/AC-13）");
+	assert.match(refreshedCompletedStats.main, /输出/, "完成提醒刷新后恢复输出 token（R-01-009/AC-13）");
 
 	// R-01-002/AC-10：激活确认按钮不触发会话跳转；R-01-010/AC-01、AC-02：
 	// 确认后条目离开活动区、进入历史区。

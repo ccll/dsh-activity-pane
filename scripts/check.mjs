@@ -66,6 +66,7 @@ import {
 	pruneInvisibleEntries,
 	pruneSubscriptions,
 	runtimeStats,
+	statsFromProjection,
 	shouldCancelOpenRetry,
 	subagentTitle,
 	summarizeToolArguments,
@@ -1503,6 +1504,17 @@ assert.deepEqual(
 	"零速率归一为空，token 统计仍可放在进度条下方",
 );
 assert.deepEqual(
+	statsFromProjection(
+		{
+			tokenUsage: { uncachedInputTokens: 100, cacheReadTokens: 20, cacheWriteTokens: 10, outputTokens: 144 },
+			sessionStats: { decodeTokens: 144, decodeMs: 3_000 },
+		},
+		47_000,
+	),
+	{ elapsedMs: 47_000, outputTokens: 144, rateTokS: 48, inputTokens: 130, cacheHitPct: 15 },
+	"最近卡复用列表投影派生 tok/s、缓存、输入/输出与固定耗时（R-01-013/AC-12）",
+);
+assert.deepEqual(
 	usageSummary({ uncachedInputTokens: 100, cacheReadTokens: 700, cacheWriteTokens: 200 }),
 	{ inputTokens: 1_000, cacheHitPct: 70 },
 	"计费输入=未缓存+读+写，命中率=读÷计费输入四舍五入（R-01-009/AC-05）",
@@ -2815,13 +2827,13 @@ assert.ok(
 	bundle.includes("list.insertBefore(rec.el, ref)"),
 	"卡片仅在顺序/归属变化时移动 DOM（insertBefore 位置守卫）",
 );
-// ---- R-01-009/AC-02、R-01-009/AC-05、R-01-012/AC-01..04、R-01-013/AC-01..06 ----
+// ---- R-01-009/AC-02、R-01-009/AC-05、R-01-012/AC-01..04、R-01-013/AC-01..06、AC-12 ----
 assert.ok(bundle.includes("foldedConversationTimeline"), "活动卡时间线由折叠分组唯一来源派生（R-01-012、R-01-017）");
 assert.ok(!bundle.includes("dap-trace-time"), "工作项时间线不渲染行级耗时元素，对齐主会话窗口（R-01-009/AC-07、C-012）");
 assert.ok(!bundle.includes("PROGRESS_THINK_BASE") && !bundle.includes("progressFloor"), "回合进度纯时间驱动，无思考基线/单调下限残留（R-01-009/AC-06、C-014）");
 assert.ok(bundle.includes("progressHalfLifeSec"), "bundle 含半衰期速率校准函数（R-01-009/AC-06、C-025、C-044）");
 assert.ok(
-	bundle.includes("halfLifeSec: progressHalfLifeSec({ rateTokS })"),
+	bundle.includes("halfLifeSec: progressHalfLifeSec({ rateTokS: projectionStats.rateTokS })"),
 	"进度赋值每帧按最新实测速率现算半衰期（R-01-009/AC-06、C-044）",
 );
 assert.ok(
@@ -2858,6 +2870,14 @@ assert.ok(
 );
 assert.ok(!bundle.includes("≈"), "速率不再携带约等于符号（R-01-009/AC-05）");
 assert.ok(bundle.includes("dap-history-line"), "历史卡包含用户/agent 两条消息预览行");
+// R-01-013/AC-12 最近历史卡保留最近回合统计
+assert.ok(
+	bundle.includes('return [head, row, userLine, agentLine, statsRow, makeEl("div", "dap-note")];'),
+	"历史卡统计行位于助手预览后、活动时间前",
+);
+assert.ok(bundle.includes("statsFromProjection"), "历史卡统计复用列表投影派生函数（R-01-013/AC-12）");
+assert.ok(bundle.includes("lastRuntimeStats"), "会话结束时保留最后已知运行统计（R-01-013/AC-12）");
+assert.ok(bundle.includes("recentDurationFallbackIds"), "历史卡缺回合边界时复用 history 补读（R-01-013/AC-12）");
 // R-01-003/AC-04
 assert.ok(bundle.includes("parentId: m.isSub ? String(parentId) : null"), "活动卡条目保留直属母会话 id");
 assert.ok(bundle.includes("function trackRuns(entries)"), "母会话轨道拓扑由纯函数 trackRuns 一次求出");

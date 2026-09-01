@@ -547,7 +547,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   color: color-mix(in srgb, currentColor 82%, transparent);
   background: color-mix(in srgb, currentColor 14%, transparent);
 }
-/* 运行卡富化（对齐 answer-pet 卡片；MIT 参考，见 README）。 */
+/* 运行卡与最近卡统计（对齐 answer-pet 卡片；MIT 参考，见 README）。 */
 [data-dsh-activity-pane] .dap-progress {
   display: flex; align-items: center; gap: 7px; min-width: 0;
 }
@@ -1086,7 +1086,7 @@ function apply(ctx) {
 	const livenessById = new Map();
 	/** 委托周期进度锚点记账：id → progressAnchor 状态（R-01-009/AC-06）。 */
 	const progressAnchorById = new Map();
-	/** 订阅停止后保留最近快照，供 awaiting/recent 卡继续显示上下文。 */
+	/** 订阅停止后保留最近快照与最后已知运行统计，供 awaiting/recent 卡继续显示上下文。 */
 	const sessionDetailsById = new Map();
 	/** 会话跳转的单一重试链；避免重复点击叠加 refresh/timer。 */
 	const openRetryStates = new Map();
@@ -1761,7 +1761,10 @@ function apply(ctx) {
 			const agentLabel = makeEl("span", "dap-history-label");
 			agentLabel.textContent = "助手";
 			agentLine.append(agentIcon, agentLabel, makeEl("span", "dap-history-separator"), makeEl("span", "dap-history-text"));
-			return [head, row, userLine, agentLine, makeEl("div", "dap-note")];
+			const statsRow = makeEl("div", "dap-token-stats");
+			statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"));
+			statsRow.hidden = true;
+			return [head, row, userLine, agentLine, statsRow, makeEl("div", "dap-note")];
 		}
 		if (kind === "awaiting") {
 			const row = makeEl("div", "dap-row");
@@ -2139,7 +2142,7 @@ function apply(ctx) {
 		}
 	}
 
-	/** 统计行渲染：运行卡写入速率、token 与耗时，旧骨架缺节点时就地补齐。 */
+	/** 统计行渲染：运行卡与最近卡写入速率、token 与耗时，旧骨架缺节点时就地补齐。 */
 	function renderTokenStats(el, entry) {
 		let stats = el.querySelector(".dap-token-stats");
 		if (stats === null) {
@@ -2321,6 +2324,7 @@ function apply(ctx) {
 					restoreTextField(text, previews[i]);
 				}
 			}
+			renderTokenStats(el, entry);
 		}
 
 		if (entry.kind === "awaiting") {
@@ -2971,11 +2975,7 @@ function apply(ctx) {
 			// token/速率取自 sessions.list 条目的投影（tokenUsage/sessionStats），
 			// 复用既有列表订阅，无新增轮询（R-01-009/AC-05、R-02-004/AC-02）。
 			const projection = snapshot?.byId?.[entry.id]?.projectionValues;
-			const stats = projection?.sessionStats;
-			const rateTokS =
-				stats && Number.isFinite(stats.decodeMs) && stats.decodeMs > 0
-					? stats.decodeTokens / (stats.decodeMs / 1000)
-					: null;
+			const projectionStats = statsFromProjection(projection);
 			// 委托周期锚点（R-01-009/AC-06）：全部活动条目逐帧记账——锚点不因呈现翻转
 			// （委托期与 awaiting 互转）或瞬时不可见而丢失，仅 dispose 时整体清除；周期内
 			// 进度连续（含 settle 处理回合），周期外由宿主回合起点驱动（新回合归零）。
@@ -2991,13 +2991,19 @@ function apply(ctx) {
 			progressAnchorById.set(entry.id, anchor);
 			if (entry.kind === "running") {
 				const elapsedMs = Number.isFinite(anchor.anchor) ? Math.max(0, now - anchor.anchor) : null;
-				const outputTokens = projection?.tokenUsage?.outputTokens ?? null;
-				Object.assign(entry, runtimeStats({ elapsedMs, outputTokens, rateTokS }));
-				Object.assign(entry, usageSummary(projection?.tokenUsage ?? {}));
+				Object.assign(entry, projectionStats, { elapsedMs });
+				if (detail) {
+					detail.lastRuntimeStats = {
+						outputTokens: projectionStats.outputTokens,
+						inputTokens: projectionStats.inputTokens,
+						cacheHitPct: projectionStats.cacheHitPct,
+						rateTokS: projectionStats.rateTokS,
+					};
+				}
 				// 回合进度：纯时间驱动 y = t/(t+k)，半衰期每帧按最新实测速率现算，固定
 				// k 下单调性由函数本身保证；k 变化时允许进度随速率回落而回退（委托周期
 				// 连续、周期外回合切换归零，R-01-009/AC-06，C-014、C-044）。
-				entry.progress = progressOf({ elapsedMs: elapsedMs ?? 0, halfLifeSec: progressHalfLifeSec({ rateTokS }) });
+				entry.progress = progressOf({ elapsedMs: elapsedMs ?? 0, halfLifeSec: progressHalfLifeSec({ rateTokS: projectionStats.rateTokS }) });
 			}
 		}
 		// 历史区时间精化（R-01-010/AC-08、AC-09）：从保留快照的 turnTimings 与已拉取的
@@ -3018,6 +3024,23 @@ function apply(ctx) {
 		recentTotal = recentCandidates.length;
 		const recent = recentCandidates.slice(0, recentVisibleCount);
 		recentHasMore = recent.length < recentTotal;
+		// 最近卡统计复用运行卡的列表投影口径；耗时从保留快照或已读 history 取最近完整回合，
+		// 缺边界时仅为当前可见历史卡安排一次既有 history 补读（R-01-013/AC-12）。
+		const recentDurationFallbackIds = new Set();
+		for (const entry of recent) {
+			const detail = sessionDetailsById.get(entry.id);
+			const detailSnapshot = livenessById.get(entry.id)?.snapshot ?? detail?.snapshot ?? null;
+			const elapsedMs = lastTurnDuration({ turnTimings: detailSnapshot?.turnTimings, history: detail?.history });
+			const stats = statsFromProjection(snapshot?.byId?.[entry.id]?.projectionValues, elapsedMs);
+			const retained = detail?.lastRuntimeStats;
+			Object.assign(entry, stats, retained ? {
+				outputTokens: retained.outputTokens ?? stats.outputTokens,
+				inputTokens: retained.inputTokens ?? stats.inputTokens,
+				cacheHitPct: retained.cacheHitPct ?? stats.cacheHitPct,
+				rateTokS: retained.rateTokS ?? stats.rateTokS,
+			} : null);
+			if (elapsedMs === null) recentDurationFallbackIds.add(entry.id);
+		}
 		syncRecentTimeClock(recent.length > 0);
 		// 预览只对当前显示的 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
 		// 完成瞬间的窗口快照可能先有用户消息、后到 agent reply；缺任一预览时补读一次 history。
@@ -3038,7 +3061,10 @@ function apply(ctx) {
 			entry.loadingPreviews = (!entry.userPreview || !entry.agentPreview) && historyLoads.has(entry.id);
 		}
 		// 补充数据读取优先级：当前会话最优先，活动区先于当前已显示历史页（区内按显示顺序）。
-		const durationFallbackIds = new Set(active.filter((entry) => entry.kind === "awaiting").map((entry) => entry.id));
+		const durationFallbackIds = new Set([
+			...active.filter((entry) => entry.kind === "awaiting").map((entry) => entry.id),
+			...recentDurationFallbackIds,
+		]);
 		const detailIds = [...active, ...recent].map((entry) => entry.id);
 		detailIds.sort((a, b) => Number(String(b) === String(snapshot?.current)) - Number(String(a) === String(snapshot?.current)));
 		loadNativeDetails(detailIds, previewFallbackIds, durationFallbackIds);

@@ -1067,6 +1067,19 @@ export function usageSummary({ uncachedInputTokens = null, cacheReadTokens = nul
 	return { inputTokens, cacheHitPct };
 }
 
+/** 从 sessions.list 的投影统一归一卡片统计：运行卡与最近卡共享同一口径。 */
+export function statsFromProjection(projection = null, elapsedMs = null) {
+	const usage = isRecord(projection?.tokenUsage) ? projection.tokenUsage : {};
+	const sessionStats = isRecord(projection?.sessionStats) ? projection.sessionStats : {};
+	const rateTokS = Number.isFinite(sessionStats.decodeMs) && sessionStats.decodeMs > 0
+		? sessionStats.decodeTokens / (sessionStats.decodeMs / 1000)
+		: null;
+	return {
+		...runtimeStats({ elapsedMs, outputTokens: usage.outputTokens, rateTokS }),
+		...usageSummary(usage),
+	};
+}
+
 /** 需要用户行动的种类的展示文案。 */
 export function pendingText(kind) {
 	return PENDING_LABELS[kind] ?? PENDING_UNKNOWN_LABEL;
@@ -1168,8 +1181,8 @@ export function escapeCssString(value) {
  *  windowComplete（R-01-009/AC-06、R-01-012/AC-12 冷窗口兜底）：快照已就绪但窗口缺
  *  锚点数据（开放回合起点或可锚用户行在窗口外）时为 false——此时仍发起一次 history
  *  补读，供进度锚点与指令锚行兜底。previewFallbackNeeded 表示最近卡的快照预览
- *  不完整，同样补读一次 history（R-01-013/AC-03、AC-04）；durationFallbackNeeded 表示等待卡
- *  需要在已加载的旧 history 之后再取一次最新回合边界（R-01-009/AC-12）。 */
+ *  不完整，同样补读一次 history（R-01-013/AC-03、AC-04）；durationFallbackNeeded 表示等待卡或最近卡
+ *  需要在已加载的旧 history 之后再取一次最新回合边界（R-01-009/AC-12、R-01-013/AC-12）。 */
 export function detailLoadPlan({
 	detail = {},
 	isSubagent = false,

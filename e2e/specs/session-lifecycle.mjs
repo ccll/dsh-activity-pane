@@ -1,4 +1,4 @@
-// R-01-001/AC-01、R-01-001/AC-02、R-01-002/AC-03、R-01-002/AC-10、R-01-009/AC-09、R-01-009/AC-12、R-01-010/AC-01、R-01-010/AC-02、R-01-010/AC-04
+// R-01-001/AC-01、R-01-001/AC-02、R-01-002/AC-03、R-01-002/AC-10、R-01-009/AC-09、R-01-009/AC-12、R-01-010/AC-01、R-01-010/AC-02、R-01-013/AC-12、R-01-010/AC-04
 // 会话生命周期端到端：空态 → e2e:slow 剧本运行卡 → 完成提醒卡 → 确认移入历史区。
 // 只断言用户可观察的呈现（区域文字、按钮、页面 URL），不依赖内部 DOM 结构（C-045）。
 
@@ -243,9 +243,38 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 		if (!regions || regions.active.includes(TITLE)) return null;
 		return regions.recent.includes(TITLE) ? regions : null;
 	});
-	assert.equal(
-		await page.locator('[data-dsh-activity-pane] [data-kind="recent"] .dap-token-time').count(),
-		0,
-		"最近历史卡不新增回合耗时行（R-01-009/AC-12）",
+	// R-01-013/AC-12：确认迁入历史后，最近卡在助手预览与活动时间之间保留最近回合统计。
+	const readRecentStats = () => page.evaluate((title) => {
+		const card = [...(document.querySelectorAll('[data-dsh-activity-pane] [data-kind="recent"]') ?? [])]
+			.find((candidate) => candidate.innerText.includes(title));
+		const stats = card?.querySelector(".dap-token-stats");
+		const main = stats?.querySelector(".dap-token-main");
+		const elapsed = stats?.querySelector(".dap-token-time");
+		const activity = card?.querySelector(".dap-note");
+		if (!card || !stats || stats.hidden || !main?.textContent?.trim() || !elapsed?.textContent?.trim() || !activity) return null;
+		const children = [...card.children];
+		return {
+			main: main.textContent.trim(),
+			elapsed: elapsed.textContent.trim(),
+			statsBeforeActivity: stats.nextElementSibling === activity,
+			statsIsPenultimate: children.at(-2) === stats,
+			activityIsLast: children.at(-1) === activity,
+		};
+	}, TITLE);
+	const recentStats = await until("历史卡保留最近回合统计", readRecentStats);
+	assert.match(recentStats.main, /tok\/s/, "历史卡统计行保留 tok/s 输出速率（R-01-013/AC-12）");
+	assert.match(recentStats.main, /缓存 \d+%/, "历史卡统计行保留缓存命中率（R-01-013/AC-12）");
+	assert.match(recentStats.main, /输入/, "历史卡统计行保留计费输入 token（R-01-013/AC-12）");
+	assert.match(recentStats.main, /输出/, "历史卡统计行保留输出 token（R-01-013/AC-12）");
+	assert.match(recentStats.elapsed, /^\d+(?:m\d+s|s)$/, "历史卡统计行保留固定回合耗时（R-01-013/AC-12）");
+	assert.equal(recentStats.statsBeforeActivity, true, "历史卡统计行紧邻活动时间行之前（R-01-013/AC-12）");
+	assert.equal(recentStats.statsIsPenultimate, true, "历史卡统计行位于历史卡倒数第二行（R-01-013/AC-12）");
+	assert.equal(recentStats.activityIsLast, true, "历史卡活动时间保持最后一行（R-01-013/AC-12）");
+	await openApp(page, url);
+	const refreshedRecentStats = await until("刷新后恢复历史卡最近回合统计", readRecentStats);
+	assert.deepEqual(
+		{ main: refreshedRecentStats.main, elapsed: refreshedRecentStats.elapsed },
+		{ main: recentStats.main, elapsed: recentStats.elapsed },
+		"刷新后历史卡统计与耗时保持一致（R-01-013/AC-12）",
 	);
 }

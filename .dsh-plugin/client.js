@@ -2674,13 +2674,9 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
   min-width: 0; margin: 2px 0 0;
 }
-/* 等待类型胶囊与上一轮耗时同行：时长沿用运行统计行的右缘位置，不参与等待脉冲。 */
+/* 等待类型胶囊独立同行：耗时回到统计行最右侧，不参与等待脉冲。 */
 [data-dsh-activity-pane] .dap-await-head {
   display: flex; align-items: center; gap: 8px; align-self: stretch; min-width: 0;
-}
-[data-dsh-activity-pane] .dap-await-head .dap-token-time {
-  margin-left: auto; flex: none; font-size: 10px; line-height: 14px;
-  color: #8f9aaa; font-variant-numeric: tabular-nums;
 }
 [data-dsh-activity-pane] .dap-note-row {
   display: flex; align-items: center; gap: 6px; min-width: 0; align-self: stretch;
@@ -3931,7 +3927,7 @@ function apply(ctx) {
 			const noteRow = makeEl("div", "dap-note-row");
 			noteRow.append(makeEl("div", "dap-note"), makeConfirmButton());
 			const awaitHead = makeEl("div", "dap-await-head");
-			awaitHead.append(capsule, makeEl("span", "dap-token-time"));
+			awaitHead.append(capsule);
 			const statsRow = makeEl("div", "dap-token-stats");
 			statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"));
 			statsRow.hidden = true;
@@ -4298,8 +4294,8 @@ function apply(ctx) {
 		}
 	}
 
-	/** 统计行渲染：运行卡与最近卡写入速率、token 与耗时，旧骨架缺节点时就地补齐。等待卡复用左侧字段，耗时由等待类型同行承载。 */
-	function renderTokenStats(el, entry, { showTime = true } = {}) {
+	/** 统计行渲染：运行卡、等待卡与最近卡写入速率、token 与耗时，旧骨架缺节点时就地补齐。 */
+	function renderTokenStats(el, entry) {
 		let stats = el.querySelector(".dap-token-stats");
 		if (stats === null) {
 			stats = makeEl("div", "dap-token-stats");
@@ -4325,32 +4321,16 @@ function apply(ctx) {
 		if (Number.isFinite(entry.inputTokens) && entry.inputTokens >= 0) parts.push(`输入 ${fmtTokens(entry.inputTokens) ?? entry.inputTokens}`);
 		if (Number.isFinite(entry.outputTokens) && entry.outputTokens >= 0) parts.push(`输出 ${fmtTokens(entry.outputTokens) ?? entry.outputTokens}`);
 		const mainText = parts.join(" · ");
-		const timeText = showTime && Number.isFinite(entry.elapsedMs) && entry.elapsedMs >= 0 ? fmtElapsedMs(entry.elapsedMs) : "";
+		const timeText = Number.isFinite(entry.elapsedMs) && entry.elapsedMs >= 0 ? fmtElapsedMs(entry.elapsedMs) : "";
 		if (mainTextEl.textContent !== mainText) mainTextEl.textContent = mainText;
 		if (timeEl.textContent !== timeText) timeEl.textContent = timeText;
 		const statsHidden = mainText === "" && timeText === "";
 		if (stats.hidden !== statsHidden) stats.hidden = statsHidden;
 	}
 
-	/** 等待卡耗时写入：与等待类型胶囊同一行靠右，旧骨架缺该行时就地补齐。 */
-	function renderAwaitingDuration(el, entry) {
-		const foot = el.querySelector(".dap-foot");
-		if (foot === null) return;
-		let head = foot.querySelector(".dap-await-head");
-		if (head === null) {
-			const capsule = foot.querySelector(".dap-capsule");
-			if (capsule === null) return;
-			head = makeEl("div", "dap-await-head");
-			capsule.replaceWith(head);
-			head.append(capsule);
-		}
-		let time = head.querySelector(".dap-token-time");
-		if (time === null) {
-			time = makeEl("span", "dap-token-time");
-			head.append(time);
-		}
-		const text = Number.isFinite(entry.elapsedMs) && entry.elapsedMs >= 0 ? fmtElapsedMs(entry.elapsedMs) : "";
-		if (time.textContent !== text) time.textContent = text;
+	/** 旧热装等待骨架清理：耗时已迁回统计行，去掉胶囊同行残留的时长节点。 */
+	function removeAwaitingHeadDuration(el) {
+		el.querySelector(".dap-await-head .dap-token-time")?.remove();
 	}
 
 	/** 时间线区加载指示：数据在途且尚无工作项时显示活动图标行（R-01-014/AC-02）。 */
@@ -4491,8 +4471,8 @@ function apply(ctx) {
 		if (entry.kind === "awaiting") {
 			const traceContainer = el.querySelector(".dap-trace");
 			if (traceContainer !== null) renderTimelineArea(traceContainer, entry);
-			renderTokenStats(el, entry, { showTime: false });
-			renderAwaitingDuration(el, entry);
+			removeAwaitingHeadDuration(el);
+			renderTokenStats(el, entry);
 			const confirm = el.querySelector(".dap-confirm");
 			if (confirm !== null) {
 				// 激活锚点：只在结构重建时绑一次（卡片按 id 复用，kind 变化会重建骨架）。

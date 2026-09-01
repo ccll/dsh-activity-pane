@@ -2876,12 +2876,12 @@ assert.ok(
 	"等待卡骨架在时间线后保留统计行（R-01-009/AC-13）",
 );
 assert.ok(
-	bundle.includes("renderTokenStats(el, entry, { showTime: false })"),
-	"等待卡复用统计行但不重复显示等待类型同行耗时（R-01-009/AC-13）",
+	bundle.includes("renderTokenStats(el, entry);") && bundle.includes("removeAwaitingHeadDuration(el);"),
+	"等待卡复用统计行并清理胶囊同行的旧耗时节点（R-01-009/AC-12、AC-13）",
 );
 assert.ok(
-	bundle.includes("function renderAwaitingDuration") && bundle.includes("dap-await-head"),
-	"等待卡耗时与等待类型胶囊共用同行右置渲染（R-01-009/AC-12）",
+	bundle.includes("function removeAwaitingHeadDuration") && bundle.includes("awaitHead.append(capsule);"),
+	"等待类型胶囊独立成行，固定耗时回到统计行（R-01-009/AC-12）",
 );
 assert.ok(bundle.includes("lastTurnDuration({"), "等待卡耗时由最近完整回合边界派生（R-01-009/AC-12）");
 assert.ok(bundle.includes("`输入 ${fmtTokens("), "统计行含输入/输出中文短标签（R-01-009/AC-05）");
@@ -2968,9 +2968,9 @@ assert.ok(
 assert.ok(bundle.includes("function activeSessionIds(byId = {})"), "活动子代理沿 parentId 链补齐活动祖先");
 // ---- R-01-016/AC-01 等待卡保留最近工作项时间线 ----
 assert.ok(
-	bundle.includes('awaitHead.append(capsule, makeEl("span", "dap-token-time"))') &&
+	bundle.includes("awaitHead.append(capsule);") &&
 		bundle.includes('return [head, row, makeEl("div", "dap-trace"), statsRow, foot];'),
-	"awaiting 骨架在标题行与统计行、末行两段（胶囊+正文）之间含时间线，并将耗时放在胶囊同行右侧（R-01-016/AC-01、R-01-009/AC-12，C-043）",
+	"awaiting 骨架在标题行与统计行、末行两段（胶囊+正文）之间含时间线，固定耗时由统计行承载（R-01-016/AC-01、R-01-009/AC-12，C-043）",
 );
 // ---- R-01-002/AC-10 完成提醒卡「移入历史」按钮 ----
 assert.ok(

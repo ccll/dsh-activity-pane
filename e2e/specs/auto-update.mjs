@@ -204,23 +204,24 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	assert.equal(blockedBadge.duration, "1.2s", "等待占比变化后列头数量胶囊仍保持固定 1.2s 周期（R-01-002/AC-07）");
 	const blockedPulse = await pulseSnapshot(page);
 	assert.ok(pulsePhaseDelta(blockedPulse) < 80, `新增阻塞等待后数量胶囊与等待卡末行应重新同相，实际最大相位差 ${pulsePhaseDelta(blockedPulse)}ms`);
-	// R-01-009/AC-12：已有上一轮时阻塞等待卡保留固定耗时，且与等待胶囊同行右置。
-	const blockedElapsed = await until("阻塞等待保留上一轮耗时", () =>
+	// R-01-009/AC-12：已有上一轮时阻塞等待卡在 token 统计行最右侧保留固定耗时。
+	const blockedElapsed = await until("阻塞等待统计行保留上一轮耗时", () =>
 		runtimeCard.evaluate((card) => {
-			const time = card.querySelector(".dap-await-head .dap-token-time");
-			const capsule = card.querySelector(".dap-await-head .dap-capsule");
-			const row = card.querySelector(".dap-await-head");
-			if (!time?.textContent || !capsule || !row) return null;
+			const stats = card.querySelector(".dap-token-stats");
+			const time = stats?.querySelector(".dap-token-time");
+			if (!time?.textContent || !stats) return null;
 			return {
 				text: time.textContent,
-				sameRow: time.parentElement === capsule.parentElement,
-				rightAligned: Math.abs(time.getBoundingClientRect().right - row.getBoundingClientRect().right) <= 1,
+				sameRow: time.parentElement === stats,
+				rightAligned: Math.abs(time.getBoundingClientRect().right - stats.getBoundingClientRect().right) <= 1,
+				headTime: card.querySelector(".dap-await-head .dap-token-time")?.textContent.trim() ?? "",
 			};
 		}),
 	);
-	assert.match(blockedElapsed.text, /^\d+(?:m\d+s|s)$/, "阻塞等待卡右下角显示固定上一轮耗时（R-01-009/AC-12）");
-	assert.equal(blockedElapsed.sameRow, true, "阻塞等待耗时与等待类型胶囊处于同一行（R-01-009/AC-12）");
-	assert.equal(blockedElapsed.rightAligned, true, "阻塞等待耗时贴合等待类型胶囊行最右侧（R-01-009/AC-12）");
+	assert.match(blockedElapsed.text, /^\d+(?:m\d+s|s)$/, "阻塞等待统计行最右侧显示固定上一轮耗时（R-01-009/AC-12）");
+	assert.equal(blockedElapsed.sameRow, true, "阻塞等待耗时位于 token 统计行（R-01-009/AC-12）");
+	assert.equal(blockedElapsed.rightAligned, true, "阻塞等待耗时贴合 token 统计行最右侧（R-01-009/AC-12）");
+	assert.equal(blockedElapsed.headTime, "", "阻塞等待胶囊同行不重复显示耗时（R-01-009/AC-12）");
 	// R-01-009/AC-13：阻塞等待卡同样保留进入等待前最后已知的 token 统计。
 	const blockedStats = await until("阻塞等待保留上一轮统计", async () => runtimeCard.evaluate((card) => {
 		const stats = card.querySelector(".dap-token-stats");
@@ -229,8 +230,8 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 		if (!stats || stats.hidden || !main?.textContent?.trim() || !foot) return null;
 		return {
 			main: main.textContent.trim(),
+			time: stats.querySelector(".dap-token-time")?.textContent.trim() ?? "",
 			beforeAwaitingFoot: stats.nextElementSibling === foot,
-			duplicateTime: stats.querySelector(".dap-token-time")?.textContent.trim() ?? "",
 		};
 	}));
 	assert.match(blockedStats.main, /tok\/s/, "阻塞等待统计行保留 tok/s 输出速率（R-01-009/AC-13）");
@@ -238,10 +239,10 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	assert.match(blockedStats.main, /输入/, "阻塞等待统计行保留计费输入 token（R-01-009/AC-13）");
 	assert.match(blockedStats.main, /输出/, "阻塞等待统计行保留输出 token（R-01-009/AC-13）");
 	assert.equal(blockedStats.beforeAwaitingFoot, true, "阻塞等待统计行位于时间线之后、等待提示之前（R-01-009/AC-13）");
-	assert.equal(blockedStats.duplicateTime, "", "阻塞等待统计行不重复显示等待类型同行耗时（R-01-009/AC-13）");
+	assert.equal(blockedStats.time, blockedElapsed.text, "阻塞等待耗时与 token 统计字段位于同一行（R-01-009/AC-12、AC-13）");
 	await page.waitForTimeout(1_300);
 	assert.equal(
-		((await runtimeCard.locator(".dap-await-head .dap-token-time").textContent()) ?? "").trim(),
+		((await runtimeCard.locator(".dap-token-stats .dap-token-time").textContent()) ?? "").trim(),
 		blockedElapsed.text,
 		"阻塞等待期间耗时保持冻结，不把等待时间计入（R-01-009/AC-12）",
 	);
@@ -252,7 +253,7 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	);
 	await openApp(page, url);
 	const refreshedBlockedElapsed = await until("刷新后恢复阻塞等待耗时", () =>
-		runtimeCard.locator(".dap-await-head .dap-token-time").textContent().then((text) => (text ?? "").trim() || null),
+		runtimeCard.locator(".dap-token-stats .dap-token-time").textContent().then((text) => (text ?? "").trim() || null),
 	);
 	assert.equal(refreshedBlockedElapsed, blockedElapsed.text, "阻塞等待刷新后仍保留同一轮耗时（R-01-009/AC-12）");
 	const refreshedBlockedStats = await until("刷新后恢复阻塞等待统计", () =>

@@ -6,7 +6,7 @@ id: T-109
 
 # T-109 最近历史卡保留回合统计
 
-状态: active
+状态: completed
 关联: R-01-013/AC-12 → 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -63,4 +63,15 @@ id: T-109
 
 ## 终态与证据
 
-待实现。
+状态: completed
+
+- 实现: `src/core.mjs` 增加 `statsFromProjection` 统一列表投影统计口径；`src/client.mjs` 为最近卡增加隐藏的 `.dap-token-stats` 骨架，在助手预览后渲染可用 tok/s、缓存命中率、输入/输出 token 与固定回合耗时；运行期间保留最后已知投影统计，冷刷新回退 projection/history；`.dsh-plugin/client.js` 已同步重建。
+- 测试: 先行 `node scripts/check.mjs` 按预期因缺少 `statsFromProjection` export 失败；实现后 `pnpm verify:fast` 通过，`pnpm test:e2e session-lifecycle` 通过（迁移、字段、倒数第二行与刷新恢复），最终 `pnpm verify` 通过（13 个 E2E spec 全部通过）；现有 `http://127.0.0.1:3080/` 刷新后 HTTP 200、窗格挂载 1 个（当前运行时无最近卡 fixture），commit hook 的 bundle check 与 `git diff --check` 通过。
+- DESIGN 对照: `PRD.md` 新增 `R-01-013/AC-12`；`DESIGN.md` 更新最近卡结构、native projection/history 来源、统计行位置/隐藏规则与加载回退；`DOMAIN.md` 登记“最近回合统计”及其跨模块不变量；README、人工验收和 E2E 同步。
+- commit: 2616d06
+- review:
+  - 审核方: Standards reviewer `11be289b-c001-48cf-b83f-ec5277a387fc`；Spec reviewer `2494d7c3-9717-4a4b-b960-658033a85498`。
+  - 目的理解: 在不改变运行卡、等待卡、历史排序、消息预览和活动时间语义的前提下，让会话结束进入最近历史后继续保留最后已结束回合的可用统计；关联 `R-01-013/AC-12`、`R-01-009/AC-05`、`R-01-009/AC-12` 与 `T-109`。
+  - 执行方式: `code-review` skill；固定基线 `a3b74525c434222b14134b2c979408078c6f9d73`，审核范围 `git diff a3b7452...2616d06`，含提交 `2616d06`；Standards/Spec 双轴并行审核。
+  - 问题与修复: Standards 无 documented-standard hard violation；提出 `const stats` 命名与统计字段合并的轻微 baseline judgment calls，均不影响语义且无需修复。Spec 未发现缺失/越界/错误实现；指出逐字段缺失与全空组合的覆盖可继续增强，但不是已证实缺陷。
+  - 复审结论: Standards 与 Spec reviewer 均确认本次实现符合仓库规范与 `R-01-013/AC-12`，无阻断 finding，任务目标与追溯证据闭合。

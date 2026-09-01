@@ -1080,6 +1080,18 @@ export function statsFromProjection(projection = null, elapsedMs = null) {
 	};
 }
 
+/** 统计字段按字段合并：当前值有效时优先，否则回退到上一份已知值；不合并 elapsedMs。 */
+export function mergeRuntimeStats(current = null, fallback = null) {
+	const currentStats = isRecord(current) ? current : {};
+	const fallbackStats = isRecord(fallback) ? fallback : {};
+	return {
+		outputTokens: currentStats.outputTokens ?? fallbackStats.outputTokens ?? null,
+		inputTokens: currentStats.inputTokens ?? fallbackStats.inputTokens ?? null,
+		cacheHitPct: currentStats.cacheHitPct ?? fallbackStats.cacheHitPct ?? null,
+		rateTokS: currentStats.rateTokS ?? fallbackStats.rateTokS ?? null,
+	};
+}
+
 /** 需要用户行动的种类的展示文案。 */
 export function pendingText(kind) {
 	return PENDING_LABELS[kind] ?? PENDING_UNKNOWN_LABEL;

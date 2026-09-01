@@ -67,6 +67,7 @@ import {
 	pruneSubscriptions,
 	runtimeStats,
 	statsFromProjection,
+	mergeRuntimeStats,
 	shouldCancelOpenRetry,
 	subagentTitle,
 	summarizeToolArguments,
@@ -1513,6 +1514,22 @@ assert.deepEqual(
 	),
 	{ elapsedMs: 47_000, outputTokens: 144, rateTokS: 48, inputTokens: 130, cacheHitPct: 15 },
 	"最近卡复用列表投影派生 tok/s、缓存、输入/输出与固定耗时（R-01-013/AC-12）",
+);
+assert.deepEqual(
+	mergeRuntimeStats(
+		{ outputTokens: null, inputTokens: 24, cacheHitPct: null, rateTokS: null },
+		{ outputTokens: 96, inputTokens: 12, cacheHitPct: 40, rateTokS: 8 },
+	),
+	{ outputTokens: 96, inputTokens: 24, cacheHitPct: 40, rateTokS: 8 },
+	"等待/运行统计按字段回退，缺失投影不覆盖最后已知有效值（R-01-009/AC-13）",
+);
+assert.deepEqual(
+	mergeRuntimeStats(
+		{ outputTokens: 0, inputTokens: 0, cacheHitPct: 0, rateTokS: null },
+		{ outputTokens: 96, inputTokens: 12, cacheHitPct: 40, rateTokS: 8 },
+	),
+	{ outputTokens: 0, inputTokens: 0, cacheHitPct: 0, rateTokS: 8 },
+	"统计合并保留有效的零值，仅对缺失字段回退（R-01-009/AC-13）",
 );
 assert.deepEqual(
 	usageSummary({ uncachedInputTokens: 100, cacheReadTokens: 700, cacheWriteTokens: 200 }),

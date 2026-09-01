@@ -1086,6 +1086,18 @@ function statsFromProjection(projection = null, elapsedMs = null) {
 	};
 }
 
+/** 统计字段按字段合并：当前值有效时优先，否则回退到上一份已知值；不合并 elapsedMs。 */
+function mergeRuntimeStats(current = null, fallback = null) {
+	const currentStats = isRecord(current) ? current : {};
+	const fallbackStats = isRecord(fallback) ? fallback : {};
+	return {
+		outputTokens: currentStats.outputTokens ?? fallbackStats.outputTokens ?? null,
+		inputTokens: currentStats.inputTokens ?? fallbackStats.inputTokens ?? null,
+		cacheHitPct: currentStats.cacheHitPct ?? fallbackStats.cacheHitPct ?? null,
+		rateTokS: currentStats.rateTokS ?? fallbackStats.rateTokS ?? null,
+	};
+}
+
 /** 需要用户行动的种类的展示文案。 */
 function pendingText(kind) {
 	return PENDING_LABELS[kind] ?? PENDING_UNKNOWN_LABEL;
@@ -5128,13 +5140,7 @@ function apply(ctx) {
 			const projectionStats = statsFromProjection(projection);
 			if (entry.kind === "awaiting") {
 				// 等待期间冻结运行停止前的最后已知统计；刷新/无留存时回退当前列表投影。
-				const retained = detail?.lastRuntimeStats;
-				Object.assign(entry, {
-					outputTokens: retained?.outputTokens ?? projectionStats.outputTokens,
-					inputTokens: retained?.inputTokens ?? projectionStats.inputTokens,
-					cacheHitPct: retained?.cacheHitPct ?? projectionStats.cacheHitPct,
-					rateTokS: retained?.rateTokS ?? projectionStats.rateTokS,
-				});
+				Object.assign(entry, mergeRuntimeStats(detail?.lastRuntimeStats, projectionStats));
 			}
 			// 委托周期锚点（R-01-009/AC-06）：全部活动条目逐帧记账——锚点不因呈现翻转
 			// （委托期与 awaiting 互转）或瞬时不可见而丢失，仅 dispose 时整体清除；周期内
@@ -5153,12 +5159,8 @@ function apply(ctx) {
 				const elapsedMs = Number.isFinite(anchor.anchor) ? Math.max(0, now - anchor.anchor) : null;
 				Object.assign(entry, projectionStats, { elapsedMs });
 				if (detail) {
-					detail.lastRuntimeStats = {
-						outputTokens: projectionStats.outputTokens,
-						inputTokens: projectionStats.inputTokens,
-						cacheHitPct: projectionStats.cacheHitPct,
-						rateTokS: projectionStats.rateTokS,
-					};
+					// 列表投影短暂缺字段时，不覆盖此前已知的有效统计。
+					detail.lastRuntimeStats = mergeRuntimeStats(projectionStats, detail.lastRuntimeStats);
 				}
 				// 回合进度：纯时间驱动 y = t/(t+k)，半衰期每帧按最新实测速率现算，固定
 				// k 下单调性由函数本身保证；k 变化时允许进度随速率回落而回退（委托周期

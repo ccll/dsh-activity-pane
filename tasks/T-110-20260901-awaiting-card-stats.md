@@ -6,7 +6,7 @@ id: T-110
 
 # T-110 等待卡保留回合统计
 
-状态: active
+状态: completed
 关联: R-01-009/AC-13 → 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -63,15 +63,15 @@ id: T-110
 
 ## 终态与证据
 
-状态: active
+状态: completed
 
-- 实现: 待实现。
-- 测试: 待运行。
-- DESIGN 对照: 待实现后填写。
-- commit: 待提交。
+- 实现: `src/client.mjs` 为 awaiting 卡增加位于时间线之后的 `.dap-token-stats` 骨架，复用 `renderTokenStats` 并关闭重复耗时；`src/core.mjs` 增加 `mergeRuntimeStats`，运行中统计按字段保留有效 last-known 值，等待卡优先复用 retained、刷新回退 projection；`.dsh-plugin/client.js` 已同步重建。基础工作单元为 `af7bc77`，字段级回退修复为 `f23b7bc`。
+- 测试: 先行 `node scripts/check.mjs` 按预期因缺少 awaiting 统计骨架断言失败；实现后 `pnpm verify:fast` 通过，focused `pnpm exec node e2e/run.mjs session-lifecycle auto-update error-reminder` 通过（完成/阻塞/错误等待、冻结、刷新恢复），最终 `pnpm verify` 通过（13 个 E2E spec 全部通过）；现有 `http://127.0.0.1:3080/` 刷新后 HTTP 200、窗格挂载 1 个；`git diff --check` 与提交 hook bundle check 通过。
+- DESIGN 对照: `PRD.md` 新增 `R-01-009/AC-13`；`DESIGN.md` 更新等待卡结构、统计来源/冻结/刷新回退与耗时位置；`DOMAIN.md` 登记等待卡统计不变量；README、人工验收、bundle 契约与三类等待 E2E 同步。
+- commit: f23b7bc
 - review:
-  - 审核方: 待审核。
-  - 目的理解: 待审核。
-  - 执行方式: 待审核。
-  - 问题与修复: 待审核。
-  - 复审结论: 待审核。
+  - 审核方: Standards reviewer `d8f883eb-f9ce-4c59-ba2e-3567b8292862`；Spec reviewer `8d4191b5-e667-4632-8319-b8337c3305e7`。
+  - 目的理解: 在不改变等待类型、固定回合耗时、时间线、确认行为、最近卡与订阅边界的前提下，使 done、blocked、error 等待卡保留进入等待前最后已知的 tok/s、缓存命中率、输入/输出 token；等待期间冻结，刷新回退当前列表投影，缺失字段不伪造。
+  - 执行方式: `code-review` skill；固定基线 `1999a449537d81cbf7c27d8543b4a4bb9fd02eea`，审核范围 `git diff 1999a44...HEAD`，含提交 `af7bc77`、`f23b7bc`；Standards/Spec 双轴并行审核，发现后由同一 reviewer 复审。
+  - 问题与修复: 首轮 Spec reviewer 指出运行中缺失 projection 会无条件覆盖 `lastRuntimeStats`；`f23b7bc` 增加 `mergeRuntimeStats` 与缺失/零值单元断言修复。首轮 Standards 无 hard violation，指出 awaiting 统计骨架存在 baseline `Duplicated Code` 判断性 smell；未新增且不阻断，未为其扩大范围重构。
+  - 复审结论: Spec reviewer 确认缺失投影回退、零值、等待冻结、刷新回退与三类等待均符合 `R-01-009/AC-12`、`R-01-009/AC-13`；Standards reviewer 确认无 documented-standard hard violation、无新增 baseline smell；双轴通过，无阻断 finding。

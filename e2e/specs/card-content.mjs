@@ -35,7 +35,7 @@ export default async function cardContent({ page, url, assert }) {
 	assert.ok(headerPos && headerPos.dx > 0 && headerPos.dy < 24, "模型上下文在工作区徽标右侧同一行（卡面右上角，R-01-012/AC-01）");
 
 	// R-01-003/AC-08～AC-12：浏览器实际应用工作区稳定颜色槽位与深浅主题 OKLCH 层次。
-// R-01-003/AC-10、R-01-003/AC-11：分别验证深浅主题变量、前景/底色/描边层次。
+	// R-01-003/AC-10、R-01-003/AC-11：分别验证深浅主题变量、前景/底色/描边层次。
 	const workspaceStyles = await page.evaluate(() => {
 		const badge = document.querySelector("[data-dsh-activity-pane] .dap-workspace:not([hidden])");
 		if (!badge) return null;

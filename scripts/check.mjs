@@ -3489,13 +3489,13 @@ assert.ok(bundle.includes("for (const property of Object.keys(colorVariables)) w
 assert.ok(bundle.includes("var(--dap-workspace-dark-l, 0.78)"), "深色主题使用槽位 OKLCH 明度变量（R-01-003/AC-11）");
 assert.ok(bundle.includes("var(--dap-workspace-dark-c, 0.16)"), "深色主题使用槽位 OKLCH 彩度变量（R-01-003/AC-11）");
 assert.ok(bundle.includes("color: var(--dap-workspace-color)"), "徽标文字直接使用调色板色、不混 currentColor（R-01-003/AC-11）");
-assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-dark-mix, 24%), transparent)"), "深色主题底色使用独立背景变体混合（R-01-003/AC-10、AC-11）");
-assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-dark-border-mix, 46%), transparent)"), "深色主题描边使用独立背景变体混合（R-01-003/AC-10、AC-11）");
+assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-dark-mix, 31%), transparent)"), "深色主题底色使用加强的独立背景变体混合（R-01-003/AC-10、AC-11）");
+assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-color) var(--dap-workspace-bg-dark-border-mix, 52%), transparent)"), "深色主题描边使用高对比前景色混合（R-01-003/AC-10、AC-11）");
 assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {"), "浅色主题单独校准徽标配色（R-01-003/AC-10、AC-11）");
 assert.ok(bundle.includes("var(--dap-workspace-light-l, 0.48)"), "浅色主题使用槽位 OKLCH 明度变量（R-01-003/AC-11）");
 assert.ok(bundle.includes("var(--dap-workspace-light-c, 0.15)"), "浅色主题使用槽位 OKLCH 彩度变量（R-01-003/AC-11）");
-assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-light-mix, 18%), transparent)"), "浅色主题底色使用独立背景变体且更轻（R-01-003/AC-10、AC-11）");
-assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-light-border-mix, 34%), transparent)"), "浅色主题描边使用独立背景变体且更轻（R-01-003/AC-10、AC-11）");
+assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-light-mix, 27%), transparent)"), "浅色主题底色使用加强的独立背景变体混合（R-01-003/AC-10、AC-11）");
+assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-color) var(--dap-workspace-bg-light-border-mix, 42%), transparent)"), "浅色主题描边使用高对比前景色混合（R-01-003/AC-10、AC-11）");
 assert.ok(!bundle.includes("color-mix(in srgb, var(--dap-workspace-color) 92%, currentColor)"), "工作区文字不得再以 currentColor 冲淡调色板色（R-01-003/AC-11）");
 
 // R-01-010/AC-01、R-01-010/AC-05

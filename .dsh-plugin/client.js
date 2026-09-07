@@ -1322,18 +1322,18 @@ const WORKSPACE_COLOR_SLOTS = Object.freeze([
 const WORKSPACE_BACKGROUND_SLOTS = Object.freeze([
 	{
 		slot: 0,
-		dark: Object.freeze({ l: 0.24, c: 0.045, mix: "20%", borderMix: "42%" }),
-		light: Object.freeze({ l: 0.90, c: 0.045, mix: "14%", borderMix: "30%" }),
+		dark: Object.freeze({ l: 0.30, c: 0.05, mix: "26%", borderMix: "46%" }),
+		light: Object.freeze({ l: 0.92, c: 0.05, mix: "20%", borderMix: "34%" }),
 	},
 	{
 		slot: 1,
-		dark: Object.freeze({ l: 0.32, c: 0.055, mix: "24%", borderMix: "46%" }),
-		light: Object.freeze({ l: 0.84, c: 0.055, mix: "18%", borderMix: "34%" }),
+		dark: Object.freeze({ l: 0.38, c: 0.06, mix: "31%", borderMix: "52%" }),
+		light: Object.freeze({ l: 0.84, c: 0.06, mix: "27%", borderMix: "42%" }),
 	},
 	{
 		slot: 2,
-		dark: Object.freeze({ l: 0.40, c: 0.065, mix: "28%", borderMix: "50%" }),
-		light: Object.freeze({ l: 0.78, c: 0.065, mix: "22%", borderMix: "38%" }),
+		dark: Object.freeze({ l: 0.46, c: 0.07, mix: "36%", borderMix: "58%" }),
+		light: Object.freeze({ l: 0.76, c: 0.07, mix: "34%", borderMix: "50%" }),
 	},
 ].map(Object.freeze));
 
@@ -2687,7 +2687,7 @@ const CSS = `
    名称字号不低于 10.5px（AC-07），行高保持 14px 以维持胶囊与卡片高度。
    着色（AC-08～AC-12）：核心映射提供 12 个前景身份槽与每槽 3 个背景变体；
    深色/浅色主题分别使用前景与背景槽位的 L/C 参数，文字使用前景调色板色，
-   底色与描边使用独立背景源色在 OKLCH 空间按变体混合强度呈现；前景与背景保持同色相族。 */
+   底色使用独立背景源色、描边使用前景调色板色，分别在 OKLCH 空间按变体混合强度呈现；前景与背景保持同色相族。 */
 [data-dsh-activity-pane] .dap-workspace {
   width: fit-content; max-width: 100%; display: flex; align-items: center; gap: 3px;
   overflow: hidden;
@@ -2698,13 +2698,13 @@ const CSS = `
      var(--dap-workspace-hue, 235)
    );
   --dap-workspace-background-color: oklch(
-     var(--dap-workspace-bg-dark-l, 0.32)
-     var(--dap-workspace-bg-dark-c, 0.055)
+     var(--dap-workspace-bg-dark-l, 0.38)
+     var(--dap-workspace-bg-dark-c, 0.06)
      var(--dap-workspace-hue, 235)
    );
   color: var(--dap-workspace-color);
-  background: color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-dark-mix, 24%), transparent);
-  border: 1px solid color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-dark-border-mix, 46%), transparent);
+  background: color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-dark-mix, 31%), transparent);
+  border: 1px solid color-mix(in oklch, var(--dap-workspace-color) var(--dap-workspace-bg-dark-border-mix, 52%), transparent);
   border-radius: 999px; padding: 0 7px;
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
@@ -2715,11 +2715,11 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
    );
   --dap-workspace-background-color: oklch(
      var(--dap-workspace-bg-light-l, 0.84)
-     var(--dap-workspace-bg-light-c, 0.055)
+     var(--dap-workspace-bg-light-c, 0.06)
      var(--dap-workspace-hue, 235)
    );
-  background: color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-light-mix, 18%), transparent);
-  border-color: color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-light-border-mix, 34%), transparent);
+  background: color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-light-mix, 27%), transparent);
+  border-color: color-mix(in oklch, var(--dap-workspace-color) var(--dap-workspace-bg-light-border-mix, 42%), transparent);
 }
 [data-dsh-activity-pane] .dap-workspace-icon { flex: none; display: inline-flex; }
 [data-dsh-activity-pane] .dap-workspace-icon svg { display: block; }

@@ -3,9 +3,23 @@
 // 卡面内容：活动卡显示工作区归属、模型名称与用户角色标签；最近卡按五层信息
 // 结构呈现（工作区+模型 / 标题 / 用户预览 / 助手预览 / 活动时间）。
 
+import { resolveWorkspaceColors } from "../../src/core.mjs";
 import { clickCardButton, MOCK_FAST_REPLY, MOCK_MODEL, openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
 
 const TITLE = "e2e:fast 卡面内容探针";
+const CONTRAST_PROBE_VARIANTS = (() => {
+	const keys = [
+		"/home/cailei/ops",
+		"/home/cailei/proj/dsh-activity-pane",
+		"/home/cailei/proj/ai-stack",
+		...Array.from({ length: 36 }, (_, index) => `/e2e/contrast/${index}`),
+	];
+	const variants = new Map();
+	for (const [sourceKey, color] of resolveWorkspaceColors(keys)) {
+		if (!variants.has(color.background.slot)) variants.set(color.background.slot, { sourceKey, ...color });
+	}
+	return [...variants.values()].sort((a, b) => a.background.slot - b.background.slot);
+})();
 
 export default async function cardContent({ page, url, assert }) {
 	await openApp(page, url);
@@ -65,34 +79,81 @@ export default async function cardContent({ page, url, assert }) {
 	assert.ok(workspaceStyles.dark.backgroundDarkMix !== "" && workspaceStyles.light.backgroundLightMix !== "", "浏览器实际写入独立背景变体的混合强度（R-01-003/AC-10、AC-11）");
 	assert.ok(workspaceStyles.dark.background !== "rgba(0, 0, 0, 0)" && workspaceStyles.light.background !== "rgba(0, 0, 0, 0)", "工作区徽标深浅主题均有同色相族底色（R-01-003/AC-10、AC-11）");
 	assert.ok(workspaceStyles.dark.border !== "rgba(0, 0, 0, 0)" && workspaceStyles.light.border !== "rgba(0, 0, 0, 0)", "工作区徽标深浅主题均有可见描边（R-01-003/AC-10、AC-11）");
-	const backgroundVariants = await page.evaluate(() => {
+	const backgroundVariants = await page.evaluate((resolvedVariants) => {
 		const pane = document.querySelector("[data-dsh-activity-pane]");
 		if (!pane) return null;
+		const card = document.createElement("div");
+		card.className = "dap-card";
+		card.style.position = "fixed";
+		card.style.left = "-1000px";
+		card.style.top = "0";
 		const probe = document.createElement("div");
 		probe.className = "dap-workspace";
 		probe.textContent = "variant";
-		probe.style.setProperty("--dap-workspace-hue", "145");
-		pane.append(probe);
-		const variants = [
-			{ "dark-l": "0.24", "dark-c": "0.045", "dark-mix": "20%", "dark-border-mix": "42%", "light-l": "0.90", "light-c": "0.045", "light-mix": "14%", "light-border-mix": "30%" },
-			{ "dark-l": "0.32", "dark-c": "0.055", "dark-mix": "24%", "dark-border-mix": "46%", "light-l": "0.84", "light-c": "0.055", "light-mix": "18%", "light-border-mix": "34%" },
-			{ "dark-l": "0.40", "dark-c": "0.065", "dark-mix": "28%", "dark-border-mix": "50%", "light-l": "0.78", "light-c": "0.065", "light-mix": "22%", "light-border-mix": "38%" },
-		];
+		card.append(probe);
+		pane.append(card);
+		const canvas = document.createElement("canvas");
+		canvas.width = 1;
+		canvas.height = 1;
+		const context = canvas.getContext("2d");
+		const composite = (foreground, backdrop) => {
+			context.clearRect(0, 0, 1, 1);
+			context.fillStyle = backdrop;
+			context.fillRect(0, 0, 1, 1);
+			context.fillStyle = foreground;
+			context.fillRect(0, 0, 1, 1);
+			return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3);
+		};
+		const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+		const luminance = ([r, g, b]) => {
+			const linear = [r, g, b].map((value) => {
+				const channel = value / 255;
+				return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+			});
+			return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+		};
+		const contrast = (a, b) => {
+			const light = Math.max(luminance(a), luminance(b));
+			const dark = Math.min(luminance(a), luminance(b));
+			return (light + 0.05) / (dark + 0.05);
+		};
 		const read = (theme, variant) => {
-			for (const [key, value] of Object.entries(variant)) probe.style.setProperty(`--dap-workspace-bg-${key}`, value);
+			const foreground = variant.foreground;
+			const background = variant.background[theme];
+			probe.style.setProperty("--dap-workspace-hue", String(foreground.hue));
+			probe.style.setProperty(`--dap-workspace-${theme}-l`, String(theme === "dark" ? foreground.darkL : foreground.lightL));
+			probe.style.setProperty(`--dap-workspace-${theme}-c`, String(theme === "dark" ? foreground.darkC : foreground.lightC));
+			probe.style.setProperty(`--dap-workspace-bg-${theme}-l`, String(background.l));
+			probe.style.setProperty(`--dap-workspace-bg-${theme}-c`, String(background.c));
+			probe.style.setProperty(`--dap-workspace-bg-${theme}-mix`, background.mix);
+			probe.style.setProperty(`--dap-workspace-bg-${theme}-border-mix`, background.borderMix);
 			if (theme === "dark") document.body.setAttribute("data-ds-dark-theme", "");
 			else document.body.removeAttribute("data-ds-dark-theme");
 			const style = getComputedStyle(probe);
-			return { background: style.backgroundColor, border: style.borderTopColor };
+			const paneBackdrop = theme === "dark" ? "rgb(18, 21, 27)" : "rgb(255, 255, 255)";
+			const cardPixel = composite(getComputedStyle(card).backgroundColor, paneBackdrop);
+			const backgroundPixel = composite(style.backgroundColor, `rgb(${cardPixel.join(", ")})`);
+			const borderPixel = composite(style.borderTopColor, `rgb(${cardPixel.join(", ")})`);
+			return {
+				sourceKey: variant.sourceKey,
+				slot: variant.background.slot,
+				background: style.backgroundColor,
+				border: style.borderTopColor,
+				backgroundDistance: distance(backgroundPixel, cardPixel),
+				borderContrast: contrast(borderPixel, cardPixel),
+			};
 		};
-		const result = { dark: variants.map((variant) => read("dark", variant)), light: variants.map((variant) => read("light", variant)) };
-		probe.remove();
+		const result = {
+			dark: resolvedVariants.map((variant) => read("dark", variant)),
+			light: resolvedVariants.map((variant) => read("light", variant)),
+		};
+		card.remove();
 		document.body.setAttribute("data-ds-dark-theme", "");
 		return result;
-	});
-	assert.ok(backgroundVariants && new Set(backgroundVariants.dark.map((variant) => variant.background)).size === 3, "浏览器实际呈现三档深色背景变体（R-01-003/AC-10、AC-11）");
-	assert.ok(backgroundVariants && new Set(backgroundVariants.light.map((variant) => variant.background)).size === 3, "浏览器实际呈现三档浅色背景变体（R-01-003/AC-10、AC-11）");
-	assert.ok(backgroundVariants && backgroundVariants.dark.every((variant) => variant.border !== "rgba(0, 0, 0, 0)") && backgroundVariants.light.every((variant) => variant.border !== "rgba(0, 0, 0, 0)"), "浏览器三档背景变体均有可见描边（R-01-003/AC-10、AC-11）");
+	}, CONTRAST_PROBE_VARIANTS);
+	assert.ok(backgroundVariants && new Set(backgroundVariants.dark.map((variant) => variant.slot)).size === 3, "浏览器实际呈现生产分配的三档深色背景变体（R-01-003/AC-10、AC-11）");
+	assert.ok(backgroundVariants && new Set(backgroundVariants.light.map((variant) => variant.slot)).size === 3, "浏览器实际呈现生产分配的三档浅色背景变体（R-01-003/AC-10、AC-11）");
+	assert.ok(backgroundVariants && backgroundVariants.dark.every((variant) => variant.backgroundDistance >= 4 && variant.borderContrast >= 1.5) && backgroundVariants.light.every((variant) => variant.backgroundDistance >= 4 && variant.borderContrast >= 1.5), "浏览器实际背景与描边相对卡片达到可辨对比（R-01-003/AC-10、AC-11）");
 
 	// 完成提醒稳定后只激活一次；若重渲染吞 click，应由本 spec 直接报回归。
 	await until("移入历史按钮就绪", async () => {

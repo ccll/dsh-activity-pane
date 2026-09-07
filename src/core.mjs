@@ -1316,18 +1316,18 @@ export const WORKSPACE_COLOR_SLOTS = Object.freeze([
 export const WORKSPACE_BACKGROUND_SLOTS = Object.freeze([
 	{
 		slot: 0,
-		dark: Object.freeze({ l: 0.24, c: 0.045, mix: "20%", borderMix: "42%" }),
-		light: Object.freeze({ l: 0.90, c: 0.045, mix: "14%", borderMix: "30%" }),
+		dark: Object.freeze({ l: 0.30, c: 0.05, mix: "26%", borderMix: "46%" }),
+		light: Object.freeze({ l: 0.92, c: 0.05, mix: "20%", borderMix: "34%" }),
 	},
 	{
 		slot: 1,
-		dark: Object.freeze({ l: 0.32, c: 0.055, mix: "24%", borderMix: "46%" }),
-		light: Object.freeze({ l: 0.84, c: 0.055, mix: "18%", borderMix: "34%" }),
+		dark: Object.freeze({ l: 0.38, c: 0.06, mix: "31%", borderMix: "52%" }),
+		light: Object.freeze({ l: 0.84, c: 0.06, mix: "27%", borderMix: "42%" }),
 	},
 	{
 		slot: 2,
-		dark: Object.freeze({ l: 0.40, c: 0.065, mix: "28%", borderMix: "50%" }),
-		light: Object.freeze({ l: 0.78, c: 0.065, mix: "22%", borderMix: "38%" }),
+		dark: Object.freeze({ l: 0.46, c: 0.07, mix: "36%", borderMix: "58%" }),
+		light: Object.freeze({ l: 0.76, c: 0.07, mix: "34%", borderMix: "50%" }),
 	},
 ].map(Object.freeze));
 

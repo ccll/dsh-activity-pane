@@ -467,21 +467,29 @@ const CSS = `
 /* 复审修复（C-040、C-043）：状态点光晕三类同强度、仅换色相——阻塞金、完成绿与错误红光晕一致。 */
 /* 工作区徽标「图标+文本」双段：文件夹图标与左边栏工作区条目同源（R-01-003/AC-06）；
    名称字号不低于 10.5px（AC-07），行高保持 14px 以维持胶囊与卡片高度。
-   着色（AC-08～AC-11）：核心映射提供 OKLCH hue；深色主题文字取高明度中高彩度，
-   浅色主题文字取低明度中高彩度。文字直接使用调色板色，底色与描边在 OKLCH
+   着色（AC-08～AC-12）：核心映射提供 12 个 OKLCH 颜色槽位；深色/浅色主题
+   各自使用槽位的 L/C 参数，文字直接使用调色板色，底色与描边在 OKLCH
    空间按透明度混合；前景与背景始终同色相、明度对比拉开。 */
 [data-dsh-activity-pane] .dap-workspace {
   width: fit-content; max-width: 100%; display: flex; align-items: center; gap: 3px;
   overflow: hidden;
   font-size: 10.5px; line-height: 14px;
-  --dap-workspace-color: oklch(0.78 0.16 var(--dap-workspace-hue, 235));
+  --dap-workspace-color: oklch(
+     var(--dap-workspace-dark-l, 0.78)
+     var(--dap-workspace-dark-c, 0.16)
+     var(--dap-workspace-hue, 235)
+   );
   color: var(--dap-workspace-color);
   background: color-mix(in oklch, var(--dap-workspace-color) 14%, transparent);
   border: 1px solid color-mix(in oklch, var(--dap-workspace-color) 34%, transparent);
   border-radius: 999px; padding: 0 7px;
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
-  --dap-workspace-color: oklch(0.48 0.15 var(--dap-workspace-hue, 235));
+  --dap-workspace-color: oklch(
+     var(--dap-workspace-light-l, 0.48)
+     var(--dap-workspace-light-c, 0.15)
+     var(--dap-workspace-hue, 235)
+   );
   background: color-mix(in oklch, var(--dap-workspace-color) 10%, transparent);
   border-color: color-mix(in oklch, var(--dap-workspace-color) 28%, transparent);
 }
@@ -1026,16 +1034,18 @@ function apply(ctx) {
 	/** 等待条目 id/类别队列签名：变化时统一重启数量胶囊与等待卡末行动画对相（R-01-002/AC-07、AC-08）。 */
 	let pulseSignature = "";
 	// E2E-only deterministic seams（T-089/T-090）：显式 URL fragment 最多把本页首次列表 ready 呈现
-	// 或正式 models RPC 延后 1s；默认路径为 0，不伪造服务响应、快照或生产时序。
+	// 或正式 models RPC 延后 1s；列表延迟从首个窗格 render 开始计时，避免宿主启动耗时
+	// 把 pending 观察窗口提前消耗；默认路径为 0，不伪造服务响应、快照或生产时序。
 	const e2eParams = new URLSearchParams(window.location.hash.slice(1));
 	const requestedListDelay = Number(e2eParams.get("dap-e2e-list-delay"));
-	const e2eListReadyAt = Number.isFinite(requestedListDelay) && requestedListDelay > 0
-		? Date.now() + Math.min(requestedListDelay, 1_000)
+	const e2eListDelayMs = Number.isFinite(requestedListDelay) && requestedListDelay > 0
+		? Math.min(requestedListDelay, 1_000)
 		: 0;
 	const requestedModelDelay = Number(e2eParams.get("dap-e2e-model-delay"));
 	const e2eModelDelayMs = Number.isFinite(requestedModelDelay) && requestedModelDelay > 0
 		? Math.min(requestedModelDelay, 1_000)
 		: 0;
+	let e2eListReadyAt = 0;
 	let e2eListReleaseTimer = null;
 	const e2eModelDelayWaiters = new Map();
 	function delayedModelCall(call) {
@@ -2204,22 +2214,30 @@ function apply(ctx) {
 		renderTrace(container, entry.timeline, { lastOnly });
 	}
 
-	function renderCardInto(el, entry, hueByWorkspace) {
+	function renderCardInto(el, entry, colorByWorkspace) {
 		const workspaceLabel = el.querySelector(".dap-workspace");
 		if (workspaceLabel !== null) {
 			const workspaceText = workspaceLabel.querySelector(".dap-workspace-text");
-			if (entry.workspaceTitle !== "") {
+			const color = colorByWorkspace.get(entry.workspaceKey);
+			const colorVariables = {
+				"--dap-workspace-hue": color?.hue,
+				"--dap-workspace-dark-l": color?.darkL,
+				"--dap-workspace-dark-c": color?.darkC,
+				"--dap-workspace-light-l": color?.lightL,
+				"--dap-workspace-light-c": color?.lightC,
+			};
+			if (entry.workspaceTitle !== "" && color !== undefined) {
 				if (workspaceText !== null) restoreTextField(workspaceText, entry.workspaceTitle);
-				const hue = hueByWorkspace.get(entry.workspaceKey) ?? workspaceHue(entry.workspaceKey);
-				const hueText = hue === null ? "" : String(hue);
-				if (workspaceLabel.style.getPropertyValue("--dap-workspace-hue") !== hueText) {
-					if (hue === null) workspaceLabel.style.removeProperty("--dap-workspace-hue");
-					else workspaceLabel.style.setProperty("--dap-workspace-hue", hueText);
+				for (const [property, value] of Object.entries(colorVariables)) {
+					const next = value === undefined ? "" : String(value);
+					if (workspaceLabel.style.getPropertyValue(property) === next) continue;
+					if (next === "") workspaceLabel.style.removeProperty(property);
+					else workspaceLabel.style.setProperty(property, next);
 				}
 				workspaceLabel.removeAttribute("hidden");
 			} else {
 				if (workspaceText !== null) restoreTextField(workspaceText, "");
-				workspaceLabel.style.removeProperty("--dap-workspace-hue");
+				for (const property of Object.keys(colorVariables)) workspaceLabel.style.removeProperty(property);
 				workspaceLabel.setAttribute("hidden", "");
 			}
 		}
@@ -2598,7 +2616,7 @@ function apply(ctx) {
 
 	/** 渲染某一张卡片进指定列表容器（活动/历史通用）。index 是条目在卡片序列中的
 	 * 序号，offset 是容器内首个卡片前的非卡片子节点数（活动区有轨道层、历史区有段头）。 */
-	function renderCardIntoList(list, entry, reuseMap, index, offset, hueByWorkspace) {
+	function renderCardIntoList(list, entry, reuseMap, index, offset, colorByWorkspace) {
 		let rec = reuseMap.get(entry.id);
 		if (rec === undefined) {
 			const el = document.createElement("div");
@@ -2655,7 +2673,7 @@ function apply(ctx) {
 				recentTimeText ? "，" + recentTimeText : ""
 			}`,
 		);
-		renderCardInto(rec.el, entry, hueByWorkspace);
+		renderCardInto(rec.el, entry, colorByWorkspace);
 		// 只有顺序/归属真正变化时才移动 DOM：每次渲染无条件 appendChild 会把所有
 		// 卡片瞬时移除再插回——按下/抬起之间经过的移动让浏览器取消 click；焦点卡
 		// 被瞬时断开而失焦；悬停卡的 :hover 也随之丢失且不再补发。会话活跃期间
@@ -2856,6 +2874,7 @@ function apply(ctx) {
 		const recentSection = pane.querySelector(`.${RECENT_CLASS}`);
 		if (activeList === null || recentSection === null) return;
 
+		if (e2eListReadyAt === 0 && e2eListDelayMs > 0) e2eListReadyAt = Date.now() + e2eListDelayMs;
 		let snapshot = getSnapshot(sessions, "list");
 		if (e2eListReadyAt > Date.now() && snapshot?.phase !== "error") {
 			snapshot = { phase: "pending" };
@@ -3078,7 +3097,7 @@ function apply(ctx) {
 		const recentTimeSignature = recent.map((entry) => fmtRecentTime(entry.activityAt));
 		const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature]);
 		if (sig === lastSig) return;
-		const hueByWorkspace = resolveWorkspaceHues(visibleEntries.map((entry) => entry.workspaceKey));
+		const colorByWorkspace = resolveWorkspaceColors(visibleEntries.map((entry) => entry.workspaceKey));
 		// 跨区迁移（双向，R-01-010/AC-07）：DOM 写入前量取旧卡矩形并克隆 ghost。
 		const migrations = [
 			...movedToRecentIds(prevRenderedActiveIds, active, recent).map((id) => ({ id, from: cardsById, to: recentCardsById })),
@@ -3097,7 +3116,7 @@ function apply(ctx) {
 		const aliveActive = new Set();
 		for (const [index, entry] of active.entries()) {
 			try {
-				renderCardIntoList(activeList, entry, cardsById, index, 1, hueByWorkspace);
+				renderCardIntoList(activeList, entry, cardsById, index, 1, colorByWorkspace);
 			} catch (error) {
 				renderOk = false;
 				logCardRenderError(entry.id, error);
@@ -3114,7 +3133,7 @@ function apply(ctx) {
 		// 历史区容器首个子节点是段头（.dap-recent-head），卡片从 offset 1 开始。
 		for (const [index, entry] of recent.entries()) {
 			try {
-				renderCardIntoList(recentSection, entry, recentCardsById, index, 1, hueByWorkspace);
+				renderCardIntoList(recentSection, entry, recentCardsById, index, 1, colorByWorkspace);
 			} catch (error) {
 				renderOk = false;
 				logCardRenderError(entry.id, error);

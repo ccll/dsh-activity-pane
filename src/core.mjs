@@ -1275,11 +1275,11 @@ export function workspaceInfoForSession(sessionId, workspaceItems, byId = {}) {
 }
 
 /**
- * 工作区徽标色相（R-01-003/AC-08、AC-09）：以工作区身份为唯一输入的纯函数——
+ * 工作区徽标基色色相（R-01-003/AC-08、AC-09）：以工作区身份为唯一输入的纯函数——
  * djb2 哈希经雪崩终混（异或右移 + 乘法，把高位熵折入低位，消除 djb2 低位分布
  * 聚集；每步 >>> 0 保持无符号，异或结果可能带符号位）后在避开红色警戒区的
  * 色相弧 [30°,320°] 上均匀取色（30 + hash % 291），输出 [30,320] 整数。
- * 同一身份恒得同一色相，与工作区列表顺序、会话状态及持久化存储无关，页面
+ * 同一身份恒得同一基色色相，与工作区列表顺序、会话状态及持久化存储无关，页面
  * 刷新后不变；空身份返回 null。
  */
 export function workspaceHue(key) {
@@ -1298,33 +1298,63 @@ export function workspaceHue(key) {
 	return 30 + (hash % 291);
 }
 
-const WORKSPACE_HUE_ANCHORS = [55, 100, 145, 190, 235, 280, 325];
+export const WORKSPACE_COLOR_SLOTS = Object.freeze([
+	{ slot: 0, hue: 55, darkL: 0.78, darkC: 0.16, lightL: 0.48, lightC: 0.15 },
+	{ slot: 1, hue: 100, darkL: 0.78, darkC: 0.16, lightL: 0.48, lightC: 0.15 },
+	{ slot: 2, hue: 145, darkL: 0.78, darkC: 0.16, lightL: 0.48, lightC: 0.15 },
+	{ slot: 3, hue: 190, darkL: 0.78, darkC: 0.16, lightL: 0.48, lightC: 0.15 },
+	{ slot: 4, hue: 235, darkL: 0.78, darkC: 0.16, lightL: 0.48, lightC: 0.15 },
+	{ slot: 5, hue: 280, darkL: 0.78, darkC: 0.16, lightL: 0.48, lightC: 0.15 },
+	{ slot: 6, hue: 325, darkL: 0.78, darkC: 0.16, lightL: 0.48, lightC: 0.15 },
+	{ slot: 7, hue: 77, darkL: 0.64, darkC: 0.15, lightL: 0.36, lightC: 0.15 },
+	{ slot: 8, hue: 122, darkL: 0.64, darkC: 0.15, lightL: 0.36, lightC: 0.15 },
+	{ slot: 9, hue: 167, darkL: 0.64, darkC: 0.15, lightL: 0.36, lightC: 0.15 },
+	{ slot: 10, hue: 257, darkL: 0.64, darkC: 0.15, lightL: 0.36, lightC: 0.15 },
+	{ slot: 11, hue: 302, darkL: 0.64, darkC: 0.15, lightL: 0.36, lightC: 0.15 },
+].map(Object.freeze));
+
+const WORKSPACE_PRIMARY_SLOT_COUNT = 7;
+const WORKSPACE_SECONDARY_SLOT_COUNT = WORKSPACE_COLOR_SLOTS.length - WORKSPACE_PRIMARY_SLOT_COUNT;
+
+function workspaceSlotProbe(start, count, step) {
+	return Array.from({ length: count }, (_, offset) => (start + offset * step) % count);
+}
 
 /**
- * 同屏工作区色相消解（R-01-003/AC-08、AC-12）：身份去重排序后，以稳定基色
- * 确定七个 OKLCH 感知锚点的起始槽；撞槽时按步进 3 跨色区探测。超过七个
- * 工作区后选择当前使用次数最少的槽，使复用均衡且确定。
+ * 同屏工作区颜色槽位消解（R-01-003/AC-08、AC-12）：前七个身份沿原七色
+ * OKLCH 主槽位分配，主槽位占满后再使用五个受控明度/色相补充槽位；超过
+ * 十二个工作区后选择当前使用次数最少的槽，使复用均衡且确定。
  */
-export function resolveWorkspaceHues(keys) {
+export function resolveWorkspaceColors(keys) {
 	const identities = [...new Set((Array.isArray(keys) ? keys : []).map(cleanText).filter(Boolean))].sort();
-	const uses = WORKSPACE_HUE_ANCHORS.map(() => 0);
+	const uses = WORKSPACE_COLOR_SLOTS.map(() => 0);
 	const resolved = new Map();
 	for (const identity of identities) {
-		const start = (workspaceHue(identity) - 30) % WORKSPACE_HUE_ANCHORS.length;
-		let chosen = start;
-		for (let offset = 0; offset < WORKSPACE_HUE_ANCHORS.length; offset += 1) {
-			const candidate = (start + offset * 3) % WORKSPACE_HUE_ANCHORS.length;
-			if (uses[candidate] < uses[chosen]) chosen = candidate;
-			if (uses[candidate] === 0) {
-				chosen = candidate;
-				break;
-			}
+		const baseHue = workspaceHue(identity);
+		const primaryOrder = workspaceSlotProbe(
+			(baseHue - 30) % WORKSPACE_PRIMARY_SLOT_COUNT,
+			WORKSPACE_PRIMARY_SLOT_COUNT,
+			3,
+		);
+		const secondaryOrder = workspaceSlotProbe(
+			(baseHue - 30) % WORKSPACE_SECONDARY_SLOT_COUNT,
+			WORKSPACE_SECONDARY_SLOT_COUNT,
+			2,
+		).map((index) => WORKSPACE_PRIMARY_SLOT_COUNT + index);
+		const order = [...primaryOrder, ...secondaryOrder];
+		let chosen = order.find((index) => uses[index] === 0);
+		if (chosen === undefined) {
+			chosen = order.reduce(
+				(best, index) => (uses[index] < uses[best] ? index : best),
+				order[0],
+			);
 		}
 		uses[chosen] += 1;
-		resolved.set(identity, WORKSPACE_HUE_ANCHORS[chosen]);
+		resolved.set(identity, WORKSPACE_COLOR_SLOTS[chosen]);
 	}
 	return resolved;
 }
+
 
 /** 主会话按左侧工作区顺序排序的权重；不在任何 workspace 的排在最后保持 lineage 顺序。 */
 function workspaceRank(workspaceItems) {

@@ -34,7 +34,8 @@ export default async function cardContent({ page, url, assert }) {
 	}, MOCK_MODEL);
 	assert.ok(headerPos && headerPos.dx > 0 && headerPos.dy < 24, "模型上下文在工作区徽标右侧同一行（卡面右上角，R-01-012/AC-01）");
 
-	// R-01-003/AC-08～AC-12：浏览器实际应用工作区稳定色相与深浅主题 OKLCH 层次。
+	// R-01-003/AC-08～AC-12：浏览器实际应用工作区稳定颜色槽位与深浅主题 OKLCH 层次。
+// R-01-003/AC-10、R-01-003/AC-11：分别验证深浅主题变量、前景/底色/描边层次。
 	const workspaceStyles = await page.evaluate(() => {
 		const badge = document.querySelector("[data-dsh-activity-pane] .dap-workspace:not([hidden])");
 		if (!badge) return null;
@@ -54,7 +55,7 @@ export default async function cardContent({ page, url, assert }) {
 		document.body.setAttribute("data-ds-dark-theme", "");
 		return { dark, light };
 	});
-	assert.ok(workspaceStyles && [55, 100, 145, 190, 235, 280, 325].includes(Number(workspaceStyles.dark.hue)), "工作区徽标实际写入七色感知锚点（R-01-003/AC-08、AC-12）");
+	assert.ok(workspaceStyles && [55, 77, 100, 122, 145, 167, 190, 235, 257, 280, 302, 325].includes(Number(workspaceStyles.dark.hue)), "工作区徽标实际写入十二槽 OKLCH 颜色调色板（R-01-003/AC-08、AC-12）");
 	assert.notEqual(workspaceStyles.dark.color, workspaceStyles.light.color, "工作区徽标文字色按深浅主题分别校准（R-01-003/AC-10、AC-11）");
 	assert.ok(workspaceStyles.dark.background !== "rgba(0, 0, 0, 0)" && workspaceStyles.light.background !== "rgba(0, 0, 0, 0)", "工作区徽标深浅主题均有同色相底色（R-01-003/AC-10、AC-11）");
 	assert.ok(workspaceStyles.dark.border !== "rgba(0, 0, 0, 0)" && workspaceStyles.light.border !== "rgba(0, 0, 0, 0)", "工作区徽标深浅主题均有可见描边（R-01-003/AC-10、AC-11）");

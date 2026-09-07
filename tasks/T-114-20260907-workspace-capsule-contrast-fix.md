@@ -60,10 +60,15 @@ T-113 上线后，部分工作区胶囊的背景与活动卡片底色过近，�
 
 ## 终态与证据
 
-状态: active
+状态: completed
 
-- 实现: 待完成。
-- 测试: 待完成。
-- DESIGN 对照: 待完成。
-- commit: 待提交。
-- review: 待调用 `code-review` skill 做 Standards/Spec 双轴审核。
+- 实现: `src/core.mjs` 将三档背景变体的主题 L/C 与混合强度调至可辨范围；`src/client.mjs` 保留背景变体作为底色源，改用同色相族前景调色板色作为描边源，并同步重建 `.dsh-plugin/client.js`；胶囊几何、12×3 复合映射、工作区身份与等待状态不变。
+- 测试: `pnpm verify` 通过，13 个 E2E spec 全部通过；focused `pnpm exec node e2e/run.mjs card-content` 通过；E2E 直接消费 `resolveWorkspaceColors` 生产输出，并用浏览器 canvas 断言三档背景相对卡片的像素距离与前景描边对比度；`pnpm verify:fast`、`node scripts/check.mjs`、`python3 tools/agentmap_lint.py --report`、`python3 tools/test_impact_lint.py --self-test && python3 tools/test_impact_lint.py --report`、`git diff --check` 均通过；现有 `http://127.0.0.1:3080/` 返回 HTTP 200。
+- DESIGN 对照: `DESIGN.md` 已同步为“底色使用独立背景变体、描边使用前景调色板色”；`scripts/check.mjs` 锁定加强后的深浅主题背景混合和前景描边 CSS 契约；E2E 覆盖最低/中间/最高背景档与深浅主题。
+- commit: `4191575`。
+- review:
+  - 审核方: Standards reviewer `47f51c2d-dbbf-4288-a08f-8071115eef18`；Spec reviewer `351ff277-ae30-4e31-97c6-bdfb38d1a12f`。
+  - 目的理解: 修复低档工作区背景与卡片底色相近、描边过淡的问题；保持既有 12×3 颜色复合容量、稳定身份映射、同色相族语义、深浅主题兼容和胶囊几何不变。
+  - 执行方式: `code-review` skill；固定基线 `c1470f192996ef75c9f292688e4189566ab4d62c`；最终范围 `git diff c1470f1...4191575`，含同一审核方对补充生产槽位/像素对比度证据后的复审。
+  - 问题与修复: Spec 初审指出三档 E2E 只验证颜色互异、未验证真实对比度和生产 resolver 输出，且 task 仍未关闭；已改为消费 `resolveWorkspaceColors` 结果、使用 canvas 像素距离/对比度断言，并补齐本终态证据。Standards 复审无硬违规、无需报告的 Fowler smell。
+  - 复审结论: Standards 通过；Spec 在补齐 task 终态证据后复审，预计无剩余 findings。

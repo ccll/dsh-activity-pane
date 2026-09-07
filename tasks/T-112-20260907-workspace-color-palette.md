@@ -89,10 +89,15 @@ id: T-112
 
 ## 终态与证据
 
-状态: active
+状态: completed
 
-- 实现: 待完成；当前已完成 PRD/DESIGN/DOMAIN/C-072 演进、核心 12 槽分配、客户端主题变量与测试契约接线。
-- 测试: 待完成；当前 `node scripts/check.mjs` 已通过，完整 `pnpm verify` 与浏览器现场验证待执行。
-- DESIGN 对照: 待完成；当前实现已按 12 槽颜色槽位、深浅主题 L/C 与超过容量均衡复用契约接线。
-- commit: 待提交。
-- review: 待调用 `code-review` skill 做 Standards/Spec 双轴审核。
+- 实现: `src/core.mjs` 新增 12 个不可变 OKLCH 颜色槽位与 `resolveWorkspaceColors` 确定性分配，保留 7 个主色相并增加 5 个受控明度/色相补充槽位，超过容量均衡复用；`src/client.mjs` 写入深浅主题 L/C 变量，缺少颜色槽位时隐藏徽标并清理全部变量；E2E-only 列表延迟从首个窗格 render 起算，避免宿主启动耗时吞掉既有 pending 观察窗口；`.dsh-plugin/client.js` 已同步重建。
+- 测试: `pnpm verify` 通过，13 个 E2E spec 全部通过；`pnpm verify:fast`、`python3 tools/agentmap_lint.py --report`、`python3 tools/test_impact_lint.py --self-test && python3 tools/test_impact_lint.py --report`、`git diff --check` 均通过；现有 `http://127.0.0.1:3080/` 返回 HTTP 200。
+- DESIGN 对照: `PRD.md` R-01-003/AC-08～AC-12、`DESIGN.md` 工作区颜色槽位不变量、`DOMAIN.md` 工作区颜色槽位术语与 `DECISIONS.md` C-072 已同步；核心检查覆盖 12 槽唯一、两主题 OKLab 距离 ≥0.11、避红、超容量均衡复用、稳定性与无身份隐藏。
+- commit: `45bcbf3b59dec51643c403e3b497d1954d19fef7`。
+- review:
+  - 审核方: Standards reviewer `539e1ea0-94c0-4a49-ae48-b6d5f42b0596`；Spec reviewer `e1a6c54a-2f50-4fea-abbe-ca0cd28da65e`。
+  - 目的理解: 在保留现有 7 个远距主色相和工作区身份/集合稳定性约束的前提下，把工作区徽标扩容到 12 个可感知 OKLCH 槽位；通过主题级 L/C 交错而非等距细分 hue，覆盖当前 11 个工作区并为后续增长提供容量；超过 12 个时均衡复用，生产路径不引入持久化颜色注册表。
+  - 执行方式: `code-review` skill；固定基线 `c9ca19867b942d9e9c568f0dd0216f5834186d58`；最终范围 `git diff c9ca198...45bcbf3`，含同一审核方对修复后的 Standards/Spec 复审。
+  - 问题与修复: Standards 初审发现 T-112 关联字段使用了不完整 AC-ID，已补全；删除 `workspaceColorForKey` speculative fallback；合并 CSS 变量写入/清理重复结构；补充无身份隐藏、调色板避红断言；将既有 E2E-only 延迟从首个窗格 render 起算并记录测试影响。Data Clumps（槽位直接携带主题 L/C）为非阻断建议，保留以直接表达调色板契约。Spec 初审与复审均无 finding。
+  - 复审结论: Standards 无剩余硬违规；Spec 复审 0 findings；允许关闭 task。

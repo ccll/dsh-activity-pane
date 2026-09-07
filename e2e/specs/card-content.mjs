@@ -43,6 +43,10 @@ export default async function cardContent({ page, url, assert }) {
 			const style = getComputedStyle(badge);
 			return {
 				hue: badge.style.getPropertyValue("--dap-workspace-hue"),
+				backgroundDarkL: badge.style.getPropertyValue("--dap-workspace-bg-dark-l"),
+				backgroundLightL: badge.style.getPropertyValue("--dap-workspace-bg-light-l"),
+				backgroundDarkMix: badge.style.getPropertyValue("--dap-workspace-bg-dark-mix"),
+				backgroundLightMix: badge.style.getPropertyValue("--dap-workspace-bg-light-mix"),
 				color: style.color,
 				background: style.backgroundColor,
 				border: style.borderTopColor,
@@ -57,8 +61,38 @@ export default async function cardContent({ page, url, assert }) {
 	});
 	assert.ok(workspaceStyles && [55, 77, 100, 122, 145, 167, 190, 235, 257, 280, 302, 325].includes(Number(workspaceStyles.dark.hue)), "工作区徽标实际写入十二槽 OKLCH 颜色调色板（R-01-003/AC-08、AC-12）");
 	assert.notEqual(workspaceStyles.dark.color, workspaceStyles.light.color, "工作区徽标文字色按深浅主题分别校准（R-01-003/AC-10、AC-11）");
-	assert.ok(workspaceStyles.dark.background !== "rgba(0, 0, 0, 0)" && workspaceStyles.light.background !== "rgba(0, 0, 0, 0)", "工作区徽标深浅主题均有同色相底色（R-01-003/AC-10、AC-11）");
+	assert.ok(workspaceStyles.dark.backgroundDarkL !== "" && workspaceStyles.light.backgroundLightL !== "", "浏览器实际写入独立背景变体的主题明度（R-01-003/AC-10、AC-11）");
+	assert.ok(workspaceStyles.dark.backgroundDarkMix !== "" && workspaceStyles.light.backgroundLightMix !== "", "浏览器实际写入独立背景变体的混合强度（R-01-003/AC-10、AC-11）");
+	assert.ok(workspaceStyles.dark.background !== "rgba(0, 0, 0, 0)" && workspaceStyles.light.background !== "rgba(0, 0, 0, 0)", "工作区徽标深浅主题均有同色相族底色（R-01-003/AC-10、AC-11）");
 	assert.ok(workspaceStyles.dark.border !== "rgba(0, 0, 0, 0)" && workspaceStyles.light.border !== "rgba(0, 0, 0, 0)", "工作区徽标深浅主题均有可见描边（R-01-003/AC-10、AC-11）");
+	const backgroundVariants = await page.evaluate(() => {
+		const pane = document.querySelector("[data-dsh-activity-pane]");
+		if (!pane) return null;
+		const probe = document.createElement("div");
+		probe.className = "dap-workspace";
+		probe.textContent = "variant";
+		probe.style.setProperty("--dap-workspace-hue", "145");
+		pane.append(probe);
+		const variants = [
+			{ "dark-l": "0.24", "dark-c": "0.045", "dark-mix": "20%", "dark-border-mix": "42%", "light-l": "0.90", "light-c": "0.045", "light-mix": "14%", "light-border-mix": "30%" },
+			{ "dark-l": "0.32", "dark-c": "0.055", "dark-mix": "24%", "dark-border-mix": "46%", "light-l": "0.84", "light-c": "0.055", "light-mix": "18%", "light-border-mix": "34%" },
+			{ "dark-l": "0.40", "dark-c": "0.065", "dark-mix": "28%", "dark-border-mix": "50%", "light-l": "0.78", "light-c": "0.065", "light-mix": "22%", "light-border-mix": "38%" },
+		];
+		const read = (theme, variant) => {
+			for (const [key, value] of Object.entries(variant)) probe.style.setProperty(`--dap-workspace-bg-${key}`, value);
+			if (theme === "dark") document.body.setAttribute("data-ds-dark-theme", "");
+			else document.body.removeAttribute("data-ds-dark-theme");
+			const style = getComputedStyle(probe);
+			return { background: style.backgroundColor, border: style.borderTopColor };
+		};
+		const result = { dark: variants.map((variant) => read("dark", variant)), light: variants.map((variant) => read("light", variant)) };
+		probe.remove();
+		document.body.setAttribute("data-ds-dark-theme", "");
+		return result;
+	});
+	assert.ok(backgroundVariants && new Set(backgroundVariants.dark.map((variant) => variant.background)).size === 3, "浏览器实际呈现三档深色背景变体（R-01-003/AC-10、AC-11）");
+	assert.ok(backgroundVariants && new Set(backgroundVariants.light.map((variant) => variant.background)).size === 3, "浏览器实际呈现三档浅色背景变体（R-01-003/AC-10、AC-11）");
+	assert.ok(backgroundVariants && backgroundVariants.dark.every((variant) => variant.border !== "rgba(0, 0, 0, 0)") && backgroundVariants.light.every((variant) => variant.border !== "rgba(0, 0, 0, 0)"), "浏览器三档背景变体均有可见描边（R-01-003/AC-10、AC-11）");
 
 	// 完成提醒稳定后只激活一次；若重渲染吞 click，应由本 spec 直接报回归。
 	await until("移入历史按钮就绪", async () => {

@@ -1319,6 +1319,24 @@ const WORKSPACE_COLOR_SLOTS = Object.freeze([
 	{ slot: 11, hue: 302, darkL: 0.64, darkC: 0.15, lightL: 0.36, lightC: 0.15 },
 ].map(Object.freeze));
 
+const WORKSPACE_BACKGROUND_SLOTS = Object.freeze([
+	{
+		slot: 0,
+		dark: Object.freeze({ l: 0.24, c: 0.045, mix: "20%", borderMix: "42%" }),
+		light: Object.freeze({ l: 0.90, c: 0.045, mix: "14%", borderMix: "30%" }),
+	},
+	{
+		slot: 1,
+		dark: Object.freeze({ l: 0.32, c: 0.055, mix: "24%", borderMix: "46%" }),
+		light: Object.freeze({ l: 0.84, c: 0.055, mix: "18%", borderMix: "34%" }),
+	},
+	{
+		slot: 2,
+		dark: Object.freeze({ l: 0.40, c: 0.065, mix: "28%", borderMix: "50%" }),
+		light: Object.freeze({ l: 0.78, c: 0.065, mix: "22%", borderMix: "38%" }),
+	},
+].map(Object.freeze));
+
 const WORKSPACE_PRIMARY_SLOT_COUNT = 7;
 const WORKSPACE_SECONDARY_SLOT_COUNT = WORKSPACE_COLOR_SLOTS.length - WORKSPACE_PRIMARY_SLOT_COUNT;
 
@@ -1327,13 +1345,14 @@ function workspaceSlotProbe(start, count, step) {
 }
 
 /**
- * 同屏工作区颜色槽位消解（R-01-003/AC-08、AC-12）：前七个身份沿原七色
- * OKLCH 主槽位分配，主槽位占满后再使用五个受控明度/色相补充槽位；超过
- * 十二个工作区后选择当前使用次数最少的槽，使复用均衡且确定。
+ * 同屏工作区复合颜色槽位消解（R-01-003/AC-08、AC-12）：前七个身份沿原七色
+ * OKLCH 主槽位分配，主槽位占满后再使用五个受控明度/色相补充槽位；每个前景槽位
+ * 内优先使用未用的三个背景变体；超过三十六个复合身份后按槽位使用次数均衡复用。
  */
 function resolveWorkspaceColors(keys) {
 	const identities = [...new Set((Array.isArray(keys) ? keys : []).map(cleanText).filter(Boolean))].sort();
 	const uses = WORKSPACE_COLOR_SLOTS.map(() => 0);
+	const backgroundUses = WORKSPACE_COLOR_SLOTS.map(() => WORKSPACE_BACKGROUND_SLOTS.map(() => 0));
 	const resolved = new Map();
 	for (const identity of identities) {
 		const baseHue = workspaceHue(identity);
@@ -1348,15 +1367,31 @@ function resolveWorkspaceColors(keys) {
 			2,
 		).map((index) => WORKSPACE_PRIMARY_SLOT_COUNT + index);
 		const order = [...primaryOrder, ...secondaryOrder];
-		let chosen = order.find((index) => uses[index] === 0);
-		if (chosen === undefined) {
-			chosen = order.reduce(
+		const backgroundOrder = workspaceSlotProbe(
+			(baseHue - 30) % WORKSPACE_BACKGROUND_SLOTS.length,
+			WORKSPACE_BACKGROUND_SLOTS.length,
+			2,
+		);
+		const availableForegroundOrder = order.filter((index) => backgroundOrder.some((backgroundSlot) => backgroundUses[index][backgroundSlot] === 0));
+		const foregroundOrder = availableForegroundOrder.length > 0 ? availableForegroundOrder : order;
+		let foregroundSlot = foregroundOrder.find((index) => uses[index] === 0);
+		if (foregroundSlot === undefined) {
+			foregroundSlot = foregroundOrder.reduce(
 				(best, index) => (uses[index] < uses[best] ? index : best),
-				order[0],
+				foregroundOrder[0],
 			);
 		}
-		uses[chosen] += 1;
-		resolved.set(identity, WORKSPACE_COLOR_SLOTS[chosen]);
+		uses[foregroundSlot] += 1;
+		const backgroundUsesForForeground = backgroundUses[foregroundSlot];
+		const backgroundSlot = backgroundOrder.reduce(
+			(best, index) => (backgroundUsesForForeground[index] < backgroundUsesForForeground[best] ? index : best),
+			backgroundOrder[0],
+		);
+		backgroundUsesForForeground[backgroundSlot] += 1;
+		resolved.set(identity, {
+			foreground: WORKSPACE_COLOR_SLOTS[foregroundSlot],
+			background: WORKSPACE_BACKGROUND_SLOTS[backgroundSlot],
+		});
 	}
 	return resolved;
 }
@@ -2650,9 +2685,9 @@ const CSS = `
 /* 复审修复（C-040、C-043）：状态点光晕三类同强度、仅换色相——阻塞金、完成绿与错误红光晕一致。 */
 /* 工作区徽标「图标+文本」双段：文件夹图标与左边栏工作区条目同源（R-01-003/AC-06）；
    名称字号不低于 10.5px（AC-07），行高保持 14px 以维持胶囊与卡片高度。
-   着色（AC-08～AC-12）：核心映射提供 12 个 OKLCH 颜色槽位；深色/浅色主题
-   各自使用槽位的 L/C 参数，文字直接使用调色板色，底色与描边在 OKLCH
-   空间按透明度混合；前景与背景始终同色相、明度对比拉开。 */
+   着色（AC-08～AC-12）：核心映射提供 12 个前景身份槽与每槽 3 个背景变体；
+   深色/浅色主题分别使用前景与背景槽位的 L/C 参数，文字使用前景调色板色，
+   底色与描边使用独立背景源色在 OKLCH 空间按变体混合强度呈现；前景与背景保持同色相族。 */
 [data-dsh-activity-pane] .dap-workspace {
   width: fit-content; max-width: 100%; display: flex; align-items: center; gap: 3px;
   overflow: hidden;
@@ -2662,9 +2697,14 @@ const CSS = `
      var(--dap-workspace-dark-c, 0.16)
      var(--dap-workspace-hue, 235)
    );
+  --dap-workspace-background-color: oklch(
+     var(--dap-workspace-bg-dark-l, 0.32)
+     var(--dap-workspace-bg-dark-c, 0.055)
+     var(--dap-workspace-hue, 235)
+   );
   color: var(--dap-workspace-color);
-  background: color-mix(in oklch, var(--dap-workspace-color) 14%, transparent);
-  border: 1px solid color-mix(in oklch, var(--dap-workspace-color) 34%, transparent);
+  background: color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-dark-mix, 24%), transparent);
+  border: 1px solid color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-dark-border-mix, 46%), transparent);
   border-radius: 999px; padding: 0 7px;
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
@@ -2673,8 +2713,13 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
      var(--dap-workspace-light-c, 0.15)
      var(--dap-workspace-hue, 235)
    );
-  background: color-mix(in oklch, var(--dap-workspace-color) 10%, transparent);
-  border-color: color-mix(in oklch, var(--dap-workspace-color) 28%, transparent);
+  --dap-workspace-background-color: oklch(
+     var(--dap-workspace-bg-light-l, 0.84)
+     var(--dap-workspace-bg-light-c, 0.055)
+     var(--dap-workspace-hue, 235)
+   );
+  background: color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-light-mix, 18%), transparent);
+  border-color: color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-light-border-mix, 34%), transparent);
 }
 [data-dsh-activity-pane] .dap-workspace-icon { flex: none; display: inline-flex; }
 [data-dsh-activity-pane] .dap-workspace-icon svg { display: block; }
@@ -4402,14 +4447,24 @@ function apply(ctx) {
 		if (workspaceLabel !== null) {
 			const workspaceText = workspaceLabel.querySelector(".dap-workspace-text");
 			const color = colorByWorkspace.get(entry.workspaceKey);
+			const foreground = color?.foreground;
+			const background = color?.background;
 			const colorVariables = {
-				"--dap-workspace-hue": color?.hue,
-				"--dap-workspace-dark-l": color?.darkL,
-				"--dap-workspace-dark-c": color?.darkC,
-				"--dap-workspace-light-l": color?.lightL,
-				"--dap-workspace-light-c": color?.lightC,
+				"--dap-workspace-hue": foreground?.hue,
+				"--dap-workspace-dark-l": foreground?.darkL,
+				"--dap-workspace-dark-c": foreground?.darkC,
+				"--dap-workspace-light-l": foreground?.lightL,
+				"--dap-workspace-light-c": foreground?.lightC,
+				"--dap-workspace-bg-dark-l": background?.dark?.l,
+				"--dap-workspace-bg-dark-c": background?.dark?.c,
+				"--dap-workspace-bg-dark-mix": background?.dark?.mix,
+				"--dap-workspace-bg-dark-border-mix": background?.dark?.borderMix,
+				"--dap-workspace-bg-light-l": background?.light?.l,
+				"--dap-workspace-bg-light-c": background?.light?.c,
+				"--dap-workspace-bg-light-mix": background?.light?.mix,
+				"--dap-workspace-bg-light-border-mix": background?.light?.borderMix,
 			};
-			if (entry.workspaceTitle !== "" && color !== undefined) {
+			if (entry.workspaceTitle !== "" && foreground !== undefined && background !== undefined) {
 				if (workspaceText !== null) restoreTextField(workspaceText, entry.workspaceTitle);
 				for (const [property, value] of Object.entries(colorVariables)) {
 					const next = value === undefined ? "" : String(value);

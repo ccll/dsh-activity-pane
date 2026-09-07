@@ -74,6 +74,7 @@ import {
 	usageSummary,
 	workspaceHue,
 	WORKSPACE_COLOR_SLOTS,
+	WORKSPACE_BACKGROUND_SLOTS,
 	resolveWorkspaceColors,
 	workspaceInfoForSession,
 } from "../src/core.mjs";
@@ -531,7 +532,7 @@ const hueSpread = new Set();
 for (let i = 0; i < 50; i += 1) hueSpread.add(workspaceHue(`/home/user/proj/ws-${i}`));
 assert.ok(hueSpread.size >= 40, `50 个长前缀身份分散到 ${hueSpread.size} 个不同色相（≥40，R-01-003/AC-09）`);
 
-// ---- R-01-003/AC-12 OKLCH 十二槽分配、主题距离与超容量复用 ----
+// ---- R-01-003/AC-12 OKLCH 十二前景槽、三档背景变体、主题距离与复合容量 ----
 const workspacePrimaryHues = [55, 100, 145, 190, 235, 280, 325];
 const workspacePaletteHues = WORKSPACE_COLOR_SLOTS.map((slot) => slot.hue);
 const realWorkspaceCluster = [
@@ -542,7 +543,7 @@ const realWorkspaceCluster = [
 ];
 const resolvedCluster = resolveWorkspaceColors(realWorkspaceCluster);
 assert.deepEqual(
-	[...resolvedCluster.entries()].map(([key, color]) => [key, color.hue]),
+	[...resolvedCluster.entries()].map(([key, color]) => [key, color.foreground.hue]),
 	[
 		["/home/cailei/ops", 280],
 		["/home/cailei/proj/docsim", 55],
@@ -552,14 +553,14 @@ assert.deepEqual(
 	"真实撞槽子集保持 +3 探测拆分到蓝紫/橙/青/黄绿明显色区（R-01-003/AC-12）",
 );
 assert.deepEqual(
-	[...resolveWorkspaceColors([...realWorkspaceCluster].reverse(), "", "  ", realWorkspaceCluster[0]).entries()].map(([key, color]) => [key, color.slot]),
-	[...resolvedCluster.entries()].map(([key, color]) => [key, color.slot]),
-	"输入顺序、重复项与空白身份不影响颜色槽位映射（R-01-003/AC-08、AC-12）",
+	[...resolveWorkspaceColors([...realWorkspaceCluster].reverse(), "", "  ", realWorkspaceCluster[0]).entries()].map(([key, color]) => [key, color.foreground.slot, color.background.slot]),
+	[...resolvedCluster.entries()].map(([key, color]) => [key, color.foreground.slot, color.background.slot]),
+	"输入顺序、重复项与空白身份不影响前景/背景复合槽位映射（R-01-003/AC-08、AC-12）",
 );
 assert.deepEqual([...resolveWorkspaceColors(null).entries()], [], "无身份集合返回空映射（R-01-003/AC-12）");
 const sevenColors = [...resolveWorkspaceColors(Array.from({ length: 7 }, (_, index) => `/home/user/proj/seven-${index}`)).values()];
-assert.deepEqual([...sevenColors].map((color) => color.hue).sort((a, b) => a - b), workspacePrimaryHues, "七个工作区仍恰占满七个主色相槽位（R-01-003/AC-12）");
-assert.ok([...sevenColors].every((color) => color.slot < workspacePrimaryHues.length), "七个工作区不提前使用补充槽位（R-01-003/AC-12）");
+assert.deepEqual([...sevenColors].map((color) => color.foreground.hue).sort((a, b) => a - b), workspacePrimaryHues, "七个工作区仍恰占满七个主色相槽位（R-01-003/AC-12）");
+assert.ok([...sevenColors].every((color) => color.foreground.slot < workspacePrimaryHues.length), "七个工作区不提前使用补充槽位（R-01-003/AC-12）");
 const oklabPoint = (color, theme) => {
 	const hue = color.hue * Math.PI / 180;
 	const lightness = theme === "dark" ? color.darkL : color.lightL;
@@ -573,21 +574,36 @@ const oklabDistance = (colorA, colorB, theme) => {
 };
 const twelveColors = [...resolveWorkspaceColors(Array.from({ length: 12 }, (_, index) => `/home/user/proj/twelve-${index}`)).values()];
 assert.deepEqual(
-	[...twelveColors].map((color) => color.slot).sort((a, b) => a - b),
+	[...twelveColors].map((color) => color.foreground.slot).sort((a, b) => a - b),
 	Array.from({ length: 12 }, (_, index) => index),
-	"十二个工作区恰好使用十二个唯一颜色槽位（R-01-003/AC-12）",
+	"十二个工作区恰好使用十二个唯一前景颜色槽位（R-01-003/AC-12）",
 );
 assert.equal(new Set(workspacePaletteHues).size, workspacePaletteHues.length, "十二槽 hue 不重复（R-01-003/AC-12）");
 assert.ok(workspacePaletteHues.every((hue) => hue > 30 && hue < 330), "十二槽 hue 均避开红色警戒环段（R-01-003/AC-09、AC-12）");
+assert.deepEqual(
+	WORKSPACE_BACKGROUND_SLOTS.map((slot) => slot.slot),
+	[0, 1, 2],
+	"每个前景槽位提供三个背景变体槽（R-01-003/AC-12）",
+);
+assert.equal(new Set(WORKSPACE_BACKGROUND_SLOTS.map((slot) => slot.dark.l)).size, 3, "深色背景变体具有三档独立明度（R-01-003/AC-10、AC-11）");
+assert.equal(new Set(WORKSPACE_BACKGROUND_SLOTS.map((slot) => slot.light.l)).size, 3, "浅色背景变体具有三档独立明度（R-01-003/AC-10、AC-11）");
 for (const theme of ["dark", "light"])
 	for (let i = 0; i < twelveColors.length; i += 1)
 		for (let j = i + 1; j < twelveColors.length; j += 1)
-			assert.ok(oklabDistance(twelveColors[i], twelveColors[j], theme) >= 0.11, `${theme} 主题十二槽任意两色 OKLab 距离至少 0.11（R-01-003/AC-12）`);
-const crowdedColors = resolveWorkspaceColors(Array.from({ length: 20 }, (_, index) => `/home/user/proj/crowded-${index}`));
-assert.equal(crowdedColors.size, 20, "超容量集合仍为每个身份返回颜色槽位并有限终止（R-01-003/AC-12）");
-assert.ok([...crowdedColors.values()].every((color) => color.slot >= 0 && color.slot < WORKSPACE_COLOR_SLOTS.length), "超容量时仍只使用十二个颜色槽位（R-01-003/AC-12）");
-const slotUses = WORKSPACE_COLOR_SLOTS.map((slot) => [...crowdedColors.values()].filter((color) => color.slot === slot.slot).length);
-assert.ok(Math.max(...slotUses) - Math.min(...slotUses) <= 1, "超容量时十二槽复用计数差不超过 1（R-01-003/AC-12）");
+			assert.ok(oklabDistance(twelveColors[i].foreground, twelveColors[j].foreground, theme) >= 0.11, `${theme} 主题十二槽任意两前景色 OKLab 距离至少 0.11（R-01-003/AC-12）`);
+const thirtySixColors = [...resolveWorkspaceColors(Array.from({ length: 36 }, (_, index) => `/home/user/proj/thirty-six-${index}`)).values()];
+const pairKeys = thirtySixColors.map((color) => `${color.foreground.slot}/${color.background.slot}`);
+assert.equal(new Set(pairKeys).size, 36, "三十六个工作区恰好使用三十六个唯一前景/背景复合槽位（R-01-003/AC-12）");
+for (const foregroundSlot of WORKSPACE_COLOR_SLOTS.map((slot) => slot.slot)) {
+	const backgrounds = thirtySixColors.filter((color) => color.foreground.slot === foregroundSlot).map((color) => color.background.slot);
+	assert.deepEqual(backgrounds.sort((a, b) => a - b), [0, 1, 2], `前景槽 ${foregroundSlot} 先使用三个背景变体（R-01-003/AC-12）`);
+}
+const crowdedColors = resolveWorkspaceColors(Array.from({ length: 40 }, (_, index) => `/home/user/proj/crowded-${index}`));
+assert.equal(crowdedColors.size, 40, "超容量集合仍为每个身份返回复合颜色槽位并有限终止（R-01-003/AC-12）");
+assert.ok([...crowdedColors.values()].every((color) => color.foreground.slot >= 0 && color.foreground.slot < WORKSPACE_COLOR_SLOTS.length), "超容量时仍只使用十二个前景颜色槽位（R-01-003/AC-12）");
+assert.ok([...crowdedColors.values()].every((color) => color.background.slot >= 0 && color.background.slot < WORKSPACE_BACKGROUND_SLOTS.length), "超容量时仍只使用三个背景变体槽位（R-01-003/AC-12）");
+const pairUses = [...new Set([...crowdedColors.values()].map((color) => `${color.foreground.slot}/${color.background.slot}`))].map((pair) => [...crowdedColors.values()].filter((color) => `${color.foreground.slot}/${color.background.slot}` === pair).length);
+assert.ok(Math.max(...pairUses) - Math.min(...pairUses) <= 1, "超容量时三十六个复合槽位复用计数差不超过 1（R-01-003/AC-12）");
 
 // ---- R-01-001/AC-01 活动卡片逐条显示 ｜ R-01-003/AC-01 子代理嵌套 ｜ R-01-003/AC-02 子代理结束即消失 ｜ R-01-006/AC-01 当前会话 ----
 const snapshot = {
@@ -3459,25 +3475,27 @@ assert.ok(bundle.includes('workspace.append(workspaceIcon, makeEl("span", "dap-w
 assert.ok(bundle.includes("if (workspaceText !== null) restoreTextField(workspaceText, entry.workspaceTitle)"), "热装旧骨架无文本段时容空跳过，不中断渲染（R-01-003/AC-06 健壮性）");
 
 // R-01-003/AC-08、AC-09、AC-10、AC-11、AC-12
-// 工作区徽标按身份派生基色、经同屏十二槽颜色消解后着色：渲染层写入 hue 与主题 L/C，
-// CSS 以 OKLCH 调色板色直接呈现文字，底色/描边在 OKLCH 空间同色相混合；胶囊几何与字号不变。
+// 工作区徽标按身份派生基色、经同屏前景/背景复合槽位消解后着色：渲染层写入
+// 前景 hue/L/C 与背景变体主题参数，CSS 以 OKLCH 前景色呈现文字、独立背景源色混合底色/描边；胶囊几何与字号不变。
 assert.ok(bundle.includes("resolveWorkspaceColors(visibleEntries.map((entry) => entry.workspaceKey))"), "渲染层按同帧可见身份集合消解十二槽颜色（R-01-003/AC-12）");
 assert.ok(bundle.includes("colorByWorkspace.get(entry.workspaceKey)"), "每张卡使用集合消解后的工作区颜色槽位（R-01-003/AC-08、AC-12）");
-assert.ok(bundle.includes('entry.workspaceTitle !== "" && color !== undefined'), "缺少工作区身份时隐藏徽标而不使用默认颜色（R-01-003/AC-08）");
+assert.ok(bundle.includes('entry.workspaceTitle !== "" && foreground !== undefined && background !== undefined'), "缺少工作区身份或背景变体时隐藏徽标而不使用默认颜色（R-01-003/AC-08）");
 assert.ok(bundle.includes("style.setProperty(property, next)"), "渲染层把槽位颜色变量写入徽标（R-01-003/AC-08、AC-12）");
-assert.ok(bundle.includes('"--dap-workspace-dark-l": color?.darkL'), "渲染层把深色主题 L 写入徽标（R-01-003/AC-10、AC-11）");
-assert.ok(bundle.includes('"--dap-workspace-light-l": color?.lightL'), "渲染层把浅色主题 L 写入徽标（R-01-003/AC-10、AC-11）");
-assert.ok(bundle.includes("style.removeProperty(property)"), "徽标隐藏时移除全部颜色变量，不留陈旧着色（R-01-003/AC-08）");
+assert.ok(bundle.includes('"--dap-workspace-dark-l": foreground?.darkL'), "渲染层把前景深色主题 L 写入徽标（R-01-003/AC-10、AC-11）");
+assert.ok(bundle.includes('"--dap-workspace-light-l": foreground?.lightL'), "渲染层把前景浅色主题 L 写入徽标（R-01-003/AC-10、AC-11）");
+assert.ok(bundle.includes('"--dap-workspace-bg-dark-l": background?.dark?.l'), "渲染层把背景变体深色主题 L 写入徽标（R-01-003/AC-10、AC-11）");
+assert.ok(bundle.includes('"--dap-workspace-bg-light-l": background?.light?.l'), "渲染层把背景变体浅色主题 L 写入徽标（R-01-003/AC-10、AC-11）");
+assert.ok(bundle.includes("for (const property of Object.keys(colorVariables)) workspaceLabel.style.removeProperty(property)"), "徽标隐藏时移除全部前景/背景颜色变量，不留陈旧着色（R-01-003/AC-08）");
 assert.ok(bundle.includes("var(--dap-workspace-dark-l, 0.78)"), "深色主题使用槽位 OKLCH 明度变量（R-01-003/AC-11）");
 assert.ok(bundle.includes("var(--dap-workspace-dark-c, 0.16)"), "深色主题使用槽位 OKLCH 彩度变量（R-01-003/AC-11）");
 assert.ok(bundle.includes("color: var(--dap-workspace-color)"), "徽标文字直接使用调色板色、不混 currentColor（R-01-003/AC-11）");
-assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-color) 14%, transparent)"), "深色主题底色在 OKLCH 空间同色相铺底（R-01-003/AC-11）");
-assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-color) 34%, transparent)"), "深色主题描边在 OKLCH 空间同色相混合（R-01-003/AC-11）");
+assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-dark-mix, 24%), transparent)"), "深色主题底色使用独立背景变体混合（R-01-003/AC-10、AC-11）");
+assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-dark-border-mix, 46%), transparent)"), "深色主题描边使用独立背景变体混合（R-01-003/AC-10、AC-11）");
 assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {"), "浅色主题单独校准徽标配色（R-01-003/AC-10、AC-11）");
 assert.ok(bundle.includes("var(--dap-workspace-light-l, 0.48)"), "浅色主题使用槽位 OKLCH 明度变量（R-01-003/AC-11）");
 assert.ok(bundle.includes("var(--dap-workspace-light-c, 0.15)"), "浅色主题使用槽位 OKLCH 彩度变量（R-01-003/AC-11）");
-assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-color) 10%, transparent)"), "浅色主题底色更轻（R-01-003/AC-11）");
-assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-color) 28%, transparent)"), "浅色主题描边（R-01-003/AC-11）");
+assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-light-mix, 18%), transparent)"), "浅色主题底色使用独立背景变体且更轻（R-01-003/AC-10、AC-11）");
+assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-light-border-mix, 34%), transparent)"), "浅色主题描边使用独立背景变体且更轻（R-01-003/AC-10、AC-11）");
 assert.ok(!bundle.includes("color-mix(in srgb, var(--dap-workspace-color) 92%, currentColor)"), "工作区文字不得再以 currentColor 冲淡调色板色（R-01-003/AC-11）");
 
 // R-01-010/AC-01、R-01-010/AC-05

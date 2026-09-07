@@ -1313,6 +1313,24 @@ export const WORKSPACE_COLOR_SLOTS = Object.freeze([
 	{ slot: 11, hue: 302, darkL: 0.64, darkC: 0.15, lightL: 0.36, lightC: 0.15 },
 ].map(Object.freeze));
 
+export const WORKSPACE_BACKGROUND_SLOTS = Object.freeze([
+	{
+		slot: 0,
+		dark: Object.freeze({ l: 0.24, c: 0.045, mix: "20%", borderMix: "42%" }),
+		light: Object.freeze({ l: 0.90, c: 0.045, mix: "14%", borderMix: "30%" }),
+	},
+	{
+		slot: 1,
+		dark: Object.freeze({ l: 0.32, c: 0.055, mix: "24%", borderMix: "46%" }),
+		light: Object.freeze({ l: 0.84, c: 0.055, mix: "18%", borderMix: "34%" }),
+	},
+	{
+		slot: 2,
+		dark: Object.freeze({ l: 0.40, c: 0.065, mix: "28%", borderMix: "50%" }),
+		light: Object.freeze({ l: 0.78, c: 0.065, mix: "22%", borderMix: "38%" }),
+	},
+].map(Object.freeze));
+
 const WORKSPACE_PRIMARY_SLOT_COUNT = 7;
 const WORKSPACE_SECONDARY_SLOT_COUNT = WORKSPACE_COLOR_SLOTS.length - WORKSPACE_PRIMARY_SLOT_COUNT;
 
@@ -1321,13 +1339,14 @@ function workspaceSlotProbe(start, count, step) {
 }
 
 /**
- * 同屏工作区颜色槽位消解（R-01-003/AC-08、AC-12）：前七个身份沿原七色
- * OKLCH 主槽位分配，主槽位占满后再使用五个受控明度/色相补充槽位；超过
- * 十二个工作区后选择当前使用次数最少的槽，使复用均衡且确定。
+ * 同屏工作区复合颜色槽位消解（R-01-003/AC-08、AC-12）：前七个身份沿原七色
+ * OKLCH 主槽位分配，主槽位占满后再使用五个受控明度/色相补充槽位；每个前景槽位
+ * 内优先使用未用的三个背景变体；超过三十六个复合身份后按槽位使用次数均衡复用。
  */
 export function resolveWorkspaceColors(keys) {
 	const identities = [...new Set((Array.isArray(keys) ? keys : []).map(cleanText).filter(Boolean))].sort();
 	const uses = WORKSPACE_COLOR_SLOTS.map(() => 0);
+	const backgroundUses = WORKSPACE_COLOR_SLOTS.map(() => WORKSPACE_BACKGROUND_SLOTS.map(() => 0));
 	const resolved = new Map();
 	for (const identity of identities) {
 		const baseHue = workspaceHue(identity);
@@ -1342,15 +1361,31 @@ export function resolveWorkspaceColors(keys) {
 			2,
 		).map((index) => WORKSPACE_PRIMARY_SLOT_COUNT + index);
 		const order = [...primaryOrder, ...secondaryOrder];
-		let chosen = order.find((index) => uses[index] === 0);
-		if (chosen === undefined) {
-			chosen = order.reduce(
+		const backgroundOrder = workspaceSlotProbe(
+			(baseHue - 30) % WORKSPACE_BACKGROUND_SLOTS.length,
+			WORKSPACE_BACKGROUND_SLOTS.length,
+			2,
+		);
+		const availableForegroundOrder = order.filter((index) => backgroundOrder.some((backgroundSlot) => backgroundUses[index][backgroundSlot] === 0));
+		const foregroundOrder = availableForegroundOrder.length > 0 ? availableForegroundOrder : order;
+		let foregroundSlot = foregroundOrder.find((index) => uses[index] === 0);
+		if (foregroundSlot === undefined) {
+			foregroundSlot = foregroundOrder.reduce(
 				(best, index) => (uses[index] < uses[best] ? index : best),
-				order[0],
+				foregroundOrder[0],
 			);
 		}
-		uses[chosen] += 1;
-		resolved.set(identity, WORKSPACE_COLOR_SLOTS[chosen]);
+		uses[foregroundSlot] += 1;
+		const backgroundUsesForForeground = backgroundUses[foregroundSlot];
+		const backgroundSlot = backgroundOrder.reduce(
+			(best, index) => (backgroundUsesForForeground[index] < backgroundUsesForForeground[best] ? index : best),
+			backgroundOrder[0],
+		);
+		backgroundUsesForForeground[backgroundSlot] += 1;
+		resolved.set(identity, {
+			foreground: WORKSPACE_COLOR_SLOTS[foregroundSlot],
+			background: WORKSPACE_BACKGROUND_SLOTS[backgroundSlot],
+		});
 	}
 	return resolved;
 }

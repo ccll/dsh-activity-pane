@@ -54,6 +54,15 @@ export default async function longList({ page, url, assert }) {
 	const nativeSessionRows = page.locator('[role="tree"][aria-label="Sessions"] [role="treeitem"][aria-selected="false"]');
 	await until("原生侧栏展示可切换会话", async () => (await nativeSessionRows.count()) >= 2 ? true : null);
 	const paneScroll = page.locator("[data-dsh-activity-pane] .dap-scroll");
+	await paneScroll.evaluate((el) => {
+		const originalScrollTo = el.scrollTo.bind(el);
+		const calls = [];
+		el.__dapE2eScrollCalls = calls;
+		el.scrollTo = (options) => {
+			calls.push({ ...options });
+			return originalScrollTo(options);
+		};
+	});
 	const currentCardState = () => page.evaluate(() => {
 		const pane = document.querySelector("[data-dsh-activity-pane]");
 		const scroll = pane?.querySelector(".dap-scroll");
@@ -64,15 +73,29 @@ export default async function longList({ page, url, assert }) {
 		const fullyVisible = rect.top >= viewport.top - 1 && rect.bottom <= viewport.bottom + 1;
 		return fullyVisible ? { scrollTop: scroll.scrollTop, top: rect.top, bottom: rect.bottom } : null;
 	});
+	await paneScroll.evaluate((el) => { el.scrollTo({ top: 0, behavior: "auto" }); });
+	await until("原生侧栏测试前平滑初始化收口", () => paneScroll.evaluate((el) => el.scrollTop <= 1));
+	const initialScrollCallCount = await paneScroll.evaluate((el) => el.__dapE2eScrollCalls?.length ?? 0);
 	const beforeNativeSelect = await paneScroll.evaluate((el) => el.scrollTop);
 	await nativeSessionRows.last().click();
 	const selectedState = await until("原生侧栏选中后当前卡片完整可见", currentCardState);
 	assert.ok(selectedState.scrollTop > beforeNativeSelect, "原生侧栏选择下方会话后窗格向目标卡片滚动");
+	const smoothCalls = await paneScroll.evaluate((el, start) => (el.__dapE2eScrollCalls ?? []).slice(start), initialScrollCallCount);
+	assert.ok(smoothCalls.some((call) => call.behavior === "smooth"), "原生侧栏选择使用平滑滚动 API");
 	await paneScroll.evaluate((el) => { el.scrollTop = el.scrollHeight; });
 	const beforeNativeTopSelect = await paneScroll.evaluate((el) => el.scrollTop);
+	await page.emulateMedia({ reducedMotion: "reduce" });
+	const reducedCallCount = await paneScroll.evaluate((el) => el.__dapE2eScrollCalls?.length ?? 0);
 	await nativeSessionRows.first().click();
 	const topSelectedState = await until("原生侧栏选中后向上定位当前卡片", currentCardState);
 	assert.ok(topSelectedState.scrollTop < beforeNativeTopSelect, "原生侧栏选择上方会话后窗格向目标卡片滚动");
+	const reducedCalls = await paneScroll.evaluate((el, start) => (el.__dapE2eScrollCalls ?? []).slice(start), reducedCallCount);
+	assert.ok(reducedCalls.some((call) => call.behavior === "auto"), "降低动效偏好时原生侧栏选择跳过平滑过渡");
+	await page.emulateMedia({ reducedMotion: null });
+	await paneScroll.evaluate((el) => {
+		delete el.__dapE2eScrollCalls;
+		delete el.scrollTo;
+	});
 	// 恢复后续 scrollbar 断言所需的初始滚动位置；这是测试准备，不是产品行为。
 	await paneScroll.evaluate((el) => { el.scrollTop = 0; });
 	await until("恢复窗格滚动起点", () => paneScroll.evaluate((el) => el.scrollTop === 0));

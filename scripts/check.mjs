@@ -119,18 +119,42 @@ assert.equal(
 
 // ---- R-01-006/AC-02 当前卡片最小滚动：只调整越界方向，不居中 ----
 const viewport = { top: 10, bottom: 110 };
-const makeScrollBox = (scrollTop) => ({
-	scrollTop,
-	scrollHeight: 300,
-	clientHeight: 100,
-	getBoundingClientRect: () => viewport,
-});
+const makeScrollBox = (scrollTop, smooth = true) => {
+	const scroll = {
+		scrollTop,
+		scrollHeight: 300,
+		clientHeight: 100,
+		getBoundingClientRect: () => viewport,
+	};
+	if (smooth) {
+		scroll.scrollCalls = [];
+		scroll.scrollTo = ({ top, behavior }) => {
+			scroll.scrollCalls.push({ top, behavior });
+			scroll.scrollTop = top;
+		};
+	}
+	return scroll;
+};
 const makeCardBox = (top, bottom) => ({
 	getBoundingClientRect: () => ({ top, bottom }),
 });
 const belowScroll = makeScrollBox(0);
 assert.equal(scrollCardIntoView(belowScroll, makeCardBox(120, 160)), true, "卡片底部越界时执行向下定位");
 assert.equal(belowScroll.scrollTop, 50, "向下只滚动卡片底部超出的最小距离");
+assert.deepEqual(belowScroll.scrollCalls, [{ top: 50, behavior: "smooth" }], "向下定位使用快速平滑滚动");
+const reducedMotionScroll = makeScrollBox(0);
+assert.equal(scrollCardIntoView(reducedMotionScroll, makeCardBox(120, 160), "auto"), true, "降低动效偏好时仍执行定位");
+assert.deepEqual(reducedMotionScroll.scrollCalls, [{ top: 50, behavior: "auto" }], "降低动效偏好时跳过平滑过渡");
+const fallbackScroll = makeScrollBox(0, false);
+assert.equal(scrollCardIntoView(fallbackScroll, makeCardBox(120, 160)), true, "缺少 scrollTo 时保留直接滚动 fallback");
+assert.equal(fallbackScroll.scrollTop, 50, "scrollTo fallback 仍使用最小滚动距离");
+const throwingScroll = makeScrollBox(0);
+throwingScroll.scrollTo = () => { throw new TypeError("unsupported options"); };
+assert.equal(scrollCardIntoView(throwingScroll, makeCardBox(120, 160)), true, "scrollTo options 不受支持时回退为直接滚动");
+assert.equal(throwingScroll.scrollTop, 50, "scrollTo fallback 仍完成最小滚动");
+const unexpectedScroll = makeScrollBox(0);
+unexpectedScroll.scrollTo = () => { throw new Error("unexpected failure"); };
+assert.throws(() => scrollCardIntoView(unexpectedScroll, makeCardBox(120, 160)), /unexpected failure/, "非预期滚动异常继续暴露");
 const aboveScroll = makeScrollBox(100);
 assert.equal(scrollCardIntoView(aboveScroll, makeCardBox(-20, 20)), true, "卡片顶部越界时执行向上定位");
 assert.equal(aboveScroll.scrollTop, 70, "向上只滚动卡片顶部超出的最小距离");

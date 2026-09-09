@@ -2706,7 +2706,7 @@ function apply(ctx) {
 		return true;
 	}
 
-	/** 原生侧栏切换当前会话后，只把已呈现且未完整可见的当前卡片滚入窗格。 */
+	/** 原生侧栏切换当前会话后，只把已呈现且未完整可见的当前卡片滚入窗格；降低动效偏好时不平滑。 */
 	function ensureCurrentCardVisible(scroll, currentId) {
 		const id = currentId === null || currentId === undefined ? null : String(currentId);
 		if (id === null || id === "") {
@@ -2723,7 +2723,11 @@ function apply(ctx) {
 		)
 			return;
 		if (autoScrolledCurrentId === id && autoScrolledCurrentCard === card) return;
-		scrollCardIntoView(scroll, card);
+		if (scrollCardIntoView(scroll, card, prefersReducedMotion() ? "auto" : "smooth")) {
+			autoScrolledCurrentId = id;
+			autoScrolledCurrentCard = card;
+			return;
+		}
 		const viewport = scroll.getBoundingClientRect();
 		const rect = card.getBoundingClientRect();
 		if (rect.height <= viewport.height && (rect.top < viewport.top || rect.bottom > viewport.bottom)) return;

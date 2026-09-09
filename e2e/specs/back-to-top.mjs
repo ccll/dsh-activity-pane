@@ -50,6 +50,15 @@ export default async function backToTop({ page, url, assert }) {
 		const count = await page.locator("[data-dsh-activity-pane]").getByText("回顶探针", { exact: false }).count();
 		return count >= SESSION_COUNT ? true : null;
 	}, 30_000);
+	// 当前卡片定位使用原生 smooth 时，测试准备先用 auto 取消创建阶段可能残留的过渡。
+	await page.locator("[data-dsh-activity-pane] .dap-scroll").evaluate((el) => {
+		el.scrollTo({ top: 0, behavior: "auto" });
+	});
+	await until("初始窗格滚动动画收口", async () => page.evaluate(() => {
+		const scroll = document.querySelector("[data-dsh-activity-pane] .dap-scroll");
+		const button = document.querySelector('[data-dsh-activity-pane] .dap-top');
+		return scroll && scroll.scrollTop <= 1 && button?.hidden ? true : null;
+	}));
 
 	// R-01-018/AC-01：未滚动时不显示按钮；滚过阈值后右下角出现。
 	assert.equal((await topButtonState(page)).visible, false, "顶部时不显示回到顶部按钮");

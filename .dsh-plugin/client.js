@@ -2193,9 +2193,10 @@ function openSession(sessions, sessionId) {
 
 /**
  * 以最小必要距离把卡片滚入窗格滚动视口；不会居中，也不会滚动外层页面。
- * 返回值表示是否调整了滚动位置（R-01-006/AC-02）。
+ * 默认使用原生 smooth scroll，调用方可传 auto 适配降低动效偏好；缺少 scrollTo 或 options 不受支持时回退为同步滚动
+ * （R-01-006/AC-02）。
  */
-function scrollCardIntoView(scroll, card) {
+function scrollCardIntoView(scroll, card, behavior = "smooth") {
 	if (typeof scroll?.getBoundingClientRect !== "function" || typeof card?.getBoundingClientRect !== "function")
 		return false;
 	const viewport = scroll.getBoundingClientRect();
@@ -2215,6 +2216,14 @@ function scrollCardIntoView(scroll, card) {
 		: Infinity;
 	const nextTop = Math.min(maxTop, Math.max(0, currentTop + delta));
 	if (!Number.isFinite(nextTop) || nextTop === currentTop) return false;
+	if (typeof scroll.scrollTo === "function") {
+		try {
+			scroll.scrollTo({ top: nextTop, behavior });
+			if (behavior !== "auto" || Number(scroll.scrollTop) !== currentTop) return true;
+		} catch (error) {
+			if (!(error instanceof TypeError)) throw error;
+		}
+	}
 	scroll.scrollTop = nextTop;
 	return Number(scroll.scrollTop) !== currentTop;
 }
@@ -4970,7 +4979,7 @@ function apply(ctx) {
 		return true;
 	}
 
-	/** 原生侧栏切换当前会话后，只把已呈现且未完整可见的当前卡片滚入窗格。 */
+	/** 原生侧栏切换当前会话后，只把已呈现且未完整可见的当前卡片滚入窗格；降低动效偏好时不平滑。 */
 	function ensureCurrentCardVisible(scroll, currentId) {
 		const id = currentId === null || currentId === undefined ? null : String(currentId);
 		if (id === null || id === "") {
@@ -4987,7 +4996,11 @@ function apply(ctx) {
 		)
 			return;
 		if (autoScrolledCurrentId === id && autoScrolledCurrentCard === card) return;
-		scrollCardIntoView(scroll, card);
+		if (scrollCardIntoView(scroll, card, prefersReducedMotion() ? "auto" : "smooth")) {
+			autoScrolledCurrentId = id;
+			autoScrolledCurrentCard = card;
+			return;
+		}
 		const viewport = scroll.getBoundingClientRect();
 		const rect = card.getBoundingClientRect();
 		if (rect.height <= viewport.height && (rect.top < viewport.top || rect.bottom > viewport.bottom)) return;

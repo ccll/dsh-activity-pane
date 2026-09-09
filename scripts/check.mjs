@@ -1039,6 +1039,7 @@ assert.equal(fmtElapsedMs(193_000), "3m13s", "时长分秒格式");
 assert.equal(fmtElapsedMs(3_723_000), "1h2m3s", "时长时分秒格式");
 assert.equal(fmtElapsedMs(9_772_000), "2h42m52s", "多小时格式");
 assert.equal(fmtElapsedMs(3_600_000), "1h0m0s", "整小时保留零段");
+assert.equal(fmtElapsedMs(3_599_500), "1h0m0s", "秒数四舍五入进位到小时");
 // R-01-009/AC-03
 assert.equal(fmtElapsedMs(NaN), "", "NaN 时长归一为空");
 assert.equal(fmtElapsedMs(Infinity), "", "Infinity 时长归一为空");

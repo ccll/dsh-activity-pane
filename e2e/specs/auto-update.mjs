@@ -218,7 +218,7 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 			};
 		}),
 	);
-	assert.match(blockedElapsed.text, /^\d+(?:m\d+s|s)$/, "阻塞等待统计行最右侧显示固定上一轮耗时（R-01-009/AC-12）");
+	assert.match(blockedElapsed.text, /^(?:\d+s|\d+m\d+s|\d+h\d+m\d+s)$/, "阻塞等待统计行最右侧显示固定上一轮耗时（R-01-009/AC-12）");
 	assert.equal(blockedElapsed.sameRow, true, "阻塞等待耗时位于 token 统计行（R-01-009/AC-12）");
 	assert.equal(blockedElapsed.rightAligned, true, "阻塞等待耗时贴合 token 统计行最右侧（R-01-009/AC-12）");
 	assert.equal(blockedElapsed.headTime, "", "阻塞等待胶囊同行不重复显示耗时（R-01-009/AC-12）");

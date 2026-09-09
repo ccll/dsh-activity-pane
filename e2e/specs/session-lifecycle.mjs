@@ -211,7 +211,7 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 			};
 		}, TITLE),
 	);
-	assert.match(completedElapsed.text, /^\d+(?:m\d+s|s)$/, "完成提醒统计行最右侧显示固定上一轮耗时（R-01-009/AC-12）");
+	assert.match(completedElapsed.text, /^(?:\d+s|\d+m\d+s|\d+h\d+m\d+s)$/, "完成提醒统计行最右侧显示固定上一轮耗时（R-01-009/AC-12）");
 	assert.equal(completedElapsed.sameRow, true, "完成提醒耗时位于 token 统计行（R-01-009/AC-12）");
 	assert.equal(completedElapsed.rightAligned, true, "完成提醒耗时贴合 token 统计行最右侧（R-01-009/AC-12）");
 	assert.equal(completedElapsed.headTime, "", "完成提醒胶囊同行不重复显示耗时（R-01-009/AC-12）");
@@ -298,7 +298,7 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 	assert.match(recentStats.main, /缓存 \d+%/, "历史卡统计行保留缓存命中率（R-01-013/AC-12）");
 	assert.match(recentStats.main, /输入/, "历史卡统计行保留计费输入 token（R-01-013/AC-12）");
 	assert.match(recentStats.main, /输出/, "历史卡统计行保留输出 token（R-01-013/AC-12）");
-	assert.match(recentStats.elapsed, /^\d+(?:m\d+s|s)$/, "历史卡统计行保留固定回合耗时（R-01-013/AC-12）");
+	assert.match(recentStats.elapsed, /^(?:\d+s|\d+m\d+s|\d+h\d+m\d+s)$/, "历史卡统计行保留固定回合耗时（R-01-013/AC-12）");
 	assert.equal(recentStats.statsBeforeActivity, true, "历史卡统计行紧邻活动时间行之前（R-01-013/AC-12）");
 	assert.equal(recentStats.statsIsPenultimate, true, "历史卡统计行位于历史卡倒数第二行（R-01-013/AC-12）");
 	assert.equal(recentStats.activityIsLast, true, "历史卡活动时间保持最后一行（R-01-013/AC-12）");

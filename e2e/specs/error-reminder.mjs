@@ -48,7 +48,7 @@ export default async function errorReminder({ page, url, mock, assert }) {
 	const errorElapsed = await until("错误提醒统计行保留上一轮耗时", () =>
 		errorCard.locator(".dap-token-stats .dap-token-time").textContent().then((text) => (text ?? "").trim() || null),
 	);
-	assert.match(errorElapsed, /^\d+(?:m\d+s|s)$/, "错误提醒统计行最右侧显示固定上一轮耗时（R-01-009/AC-12）");
+	assert.match(errorElapsed, /^(?:\d+s|\d+m\d+s|\d+h\d+m\d+s)$/, "错误提醒统计行最右侧显示固定上一轮耗时（R-01-009/AC-12）");
 	// R-01-009/AC-13：错误等待卡沿用列表投影中的可用 token 字段，缺失速率不伪造。
 	const errorStats = await until("错误提醒统计行状态就绪", () =>
 		errorCard.locator(".dap-token-stats").evaluate((stats) => ({

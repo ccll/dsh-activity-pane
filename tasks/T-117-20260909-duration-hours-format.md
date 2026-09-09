@@ -6,7 +6,9 @@ id: T-117
 
 # T-117 活动卡耗时超一小时按时分秒显示
 
-状态: active
+# T-117 活动卡耗时超一小时按时分秒显示
+
+状态: completed
 关联: R-01-009/AC-05 → 活动状态模型
 风险等级: standard
 
@@ -58,4 +60,16 @@ id: T-117
 
 ## 终态与证据
 
-（关闭时填写）
+状态: completed
+
+- 实现: `src/core.mjs::fmtElapsedMs` 新增小时分支——不足 1 分钟「Ns」、不足 1 小时「NmNs」、达到或超过 1 小时「NhNmNs」（秒数经 `Math.round` 四舍五入）；该函数为唯一时长渲染函数，运行卡、等待卡与最近卡自动共用；`.dsh-plugin/client.js` 随 b6c0b78 重建。
+- 测试: 先行断言确认旧实现 RED 后实现转 GREEN；`pnpm verify:fast` 通过；focused E2E（session-lifecycle、error-reminder、auto-update）3 个 spec 通过；`pnpm verify` 全量两轮——首轮 12/13（completion-sync 并行 worker 资源竞争下偶发找不到卡片，单独重跑通过证实为偶发竞态），复审修复后第二轮 13 个 spec 全部通过（201629ms）。
+- DESIGN 对照: `PRD.md` 的 `R-01-009/AC-05` 更新为三级格式契约（Ns/NmNs/NhNmNs，秒数四舍五入）；DESIGN 无需变化（只引用 `fmtElapsedMs` 显示位置，未钉格式）；`scripts/check.mjs` 新增小时级与进位边界断言，三处 e2e spec 耗时正则同步为三级契约。
+- commit: b6c0b78
+- commit: c3ee8a8
+- review:
+  - 审核方: Standards reviewer `e8a1e970-c8d6-44f3-b53b-9b78bca8a7ec`；Spec reviewer `d65fcfd3-03d6-4953-bcac-03f5896cc424`。
+  - 目的理解: 活动卡右下角回合耗时原以分钟为最大单位，数小时任务显示为数百分钟不可读；东家要求超过 1 小时后显示时分秒。约束：不改耗时取值口径、等待期冻结与刷新恢复语义、统计行布局与进度算法；PRD R-01-009/AC-05 为契约锚点，`fmtElapsedMs` 为根因层唯一修复点。
+  - 执行方式: `code-review` skill；固定基线 `7fed5ea`，审核范围 `git diff 7fed5ea...HEAD`（提交 b6c0b78、c3ee8a8）；Standards/Spec 双轴并行独立审核后聚合。
+  - 问题与修复: Spec 轴 3 项——验证矩阵声称的舍入进位边界缺断言、四处 e2e 耗时正则无法匹配小时段、AC-05 未声明舍入规则；Standards 轴与前两项重叠，无硬性违规。修复于 c3ee8a8：新增 `fmtElapsedMs(3_599_500)` 进位断言、e2e 正则改三级契约、AC-05 补「秒数四舍五入」。无 scope creep；同型正则 3 spec 内联为既有惯例的判断性备注，不阻断。
+  - 复审结论: Spec 轴通过（3/3 finding 消除、无新问题）；Standards 轴通过；双轴最终通过，T-117 实现与追溯证据闭合。

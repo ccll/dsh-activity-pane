@@ -2714,7 +2714,9 @@ function apply(ctx) {
 			autoScrolledCurrentCard = null;
 			return;
 		}
-		const card = scroll?.querySelector?.(`.${CARD_CLASS}[data-current]`) ?? null;
+		// 当前会话卡片只有在活动列表中才参与自动定位；完成确认后同一 current
+		// 会话会进入历史区，不能因仍带 data-current 把窗格滚到历史卡片。
+		const card = scroll?.querySelector?.(`.${LIST_CLASS} .${CARD_CLASS}[data-current]`) ?? null;
 		if (
 			card === null ||
 			card.dataset.sessionId !== id ||
@@ -3157,6 +3159,26 @@ function apply(ctx) {
 			...movedToRecentIds(prevRenderedActiveIds, active, recent).map((id) => ({ id, from: cardsById, to: recentCardsById })),
 			...movedToActiveIds(prevRenderedRecentIds, active, recent).map((id) => ({ id, from: recentCardsById, to: cardsById })),
 		];
+		// 活动卡带焦点迁入历史时，把键盘焦点交给其上一个仍在活动区的卡片；
+		// 若迁移卡已在活动区首位，则退到下一张，避免焦点落到历史区或 body。
+		let focusAfterMigrationId = null;
+		const focusedElement = document.activeElement;
+		const activeIds = new Set(active.map((entry) => String(entry.id)));
+		for (const { id, from } of migrations) {
+			if (from !== cardsById) continue;
+			const source = from.get(id)?.el;
+			if (source === undefined || !source.contains(focusedElement)) continue;
+			const activeCards = [...activeList.querySelectorAll(`.${CARD_CLASS}`)];
+			const sourceIndex = activeCards.indexOf(source);
+			if (sourceIndex < 0) continue;
+			const target = activeCards
+				.slice(0, sourceIndex)
+				.reverse()
+				.find((card) => activeIds.has(String(card.dataset.sessionId)))
+				?? activeCards.slice(sourceIndex + 1).find((card) => activeIds.has(String(card.dataset.sessionId)));
+			focusAfterMigrationId = target?.dataset.sessionId ?? null;
+			break;
+		}
 		const movePlans = prepareMoveGhosts(migrations);
 		// 迁移帧内位置受影响的其它卡片与历史区段头：DOM 写入前量取当前视觉矩形
 		// （R-01-010/AC-10）；reduced-motion 下 movePlans 为空，FLIP 量取整体跳过。
@@ -3207,6 +3229,7 @@ function apply(ctx) {
 		runMoveGhosts(movePlans);
 		if (shiftRects !== null) runShiftAnimations(shiftRects);
 		ensureCurrentCardVisible(pane.querySelector(".dap-scroll"), snapshot?.current ?? null);
+		if (focusAfterMigrationId !== null) cardsById.get(focusAfterMigrationId)?.el.focus();
 		// 区域已有条目但列表仍在途时，在区头部显示行内加载指示（R-01-014/AC-01）。
 		const headerEl = pane.querySelector(".dap-header");
 		const recentHeadEl = recentSection?.querySelector(".dap-recent-head") ?? null;

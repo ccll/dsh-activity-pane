@@ -1,4 +1,4 @@
-// R-01-004/AC-01、R-01-004/AC-02、R-01-006/AC-02
+// R-01-004/AC-01、R-01-004/AC-02、R-01-005/AC-01、R-01-006/AC-02
 // 长列表：活动卡片超出窗格可视高度时窗格内可滚动查看全部卡片；
 // 窗格内滚动时主会话内容滚动位置不变（滚动隔离）；原生侧栏选中会话后当前卡片完整可见。
 
@@ -99,6 +99,74 @@ export default async function longList({ page, url, assert }) {
 	// 恢复后续 scrollbar 断言所需的初始滚动位置；这是测试准备，不是产品行为。
 	await paneScroll.evaluate((el) => { el.scrollTop = 0; });
 	await until("恢复窗格滚动起点", () => paneScroll.evaluate((el) => el.scrollTop === 0));
+
+	// R-01-006/AC-02 缺陷回归：当前完成卡确认迁入历史后，自动定位不能追随历史卡，
+	// 应让位给仍在活动区的相邻会话，避免活动窗格焦点滚到历史区。
+	await paneScroll.evaluate((el) => {
+		const originalScrollTo = el.scrollTo.bind(el);
+		el.__dapMigrationScrollCalls = [];
+		el.scrollTo = (options) => {
+			el.__dapMigrationScrollCalls.push({ ...options });
+			return originalScrollTo(options);
+		};
+	});
+	const migrationTarget = await page.evaluate(() => {
+		const cards = [...document.querySelectorAll("[data-dsh-activity-pane] .dap-list .dap-card")];
+		const currentIndex = cards.findIndex((card) => card.matches("[data-current]"));
+		const current = cards[currentIndex];
+		const neighbor = cards[currentIndex - 1] ?? cards[currentIndex + 1];
+		return {
+			currentId: current?.dataset.sessionId ?? null,
+			neighborId: neighbor?.dataset.sessionId ?? null,
+		};
+	});
+	assert.ok(migrationTarget.currentId && migrationTarget.neighborId, "迁移回归具备当前卡与相邻活动卡");
+	const currentMigrationCard = page.locator(
+		`[data-dsh-activity-pane] .dap-list .dap-card[data-session-id="${migrationTarget.currentId}"]`,
+	);
+	await currentMigrationCard.evaluate((el) => el.scrollIntoView({ block: "start", behavior: "auto" }));
+	await until("当前完成卡滚入活动区视口", () => currentMigrationCard.evaluate((el) => {
+		const scroll = el.closest(".dap-scroll");
+		if (!scroll) return false;
+		const viewport = scroll.getBoundingClientRect();
+		const rect = el.getBoundingClientRect();
+		return rect.top >= viewport.top - 1 && rect.bottom <= viewport.bottom + 1;
+	}));
+	const migrationCallCount = await paneScroll.evaluate((el) => el.__dapMigrationScrollCalls.length);
+	await currentMigrationCard.getByRole("button", { name: "移入历史", exact: true }).click();
+	await until("当前完成卡迁入历史区", () => page.evaluate((id) => {
+		const pane = document.querySelector("[data-dsh-activity-pane]");
+		return pane?.querySelector(`.dap-recent .dap-card[data-session-id="${id}"]`) !== null;
+	}, migrationTarget.currentId));
+	await until("完成卡迁移动画收口", () => page.evaluate(() => !document.querySelector("[data-dsh-activity-pane] .dap-move-ghost")), 3_000);
+	const migrationState = await page.evaluate(({ neighborId, migrationCallCount }) => {
+		const pane = document.querySelector("[data-dsh-activity-pane]");
+		const scroll = pane?.querySelector(".dap-scroll");
+		const neighbor = pane?.querySelector(`.dap-list .dap-card[data-session-id="${neighborId}"]`);
+		if (!scroll || !neighbor) return null;
+		const viewport = scroll.getBoundingClientRect();
+		const rect = neighbor.getBoundingClientRect();
+		return {
+			activeNeighborVisible: rect.top >= viewport.top - 1 && rect.bottom <= viewport.bottom + 1,
+			focusedSessionId: document.activeElement?.dataset?.sessionId ?? null,
+			scrollCalls: (scroll.__dapMigrationScrollCalls ?? []).slice(migrationCallCount),
+		};
+	}, { ...migrationTarget, migrationCallCount });
+	assert.ok(migrationState?.activeNeighborVisible, "完成卡迁移后相邻活动会话保持在焦点视口");
+	assert.equal(
+		migrationState?.focusedSessionId,
+		migrationTarget.neighborId,
+		"完成卡迁移后键盘焦点落到上一个活动会话",
+	);
+	assert.equal(
+		migrationState?.scrollCalls.some((call) => call.behavior === "smooth"),
+		false,
+		"完成卡迁入历史不再触发追随历史卡的平滑滚动",
+	);
+	await paneScroll.evaluate((el) => {
+		delete el.__dapMigrationScrollCalls;
+		delete el.scrollTo;
+	});
 
 	// R-01-004/AC-01：列表超高时最早卡片（排序在底部）初始不可见，窗格内滚动后可见（全部卡片可达）。
 	await until("底卡初始不可见（列表超高）", async () => {

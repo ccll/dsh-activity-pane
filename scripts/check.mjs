@@ -274,7 +274,62 @@ assert.equal(escapeCssString("a\fb"), "a\\c b", "换页按 CSS 字符串码位�
 assert.equal(escapeCssString("a\0b"), "a�b", "NUL 归一为替换字符");
 // R-01-012/AC-01
 assert.equal(isSubagentRow({ parentId: "ghost" }, {}), false, "父级不在列表时按主会话处理（仍允许 models 读取）");
-assert.equal(isSubagentRow({ parentId: "p" }, { p: { id: "p" } }), true, "直属子代理判定命中时跳过 models 读取");
+assert.equal(isSubagentRow({ parentId: "p" }, { p: { id: "p" } }), false, "普通 fork 的 parentId 不足以判定为子代理");
+assert.equal(isSubagentRow({ parentId: "p", origin: "subagent" }, { p: { id: "p" } }), true, "origin 为 subagent 且父级有效时命中子代理判定");
+assert.equal(isSubagentRow({ origin: "subagent" }, { p: { id: "p" } }), false, "缺少有效 parentId 时不判定为子代理");
+// R-01-003/AC-01、R-01-010/AC-01：普通 fork 虽有 parentId，仍按独立主会话处理。
+const forkWorkspace = [{ title: "Fork 工作区", path: "/srv/fork", sessionIds: ["fork-root", "fork-child"] }];
+const forkActivity = {
+	ids: ["fork-root", "fork-child"],
+	byId: {
+		"fork-root": { id: "fork-root", displayTitle: "来源会话", running: false, completed: false, updatedAt: 1_000 },
+		"fork-child": { id: "fork-child", displayTitle: "分支会话", running: true, completed: false, parentId: "fork-root" },
+	},
+	current: null,
+};
+assert.equal(isSubagentRow(forkActivity.byId["fork-child"], forkActivity.byId), false, "普通 fork 的 parentId 不改变主会话身份");
+assert.deepEqual([...activeSessionIds(forkActivity.byId)], ["fork-child"], "活动 fork 不把来源会话算作活动后代母会话");
+assert.deepEqual(
+	buildEntries(forkActivity, forkWorkspace).map((entry) => [entry.id, entry.kind, entry.depth, entry.parentId, entry.workspaceTitle]),
+	[["fork-child", "running", 0, null, "Fork 工作区"]],
+	"活动 fork 保持独立主会话条目与工作区身份");
+const forkRecent = {
+	...forkActivity,
+	byId: {
+		"fork-root": { ...forkActivity.byId["fork-root"], updatedAt: 1_000 },
+		"fork-child": { ...forkActivity.byId["fork-child"], running: false, updatedAt: 1_500 },
+	},
+};
+assert.deepEqual(
+	buildRecent(forkRecent, forkWorkspace, 2_000).map((entry) => [entry.id, entry.workspaceTitle]),
+	[["fork-child", "Fork 工作区"], ["fork-root", "Fork 工作区"]],
+	"结束 fork 可进入最近历史且保留工作区身份");
+const trueSubagentActivity = {
+	...forkActivity,
+	byId: { ...forkActivity.byId, "fork-child": { ...forkActivity.byId["fork-child"], origin: "subagent" } },
+};
+assert.deepEqual(
+	buildEntries(trueSubagentActivity, forkWorkspace).map((entry) => [entry.id, entry.kind, entry.depth, entry.parentId]),
+	[["fork-root", "running", 0, null], ["fork-child", "subagent", 1, "fork-root"]],
+	"origin 为 subagent 的真实子代理仍保持嵌套与母会话委托呈现");
+const subagentUnderFork = {
+	ids: ["source", "fork", "nested-subagent"],
+	byId: {
+		source: { id: "source", displayTitle: "来源会话", running: false },
+		fork: { id: "fork", displayTitle: "独立分支", parentId: "source", running: false },
+		"nested-subagent": { id: "nested-subagent", displayTitle: "分支中的子代理", parentId: "fork", origin: "subagent", running: true },
+	},
+	current: null,
+};
+assert.deepEqual([...activeSessionIds(subagentUnderFork.byId)].sort(), ["fork", "nested-subagent"], "分支下真实子代理的活动祖先不越过独立 fork 来源");
+assert.deepEqual(
+	buildEntries(subagentUnderFork, [{ title: "Fork 工作区", path: "/srv/fork", sessionIds: ["source", "fork", "nested-subagent"] }]).map((entry) => [entry.id, entry.kind, entry.depth, entry.parentId]),
+	[["fork", "running", 0, null], ["nested-subagent", "subagent", 1, "fork"]],
+	"分支下真实子代理只嵌套到 fork，不把来源会话变成母会话");
+assert.deepEqual(
+	buildEntries(subagentUnderFork, [], {}, null, null, ["source"]).map((entry) => entry.id),
+	["fork", "nested-subagent"],
+	"归档 fork 来源不影响独立 fork 及其真实子代理子树");
 // models/history 加载决策行为链：首读 → 在途不重发 → 失败置空后可见期内不热重试 → 离开可见清理后重回可重试
 const loadDetail = {};
 assert.deepEqual(
@@ -661,8 +716,8 @@ const snapshot = {
 	ids: ["sA", "sA-c1", "sA-c2", "sB", "sX"],
 	byId: {
 		sA: { id: "sA", displayTitle: "主A", running: true, completed: false },
-		"sA-c1": { id: "sA-c1", displayTitle: "子1", running: true, parentId: "sA" },
-		"sA-c2": { id: "sA-c2", displayTitle: "子2", running: false, completed: true, parentId: "sA" },
+		"sA-c1": { id: "sA-c1", displayTitle: "子1", running: true, parentId: "sA", origin: "subagent" },
+		"sA-c2": { id: "sA-c2", displayTitle: "子2", running: false, completed: true, parentId: "sA", origin: "subagent" },
 		sB: { id: "sB", displayTitle: "主B", running: false, completed: true },
 		sX: { id: "sX", displayTitle: "主X", running: false, completed: false },
 	},
@@ -768,8 +823,8 @@ const inheritedActivity = {
 	ids: ["root", "parent", "child"],
 	byId: {
 		root: { id: "root", displayTitle: "根母会话", running: false, completed: false, updatedAt: 1900 },
-		parent: { id: "parent", displayTitle: "中间母会话", running: false, completed: false, parentId: "root", updatedAt: 1900 },
-		child: { id: "child", displayTitle: "活动子会话", running: true, parentId: "parent" },
+		parent: { id: "parent", displayTitle: "中间母会话", running: false, completed: false, parentId: "root", origin: "subagent", updatedAt: 1900 },
+		child: { id: "child", displayTitle: "活动子会话", running: true, parentId: "parent", origin: "subagent" },
 	},
 	current: null,
 };
@@ -799,7 +854,7 @@ const delegCompleted = {
 	ids: ["root", "child"],
 	byId: {
 		root: { id: "root", displayTitle: "母会话", running: false, updatedAt: 1900 },
-		child: { id: "child", displayTitle: "活动子会话", running: true, parentId: "root" },
+		child: { id: "child", displayTitle: "活动子会话", running: true, parentId: "root", origin: "subagent" },
 	},
 	current: null,
 };
@@ -2557,7 +2612,7 @@ assert.equal(completionReminder(holdBase, { lastTurnEnd: 1000, ackedAt: 1000 }, 
 assert.equal(completionReminder(holdBase, { lastTurnEnd: 1000, ackedAt: 2000 }, false), false, "ackedAt 晚于 lastTurnEnd 不成立");
 assert.equal(completionReminder(holdBase, null, false), false, "无完成登记不成立（升级不回溯补发提醒）");
 assert.equal(completionReminder(holdBase, { lastTurnEnd: 0, ackedAt: null }, false), false, "lastTurnEnd 非法不作数");
-assert.equal(completionReminder({ id: "m-c1", parentId: "m", displayTitle: "子S" }, { lastTurnEnd: 1000, ackedAt: null }, true), false, "子代理不产生完成提醒");
+assert.equal(completionReminder({ id: "m-c1", parentId: "m", origin: "subagent", displayTitle: "子S" }, { lastTurnEnd: 1000, ackedAt: null }, true), false, "子代理不产生完成提醒");
 // 打开/切换当前会话不解除（AC-05）：完成提醒成立与 current 无关。
 // R-01-002/AC-05 打开或切换当前会话不解除完成提醒：判定与 current 无关（C-030）。
 const holdSnap = { ids: ["sB"], byId: { sB: holdBase }, current: "sA" };
@@ -2595,7 +2650,7 @@ assert.deepEqual(
 // 新回合隐式更替：lastTurnEnd 前移后旧确认游标不再覆盖新回合（仍未确认则对新回合成立）。
 assert.equal(completionReminder(holdBase, { lastTurnEnd: 2000, ackedAt: 1500 }, false), true, "新回合完成后提醒针对新回合重新成立");
 // 委托周期抑制：后代活动期间完成提醒不生效（呈现不依赖宿主 completed）。
-const delegDoneMix = { ids: ["root", "root-c1"], byId: { root: holdBase, "root-c1": { id: "root-c1", displayTitle: "子S", parentId: "root", running: true } }, current: null };
+const delegDoneMix = { ids: ["root", "root-c1"], byId: { root: holdBase, "root-c1": { id: "root-c1", displayTitle: "子S", parentId: "root", origin: "subagent", running: true } }, current: null };
 assert.deepEqual(
 	buildEntries(delegDoneMix, [], {}, acks(1000), new Set(["root"])).map((e) => [e.id, e.pendingText ?? null]),
 	[["root", null], ["root-c1", null]],
@@ -2617,7 +2672,7 @@ assert.equal(errorReminder({ id: "sB", displayTitle: "旧B" }, { lastTurnEndKind
 assert.equal(errorReminder({ id: "sB", displayTitle: "旧B" }, { lastTurnEndKind: "completed" }, false), false, "正常回合不成立");
 assert.equal(errorReminder({ id: "sB", displayTitle: "旧B" }, { lastTurnEndKind: "error", ackedAt: 99999 }, false), true, "错误提醒不消费 ack 游标（ackedAt 不影响成立）");
 assert.equal(errorReminder({ id: "sB", displayTitle: "旧B" }, null, false), false, "无登记不成立（升级不回溯补发错误提醒）");
-assert.equal(errorReminder({ id: "m-c1", parentId: "m", displayTitle: "子S" }, { lastTurnEndKind: "error" }, true), false, "子代理不产生错误提醒");
+assert.equal(errorReminder({ id: "m-c1", parentId: "m", origin: "subagent", displayTitle: "子S" }, { lastTurnEndKind: "error" }, true), false, "子代理不产生错误提醒");
 const errEntries = buildEntries(holdSnap, [], {}, errAcks("error", "The engine is currently overloaded, please try again later"));
 assert.deepEqual(
 	errEntries.map((e) => [e.id, e.kind, e.pendingText ?? null, e.waitClass, e.noteText]),
@@ -2669,7 +2724,7 @@ assert.deepEqual(
 const clearedErrAcked = buildEntries(holdSnap, [], {}, errAcks("completed", null, 2000));
 assert.deepEqual(clearedErrAcked.map((e) => [e.id, e.kind]), [], "新回合正常结束且已确认后完全退出活动区（错误提醒无确认按钮语义）");
 // 委托周期抑制：后代活动期间错误提醒不生效。
-const delegErrMix = { ids: ["root", "root-c1"], byId: { root: holdBase, "root-c1": { id: "root-c1", displayTitle: "子S", parentId: "root", running: true } }, current: null };
+const delegErrMix = { ids: ["root", "root-c1"], byId: { root: holdBase, "root-c1": { id: "root-c1", displayTitle: "子S", parentId: "root", origin: "subagent", running: true } }, current: null };
 const delegErrAcks = new Map([["root", { lastTurnEnd: 1000, lastTurnEndKind: "error", lastTurnEndError: "boom", ackedAt: null }]]);
 assert.deepEqual(
 	buildEntries(delegErrMix, [], {}, delegErrAcks, new Set(["root"])).map((e) => e.id),
@@ -2711,7 +2766,7 @@ const recentSubSnap = {
 	ids: ["m", "m-c1"],
 	byId: {
 		m: { id: "m", displayTitle: "主M", running: false, completed: false, updatedAt: NOW - 1_000 },
-		"m-c1": { id: "m-c1", displayTitle: "子S", running: false, completed: false, parentId: "m", updatedAt: NOW - 500 },
+		"m-c1": { id: "m-c1", displayTitle: "子S", running: false, completed: false, parentId: "m", origin: "subagent", updatedAt: NOW - 500 },
 	},
 	current: null,
 };
@@ -2803,10 +2858,10 @@ const archivedLineageSnap = {
 	ids: ["root", "root-child", "root-grandchild", "keep-root", "keep-child"],
 	byId: {
 		root: { id: "root", displayTitle: "归档母会话", running: false },
-		"root-child": { id: "root-child", displayTitle: "归档子代理", parentId: "root", running: true },
-		"root-grandchild": { id: "root-grandchild", displayTitle: "归档孙代理", parentId: "root-child", running: true },
+		"root-child": { id: "root-child", displayTitle: "归档子代理", parentId: "root", origin: "subagent", running: true },
+		"root-grandchild": { id: "root-grandchild", displayTitle: "归档孙代理", parentId: "root-child", origin: "subagent", running: true },
 		"keep-root": { id: "keep-root", displayTitle: "保留母会话", running: false },
-		"keep-child": { id: "keep-child", displayTitle: "被归档子代理", parentId: "keep-root", running: true },
+		"keep-child": { id: "keep-child", displayTitle: "被归档子代理", parentId: "keep-root", origin: "subagent", running: true },
 	},
 	current: null,
 };
@@ -2953,6 +3008,16 @@ assert.ok(bundle.includes("pane !== renderedPane"), "新窗格实例必须重置
 assert.ok(
 	clientSource.includes("const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature]);"),
 	"列表 phase 与历史时间文案必须参与结构化渲染签名，空列表不得冻结在加载/失败状态（T-087）",
+);
+assert.ok(
+	clientSource.includes("scroll?.querySelector?.(`.${LIST_CLASS} .${CARD_CLASS}[data-current]`)") &&
+		!clientSource.includes("scroll?.querySelector?.(`.${CARD_CLASS}[data-current]`)"),
+	"当前卡片自动滚动仅定位活动列表，完成卡迁入历史后不追随历史区（R-01-006/AC-02）",
+);
+assert.ok(
+	clientSource.includes("source.contains(focusedElement)") &&
+		clientSource.includes("cardsById.get(focusAfterMigrationId)?.el.focus()"),
+	"活动卡迁移时将已有键盘焦点交给仍在活动区的相邻卡片（R-01-005/AC-01）",
 );
 // R-01-013/AC-02 回归：卡片标题必须随快照更新——单卡渲染异常不得冻结其余卡片
 // （此前渲染签名先于卡片循环提交且无异常隔离，故障卡及其后全部卡片永久滞留旧标题，

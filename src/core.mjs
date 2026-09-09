@@ -3,7 +3,7 @@
 //
 // 数据源约定（来自 @deepseek-ai/dsh-client-runtime 的 sessions.list 快照）：
 //   ids: SessionId[]                     —— 宿主列表顺序（祖先在前的 lineage 顺序）
-//   byId[id]: { id, displayTitle, title?, cwd?, parentId?, running, completed?,
+//   byId[id]: { id, displayTitle, title?, cwd?, parentId?, origin?, running, completed?,
 //              pendingInteraction?: 'approval'|'plan-review'|'question', blank, ... }
 //   current: SessionId | undefined
 //   subagentsByParent: { [parentId]: { entries: [{ id, label, ... }] } }
@@ -11,8 +11,8 @@
 // 以及 workspaces.list 的 items: [{ title, path, sessionIds }]。
 //
 // 展示规则：
-//   主会话（无有效 parentId）：running || completed || pendingInteraction 都显示；
-//   子代理：仅 running || pendingInteraction 时显示（结束后即消失）；
+//   主会话（非有效子代理行）：running || completed || pendingInteraction 都显示；
+//   子代理（origin === 'subagent' 且 parentId 有效）：仅 running || pendingInteraction 时显示（结束后即消失）；
 //   pendingInteraction 总是优先视为"等待用户行动"（即使在 running 中）。
 
 const PENDING_LABELS = {
@@ -1445,6 +1445,7 @@ export function mainTitle(byId, id) {
  *   - 主会话 running（且无 pending）或处于委托周期（含后代耗尽空窗）→ 'running'
  *   - 主会话 pendingInteraction / completed / errorReminder → 'awaiting'（等待用户行动）
  *   - 子代理 running / pending 或存在活动后代 → 'subagent'，自身与后代均不活动则不显示
+ *   - 普通 fork 虽有 parentId，但 origin 缺失，仍按独立主会话处理
  * completions（完成确认与错误提醒，R-01-002/AC-05、AC-13、R-01-010/AC-06）：Map id →
  * { lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }，由渲染层从宿主侧 ack 状态
  * 通道注入；其中完成提醒成立（completionReminder）或错误提醒成立（errorReminder）的
@@ -1452,8 +1453,8 @@ export function mainTitle(byId, id) {
  * 记账派生）：集合内会话视同处于委托周期——后代耗尽至 settle 处理回合启动的
  * 空窗内仍保持运行呈现、完成/错误提醒不生效；条目的 descendantActive 字段
  * 始终为当帧原始后代活性（供进度锚点记账判定耗尽），不受 delegatingIds 影响。
- * archivedIds（工作区服务的注册表全局归档集合）：归档会话及其可见子树不产出活动条目，
- * 避免会话服务仍保留旧行或完成提醒时在窗格中滞留。
+ * archivedIds（工作区服务的注册表全局归档集合）：归档会话及其有效子代理子树不产出活动条目，
+ * 普通 fork 仅因共享来源 parentId 不受影响；避免会话服务仍保留旧行或完成提醒时在窗格中滞留。
  */
 export function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null, archivedIds = []) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
@@ -1472,7 +1473,7 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 			const key = String(currentId);
 			if (archived.has(key) || seen.has(key)) return archived.has(key);
 			seen.add(key);
-			currentId = byId[key]?.parentId;
+			currentId = subagentParentId(byId[key], byId);
 		}
 		return false;
 	};
@@ -1701,10 +1702,15 @@ export function listLoadState(snapshot) {
 	return "ready";
 }
 
-/** 会话行是否为某主会话的直属子代理。 */
+/** 会话行是否为某主会话的直属子代理：需同时满足 origin 与有效父会话。 */
 export function isSubagentRow(row, byId = {}) {
 	const id = row?.parentId;
-	return id !== undefined && id !== null && isRecord(byId[id]);
+	return row?.origin === "subagent" && id !== undefined && id !== null && isRecord(byId[id]);
+}
+
+/** 取实际子代理的直属母会话 id；普通 fork 的 parentId 只是来源关系，不参与子代理树。 */
+function subagentParentId(row, byId = {}) {
+	return isSubagentRow(row, byId) ? row.parentId : undefined;
 }
 
 /** 会话行是否满足自身状态的活动判定，不含后代活动继承。
@@ -1718,25 +1724,25 @@ function isOwnActiveRow(row, byId = {}) {
 	return running || pending;
 }
 
-/** 沿自身活动会话的有效 parentId 链上溯收集会话 id：includeSelf 含活动会话自身，
+/** 沿实际子代理关系的有效 parentId 链上溯收集会话 id：includeSelf 含活动会话自身，
  *  否则只收祖先（存在活动后代的母会话）。活动区与历史区显示判定的单点实现。 */
 function lineageActiveIds(byId, includeSelf, isExcluded = null) {
 	const ids = new Set();
 	for (const [id, row] of Object.entries(byId)) {
 		if (isExcluded?.(id) || !isOwnActiveRow(row, byId)) continue;
 		const seen = new Set();
-		let currentId = includeSelf ? id : row?.parentId;
+		let currentId = includeSelf ? id : subagentParentId(row, byId);
 		while (currentId !== undefined && currentId !== null && isRecord(byId[currentId]) && !seen.has(String(currentId))) {
 			if (isExcluded?.(currentId)) break;
 			seen.add(String(currentId));
 			ids.add(String(currentId));
-			currentId = byId[currentId]?.parentId;
+			currentId = subagentParentId(byId[currentId], byId);
 		}
 	}
 	return ids;
 }
 
-/** 沿活动会话的有效 parentId 链补齐活动祖先（含活动会话自身），供历史区显示判定。 */
+/** 沿实际子代理关系补齐活动祖先（含活动会话自身），供历史区显示判定。 */
 export function activeSessionIds(byId = {}) {
 	return lineageActiveIds(byId, true);
 }

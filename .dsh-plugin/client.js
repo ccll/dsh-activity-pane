@@ -9,7 +9,7 @@ window.__ModuleLoader__.load({
 //
 // 数据源约定（来自 @deepseek-ai/dsh-client-runtime 的 sessions.list 快照）：
 //   ids: SessionId[]                     —— 宿主列表顺序（祖先在前的 lineage 顺序）
-//   byId[id]: { id, displayTitle, title?, cwd?, parentId?, running, completed?,
+//   byId[id]: { id, displayTitle, title?, cwd?, parentId?, origin?, running, completed?,
 //              pendingInteraction?: 'approval'|'plan-review'|'question', blank, ... }
 //   current: SessionId | undefined
 //   subagentsByParent: { [parentId]: { entries: [{ id, label, ... }] } }
@@ -17,8 +17,8 @@ window.__ModuleLoader__.load({
 // 以及 workspaces.list 的 items: [{ title, path, sessionIds }]。
 //
 // 展示规则：
-//   主会话（无有效 parentId）：running || completed || pendingInteraction 都显示；
-//   子代理：仅 running || pendingInteraction 时显示（结束后即消失）；
+//   主会话（非有效子代理行）：running || completed || pendingInteraction 都显示；
+//   子代理（origin === 'subagent' 且 parentId 有效）：仅 running || pendingInteraction 时显示（结束后即消失）；
 //   pendingInteraction 总是优先视为"等待用户行动"（即使在 running 中）。
 
 const PENDING_LABELS = {
@@ -1451,6 +1451,7 @@ function mainTitle(byId, id) {
  *   - 主会话 running（且无 pending）或处于委托周期（含后代耗尽空窗）→ 'running'
  *   - 主会话 pendingInteraction / completed / errorReminder → 'awaiting'（等待用户行动）
  *   - 子代理 running / pending 或存在活动后代 → 'subagent'，自身与后代均不活动则不显示
+ *   - 普通 fork 虽有 parentId，但 origin 缺失，仍按独立主会话处理
  * completions（完成确认与错误提醒，R-01-002/AC-05、AC-13、R-01-010/AC-06）：Map id →
  * { lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }，由渲染层从宿主侧 ack 状态
  * 通道注入；其中完成提醒成立（completionReminder）或错误提醒成立（errorReminder）的
@@ -1458,8 +1459,8 @@ function mainTitle(byId, id) {
  * 记账派生）：集合内会话视同处于委托周期——后代耗尽至 settle 处理回合启动的
  * 空窗内仍保持运行呈现、完成/错误提醒不生效；条目的 descendantActive 字段
  * 始终为当帧原始后代活性（供进度锚点记账判定耗尽），不受 delegatingIds 影响。
- * archivedIds（工作区服务的注册表全局归档集合）：归档会话及其可见子树不产出活动条目，
- * 避免会话服务仍保留旧行或完成提醒时在窗格中滞留。
+ * archivedIds（工作区服务的注册表全局归档集合）：归档会话及其有效子代理子树不产出活动条目，
+ * 普通 fork 仅因共享来源 parentId 不受影响；避免会话服务仍保留旧行或完成提醒时在窗格中滞留。
  */
 function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null, archivedIds = []) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
@@ -1478,7 +1479,7 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 			const key = String(currentId);
 			if (archived.has(key) || seen.has(key)) return archived.has(key);
 			seen.add(key);
-			currentId = byId[key]?.parentId;
+			currentId = subagentParentId(byId[key], byId);
 		}
 		return false;
 	};
@@ -1707,10 +1708,15 @@ function listLoadState(snapshot) {
 	return "ready";
 }
 
-/** 会话行是否为某主会话的直属子代理。 */
+/** 会话行是否为某主会话的直属子代理：需同时满足 origin 与有效父会话。 */
 function isSubagentRow(row, byId = {}) {
 	const id = row?.parentId;
-	return id !== undefined && id !== null && isRecord(byId[id]);
+	return row?.origin === "subagent" && id !== undefined && id !== null && isRecord(byId[id]);
+}
+
+/** 取实际子代理的直属母会话 id；普通 fork 的 parentId 只是来源关系，不参与子代理树。 */
+function subagentParentId(row, byId = {}) {
+	return isSubagentRow(row, byId) ? row.parentId : undefined;
 }
 
 /** 会话行是否满足自身状态的活动判定，不含后代活动继承。
@@ -1724,25 +1730,25 @@ function isOwnActiveRow(row, byId = {}) {
 	return running || pending;
 }
 
-/** 沿自身活动会话的有效 parentId 链上溯收集会话 id：includeSelf 含活动会话自身，
+/** 沿实际子代理关系的有效 parentId 链上溯收集会话 id：includeSelf 含活动会话自身，
  *  否则只收祖先（存在活动后代的母会话）。活动区与历史区显示判定的单点实现。 */
 function lineageActiveIds(byId, includeSelf, isExcluded = null) {
 	const ids = new Set();
 	for (const [id, row] of Object.entries(byId)) {
 		if (isExcluded?.(id) || !isOwnActiveRow(row, byId)) continue;
 		const seen = new Set();
-		let currentId = includeSelf ? id : row?.parentId;
+		let currentId = includeSelf ? id : subagentParentId(row, byId);
 		while (currentId !== undefined && currentId !== null && isRecord(byId[currentId]) && !seen.has(String(currentId))) {
 			if (isExcluded?.(currentId)) break;
 			seen.add(String(currentId));
 			ids.add(String(currentId));
-			currentId = byId[currentId]?.parentId;
+			currentId = subagentParentId(byId[currentId], byId);
 		}
 	}
 	return ids;
 }
 
-/** 沿活动会话的有效 parentId 链补齐活动祖先（含活动会话自身），供历史区显示判定。 */
+/** 沿实际子代理关系补齐活动祖先（含活动会话自身），供历史区显示判定。 */
 function activeSessionIds(byId = {}) {
 	return lineageActiveIds(byId, true);
 }
@@ -4987,7 +4993,9 @@ function apply(ctx) {
 			autoScrolledCurrentCard = null;
 			return;
 		}
-		const card = scroll?.querySelector?.(`.${CARD_CLASS}[data-current]`) ?? null;
+		// 当前会话卡片只有在活动列表中才参与自动定位；完成确认后同一 current
+		// 会话会进入历史区，不能因仍带 data-current 把窗格滚到历史卡片。
+		const card = scroll?.querySelector?.(`.${LIST_CLASS} .${CARD_CLASS}[data-current]`) ?? null;
 		if (
 			card === null ||
 			card.dataset.sessionId !== id ||
@@ -5430,6 +5438,26 @@ function apply(ctx) {
 			...movedToRecentIds(prevRenderedActiveIds, active, recent).map((id) => ({ id, from: cardsById, to: recentCardsById })),
 			...movedToActiveIds(prevRenderedRecentIds, active, recent).map((id) => ({ id, from: recentCardsById, to: cardsById })),
 		];
+		// 活动卡带焦点迁入历史时，把键盘焦点交给其上一个仍在活动区的卡片；
+		// 若迁移卡已在活动区首位，则退到下一张，避免焦点落到历史区或 body。
+		let focusAfterMigrationId = null;
+		const focusedElement = document.activeElement;
+		const activeIds = new Set(active.map((entry) => String(entry.id)));
+		for (const { id, from } of migrations) {
+			if (from !== cardsById) continue;
+			const source = from.get(id)?.el;
+			if (source === undefined || !source.contains(focusedElement)) continue;
+			const activeCards = [...activeList.querySelectorAll(`.${CARD_CLASS}`)];
+			const sourceIndex = activeCards.indexOf(source);
+			if (sourceIndex < 0) continue;
+			const target = activeCards
+				.slice(0, sourceIndex)
+				.reverse()
+				.find((card) => activeIds.has(String(card.dataset.sessionId)))
+				?? activeCards.slice(sourceIndex + 1).find((card) => activeIds.has(String(card.dataset.sessionId)));
+			focusAfterMigrationId = target?.dataset.sessionId ?? null;
+			break;
+		}
 		const movePlans = prepareMoveGhosts(migrations);
 		// 迁移帧内位置受影响的其它卡片与历史区段头：DOM 写入前量取当前视觉矩形
 		// （R-01-010/AC-10）；reduced-motion 下 movePlans 为空，FLIP 量取整体跳过。
@@ -5480,6 +5508,7 @@ function apply(ctx) {
 		runMoveGhosts(movePlans);
 		if (shiftRects !== null) runShiftAnimations(shiftRects);
 		ensureCurrentCardVisible(pane.querySelector(".dap-scroll"), snapshot?.current ?? null);
+		if (focusAfterMigrationId !== null) cardsById.get(focusAfterMigrationId)?.el.focus();
 		// 区域已有条目但列表仍在途时，在区头部显示行内加载指示（R-01-014/AC-01）。
 		const headerEl = pane.querySelector(".dap-header");
 		const recentHeadEl = recentSection?.querySelector(".dap-recent-head") ?? null;

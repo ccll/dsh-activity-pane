@@ -6,7 +6,7 @@ id: T-116
 
 # T-116 当前会话卡片快速平滑滚动
 
-状态: active
+状态: completed
 关联: R-01-006/AC-02 → 窗格渲染器
 风险等级: standard
 
@@ -67,4 +67,13 @@ id: T-116
 
 ## 终态与证据
 
-（任务完成后填写。）
+- 实现: `src/navigation.mjs::scrollCardIntoView` 默认调用 `scrollTo({ top, behavior: "smooth" })`，仍按最小必要距离定位并 clamp 到合法范围；降低动效偏好时由 `src/client.mjs::ensureCurrentCardVisible` 传入 `auto`；缺少 `scrollTo` 或 options 不受支持的 `TypeError` 时回退同步滚动，非预期异常继续抛出。
+- 测试: `node scripts/check.mjs` 通过，覆盖 smooth/auto、fallback、异常暴露、完整可见与两端 clamp；`PLAYWRIGHT_BROWSERS_PATH=0 pnpm exec node e2e/run.mjs long-list back-to-top navigation` 通过；最终 `PLAYWRIGHT_BROWSERS_PATH=0 pnpm verify` 通过（AgentMap、test-impact、unit 与全部 13 个 E2E spec）；E2E 通过真实 `scrollTo` spy 验证 smooth/auto，并验证上下方向最终完整可见；`git diff --check` 通过；刷新 `http://127.0.0.1:3080/` 后 HTTP 200、窗格数量为 1 且 `.dap-scroll` 正常挂载。隔离浏览器采样显示滚动位置由 `0 → 2 → 33 → 314 → 418`，约 320ms 内完成，非瞬间跳转。
+- DESIGN 对照: `PRD.md` 的 `R-01-006/AC-02` 已明确快速平滑过渡；`DESIGN.md` 已同步运行时交互、原生 `scrollTo` 产品契约、降低动效偏好与 fallback 语义；`scripts/acceptance.mjs` 原有 AC 映射保持有效。
+- commit: cc973c9 （✨ 改进(activity): 选中会话滚动改为快速平滑）。
+- review:
+  - 审核方: Standards reviewer `e2d4c486-37f8-4514-8ee0-4f9874bed4ca`；Spec reviewer `64a2db62-392b-4329-ae22-104c49aa0073`。
+  - 目的理解: 审核目标为保留当前卡片最小必要滚动、完整可见、不居中、外层滚动隔离与去重语义，同时将瞬间跳转改为快速平滑过渡；降低动效偏好时不播放平滑动画；关联 `R-01-006/AC-02`、`R-01-004`、`R-01-005`、`R-01-018`。
+  - 执行方式: 使用 `code-review` skill，固定基线 `380aa9e4421bf9d026ac2e4776afa08bf67ac9bd`，最终范围 `git diff 380aa9e...HEAD`，提交列表为 `cc973c9 ✨ 改进(activity): 选中会话滚动改为快速平滑`；Standards/Spec 双轴独立审核，并由同一审核方对 findings 复审。
+  - 问题与修复: Spec 初审要求补齐真实 smooth/auto 浏览器证据并指出 `scrollTo` 分支异常 fallback 风险；Standards 初审指出 `catch {}` 静默吞错；完整门禁另发现 smooth setup 与回顶按钮初态存在并发时序波动。已分别补充真实 E2E spy、上下方向与 reduced-motion 断言、`TypeError` 专限定 fallback、非预期异常重抛，以及回顶测试的 auto 收口准备；修复后同一审核方复审通过。
+  - 复审结论: Standards 无 documented standard 违反、无 Fowler baseline smell；Spec 无需求缺失、无 scope creep、无逻辑错误；最终通过。

@@ -2919,7 +2919,7 @@ function apply(ctx) {
 		for (const [id, state] of progressAnchorById) {
 			if (delegationActive(state, now)) delegatingIds.add(id);
 		}
-		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById, completeAcksById, delegatingIds);
+		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById, completeAcksById, delegatingIds, archivedSessionIds);
 		// 轮内订阅仅对"运行中"会话建立（主会话 + 运行中的子代理），保持在运行中的订阅
 		// 数量 == 运行中会话数量（R-02-004/AC-01）；暂停等待的子代理只显示标题。
 		const runLikeIds = new Set(

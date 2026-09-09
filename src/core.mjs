@@ -1452,21 +1452,38 @@ export function mainTitle(byId, id) {
  * 记账派生）：集合内会话视同处于委托周期——后代耗尽至 settle 处理回合启动的
  * 空窗内仍保持运行呈现、完成/错误提醒不生效；条目的 descendantActive 字段
  * 始终为当帧原始后代活性（供进度锚点记账判定耗尽），不受 delegatingIds 影响。
+ * archivedIds（工作区服务的注册表全局归档集合）：归档会话及其可见子树不产出活动条目，
+ * 避免会话服务仍保留旧行或完成提醒时在窗格中滞留。
  */
-export function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null) {
+export function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null, archivedIds = []) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
 	const subagentsByParent = isRecord(snapshot?.subagentsByParent)
 		? snapshot.subagentsByParent
 		: {};
+	const archived = archivedIds instanceof Set
+		? new Set([...archivedIds].map((id) => String(id)))
+		: new Set((archivedIds ?? []).map((id) => String(id)));
+	const isArchived = (id) => {
+		const seen = new Set();
+		let currentId = id;
+		while (currentId !== undefined && currentId !== null) {
+			const key = String(currentId);
+			if (archived.has(key) || seen.has(key)) return archived.has(key);
+			seen.add(key);
+			currentId = byId[key]?.parentId;
+		}
+		return false;
+	};
 	const rank = workspaceRank(workspaceItems ?? []);
-	const descendantIds = descendantActiveIds(byId);
+	const descendantIds = descendantActiveIds(byId, isArchived);
 	// 第一遍：层级关系 + 显示判定（show = 自身活动 || 委托周期 || 完成提醒，单点实现避免漂移）。
 	const rootIds = [];
 	const childIds = new Map();
 	const meta = new Map();
 	for (const id of ids) {
+		if (isArchived(id)) continue;
 		const row = byId[id];
 		if (!isRecord(row)) continue;
 		const hasParent = isSubagentRow(row, byId);
@@ -1703,13 +1720,14 @@ function isOwnActiveRow(row, byId = {}) {
 
 /** 沿自身活动会话的有效 parentId 链上溯收集会话 id：includeSelf 含活动会话自身，
  *  否则只收祖先（存在活动后代的母会话）。活动区与历史区显示判定的单点实现。 */
-function lineageActiveIds(byId, includeSelf) {
+function lineageActiveIds(byId, includeSelf, isExcluded = null) {
 	const ids = new Set();
 	for (const [id, row] of Object.entries(byId)) {
-		if (!isOwnActiveRow(row, byId)) continue;
+		if (isExcluded?.(id) || !isOwnActiveRow(row, byId)) continue;
 		const seen = new Set();
 		let currentId = includeSelf ? id : row?.parentId;
 		while (currentId !== undefined && currentId !== null && isRecord(byId[currentId]) && !seen.has(String(currentId))) {
+			if (isExcluded?.(currentId)) break;
 			seen.add(String(currentId));
 			ids.add(String(currentId));
 			currentId = byId[currentId]?.parentId;
@@ -1724,8 +1742,8 @@ export function activeSessionIds(byId = {}) {
 }
 
 /** 「存在活动后代」的母会话集合（不含活动会话自身），供 buildEntries 判定委托周期（R-01-003/AC-05）。 */
-function descendantActiveIds(byId = {}) {
-	return lineageActiveIds(byId, false);
+function descendantActiveIds(byId = {}, isExcluded = null) {
+	return lineageActiveIds(byId, false, isExcluded);
 }
 
 /** 判断活动条目是否需要建立轮内状态订阅：以宿主 running 为准、与呈现 kind 解耦——

@@ -2709,6 +2709,67 @@ assert.deepEqual(
 	"归档集同样接受 Set 形态",
 );
 
+// R-01-010/AC-01：归档集合同时驱动活动区过滤；未确认完成提醒也不得在归档后滞留。
+const activeArchivedSnap = {
+	ids: ["sKeep", "sGone"],
+	byId: {
+		sKeep: { id: "sKeep", displayTitle: "保留K", running: true },
+		sGone: { id: "sGone", displayTitle: "归档G", running: false },
+	},
+	current: null,
+};
+assert.deepEqual(
+	buildEntries(activeArchivedSnap, [], {}, new Map([["sGone", { lastTurnEnd: NOW, ackedAt: null }]]), null, ["sGone"]).map((e) => e.id),
+	["sKeep"],
+	"归档会话从活动区消失，不因未确认完成提醒继续滞留",
+);
+const archivedStatusSnap = {
+	ids: ["sRunning", "sDone", "sError", "sDelegating"],
+	byId: {
+		sRunning: { id: "sRunning", displayTitle: "运行中归档", running: true },
+		sDone: { id: "sDone", displayTitle: "完成归档", running: false },
+		sError: { id: "sError", displayTitle: "错误归档", running: false },
+		sDelegating: { id: "sDelegating", displayTitle: "委托归档", running: false },
+	},
+	current: null,
+};
+assert.deepEqual(
+	buildEntries(
+		archivedStatusSnap,
+		[],
+		{},
+		new Map([
+			["sDone", { lastTurnEnd: NOW, ackedAt: null }],
+			["sError", { lastTurnEnd: NOW, lastTurnEndKind: "error", lastTurnEndError: "boom", ackedAt: null }],
+		]),
+		new Set(["sDelegating"]),
+		new Set(["sRunning", "sDone", "sError", "sDelegating"]),
+	).map((e) => e.id),
+	[],
+	"Set 归档集合同时过滤运行、完成提醒、错误提醒与委托周期中的会话",
+);
+const archivedLineageSnap = {
+	ids: ["root", "root-child", "root-grandchild", "keep-root", "keep-child"],
+	byId: {
+		root: { id: "root", displayTitle: "归档母会话", running: false },
+		"root-child": { id: "root-child", displayTitle: "归档子代理", parentId: "root", running: true },
+		"root-grandchild": { id: "root-grandchild", displayTitle: "归档孙代理", parentId: "root-child", running: true },
+		"keep-root": { id: "keep-root", displayTitle: "保留母会话", running: false },
+		"keep-child": { id: "keep-child", displayTitle: "被归档子代理", parentId: "keep-root", running: true },
+	},
+	current: null,
+};
+assert.deepEqual(
+	buildEntries(archivedLineageSnap, [], {}, null, null, ["root"]).map((e) => e.id),
+	["keep-root", "keep-child"],
+	"归档母会话时其子会话与更深层后代均不产出活动条目",
+);
+assert.deepEqual(
+	buildEntries(archivedLineageSnap, [], {}, null, null, ["keep-child"]).map((e) => e.id),
+	["root", "root-child", "root-grandchild"],
+	"归档子会话后不因残留后代活动把未归档母会话留在活动区",
+);
+
 // ---- R-01-014/AC-01 列表在途显示加载指示而非空态 ----
 assert.equal(listLoadState(null), "loading", "快照缺失视为列表在途");
 assert.equal(listLoadState({ phase: "pending" }), "loading", "phase 为 pending 视为列表在途");

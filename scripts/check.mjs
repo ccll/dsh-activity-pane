@@ -83,6 +83,7 @@ import {
 	bindBackdropDismiss,
 	bindCardActivation,
 	openSession,
+	scrollCardIntoView,
 	shouldDismissDrawerOnActivation,
 	suppressComposerAutofocus,
 } from "../src/navigation.mjs";
@@ -115,6 +116,32 @@ assert.equal(
 	false,
 	"sessions.open 失败时交给调用方进入 refresh/retry",
 );
+
+// ---- R-01-006/AC-02 当前卡片最小滚动：只调整越界方向，不居中 ----
+const viewport = { top: 10, bottom: 110 };
+const makeScrollBox = (scrollTop) => ({
+	scrollTop,
+	scrollHeight: 300,
+	clientHeight: 100,
+	getBoundingClientRect: () => viewport,
+});
+const makeCardBox = (top, bottom) => ({
+	getBoundingClientRect: () => ({ top, bottom }),
+});
+const belowScroll = makeScrollBox(0);
+assert.equal(scrollCardIntoView(belowScroll, makeCardBox(120, 160)), true, "卡片底部越界时执行向下定位");
+assert.equal(belowScroll.scrollTop, 50, "向下只滚动卡片底部超出的最小距离");
+const aboveScroll = makeScrollBox(100);
+assert.equal(scrollCardIntoView(aboveScroll, makeCardBox(-20, 20)), true, "卡片顶部越界时执行向上定位");
+assert.equal(aboveScroll.scrollTop, 70, "向上只滚动卡片顶部超出的最小距离");
+const visibleScroll = makeScrollBox(42);
+assert.equal(scrollCardIntoView(visibleScroll, makeCardBox(20, 90)), false, "卡片完整可见时不滚动");
+assert.equal(visibleScroll.scrollTop, 42, "卡片完整可见时保持原滚动位置");
+const topBoundaryScroll = makeScrollBox(0);
+assert.equal(scrollCardIntoView(topBoundaryScroll, makeCardBox(-20, 20)), false, "顶部边界不能继续向上滚动");
+const bottomBoundaryScroll = makeScrollBox(200);
+assert.equal(scrollCardIntoView(bottomBoundaryScroll, makeCardBox(120, 160)), false, "底部边界不能继续向下滚动");
+assert.equal(scrollCardIntoView(null, makeCardBox(0, 1)), false, "缺少滚动容器时静默跳过");
 
 // ---- R-01-005/AC-01、R-02-003/AC-01 card 自身 click/键盘监听与卸载 ----
 const cardListeners = new Map();

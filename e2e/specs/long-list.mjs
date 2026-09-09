@@ -1,6 +1,6 @@
-// R-01-004/AC-01、R-01-004/AC-02
+// R-01-004/AC-01、R-01-004/AC-02、R-01-006/AC-02
 // 长列表：活动卡片超出窗格可视高度时窗格内可滚动查看全部卡片；
-// 窗格内滚动时主会话内容滚动位置不变（滚动隔离）。
+// 窗格内滚动时主会话内容滚动位置不变（滚动隔离）；原生侧栏选中会话后当前卡片完整可见。
 
 import { cardVisibleInPane, mainAreaBox, mainAreaHas, newSessionWithMessage, openApp, paneBox, sendHeroMessage, until, wheelOver } from "../helpers.mjs";
 
@@ -49,6 +49,33 @@ export default async function longList({ page, url, assert }) {
 		const count = await page.locator("[data-dsh-activity-pane]").getByText("探针", { exact: false }).count();
 		return count >= SESSION_COUNT ? true : null;
 	}, 60_000);
+
+	// R-01-006/AC-02：原生左侧栏选择一张较早会话后，当前卡片应以最小距离滚入窗格可视区域。
+	const nativeSessionRows = page.locator('[role="tree"][aria-label="Sessions"] [role="treeitem"][aria-selected="false"]');
+	await until("原生侧栏展示可切换会话", async () => (await nativeSessionRows.count()) >= 2 ? true : null);
+	const paneScroll = page.locator("[data-dsh-activity-pane] .dap-scroll");
+	const currentCardState = () => page.evaluate(() => {
+		const pane = document.querySelector("[data-dsh-activity-pane]");
+		const scroll = pane?.querySelector(".dap-scroll");
+		const card = pane?.querySelector('.dap-card[data-current]');
+		if (!scroll || !card) return null;
+		const viewport = scroll.getBoundingClientRect();
+		const rect = card.getBoundingClientRect();
+		const fullyVisible = rect.top >= viewport.top - 1 && rect.bottom <= viewport.bottom + 1;
+		return fullyVisible ? { scrollTop: scroll.scrollTop, top: rect.top, bottom: rect.bottom } : null;
+	});
+	const beforeNativeSelect = await paneScroll.evaluate((el) => el.scrollTop);
+	await nativeSessionRows.last().click();
+	const selectedState = await until("原生侧栏选中后当前卡片完整可见", currentCardState);
+	assert.ok(selectedState.scrollTop > beforeNativeSelect, "原生侧栏选择下方会话后窗格向目标卡片滚动");
+	await paneScroll.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+	const beforeNativeTopSelect = await paneScroll.evaluate((el) => el.scrollTop);
+	await nativeSessionRows.first().click();
+	const topSelectedState = await until("原生侧栏选中后向上定位当前卡片", currentCardState);
+	assert.ok(topSelectedState.scrollTop < beforeNativeTopSelect, "原生侧栏选择上方会话后窗格向目标卡片滚动");
+	// 恢复后续 scrollbar 断言所需的初始滚动位置；这是测试准备，不是产品行为。
+	await paneScroll.evaluate((el) => { el.scrollTop = 0; });
+	await until("恢复窗格滚动起点", () => paneScroll.evaluate((el) => el.scrollTop === 0));
 
 	// R-01-004/AC-01：列表超高时最早卡片（排序在底部）初始不可见，窗格内滚动后可见（全部卡片可达）。
 	await until("底卡初始不可见（列表超高）", async () => {

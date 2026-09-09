@@ -47,6 +47,34 @@ export function openSession(sessions, sessionId) {
 	}
 }
 
+/**
+ * 以最小必要距离把卡片滚入窗格滚动视口；不会居中，也不会滚动外层页面。
+ * 返回值表示是否调整了滚动位置（R-01-006/AC-02）。
+ */
+export function scrollCardIntoView(scroll, card) {
+	if (typeof scroll?.getBoundingClientRect !== "function" || typeof card?.getBoundingClientRect !== "function")
+		return false;
+	const viewport = scroll.getBoundingClientRect();
+	const rect = card.getBoundingClientRect();
+	const delta = rect.top < viewport.top
+		? rect.top - viewport.top
+		: rect.bottom > viewport.bottom
+			? rect.bottom - viewport.bottom
+			: 0;
+	if (delta === 0) return false;
+	const currentTop = Number(scroll.scrollTop);
+	if (!Number.isFinite(currentTop)) return false;
+	const scrollHeight = Number(scroll.scrollHeight);
+	const clientHeight = Number(scroll.clientHeight);
+	const maxTop = Number.isFinite(scrollHeight) && Number.isFinite(clientHeight)
+		? Math.max(0, scrollHeight - clientHeight)
+		: Infinity;
+	const nextTop = Math.min(maxTop, Math.max(0, currentTop + delta));
+	if (!Number.isFinite(nextTop) || nextTop === currentTop) return false;
+	scroll.scrollTop = nextTop;
+	return Number(scroll.scrollTop) !== currentTop;
+}
+
 /** 原生会话输入框（dsh-client-ui-conversation composer 的 textarea）。 */
 export const COMPOSER_SELECTOR = "textarea[data-phase]";
 

@@ -1076,6 +1076,9 @@ function apply(ctx) {
 	let paneWidth = readStoredPaneWidth();
 	/** 用户最近一次激活的卡片 id；打开重试链被更新的激活意图取代即取消。 */
 	let lastActivatedId = null;
+	/** 最近一次已处理的当前卡片；同一卡片的运行时重绘不反复打断用户手动滚动。 */
+	let autoScrolledCurrentId = null;
+	let autoScrolledCurrentCard = null;
 	/** 完成确认状态（R-01-002/AC-03、AC-10～AC-12）：id → { lastTurnEnd, ackedAt }，
 	 *  来自宿主侧 ack 通道（SSE 全量快照），随每次推送整体替换。 */
 	const completeAcksById = new Map();
@@ -2703,6 +2706,31 @@ function apply(ctx) {
 		return true;
 	}
 
+	/** 原生侧栏切换当前会话后，只把已呈现且未完整可见的当前卡片滚入窗格。 */
+	function ensureCurrentCardVisible(scroll, currentId) {
+		const id = currentId === null || currentId === undefined ? null : String(currentId);
+		if (id === null || id === "") {
+			autoScrolledCurrentId = null;
+			autoScrolledCurrentCard = null;
+			return;
+		}
+		const card = scroll?.querySelector?.(`.${CARD_CLASS}[data-current]`) ?? null;
+		if (
+			card === null ||
+			card.dataset.sessionId !== id ||
+			scroll.clientHeight <= 0 ||
+			card.getBoundingClientRect().height <= 0
+		)
+			return;
+		if (autoScrolledCurrentId === id && autoScrolledCurrentCard === card) return;
+		scrollCardIntoView(scroll, card);
+		const viewport = scroll.getBoundingClientRect();
+		const rect = card.getBoundingClientRect();
+		if (rect.height <= viewport.height && (rect.top < viewport.top || rect.bottom > viewport.bottom)) return;
+		autoScrolledCurrentId = id;
+		autoScrolledCurrentCard = card;
+	}
+
 	function pruneCards(reuseMap, alive) {
 		for (const [id, rec] of reuseMap) {
 			if (alive.has(id)) continue;
@@ -2886,6 +2914,8 @@ function apply(ctx) {
 			recentTotal = 0;
 			recentHasMore = false;
 			recentAppendQueued = false;
+			autoScrolledCurrentId = null;
+			autoScrolledCurrentCard = null;
 			// 旧窗格已脱离文档：其在飞平移的 transitionend 不再触发，逐元素取消避免残留。
 			for (const el of [...shiftCleanups.keys()]) cancelShift(el);
 		}
@@ -3172,6 +3202,7 @@ function apply(ctx) {
 		}
 		runMoveGhosts(movePlans);
 		if (shiftRects !== null) runShiftAnimations(shiftRects);
+		ensureCurrentCardVisible(pane.querySelector(".dap-scroll"), snapshot?.current ?? null);
 		// 区域已有条目但列表仍在途时，在区头部显示行内加载指示（R-01-014/AC-01）。
 		const headerEl = pane.querySelector(".dap-header");
 		const recentHeadEl = recentSection?.querySelector(".dap-recent-head") ?? null;

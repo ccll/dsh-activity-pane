@@ -91,6 +91,11 @@ sequenceDiagram
     R->>S: open(sessionId)
     S-->>R: 当前会话变更
     R-->>U: 高亮当前卡片
+    U->>S: 从原生左侧栏选择会话
+    S-->>C: current 快照更新
+    C-->>R: isCurrent 变化
+    R->>R: 仅调整 .dap-scroll 使当前卡片完整可见
+    R-->>U: 高亮且显示当前卡片
     U->>R: 激活完成提醒卡「移入历史」按钮
     R->>H: POST /api/ack { sessionId }
     H->>H: 持久化 ackedAt 并广播
@@ -215,7 +220,7 @@ flowchart LR
 | R-01-003 | 活动状态模型 | 层级嵌套、工作区归属与徽标色相派生 | src/core.mjs、src/client.mjs |
 | R-01-004 | 窗格渲染器 | 可滚动列表 | src/client.mjs |
 | R-01-005 | 窗格渲染器 | 卡片激活与跳转重试 | src/client.mjs |
-| R-01-006 | 窗格渲染器 | 当前会话高亮 | src/client.mjs |
+| R-01-006 | 窗格渲染器 | 当前会话高亮与原生侧栏切换后的卡片可见性 | src/client.mjs、src/navigation.mjs |
 | R-01-007 | 窗格渲染器 | 桌面贴边列 | src/client.mjs |
 | R-01-008 | 窗格渲染器 | 移动端抽屉与开关 | src/client.mjs |
 | R-01-009 | 活动状态模型 | 运行统计与工作项时间线派生 | src/core.mjs、src/client.mjs |
@@ -268,7 +273,7 @@ flowchart LR
 - 层级结构：子代理经 `parentId` 关联并以 `depth` 表达缩进；子代理标题优先取目录 label，其次显示标题；渲染层在缩进槽内绘制母会话到直属子代理的层级连接线（R-01-003/AC-01、AC-04）。
 - 工作区徽标着色：渲染层先以 `活动状态模型#resolveWorkspaceColors` 对当帧可见条目的身份集合做 12 个前景槽位与背景变体分配，再把前景槽位的 hue/L/C 及背景变体的主题 L/C/混合强度写入徽标元素 `--dap-workspace-hue`、`--dap-workspace-dark-l`、`--dap-workspace-dark-c`、`--dap-workspace-light-l`、`--dap-workspace-light-c`、`--dap-workspace-bg-dark-l`、`--dap-workspace-bg-dark-c`、`--dap-workspace-bg-dark-mix`、`--dap-workspace-bg-dark-border-mix`、`--dap-workspace-bg-light-l`、`--dap-workspace-bg-light-c`、`--dap-workspace-bg-light-mix`、`--dap-workspace-bg-light-border-mix`（无归属时徽标隐藏、不写入；映射是条目身份序列的纯函数，稳定签名已含 workspaceKey，无需额外签名分量）；CSS 以 `oklch(var(--dap-workspace-*-l) var(--dap-workspace-*-c) var(--dap-workspace-hue))` 为文字与背景源色，文字直接使用前景调色板色、不再混入 currentColor，底色使用独立背景变体、描边使用前景调色板色，并以 `color-mix(in oklch, …, transparent)` 保持同色相族层次。主槽位深/浅主题 L/C 为 `0.78/0.16`、`0.48/0.15`，补充槽位为 `0.64/0.15`、`0.36/0.15`；背景变体按前景槽位提供 3 档深/浅主题 L/C 与混合强度；胶囊几何（圆角、padding、行高）与名称字号下限不变（R-01-003/AC-08～AC-12）。
 - 窗口形态：桌面为左栏旁贴边列，可经「活动会话」标题行整体折叠为窄条（窄条竖排标题 + 计数，整条可点展开）；移动端（≤767px）为固定抽屉 + 左上角浮动开关（文案「活动」，抽屉打开时隐藏）（R-01-007、R-01-008、R-01-011）。桌面列宽可经右缘手柄拖拽在 200–480px 内调整，拖拽实时生效并令主会话弹性让位，结果存 localStorage 于启动时恢复（R-01-015）。
-- 交互面：点击或 Enter/Space 激活卡片 → 切换会话；当前会话卡片高亮（R-01-005、R-01-006）。
+- 交互面：点击或 Enter/Space 激活卡片 → 切换会话；当前会话卡片高亮。原生左侧栏切换当前会话后，若对应卡片已呈现但未完整可见，渲染器只调整 `.dap-scroll.scrollTop` 的最小必要距离使其完整可见，不居中且不影响主会话滚动（R-01-005、R-01-006/AC-01～AC-02）。
 - 折叠时间线：`活动状态模型#foldedConversationTimeline(snapshot, limit, cwd, descendantActive, idle, fallbackAnchor)` 是渲染层时间线的唯一来源（无条件折叠，不做任何探测切换）：先按指数扩窗收集尾部原始工作项并合并 live 项，live partial/running call 以内部标记穿透 `#foldWorkGroups`，再经分组派生组标题、摘要与状态；用户输入项与含正文的 assistant 项为硬边界，连续 context 单独成组，状态聚合 running > error > stopped > done。窗口选择由 `selectTimelineRows` 单点完成（C-039）：可锚用户行（非空文本用户输入行）作为普通显示行参与尾部窗口滚动；滚动至显示第一行时停留为首行指令锚行并占一个名额（满窗几何为其后有 limit-1 个显示行；时间线不足一窗时自然窗口首行的可锚用户行直接停留），其后为最近 limit-1 个工作显示行；已存在停留锚行且更近的可锚用户行滚动至显示第二行时，该行取代旧锚行升上首行，其后各行上移、总行数暂减一；窗口内不存在可锚用户行或停留锚行已滚出快照尾窗时，以 `fallbackAnchor`（history 提取的最近用户消息）充当停留锚行。工作行选取优先保留最新真实当前活动行作为末行，再以最新历史工作行填满剩余名额；无真实当前活动行时才按 R-01-009/AC-10 提升尾部；空文本用户输入行不参与停留与取代。总行数不超过 limit，锚行存在时工作行预算为 limit-1。history 锚行在调用核心派生前作为 `fallbackAnchor` 输入，渲染层不得在派生完成后再次裁剪；冷 history 时间线经同一 `#foldWorkGroups` 与窗口选择但不做运行提升。该派生不依赖 dsh-auto-collapse 存在，分组语义改编自 dsh-auto-collapse@0.1.3 `src/fold.ts`（C-016）（R-01-009/AC-10、AC-11，R-01-012/AC-12～AC-15，R-01-017，C-035、C-039）。
 - 折叠呈现细节：tool 组行图标统一为 DSH canonical IconApiOutline14 命令图标（与 auto-collapse 工具 chip 同源）；含正文 assistant 边界的推理文本只归组摘要，其正文行以 stripNative 标记剥离推理展示，避免同一推理文本双行重复（R-01-017/AC-02、AC-04）；正文已流出即本步推理结束——拆入组的思考成员按已定案处理，组行不与正文行同闪（真实在飞的 partial/runningCalls 行不受影响）。
 
@@ -324,6 +329,7 @@ flowchart LR
   - 委托周期中的母会话保持运行卡呈现（kind=running，骨架不重建）：轮内订阅随自身回合结束断开，时间线与 token 统计冻结在最后已知值，进度按委托周期锚点继续推进（R-01-003/AC-05、R-01-009/AC-06）。委托周期集合由渲染层 `progressAnchorById` 记账经 `delegationActive` 逐帧派生并注入 `buildEntries`/`buildRecent`——后代耗尽至 settle 处理回合启动的空窗内（`SETTLE_TURN_GRACE_MS` 宽限）母会话保持运行呈现、完成提醒不生效、不入历史区（分区不变量）；宽限超时无新回合则退出周期，完成提醒恢复显示。
   - 活动区子代理卡片沿 `depth` 缩进；母会话到直属子代理的连接线由列表内轨道层（`.dap-tracks`）按测量值整体绘制：每条竖轨一个连续元素、零拼接接缝，横线同为轨道层元素，全部坐标统一取整（同相位、粗细一致、端点相接）；连接线不覆盖卡片内容或点击区域（R-01-003/AC-04）。
   - 卡片按 id 复用，流程节点按稳定 id 复用 DOM；配合签名去重避免无谓 DOM 写入，并保持运行节点脉冲动画连续。
+  - 当前会话同步：`cardSignature` 中的 `isCurrent` 驱动原生侧栏切换后的单帧更新；渲染完成后只对已呈现且未完整可见的当前卡片调整 `.dap-scroll.scrollTop`，以最小必要距离上下滚动，不调用外层页面滚动。
   - 完成确认通道与迁移检测：完成提醒成立由核心 `completionReminder` 从 SSE ack 状态派生（`lastTurnEnd > ackedAt`，且未被 running/阻塞等待/委托周期抑制）；错误提醒成立由核心 `errorReminder` 从同一通道派生（`lastTurnEndKind === 'error'`，不消费 ack 游标）；完成提醒卡末行正文行之后渲染「移入历史」按钮，激活时除 ack 写回（`POST /dsh-activity-pane/api/ack`）与本地即时更新外不触发卡片跳转；确认后同一帧派生解除，卡片经既有 FLIP 动画迁入历史区。跨区迁移（活动区↔历史区，双向）以旧卡克隆 ghost FLIP 平移淡降 + 真卡淡入呈现，迁移检测收敛到 `movedToRecentIds`/`movedToActiveIds` 纯函数；位置受影响的其它卡片与历史区段头经 FLIP 反向位移平滑过渡，`transitionend` 收口，`prefers-reduced-motion` 降级为直接落位（R-01-002/AC-05、AC-10、AC-13、R-01-010/AC-06、AC-07、AC-10）。
   - 工作区徽标为「文件夹图标 + 名称文本」双段结构：胶囊内常驻与左边栏工作区条目同源的 canonical 文件夹图标（dsh-client-ui-primitives IconFolderClose16 同款 path，经 `createInlineIcon` 工厂复刻），置于名称文字之前使归属一眼可辨；名称字号 10.5px（AC-07 下限）、行高 14px 不变以维持胶囊与卡片高度；无归属时整枚隐藏；文本写入独立文本段，省略号截断不波及图标（R-01-003/AC-03、AC-06、AC-07）。徽标按条目 `workspaceKey` 经核心 `resolveWorkspaceColors` 派生前景槽位与背景变体，写入 hue、前景主题 L/C、背景主题 L/C 与混合强度自定义属性，图标、文字、底色与描边同色相族着色，槽位变化并入既有 workspaceKey 签名驱动重绘（R-01-003/AC-08、AC-09、AC-10、AC-12）。
   - 最近卡两条消息预览行为「角色图标 + 角色标签 + 圆点分隔符 + 文本」结构：用户消息行人物图标 +「用户」、agent 回复行机器人图标 +「助手」，图标常驻且字形 12px 与时间线图标字形一致；文本与加载 spinner 只写入文本段，不覆盖图标与标签（R-01-013/AC-07、AC-08）。最近卡在该两行之后复用 `.dap-token-stats` 显示最近回合统计，再以 `activityAt` 时间行收尾（R-01-013/AC-12）。

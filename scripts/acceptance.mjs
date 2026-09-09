@@ -17,7 +17,7 @@
 // - R-01-002/AC-05、AC-10、AC-11、AC-12 完成提醒路径 → e2e/specs/completion-sync.mjs
 // - R-01-002/AC-05、AC-06、AC-09、AC-10、AC-12、AC-13 错误提醒路径 → e2e/specs/error-reminder.mjs
 // T-084 起第二批：
-// - R-01-005/AC-01 点击/Enter/Space、R-01-006/AC-01 → e2e/specs/navigation.mjs
+// - R-01-005/AC-01 点击/Enter/Space、R-01-006/AC-01～AC-02 → e2e/specs/navigation.mjs、e2e/specs/long-list.mjs
 // - R-01-015/AC-01、AC-02、AC-04、AC-03 桌面折叠态 → e2e/specs/resize.mjs；AC-03 移动端无手柄 → e2e/specs/mobile-drawer.mjs
 // - R-01-018/AC-01、AC-03、AC-04、AC-05、AC-02 点击/键盘/reduced-motion → e2e/specs/back-to-top.mjs（AC-02 平滑观感残留人工）
 // - R-01-003/AC-03、AC-08～AC-12 浏览器着色、R-01-012/AC-01、AC-05、R-01-013/AC-01、R-01-013/AC-03、R-01-013/AC-04、AC-07、AC-08、AC-10、AC-11 → e2e/specs/card-content.mjs（AC-02 结构断言已迁，多工作区感知区分与「标题随宿主更新」半句仍人工）

@@ -1993,12 +1993,14 @@ function buildRecent(snapshot, workspaceItems, now, detailsById = {}, archivedId
 	return entries;
 }
 
-/** 毫秒时长的人性化短格式，例如 "47s"、"3m12s"。 */
+/** 毫秒时长的人性化短格式，例如 "47s"、"3m12s"、"1h2m3s"。 */
 function fmtElapsedMs(ms) {
 	if (!Number.isFinite(ms) || ms < 0) return "";
 	const s = Math.round(ms / 1000);
 	if (s < 60) return `${s}s`;
-	return `${Math.floor(s / 60)}m${s % 60}s`;
+	const m = Math.floor(s / 60);
+	if (m < 60) return `${m}m${s % 60}s`;
+	return `${Math.floor(m / 60)}h${m % 60}m${s % 60}s`;
 }
 
 /** 历史卡相对活动时间：按分钟、小时、天、周、月、年分级；负值返回空。 */

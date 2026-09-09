@@ -6,7 +6,7 @@ id: T-115
 
 # T-115 原生侧栏选中会话后滚动定位当前卡片
 
-状态: active
+状态: completed
 关联: R-01-006/AC-01、R-01-006/AC-02 → 窗格渲染器
 风险等级: standard
 
@@ -70,4 +70,13 @@ id: T-115
 
 ## 终态与证据
 
-（任务完成后填写。）
+- 实现: `src/navigation.mjs::scrollCardIntoView` 按卡片顶部/底部越界量调整 `.dap-scroll.scrollTop`，并将目标限制在合法滚动范围；`src/client.mjs::ensureCurrentCardVisible` 只处理与 `currentId` 匹配、已呈现且有尺寸的当前卡片，在滚动后仍未完整可见时不提前写入去重状态；`.dsh-plugin/client.js` 已由 source 重建同步。
+- 测试: `node scripts/check.mjs` 通过；`PLAYWRIGHT_BROWSERS_PATH=0 pnpm exec node e2e/run.mjs long-list` 通过；最终 `PLAYWRIGHT_BROWSERS_PATH=0 pnpm verify` 通过（AgentMap、test-impact、unit 与全部 13 个 E2E spec，其中 `long-list.mjs` 与 `navigation.mjs` 均通过）；`git diff --check` 通过；刷新 `http://127.0.0.1:3080/` 后 HTTP 200、窗格数量为 1 且 `.dap-scroll` 正常挂载。
+- DESIGN 对照: `PRD.md` 的 `R-01-006/AC-02` 已加入原生左侧栏切换后的最小滚动承诺；`DESIGN.md` 的运行时交互、产品契约、追溯索引与窗格渲染器职责已同步；`DOMAIN.md`、中英文 README、`scripts/acceptance.mjs` 与测试锚点已同步。
+- commit: be4861e （✨ 改进(activity): 选中会话卡片自动滚动可见）。
+- review:
+  - 审核方: Standards reviewer `9a11d614-3090-41a3-af25-4722415ab44f`；Spec reviewer `54d0e428-9cc3-401c-9735-fb924b93d150`。
+  - 目的理解: 审核目标为原生左侧栏切换后，只让已呈现且未完整可见的当前卡片以最小必要距离进入 `.dap-scroll`，不居中、不改变外层滚动，并保留高亮、手动滚动、分页与资源语义；关联 `R-01-006/AC-01～AC-02`、`R-01-004`、`R-01-005`。
+  - 执行方式: 使用 `code-review` skill，固定基线 `cb4e370c7cff721b0fb8c367839e075e93dab9f5`，评审范围为 `git diff cb4e370c...HEAD`，提交列表为 `be4861e ✨ 改进(activity): 选中会话卡片自动滚动可见`；Standards/Spec 双轴独立复审。
+  - 问题与修复: 复审前提出当前卡片身份校验、`scrollTop` 边界钳制、滚动后过早写入去重状态以及 E2E 顶部方向覆盖不足；`be4861e` 已分别增加身份匹配、合法范围限制、可见性复核与原生侧栏向上/向下回归断言。
+  - 复审结论: Standards 无 documented standard 违反、无可成立 Fowler baseline smell；Spec 无缺失需求、无 scope creep、无逻辑错误；最终通过。

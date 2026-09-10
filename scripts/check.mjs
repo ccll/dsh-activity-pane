@@ -4101,6 +4101,20 @@ assert.ok(
 	clientSource.includes("entry.kind === \"subagent\" && historyLoads.has(entry.id)"),
 	"子代理溯源读取在途时模型区显示加载指示（R-01-014/AC-02、R-01-012/AC-17）",
 );
+// 溯源 id → 显示名：目录分组经主会话既有两条到达路径就地收割，渲染时对子代理条目解析。
+assert.ok(
+	clientSource.includes("const catalogNames = Object.create(null);"),
+	"显示名索引为无原型对象，模型 id 恰为继承键名时不得穿透回退（R-01-012/AC-17）",
+);
+assert.ok(
+	clientSource.includes("Object.assign(catalogNames, catalogModelNames(snap.groups));") &&
+		clientSource.includes("Object.assign(catalogNames, catalogModelNames(value.groups));"),
+	"目录分组在 store 订阅与一次性 models RPC 两条到达路径就地收割（R-01-012/AC-17）",
+);
+assert.ok(
+	clientSource.includes('if (entry.kind === "subagent" && entry.model) entry.model = catalogNames[entry.model] ?? entry.model;'),
+	"渲染时子代理溯源 id 经目录解析为显示名，目录未覆盖回退原始 id（R-01-012/AC-17、AC-18）",
+);
 // 运行中子代理卡与主会话运行卡同构：进度行 + 统计行进骨架，渲染按同一锚点与曲线。
 assert.ok(
 	clientSource.includes("return [row, makeEl(\"div\", \"dap-subtrace\"), progressRow, makeStatsRow()];") &&

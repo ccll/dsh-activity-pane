@@ -1124,8 +1124,9 @@ function apply(ctx) {
 	 *  modelDirectories store 推送即时到达，随可见性清理/卸载先 unsubscribe 再除名。 */
 	const modelDirectorySubs = new Map();
 	/** 模型目录分组的 modelId → 显示名索引（R-01-012/AC-17）：同一部署的目录分组在
-	 *  主/子会话间共享，经主会话的目录订阅与一次性 models RPC 就地收割，渲染时解析。 */
-	const catalogNames = {};
+	 *  主/子会话间共享，经主会话的目录订阅与一次性 models RPC 就地收割，渲染时解析。
+	 *  无原型对象：模型 id 可能恰为 "constructor" 等继承键名，不得穿透回退。 */
+	const catalogNames = Object.create(null);
 	/** native session.open() requests in flight; avoid duplicate cold history reads. */
 	/** 冷数据读取并发池：队列顺序即优先级（调用方已排序），逐个完成逐个重绘。 */
 	const loadQueue = [];
@@ -1460,7 +1461,7 @@ function apply(ctx) {
 			if (disposed) return;
 			const snap = directory.store?.getSnapshot?.();
 			if (!snap?.current) return; // 目录未就绪：不覆写既有取值
-			Object.assign(catalogNames, catalogModelNames(snap.groups ?? []));
+			Object.assign(catalogNames, catalogModelNames(snap.groups));
 			detail.models = { current: snap.current, groups: snap.groups ?? [] };
 			detail.model = modelMetadata(detail.models);
 			// 订阅已产值标记：晚到的一次性 RPC 快照不得回写切换前的旧值。
@@ -1527,7 +1528,7 @@ function apply(ctx) {
 							return;
 						}
 						// 目录分组同时就地收割（部署级共享）：子代理卡据此把溯源 id 解析为显示名。
-						Object.assign(catalogNames, catalogModelNames(value.groups ?? []));
+						Object.assign(catalogNames, catalogModelNames(value.groups));
 						// 目录订阅已产出更新的当前选择时，晚到的 RPC 快照不得回写旧值（R-01-012/AC-16）。
 						if (detail.modelLive) return;
 						detail.models = value;

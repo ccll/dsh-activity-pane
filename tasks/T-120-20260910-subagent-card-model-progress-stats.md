@@ -6,7 +6,7 @@ id: T-120
 
 # T-120 子代理卡信息增强：模型溯源、回合进度与统计行
 
-状态: active
+状态: completed
 关联: R-01-009、R-01-012 → 活动状态模型
 风险等级: standard
 
@@ -59,4 +59,18 @@ id: T-120
 
 ## 终态与证据
 
-状态: active
+状态: completed
+
+- 实现: core.mjs 新增 `modelFromHistoryEvents`（history 尾扫最近一条携带 `message.source.model` 的 `assistant/message`）与 `chatLatestAssistantSettled`（快照最新助手节点已定案触发信号，尾扫即停近 O(1)）；`detailLoadPlan` 增加 `subagentModelReadNeeded` 入参与 `subagentModelRead` 出参，在「快照最新助手节点已定案或不在运行中」时为无模型的可见子代理安排一次 history 读取（`modelReadDone` 记账，随可见性清理重置）。client.mjs 子代理卡骨架改为标题行（dot/title/model/total-time）+ 进度行（共享 `makeProgressRow`，初始隐藏）+ 统计行（共享 `makeStatsRow`）；渲染分支按锚点计算运行中进度/统计（保存 `lastRuntimeStats`），非运行时冻结统计并经共享 `memoTurnDuration` 显示最近回合耗时、进度行整行隐藏；模型区在溯源读取在途时显示加载指示；运行时钟条件纳入运行中子代理卡。并行 0.1.5 迁移期间同工作区的中间态已由其属主回退，本实现落回经验证的 `connection.api.sessions.history` 溯源通道。
+- 测试: `scripts/check.mjs#R-01-012/AC-17、AC-18`（溯源尾扫命中/裸事件/畸形条目/空事件不冒充 + `chatLatestAssistantSettled` settled/running/无快照/空窗口四态单测 + detailLoadPlan 触发单次与不重试断言）；`scripts/check.mjs#R-01-009/AC-14、AC-15`（锚点/进度曲线纯函数复用、`mergeRuntimeStats` 冻结口径行为断言、骨架/渲染/时钟契约钉子）；`scripts/acceptance.mjs::R-01-012/AC-17、AC-18、R-01-009/AC-14、AC-15` 人工验收步骤新增。`pnpm verify` 全量 13/13 E2E 通过两次（06c4258 与最终态各一次）。
+- DESIGN 对照: DESIGN.md 条目结构（subagent 条目 progress/统计/溯源模型）、关键机制「模型上下文」（溯源来源、触发时机、每可见期至多一次）、运行卡渲染期字段、产品契约「轮内状态数据」、追溯索引（R-01-009/R-01-012 落点标注子代理卡覆盖）与实现一致；DOMAIN「模型上下文」词条收敛为纯术语定义。
+- commit: 06c4258
+- commit: c364875
+- commit: 10b75ff
+- review:
+  - 审核方: Standards reviewer `80e00a86-5378-42c3-b169-53b4e5f3d363`；Spec reviewer `9d35e88b-6b30-4a8b-a0a2-2ab86aa93250`（双轴并行，各自两轮）。
+  - 目的理解: 兑现东家「子代理卡补齐模型/进度/统计」的验收目标——模型经 history 溯源（宿主 agent-busy 围栏拒绝 models RPC 的根因已查证）、进度与统计与运行卡同口径、非运行冻结语义经东家确认；约束为不引入轮询（R-02-004）、主会话模型路径与 R-01-020/徽标的子代理豁免不变。
+  - 执行方式: `code-review` skill 双轴并行审核 → 修复提交 c364875 → 双轴各自复审（`git diff 06c4258...c364875`）→ 微瑕与 AC-17 措辞收敛提交 10b75ff → 双轴终审确认（`git diff c364875...10b75ff`）。
+  - 问题与修复: Standards 1 项硬性（顺带删除宿主侧契约分节注释）已还原；smell 5 项（memo/进度骨架/渲染复制、参数结伴、命名、断言风格）经提取四 helper、options 对象、`subagentModelRead` 更名消除，断言风格按文件惯例保留；Spec 指出触发信号可能被 4 行折叠窗口延迟 → 升级为 `chatLatestAssistantSettled` 直读快照最新助手节点；AC-17 措辞漂移经 PRD 收敛为「标题行右缘」；「四态」表述更正为 settled/running/无快照/空窗口。复审终论：Standards「复审通过，可按流程关闭」；Spec「终审通过，可以关闭 T-120」。
+  - 复审结论: 双轴终审通过，无新发现；遗留非阻塞项（无）。
+- 测试影响备注: `modelReadDone` 为每可见期单次尝试记账，随 `pruneInvisibleEntries` 可见性清理重置——持续可见期间失败不热重试与主会话模型失败语义一致，Spec 复审确认为规格未细化处的已记录取舍。

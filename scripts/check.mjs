@@ -54,6 +54,7 @@ import {
 	movedToRecentIds,
 	movedToActiveIds,
 	modelMetadata,
+	modelFromHistoryEvents,
 	needsHistorySnapshot,
 	lastTurnEndFromEvents,
 	lastTurnEndFromTimings,
@@ -337,7 +338,7 @@ assert.deepEqual(
 const loadDetail = {};
 assert.deepEqual(
 	detailLoadPlan({ detail: loadDetail }),
-	{ subagent: false, model: true, history: false },
+	{ subagent: false, subagentModel: false, model: true, history: false },
 	"冷会话首次决策发起 models 读取",
 );
 assert.equal(
@@ -349,9 +350,29 @@ loadDetail.model = { model: "", reasoning: "" };
 assert.equal(detailLoadPlan({ detail: loadDetail }).model, false, "失败置空后可见期内不热重试");
 assert.equal(detailLoadPlan({ detail: {} }).model, true, "离开可见清理后重回可见允许重试");
 assert.deepEqual(
+	detailLoadPlan({ detail: {}, isSubagent: true, subagentModelReadNeeded: true }),
+	{ subagent: true, subagentModel: true, model: false, history: true },
+	"子代理不发起 models 读取；出现已定案助手行或非运行时安排一次 history 溯源读取（R-01-012/AC-17）",
+);
+assert.deepEqual(
 	detailLoadPlan({ detail: {}, isSubagent: true }),
-	{ subagent: true, model: false, history: false },
-	"子代理不发起 models 读取",
+	{ subagent: true, subagentModel: false, model: false, history: false },
+	"开局仅有流式 partial（无已定案助手行且在运行）时不早读，避免扑空（R-01-012/AC-17）",
+);
+assert.equal(
+	detailLoadPlan({ detail: {}, isSubagent: true, subagentModelReadNeeded: true, historyInflight: true }).history,
+	false,
+	"子代理 history 读取在途时不重复发起（R-01-012/AC-18）",
+);
+assert.equal(
+	detailLoadPlan({ detail: { modelReadDone: true }, isSubagent: true, subagentModelReadNeeded: true }).history,
+	false,
+	"子代理模型读取每次可见期至多一次，读尽仍无命中不热重试（R-01-012/AC-18）",
+);
+assert.equal(
+	detailLoadPlan({ detail: { model: { model: "m", reasoning: "" } }, isSubagent: true, subagentModelReadNeeded: true }).history,
+	false,
+	"子代理模型溯源已提取后不再安排读取（R-01-012/AC-17）",
 );
 assert.equal(
 	detailLoadPlan({ detail: {}, historyNeeded: true }).history,
@@ -400,6 +421,40 @@ assert.equal(
 	detailLoadPlan({ detail: { history: [] }, snapshotReady: true, windowComplete: false }).history,
 	false,
 	"窗口补读失败置空后可见期内不热重试",
+);
+
+// ---- R-01-012/AC-17、AC-18 子代理模型溯源：history 尾扫最近一条携带 source.model 的 assistant/message ----
+const subModelEvents = [
+	{ event: { type: "turn/start", seq: 1, data: { turn: 1 } } },
+	{ event: { type: "assistant/message", seq: 2, data: { turn: 1, step: 1, message: { role: "assistant", source: { kind: "model", provider: "deepseek", model: "model-a" } } } } },
+	{ event: { type: "tool/call", seq: 3, data: { turn: 1, step: 1, callId: "c1", name: "bash", arguments: "{}" } } },
+	{ event: { type: "assistant/message", seq: 4, data: { turn: 1, step: 2, message: { role: "assistant", source: { kind: "model", provider: "deepseek", model: "model-b" } } } } },
+];
+assert.deepEqual(
+	modelFromHistoryEvents(subModelEvents),
+	{ model: "model-b", reasoning: "" },
+	"子代理模型溯源取最近一条携带 source.model 的 assistant/message（R-01-012/AC-17）",
+);
+assert.deepEqual(
+	modelFromHistoryEvents([{ type: "assistant/message", seq: 9, data: { message: { source: { provider: "p", model: "bare" } } } }]),
+	{ model: "bare", reasoning: "" },
+	"裸事件形态与 {event} 包装同样兼容（R-01-012/AC-17）",
+);
+assert.equal(modelFromHistoryEvents([]), null, "空事件流无溯源，保持空白（R-01-012/AC-18）");
+assert.equal(
+	modelFromHistoryEvents([{ event: { type: "user/message", seq: 1, data: { message: { content: [] } } } }]),
+	null,
+	"无 assistant/message 时不得以其它事件冒充模型（R-01-012/AC-18）",
+);
+assert.equal(
+	modelFromHistoryEvents([{ event: { type: "assistant/message", seq: 2, data: { message: { source: { provider: "p" } } } } }]),
+	null,
+	"source.model 缺失时不得冒充（R-01-012/AC-18）",
+);
+assert.equal(
+	modelFromHistoryEvents([null, { event: undefined }, { event: { type: "assistant/message", seq: 3, data: { turn: 1, step: 1, message: { role: "assistant", source: { provider: "p", model: "ok" } } } } }]).model,
+	"ok",
+	"畸形条目跳过不抛错，命中项照常提取（R-01-012/AC-17）",
 );
 
 // ---- R-01-012/AC-16 模型选择切换经目录订阅推送更新，一次性读取仅作初值 ----
@@ -3317,13 +3372,13 @@ assert.ok(
 );
 assert.equal(
 	bundle.split('makeEl("span", "dap-pct")').length - 1,
-	1,
-	"百分比文本元素全 bundle 仅运行卡骨架一处创建（R-01-009/AC-06）",
+	2,
+	"百分比文本元素仅运行卡与子代理卡两处骨架创建（R-01-009/AC-06、AC-14）",
 );
 assert.equal(
 	bundle.split('querySelector(".dap-pct")').length - 1,
-	1,
-	"百分比文本写入全 bundle 仅运行卡渲染分支一处（R-01-009/AC-06）",
+	2,
+	"百分比文本写入仅运行卡与子代理卡两处渲染分支（R-01-009/AC-06、AC-14）",
 );
 // ---- R-01-016/AC-04 时间线数据在途时显示加载指示、返回就地填充 ----
 assert.ok(
@@ -3974,8 +4029,45 @@ assert.ok(
 	"等待当前卡重声明蓝色描边与光晕（组合选择器压过等待态橙色）",
 );
 
+// ---- R-01-012/AC-17～AC-18、R-01-009/AC-14～AC-15 子代理卡模型/进度/统计契约 ----
+// 子代理模型经既有 history 溯源提取（models RPC 对子代理被宿主 agent-busy 拒绝）。
+assert.ok(bundle.includes("modelFromHistoryEvents"), "子代理模型溯源提取函数进入 bundle（R-01-012/AC-17）");
+assert.ok(
+	clientSource.includes("if (plan.subagentModel) {") && clientSource.includes("detail.modelReadDone = true;"),
+	"history 读取落地时为子代理提取模型溯源并记账每次可见期单次尝试（R-01-012/AC-17）",
+);
+assert.ok(
+	clientSource.includes("row?.kind === \"assistant\" && row.status === \"done\""),
+	"模型读取时机锚定已定案助手行或非运行状态（R-01-012/AC-17）",
+);
+assert.ok(
+	clientSource.includes("entry.kind === \"subagent\" && historyLoads.has(entry.id)"),
+	"子代理溯源读取在途时模型区显示加载指示（R-01-014/AC-02、R-01-012/AC-17）",
+);
+// 运行中子代理卡与主会话运行卡同构：进度行 + 统计行进骨架，渲染按同一锚点与曲线。
+assert.ok(
+	clientSource.includes("return [head, row, makeEl(\"div\", \"dap-subtrace\"), progressRow, statsRow];"),
+	"子代理卡骨架承载进度行与统计行（R-01-009/AC-14）",
+);
+assert.ok(
+	clientSource.includes("progressOf({ elapsedMs, halfLifeSec: progressHalfLifeSec({ rateTokS: projectionStats.rateTokS }) })"),
+	"运行中子代理卡按与运行卡相同的锚点口径现算进度（R-01-009/AC-14）",
+);
+assert.ok(
+	clientSource.includes("entry.kind === \"subagent\" && runLikeIds.has(entry.id)"),
+	"运行卡时钟条件纳入运行中子代理卡（R-01-009/AC-14）",
+);
+// 非运行子代理卡：进度条整行隐藏、统计与最近回合耗时冻结。
+assert.ok(
+	clientSource.includes("} else if (!progressRow.hidden) {") && clientSource.includes("progressRow.hidden = true;"),
+	"锚点空闲时子代理卡进度行整行隐藏（R-01-009/AC-15）",
+);
+assert.ok(
+	clientSource.includes("entry.progress = null;") && bundle.includes("[data-dsh-activity-pane] .dap-progress[hidden] { display: none; }"),
+	"非运行子代理卡冻结统计并隐藏进度行（R-01-009/AC-15）",
+);
 
-// ---- R-01-002/AC-10～AC-12 宿主侧完成确认契约（C-030）----
+
 // R-01-002/AC-12 刷新/重连恢复：状态由宿主侧持久化承载，不依赖客户端在线观测。
 const hostSource = await readFile(join(root, "src/host.mjs"), "utf8");
 const hostEntry = await readFile(join(root, ".dsh-plugin/index.mjs"), "utf8");

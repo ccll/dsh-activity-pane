@@ -1045,6 +1045,23 @@ export function modelMetadata(models) {
 	};
 }
 
+/** 子代理模型溯源（R-01-012/AC-17）：从 history 事件流尾扫最近一条携带模型溯源的
+ *  `assistant/message` 事件，取 `message.source.model`。事件流不携带 reasoning level，
+ *  返回值 reasoning 恒为空串；无命中（空事件、无助手消息或溯源缺失）返回 null，
+ *  调用方保持模型区空白、不以 preset 或母会话模型冒充（R-01-012/AC-18）。 */
+export function modelFromHistoryEvents(history) {
+	const entries = Array.isArray(history) ? history : [];
+	for (let i = entries.length - 1; i >= 0; i -= 1) {
+		const event = eventOf(entries[i]);
+		if (event?.type !== "assistant/message") continue;
+		const source = isRecord(event.data?.message?.source) ? event.data.message.source : null;
+		if (source !== null && typeof source.model === "string" && source.model !== "") {
+			return { model: source.model, reasoning: "" };
+		}
+	}
+	return null;
+}
+
 /** 只提供卡片底部所需的原始统计字段，不拼接当前动作文案。 */
 export function runtimeStats({ elapsedMs = null, outputTokens = null, rateTokS = null } = {}) {
 	return {
@@ -1205,15 +1222,22 @@ export function detailLoadPlan({
 	windowComplete = true,
 	modelInflight = false,
 	historyInflight = false,
+	subagentModelReadNeeded = false,
 } = {}) {
+	// 子代理模型溯源（R-01-012/AC-17）：models RPC 对子代理被宿主拒绝，改经既有
+	// history 读取提取。读取在「存在已定案助手行（事件已落日志，尾页必命中）或不在
+	// 运行中」时才发起，避免开局早读扑空；每次可见期至多一次（modelReadDone 记账），
+	// 不构成轮询（R-02-004）。
+	const subagentModel =
+		isSubagent === true && subagentModelReadNeeded === true && !detail.model && detail.modelReadDone !== true;
 	return {
 		subagent: isSubagent === true,
+		subagentModel,
 		model: !isSubagent && !detail.model && !modelInflight,
-		history:
-			!historyInflight &&
+		history: !historyInflight && (subagentModel ||
 			((durationFallbackNeeded && detail.durationFallbackLoaded !== true) ||
 				(previewFallbackNeeded && detail.previewFallbackLoaded !== true) ||
-				(!detail.history && ((!snapshotReady && historyNeeded) || (snapshotReady === true && windowComplete === false)))),
+				(!detail.history && ((!snapshotReady && historyNeeded) || (snapshotReady === true && windowComplete === false))))),
 	};
 }
 

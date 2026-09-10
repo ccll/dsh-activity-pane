@@ -572,6 +572,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 [data-dsh-activity-pane] .dap-progress {
   display: flex; align-items: center; gap: 7px; min-width: 0;
 }
+[data-dsh-activity-pane] .dap-progress[hidden] { display: none; }
 [data-dsh-activity-pane] .dap-progress .dap-track { flex: 1 1 auto; min-width: 0; }
 [data-dsh-activity-pane] .dap-pct {
   flex: none; width: 5ch; font-size: 12px; line-height: 15px; font-weight: 700; text-align: right;
@@ -1472,7 +1473,7 @@ function apply(ctx) {
 		syncFromDirectory(); // 目录已被主窗口加载时立即同步，该会话免发一次性 RPC
 	}
 
-	function loadNativeDetails(ids, previewFallbackIds = new Set(), durationFallbackIds = new Set()) {
+	function loadNativeDetails(ids, previewFallbackIds = new Set(), durationFallbackIds = new Set(), subagentModelReadIds = new Set()) {
 		const api = ctx.get("connection")?.api?.sessions;
 		if (!api) return;
 		const byId = getSnapshot(sessions, "list")?.byId ?? {};
@@ -1509,11 +1510,11 @@ function apply(ctx) {
 				windowComplete,
 				modelInflight: modelLoads.has(id),
 				historyInflight: historyLoads.has(id) || sessionOpenLoads.has(id),
+				subagentModelReadNeeded: subagentModelReadIds.has(id),
 			});
-			if (plan.subagent) {
-				// 子代理的 models 读取必被宿主以 agent-busy 拒绝：直接留空，不发注定失败的 RPC。
-				detail.model ??= { model: "", reasoning: "" };
-			} else if (plan.model && typeof api.models === "function") {
+			// 子代理的 models 读取必被宿主以 agent-busy 拒绝：不发注定失败的 RPC；
+			// 模型经既有 history 读取溯源提取（R-01-012/AC-17）。
+			if (!plan.subagent && plan.model && typeof api.models === "function") {
 				const promise = enqueueDetailLoad(() => delayedModelCall(() => api.models({ sessionId: id }))
 					.then((response) => {
 						const value = apiValue(response);
@@ -1553,6 +1554,14 @@ function apply(ctx) {
 						});
 						if (error) detail.historyError = error instanceof Error ? error.message : String(error);
 						detail.history = events;
+						// 子代理模型溯源（R-01-012/AC-17）：模型读取落地即记账并提取；
+						// 主会话不从此处取模型（其口径为模型目录服务，R-01-012/AC-01、AC-16）。
+						if (plan.subagentModel) {
+							detail.modelReadDone = true;
+							if (!detail.model) detail.model = modelFromHistoryEvents(events);
+						} else if (plan.subagent && !detail.model) {
+							detail.model = modelFromHistoryEvents(events);
+						}
 						// R-01-017：冷路径同样折叠分组（取全量页内事件再折成最多 4 组，
 						// 含指令锚行窗口选择，R-01-012/AC-12～AC-15）。
 						detail.timeline = foldedHistoryTimeline(events, 4, byId[id]?.cwd ?? "");
@@ -1859,7 +1868,17 @@ function apply(ctx) {
 		if (kind === "subagent") {
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-total-time"));
-			return [head, row, makeEl("div", "dap-subtrace")];
+			// 运行中子代理卡与主会话运行卡同构的进度行与统计行（R-01-009/AC-14）；
+			// 非运行时进度行隐藏、统计行冻结（R-01-009/AC-15）。
+			const track = makeEl("div", "dap-track");
+			track.append(makeEl("div", "dap-fill"));
+			const progressRow = makeEl("div", "dap-progress");
+			progressRow.append(track, makeEl("span", "dap-pct"));
+			progressRow.hidden = true;
+			const statsRow = makeEl("div", "dap-token-stats");
+			statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"));
+			statsRow.hidden = true;
+			return [head, row, makeEl("div", "dap-subtrace"), progressRow, statsRow];
 		}
 		if (kind === "recent") {
 			const row = makeEl("div", "dap-row");
@@ -2440,6 +2459,23 @@ function apply(ctx) {
 		if (entry.kind === "subagent") {
 			const traceContainer = el.querySelector(".dap-subtrace");
 			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, { lastOnly: true });
+			// 运行中呈现与运行卡同构的进度行；锚点空闲（暂停等待）时整行隐藏（R-01-009/AC-15）。
+			const progressRow = el.querySelector(".dap-progress");
+			if (progressRow !== null) {
+				if (Number.isFinite(entry.progress)) {
+					const pct = el.querySelector(".dap-pct");
+					if (pct !== null) pct.textContent = `${Math.round(entry.progress)}%`;
+					const fill = el.querySelector(".dap-fill");
+					if (fill !== null) {
+						const width = `${Math.min(100, Math.max(0, entry.progress))}%`;
+						if (fill.style.width !== width) fill.style.width = width;
+					}
+					if (progressRow.hidden) progressRow.hidden = false;
+				} else if (!progressRow.hidden) {
+					progressRow.hidden = true;
+				}
+			}
+			renderTokenStats(el, entry);
 			return;
 		}
 
@@ -3068,7 +3104,11 @@ function apply(ctx) {
 		const runLikeIds = new Set(
 			active.filter((entry) => shouldSubscribeToSession(entry, snapshot?.byId ?? {})).map((entry) => entry.id),
 		);
-		syncLiveness(runLikeIds, active.some((entry) => entry.kind === "running"));
+		// 运行卡时钟：运行中子代理卡同样承载逐秒推进的进度与时长（R-01-009/AC-14）。
+		syncLiveness(
+			runLikeIds,
+			active.some((entry) => entry.kind === "running" || (entry.kind === "subagent" && runLikeIds.has(entry.id))),
+		);
 		for (const entry of active) {
 			const liveRecord = livenessById.get(entry.id);
 			const live = liveRecord?.liveness ?? null;
@@ -3142,7 +3182,8 @@ function apply(ctx) {
 				if (question !== null) entry.questionPreview = question;
 			}
 			// 字段级加载指示（R-01-014/AC-02）：补充数据在途时卡片对应位置显示活动图标。
-			entry.loadingModel = !detail?.model && modelLoads.has(entry.id);
+			// 子代理模型同样经 history 读取提取，读取在途时模型区显示指示（R-01-012/AC-17）。
+			entry.loadingModel = !detail?.model && (modelLoads.has(entry.id) || (entry.kind === "subagent" && historyLoads.has(entry.id)));
 			entry.loadingTimeline =
 				entry.timeline.length === 0 &&
 				(historyLoads.has(entry.id) || sessionOpenLoads.has(entry.id) || (runLikeIds.has(entry.id) && !liveRecord));
@@ -3178,6 +3219,31 @@ function apply(ctx) {
 				// k 下单调性由函数本身保证；k 变化时允许进度随速率回落而回退（委托周期
 				// 连续、周期外回合切换归零，R-01-009/AC-06，C-014、C-044）。
 				entry.progress = progressOf({ elapsedMs: elapsedMs ?? 0, halfLifeSec: progressHalfLifeSec({ rateTokS: projectionStats.rateTokS }) });
+			}
+			if (entry.kind === "subagent") {
+				// 运行中子代理卡与主会话运行卡同口径：同一锚点状态机与进度曲线（R-01-009/AC-14）。
+				const elapsedMs = Number.isFinite(anchor.anchor) ? Math.max(0, now - anchor.anchor) : null;
+				if (elapsedMs !== null) {
+					Object.assign(entry, projectionStats, { elapsedMs });
+					if (detail) detail.lastRuntimeStats = mergeRuntimeStats(projectionStats, detail.lastRuntimeStats);
+					entry.progress = progressOf({ elapsedMs, halfLifeSec: progressHalfLifeSec({ rateTokS: projectionStats.rateTokS }) });
+				} else {
+					// 非运行（暂停等待）：冻结最后已知统计与最近回合耗时，progress 置空隐藏
+					// 进度条（R-01-009/AC-15）；刷新/无留存时回退当前列表投影。
+					Object.assign(entry, mergeRuntimeStats(detail?.lastRuntimeStats, projectionStats));
+					if (detail) {
+						const history = detail.history ?? null;
+						if (detail.memoTurnDurationSnapshotOf !== detailSnapshot || detail.memoTurnDurationHistoryOf !== history) {
+							detail.memoTurnDurationSnapshotOf = detailSnapshot;
+							detail.memoTurnDurationHistoryOf = history;
+							detail.memoTurnDuration = lastTurnDuration({ turnTimings: detailSnapshot?.turnTimings, history });
+						}
+						entry.elapsedMs = detail.memoTurnDuration ?? null;
+					} else {
+						entry.elapsedMs = null;
+					}
+					entry.progress = null;
+				}
 			}
 		}
 		// 历史区时间精化（R-01-010/AC-08、AC-09）：从保留快照的 turnTimings 与已拉取的
@@ -3241,9 +3307,19 @@ function apply(ctx) {
 			...active.filter((entry) => entry.kind === "awaiting").map((entry) => entry.id),
 			...recentDurationFallbackIds,
 		]);
+		// 子代理模型溯源读取时机（R-01-012/AC-17）：时间线出现已定案助手行说明
+		// assistant/message 事件已落宿主日志（尾页读取必命中）；不在运行中则整段日志
+		// 已冻结。开局只有流式 partial 时不读，避免早读扑空。
+		const subagentModelReadIds = new Set();
+		for (const entry of active) {
+			if (entry.kind !== "subagent") continue;
+			if (!runLikeIds.has(entry.id) || entry.timeline.some((row) => row?.kind === "assistant" && row.status === "done")) {
+				subagentModelReadIds.add(entry.id);
+			}
+		}
 		const detailIds = [...active, ...recent].map((entry) => entry.id);
 		detailIds.sort((a, b) => Number(String(b) === String(snapshot?.current)) - Number(String(a) === String(snapshot?.current)));
-		loadNativeDetails(detailIds, previewFallbackIds, durationFallbackIds);
+		loadNativeDetails(detailIds, previewFallbackIds, durationFallbackIds, subagentModelReadIds);
 		// 累计运行时长懒回填（R-01-020/AC-05）：对可见主会话触发宿主侧存量回合补齐；
 		// 宿主侧每会话单飞，重复触发由宿主合并；完成后经 busy SSE 广播推送。
 		requestBusyBackfill([...active, ...recent].filter((entry) => entry.kind !== "subagent").map((entry) => entry.id));

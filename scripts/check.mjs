@@ -61,6 +61,7 @@ import {
 	lastTurnDurationFromTimings,
 	lastTurnDuration,
 	applyTurnEventToStats,
+	normalizeBusyMs,
 	totalBusyDisplayMs,
 	pendingText,
 	progressHalfLifeSec,
@@ -1098,6 +1099,15 @@ assert.equal(totalBusyDisplayMs({ busyMs: null, openTurnStart: 30_000, now: 31_0
 assert.equal(totalBusyDisplayMs({ busyMs: null, openTurnStart: null, now: 32_000 }), null, "无数据显示 null");
 assert.equal(totalBusyDisplayMs({ busyMs: null, openTurnStart: null, now: null }), null, "now 缺失且无累计为 null");
 assert.equal(totalBusyDisplayMs({ busyMs: 0, openTurnStart: null, now: null }), 0, "显式 0 累计仍是有效数据");
+// R-01-020/AC-06：记账字段归一——null/undefined 直通为 null，不得被 Number(null)===0
+// 误归一为 0（否则开放回合合成出 now−0 的天文数字）。
+assert.equal(normalizeBusyMs(null), null, "busyMs null 归一为 null");
+assert.equal(normalizeBusyMs(undefined), null, "busyMs undefined 归一为 null");
+assert.equal(normalizeBusyMs(null), null, "openTurnStart null 归一为 null");
+assert.equal(normalizeBusyMs(0), 0, "显式 0 仍是有效数字");
+assert.equal(normalizeBusyMs("123"), 123, "数字字符串可归一");
+assert.equal(normalizeBusyMs("abc"), null, "非数字字符串归一为 null");
+assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 // R-01-020/AC-05：存量回合经全量事件重放补齐（与实时登记同一转移函数）。
 {
 	const backfillEvents = [

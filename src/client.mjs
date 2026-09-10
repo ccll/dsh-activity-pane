@@ -1357,8 +1357,8 @@ function apply(ctx) {
 		busyById.clear();
 		for (const [id, record] of Object.entries(state)) {
 			busyById.set(String(id), {
-				busyMs: Number.isFinite(Number(record?.busyMs)) ? Number(record.busyMs) : null,
-				openTurnStart: Number.isFinite(Number(record?.openTurnStart)) ? Number(record.openTurnStart) : null,
+				busyMs: normalizeBusyMs(record?.busyMs),
+				openTurnStart: normalizeBusyMs(record?.openTurnStart),
 			});
 		}
 		queueSync();

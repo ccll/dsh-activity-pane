@@ -1961,6 +1961,17 @@ function applyTurnEventToStats(state, entry) {
 }
 
 /**
+ * busy 记账字段归一：null/undefined 直通为 null（「无数据」语义），仅真实有限数字
+ * 保留。必须先判空再走 Number()——Number(null) === 0 会把「无开放回合」误归一为
+ * epoch 0，令合成值膨胀为 now−0（R-01-020/AC-06 回归）。
+ */
+function normalizeBusyMs(value) {
+	if (value === null || value === undefined) return null;
+	const n = Number(value);
+	return Number.isFinite(n) ? n : null;
+}
+
+/**
  * 标题行累计运行时长的显示合成（R-01-020/AC-01、AC-03、AC-06）：已完成回合累计加
  * 开放回合实时已耗时；两者皆不可得时返回 null（调用方不显示，不以 0 冒充）。now
  * 缺失或无效时不推进实时增量，只返回已完成累计。
@@ -3679,8 +3690,8 @@ function apply(ctx) {
 		busyById.clear();
 		for (const [id, record] of Object.entries(state)) {
 			busyById.set(String(id), {
-				busyMs: Number.isFinite(Number(record?.busyMs)) ? Number(record.busyMs) : null,
-				openTurnStart: Number.isFinite(Number(record?.openTurnStart)) ? Number(record.openTurnStart) : null,
+				busyMs: normalizeBusyMs(record?.busyMs),
+				openTurnStart: normalizeBusyMs(record?.openTurnStart),
 			});
 		}
 		queueSync();

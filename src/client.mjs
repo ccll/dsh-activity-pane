@@ -439,7 +439,7 @@ const CSS = `
 /* 标题行最右侧的累计运行时长（R-01-020/AC-01）：固定占位不参与标题挤压，
    标题过长时以自身省略号让位；色调弱于标题，不与状态点抢视觉。 */
 [data-dsh-activity-pane] .dap-total-time {
-  flex: none; margin-left: auto; font-size: 11px; line-height: 16px;
+  flex: none; margin-left: auto; font-size: 12px; line-height: 16px;
   color: #8a94a3; white-space: nowrap;
 }
 [data-dsh-activity-pane] .dap-total-time[hidden] { display: none; }

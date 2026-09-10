@@ -435,6 +435,23 @@ function chatNodeAt(nodes, key) {
 	}
 }
 
+/** 子代理模型读取的触发信号（R-01-012/AC-17）：快照最新一个助手节点已定案
+ *  （status === "settled"，即其 assistant/message 事件已落宿主日志，尾页读取必命中）
+ *  时为 true。只检查最新一个助手节点——它随流式推送翻转为 settled 的那一刻即产生
+ *  触发，成本 O(1) 且完全挂在既有订阅推送上（R-02-004）；工具密集期 4 行折叠窗口
+ *  可能不含助手行，故不看折叠时间线而直接读快照。流式未定案/中断/无快照为 false。 */
+export function chatHasSettledAssistant(snapshot) {
+	const chat = snapshot?.chat;
+	const order = Array.isArray(chat?.order) ? chat.order : [];
+	const nodes = chat?.nodes;
+	for (let i = order.length - 1; i >= 0; i -= 1) {
+		const node = chatNodeAt(nodes, order[i]);
+		if (!isRecord(node) || node.visibility === "hidden" || node.kind !== "assistant-step") continue;
+		return isRecord(node.data) && node.data.status === "settled";
+	}
+	return false;
+}
+
 /** 尾部反向收集原始工作项（不含 live 合并），取够 want 个可转换项或耗尽 order 即停。
  *  continueToUser：取够后以廉价结构检查（isUserChatNode：非 hidden 的 user/steering 且含非空文本块）继续前走至最近一个未收集的用户节点（含
  *  steering），命中才转换并入队首——供指令锚行派生（R-01-012/AC-12），不为找锚做全序转换。 */
@@ -1228,13 +1245,13 @@ export function detailLoadPlan({
 	// history 读取提取。读取在「存在已定案助手行（事件已落日志，尾页必命中）或不在
 	// 运行中」时才发起，避免开局早读扑空；每次可见期至多一次（modelReadDone 记账），
 	// 不构成轮询（R-02-004）。
-	const subagentModel =
+	const subagentModelRead =
 		isSubagent === true && subagentModelReadNeeded === true && !detail.model && detail.modelReadDone !== true;
 	return {
 		subagent: isSubagent === true,
-		subagentModel,
+		subagentModelRead,
 		model: !isSubagent && !detail.model && !modelInflight,
-		history: !historyInflight && (subagentModel ||
+		history: !historyInflight && (subagentModelRead ||
 			((durationFallbackNeeded && detail.durationFallbackLoaded !== true) ||
 				(previewFallbackNeeded && detail.previewFallbackLoaded !== true) ||
 				(!detail.history && ((!snapshotReady && historyNeeded) || (snapshotReady === true && windowComplete === false))))),

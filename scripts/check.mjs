@@ -19,6 +19,7 @@ import {
 	cardSignature,
 	cleanPreview,
 	clampPaneWidth,
+	chatHasSettledAssistant,
 	pagedHistoryEvents,
 	delegationActive,
 	progressAnchor,
@@ -338,7 +339,7 @@ assert.deepEqual(
 const loadDetail = {};
 assert.deepEqual(
 	detailLoadPlan({ detail: loadDetail }),
-	{ subagent: false, subagentModel: false, model: true, history: false },
+	{ subagent: false, subagentModelRead: false, model: true, history: false },
 	"冷会话首次决策发起 models 读取",
 );
 assert.equal(
@@ -351,12 +352,12 @@ assert.equal(detailLoadPlan({ detail: loadDetail }).model, false, "失败置空�
 assert.equal(detailLoadPlan({ detail: {} }).model, true, "离开可见清理后重回可见允许重试");
 assert.deepEqual(
 	detailLoadPlan({ detail: {}, isSubagent: true, subagentModelReadNeeded: true }),
-	{ subagent: true, subagentModel: true, model: false, history: true },
+	{ subagent: true, subagentModelRead: true, model: false, history: true },
 	"子代理不发起 models 读取；出现已定案助手行或非运行时安排一次 history 溯源读取（R-01-012/AC-17）",
 );
 assert.deepEqual(
 	detailLoadPlan({ detail: {}, isSubagent: true }),
-	{ subagent: true, subagentModel: false, model: false, history: false },
+	{ subagent: true, subagentModelRead: false, model: false, history: false },
 	"开局仅有流式 partial（无已定案助手行且在运行）时不早读，避免扑空（R-01-012/AC-17）",
 );
 assert.equal(
@@ -456,6 +457,35 @@ assert.equal(
 	"ok",
 	"畸形条目跳过不抛错，命中项照常提取（R-01-012/AC-17）",
 );
+
+// ---- R-01-012/AC-17 子代理模型读取触发信号：快照最新助手节点已定案即触发 ----
+const settledAssistantSnapshot = {
+	chat: {
+		order: ["k1", "k2", "k3", "k4"],
+		nodes: new Map([
+			["k1", { kind: "user", data: { content: [] } }],
+			["k2", { kind: "assistant-step", data: { status: "settled", turn: 1, step: 1, blocks: [] } }],
+			["k3", { kind: "tool-call", data: { status: "settled" } }],
+			["k4", { kind: "tool-call", data: { status: "running" } }],
+		]),
+	},
+};
+assert.equal(chatHasSettledAssistant(settledAssistantSnapshot), true, "最新助手节点已定案即触发模型读取（R-01-012/AC-17）");
+assert.equal(
+	chatHasSettledAssistant({
+		chat: {
+			order: ["k1", "k2"],
+			nodes: new Map([
+				["k1", { kind: "user", data: { content: [] } }],
+				["k2", { kind: "assistant-step", data: { status: "running", turn: 1, step: 2, blocks: [] } }],
+			]),
+		},
+	}),
+	false,
+	"最新助手节点仍在流式（未定案）时不触发，避免早读扑空（R-01-012/AC-18）",
+);
+assert.equal(chatHasSettledAssistant(null), false, "无快照不触发（R-01-012/AC-18）");
+assert.equal(chatHasSettledAssistant({ chat: { order: [], nodes: new Map() } }), false, "空窗口不触发（R-01-012/AC-18）");
 
 // ---- R-01-012/AC-16 模型选择切换经目录订阅推送更新，一次性读取仅作初值 ----
 // 目录 store 快照形状（{current, groups, routable, status, ...}）与 RPC value 同形兼容，经同一归一。
@@ -1821,6 +1851,16 @@ assert.deepEqual(
 	),
 	{ outputTokens: 0, inputTokens: 0, cacheHitPct: 0, rateTokS: 8 },
 	"统计合并保留有效的零值，仅对缺失字段回退（R-01-009/AC-13）",
+);
+// R-01-009/AC-15 暂停子代理卡的冻结口径与等待卡共用同一合并语义：
+// 当前投影缺失的字段保留暂停前最后已知值，均缺失时回退当前投影，不伪造 0。
+assert.deepEqual(
+	mergeRuntimeStats(
+		{ outputTokens: 512, inputTokens: 900, cacheHitPct: 62, rateTokS: 32 },
+		{ outputTokens: null, inputTokens: 1, cacheHitPct: null, rateTokS: 5 },
+	),
+	{ outputTokens: 512, inputTokens: 900, cacheHitPct: 62, rateTokS: 32 },
+	"暂停子代理卡冻结暂停前最后已知统计，缺失字段才回退当前投影（R-01-009/AC-15）",
 );
 assert.deepEqual(
 	usageSummary({ uncachedInputTokens: 100, cacheReadTokens: 700, cacheWriteTokens: 200 }),
@@ -3234,7 +3274,7 @@ assert.ok(
 assert.ok(bundle.includes("function renderTokenStats"), "运行卡统计行继续复用既有渲染逻辑（R-01-009/AC-05）");
 // R-01-009/AC-13 等待卡保留进入等待前最后已知的 token 统计
 assert.ok(
-	bundle.includes('return [head, row, makeEl("div", "dap-trace"), statsRow, foot];'),
+	bundle.includes('return [head, row, makeEl("div", "dap-trace"), makeStatsRow(), foot];'),
 	"等待卡骨架在时间线后保留统计行（R-01-009/AC-13）",
 );
 assert.ok(
@@ -3260,7 +3300,7 @@ assert.ok(!bundle.includes("≈"), "速率不再携带约等于符号（R-01-009
 assert.ok(bundle.includes("dap-history-line"), "历史卡包含用户/agent 两条消息预览行");
 // R-01-013/AC-12 最近历史卡保留最近回合统计
 assert.ok(
-	bundle.includes('return [head, row, userLine, agentLine, statsRow, makeEl("div", "dap-note")];'),
+	bundle.includes('return [head, row, userLine, agentLine, makeStatsRow(), makeEl("div", "dap-note")];'),
 	"历史卡统计行位于助手预览后、活动时间前",
 );
 assert.ok(bundle.includes("statsFromProjection"), "历史卡统计复用列表投影派生函数（R-01-013/AC-12）");
@@ -3331,7 +3371,7 @@ assert.ok(bundle.includes("function activeSessionIds(byId = {})"), "活动子代
 // ---- R-01-016/AC-01 等待卡保留最近工作项时间线 ----
 assert.ok(
 	bundle.includes("awaitHead.append(capsule);") &&
-		bundle.includes('return [head, row, makeEl("div", "dap-trace"), statsRow, foot];'),
+		bundle.includes('return [head, row, makeEl("div", "dap-trace"), makeStatsRow(), foot];'),
 	"awaiting 骨架在标题行与统计行、末行两段（胶囊+正文）之间含时间线，固定耗时由统计行承载（R-01-016/AC-01、R-01-009/AC-12，C-043）",
 );
 // ---- R-01-002/AC-10 完成提醒卡「移入历史」按钮 ----
@@ -3372,13 +3412,13 @@ assert.ok(
 );
 assert.equal(
 	bundle.split('makeEl("span", "dap-pct")').length - 1,
-	2,
-	"百分比文本元素仅运行卡与子代理卡两处骨架创建（R-01-009/AC-06、AC-14）",
+	1,
+	"百分比文本元素经 makeProgressRow 共享骨架单点创建（R-01-009/AC-06、AC-14）",
 );
 assert.equal(
 	bundle.split('querySelector(".dap-pct")').length - 1,
-	2,
-	"百分比文本写入仅运行卡与子代理卡两处渲染分支（R-01-009/AC-06、AC-14）",
+	1,
+	"百分比文本写入经 renderProgressRow 单点承载（R-01-009/AC-06、AC-14）",
 );
 // ---- R-01-016/AC-04 时间线数据在途时显示加载指示、返回就地填充 ----
 assert.ok(
@@ -3476,7 +3516,7 @@ assert.ok(bundle.includes("pruneSubscriptions(modelDirectorySubs, new Set())"), 
 assert.ok(bundle.includes("detail.modelLive"), "目录订阅已产值时晚到的一次性 RPC 不回写旧值");
 assert.ok(!bundle.includes("events.mux"), "不常驻全局 mux，当前会话使用原生 session subscribe");
 assert.ok(
-	bundle.includes('return [head, row, makeEl("div", "dap-trace"), progressRow, statsRow];'),
+	bundle.includes('return [head, row, makeEl("div", "dap-trace"), progressRow, makeStatsRow()];'),
 	"running 卡 token 统计骨架位于进度条骨架之后",
 );
 assert.ok(
@@ -3503,8 +3543,8 @@ assert.ok(
 );
 // R-02-004/AC-02（演进，C-030、C-074）：HTTP 请求仅两处——完成确认写回（用户操作触发的
 // 一次性 POST）与累计运行时长懒回填触发（每会话至多一次的一次性 GET，随可见会话触发），
-// 均非状态轮询；轮内状态与回合统计仍只来自原生订阅推送与 SSE 推送。fetch/EventSource
-// 数量由下两条断言钉住：轮询需要重复请求，受限的调用面即排除轮询形态。
+// 均非状态轮询；轮内状态与回合统计仍只来自原生订阅推送与 SSE 推送。
+// fetch/EventSource 数量由下两条断言钉住：轮询需要重复请求，受限的调用面即排除轮询形态。
 assert.ok(
 	(bundle.match(/fetch\(/g) ?? []).length === 2
 		&& bundle.includes("fetch(`${PANE_API_BASE}/ack`")
@@ -4033,11 +4073,11 @@ assert.ok(
 // 子代理模型经既有 history 溯源提取（models RPC 对子代理被宿主 agent-busy 拒绝）。
 assert.ok(bundle.includes("modelFromHistoryEvents"), "子代理模型溯源提取函数进入 bundle（R-01-012/AC-17）");
 assert.ok(
-	clientSource.includes("if (plan.subagentModel) {") && clientSource.includes("detail.modelReadDone = true;"),
+	clientSource.includes("if (plan.subagentModelRead) {") && clientSource.includes("detail.modelReadDone = true;"),
 	"history 读取落地时为子代理提取模型溯源并记账每次可见期单次尝试（R-01-012/AC-17）",
 );
 assert.ok(
-	clientSource.includes("row?.kind === \"assistant\" && row.status === \"done\""),
+	clientSource.includes("chatHasSettledAssistant(detailSnapshot)"),
 	"模型读取时机锚定已定案助手行或非运行状态（R-01-012/AC-17）",
 );
 assert.ok(
@@ -4046,8 +4086,9 @@ assert.ok(
 );
 // 运行中子代理卡与主会话运行卡同构：进度行 + 统计行进骨架，渲染按同一锚点与曲线。
 assert.ok(
-	clientSource.includes("return [head, row, makeEl(\"div\", \"dap-subtrace\"), progressRow, statsRow];"),
-	"子代理卡骨架承载进度行与统计行（R-01-009/AC-14）",
+	clientSource.includes("return [row, makeEl(\"div\", \"dap-subtrace\"), progressRow, makeStatsRow()];") &&
+		clientSource.includes("row.append(makeEl(\"span\", \"dap-dot\"), makeEl(\"span\", \"dap-title\"), model, makeEl(\"span\", \"dap-total-time\"));"),
+	"子代理卡骨架：模型名入标题行右侧，进度行与统计行承载（R-01-009/AC-14、R-01-012/AC-17）",
 );
 assert.ok(
 	clientSource.includes("progressOf({ elapsedMs, halfLifeSec: progressHalfLifeSec({ rateTokS: projectionStats.rateTokS }) })"),
@@ -4067,7 +4108,7 @@ assert.ok(
 	"非运行子代理卡冻结统计并隐藏进度行（R-01-009/AC-15）",
 );
 
-
+// ---- R-01-002/AC-10～AC-12 宿主侧完成确认契约（C-030）----
 // R-01-002/AC-12 刷新/重连恢复：状态由宿主侧持久化承载，不依赖客户端在线观测。
 const hostSource = await readFile(join(root, "src/host.mjs"), "utf8");
 const hostEntry = await readFile(join(root, ".dsh-plugin/index.mjs"), "utf8");

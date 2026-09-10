@@ -441,6 +441,23 @@ function chatNodeAt(nodes, key) {
 	}
 }
 
+/** 子代理模型读取的触发信号（R-01-012/AC-17）：快照最新一个助手节点已定案
+ *  （status === "settled"，即其 assistant/message 事件已落宿主日志，尾页读取必命中）
+ *  时为 true。只检查最新一个助手节点——它随流式推送翻转为 settled 的那一刻即产生
+ *  触发，成本 O(1) 且完全挂在既有订阅推送上（R-02-004）；工具密集期 4 行折叠窗口
+ *  可能不含助手行，故不看折叠时间线而直接读快照。流式未定案/中断/无快照为 false。 */
+function chatHasSettledAssistant(snapshot) {
+	const chat = snapshot?.chat;
+	const order = Array.isArray(chat?.order) ? chat.order : [];
+	const nodes = chat?.nodes;
+	for (let i = order.length - 1; i >= 0; i -= 1) {
+		const node = chatNodeAt(nodes, order[i]);
+		if (!isRecord(node) || node.visibility === "hidden" || node.kind !== "assistant-step") continue;
+		return isRecord(node.data) && node.data.status === "settled";
+	}
+	return false;
+}
+
 /** 尾部反向收集原始工作项（不含 live 合并），取够 want 个可转换项或耗尽 order 即停。
  *  continueToUser：取够后以廉价结构检查（isUserChatNode：非 hidden 的 user/steering 且含非空文本块）继续前走至最近一个未收集的用户节点（含
  *  steering），命中才转换并入队首——供指令锚行派生（R-01-012/AC-12），不为找锚做全序转换。 */
@@ -1234,13 +1251,13 @@ function detailLoadPlan({
 	// history 读取提取。读取在「存在已定案助手行（事件已落日志，尾页必命中）或不在
 	// 运行中」时才发起，避免开局早读扑空；每次可见期至多一次（modelReadDone 记账），
 	// 不构成轮询（R-02-004）。
-	const subagentModel =
+	const subagentModelRead =
 		isSubagent === true && subagentModelReadNeeded === true && !detail.model && detail.modelReadDone !== true;
 	return {
 		subagent: isSubagent === true,
-		subagentModel,
+		subagentModelRead,
 		model: !isSubagent && !detail.model && !modelInflight,
-		history: !historyInflight && (subagentModel ||
+		history: !historyInflight && (subagentModelRead ||
 			((durationFallbackNeeded && detail.durationFallbackLoaded !== true) ||
 				(previewFallbackNeeded && detail.previewFallbackLoaded !== true) ||
 				(!detail.history && ((!snapshotReady && historyNeeded) || (snapshotReady === true && windowComplete === false))))),
@@ -3830,7 +3847,7 @@ function apply(ctx) {
 		syncFromDirectory(); // 目录已被主窗口加载时立即同步，该会话免发一次性 RPC
 	}
 
-	function loadNativeDetails(ids, previewFallbackIds = new Set(), durationFallbackIds = new Set(), subagentModelReadIds = new Set()) {
+	function loadNativeDetails({ ids, previewFallbackIds = new Set(), durationFallbackIds = new Set(), subagentModelReadIds = new Set() }) {
 		const api = ctx.get("connection")?.api?.sessions;
 		if (!api) return;
 		const byId = getSnapshot(sessions, "list")?.byId ?? {};
@@ -3913,7 +3930,7 @@ function apply(ctx) {
 						detail.history = events;
 						// 子代理模型溯源（R-01-012/AC-17）：模型读取落地即记账并提取；
 						// 主会话不从此处取模型（其口径为模型目录服务，R-01-012/AC-01、AC-16）。
-						if (plan.subagentModel) {
+						if (plan.subagentModelRead) {
 							detail.modelReadDone = true;
 							if (!detail.model) detail.model = modelFromHistoryEvents(events);
 						} else if (plan.subagent && !detail.model) {
@@ -4214,6 +4231,23 @@ function apply(ctx) {
 		foot.append(capsule, noteRow);
 	}
 
+	/** 进度行骨架（运行卡与子代理卡共用，R-01-009/AC-06、AC-14）：可伸缩轨道 + 固定宽百分比。 */
+	function makeProgressRow() {
+		const track = makeEl("div", "dap-track");
+		track.append(makeEl("div", "dap-fill"));
+		const progressRow = makeEl("div", "dap-progress");
+		progressRow.append(track, makeEl("span", "dap-pct"));
+		return progressRow;
+	}
+
+	/** 统计行骨架：左列 token/速率/命中率（超长省略号截断），时长固定最右（R-01-009/AC-05）。 */
+	function makeStatsRow() {
+		const statsRow = makeEl("div", "dap-token-stats");
+		statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"));
+		statsRow.hidden = true;
+		return statsRow;
+	}
+
 	/** 静态骨架卡片；动态文本一律走 textContent，规避 HTML 注入。 */
 	function cardChildren(kind) {
 		const head = makeEl("div", "dap-card-head");
@@ -4221,21 +4255,18 @@ function apply(ctx) {
 		const workspaceIcon = makeEl("span", "dap-workspace-icon");
 		workspaceIcon.append(createWorkspaceFolderIcon());
 		workspace.append(workspaceIcon, makeEl("span", "dap-workspace-text"));
-		head.append(workspace, makeEl("div", "dap-model"));
+		const model = makeEl("div", "dap-model");
+		head.append(workspace, model);
 		if (kind === "subagent") {
 			const row = makeEl("div", "dap-row");
-			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-total-time"));
+			// 模型名与标题同行右对齐（东家反馈）：子代理卡无工作区徽标与累计时长，
+			// 标题行右侧即模型位；空值时区域隐藏不占位（R-01-012/AC-17、AC-18）。
+			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), model, makeEl("span", "dap-total-time"));
 			// 运行中子代理卡与主会话运行卡同构的进度行与统计行（R-01-009/AC-14）；
 			// 非运行时进度行隐藏、统计行冻结（R-01-009/AC-15）。
-			const track = makeEl("div", "dap-track");
-			track.append(makeEl("div", "dap-fill"));
-			const progressRow = makeEl("div", "dap-progress");
-			progressRow.append(track, makeEl("span", "dap-pct"));
+			const progressRow = makeProgressRow();
 			progressRow.hidden = true;
-			const statsRow = makeEl("div", "dap-token-stats");
-			statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"));
-			statsRow.hidden = true;
-			return [head, row, makeEl("div", "dap-subtrace"), progressRow, statsRow];
+			return [row, makeEl("div", "dap-subtrace"), progressRow, makeStatsRow()];
 		}
 		if (kind === "recent") {
 			const row = makeEl("div", "dap-row");
@@ -4254,10 +4285,7 @@ function apply(ctx) {
 			const agentLabel = makeEl("span", "dap-history-label");
 			agentLabel.textContent = "助手";
 			agentLine.append(agentIcon, agentLabel, makeEl("span", "dap-history-separator"), makeEl("span", "dap-history-text"));
-			const statsRow = makeEl("div", "dap-token-stats");
-			statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"));
-			statsRow.hidden = true;
-			return [head, row, userLine, agentLine, statsRow, makeEl("div", "dap-note")];
+			return [head, row, userLine, agentLine, makeStatsRow(), makeEl("div", "dap-note")];
 		}
 		if (kind === "awaiting") {
 			const row = makeEl("div", "dap-row");
@@ -4272,24 +4300,14 @@ function apply(ctx) {
 			noteRow.append(makeEl("div", "dap-note"), makeConfirmButton());
 			const awaitHead = makeEl("div", "dap-await-head");
 			awaitHead.append(capsule);
-			const statsRow = makeEl("div", "dap-token-stats");
-			statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"));
-			statsRow.hidden = true;
 			const foot = makeEl("div", "dap-foot");
 			foot.append(awaitHead, noteRow);
-			return [head, row, makeEl("div", "dap-trace"), statsRow, foot];
+			return [head, row, makeEl("div", "dap-trace"), makeStatsRow(), foot];
 		}
 		const row = makeEl("div", "dap-row");
 		row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-total-time"));
-		const track = makeEl("div", "dap-track");
-		track.append(makeEl("div", "dap-fill"));
-		const progressRow = makeEl("div", "dap-progress");
-		progressRow.append(track, makeEl("span", "dap-pct"));
-		// 统计行双段结构：左列 token/速率/命中率（超长省略号截断），时长固定最右（R-01-009/AC-05）。
-		const statsRow = makeEl("div", "dap-token-stats");
-		statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"));
-		statsRow.hidden = true;
-		return [head, row, makeEl("div", "dap-trace"), progressRow, statsRow];
+		const progressRow = makeProgressRow();
+		return [head, row, makeEl("div", "dap-trace"), progressRow, makeStatsRow()];
 	}
 
 	function createInlineIcon({ viewBox, width = 12, height = 12, parts }) {
@@ -4638,6 +4656,28 @@ function apply(ctx) {
 		}
 	}
 
+	/** 进度行写入（运行卡与子代理卡共用，R-01-009/AC-06、AC-14）：百分比与填充宽度，未变化跳过 DOM 写。 */
+	function renderProgressRow(el, progress) {
+		const pct = el.querySelector(".dap-pct");
+		if (pct !== null) pct.textContent = `${Math.round(progress ?? 0)}%`;
+		const fill = el.querySelector(".dap-fill");
+		if (fill !== null) {
+			const width = `${Math.min(100, Math.max(0, progress))}%`;
+			if (fill.style.width !== width) fill.style.width = width;
+		}
+	}
+
+	/** 最近回合耗时 memo（等待卡与暂停子代理卡共用，R-01-009/AC-12、AC-15）：快照/历史引用不变即命中缓存。 */
+	function memoTurnDuration(detail, detailSnapshot) {
+		const history = detail.history ?? null;
+		if (detail.memoTurnDurationSnapshotOf !== detailSnapshot || detail.memoTurnDurationHistoryOf !== history) {
+			detail.memoTurnDurationSnapshotOf = detailSnapshot;
+			detail.memoTurnDurationHistoryOf = history;
+			detail.memoTurnDuration = lastTurnDuration({ turnTimings: detailSnapshot?.turnTimings, history });
+		}
+		return detail.memoTurnDuration ?? null;
+	}
+
 	/** 统计行渲染：运行卡、等待卡与最近卡写入速率、token 与耗时，旧骨架缺节点时就地补齐。 */
 	function renderTokenStats(el, entry) {
 		let stats = el.querySelector(".dap-token-stats");
@@ -4799,16 +4839,9 @@ function apply(ctx) {
 		}
 
 		if (entry.kind === "running") {
-			const pct = el.querySelector(".dap-pct");
-			if (pct !== null)
-				pct.textContent = `${Math.round(entry.progress ?? 0)}%`;
+			renderProgressRow(el, entry.progress);
 			const traceContainer = el.querySelector(".dap-trace");
 			if (traceContainer !== null) renderTimelineArea(traceContainer, entry);
-			const fill = el.querySelector(".dap-fill");
-			if (fill !== null) {
-				const width = `${Math.min(100, Math.max(0, entry.progress ?? 0))}%`;
-				if (fill.style.width !== width) fill.style.width = width;
-			}
 			renderTokenStats(el, entry);
 			return;
 		}
@@ -4820,13 +4853,7 @@ function apply(ctx) {
 			const progressRow = el.querySelector(".dap-progress");
 			if (progressRow !== null) {
 				if (Number.isFinite(entry.progress)) {
-					const pct = el.querySelector(".dap-pct");
-					if (pct !== null) pct.textContent = `${Math.round(entry.progress)}%`;
-					const fill = el.querySelector(".dap-fill");
-					if (fill !== null) {
-						const width = `${Math.min(100, Math.max(0, entry.progress))}%`;
-						if (fill.style.width !== width) fill.style.width = width;
-					}
+					renderProgressRow(el, entry.progress);
 					if (progressRow.hidden) progressRow.hidden = false;
 				} else if (!progressRow.hidden) {
 					progressRow.hidden = true;
@@ -5519,13 +5546,7 @@ function apply(ctx) {
 				}
 			}
 			if (entry.kind === "awaiting" && detail) {
-				const history = detail.history ?? null;
-				if (detail.memoTurnDurationSnapshotOf !== detailSnapshot || detail.memoTurnDurationHistoryOf !== history) {
-					detail.memoTurnDurationSnapshotOf = detailSnapshot;
-					detail.memoTurnDurationHistoryOf = history;
-					detail.memoTurnDuration = lastTurnDuration({ turnTimings: detailSnapshot?.turnTimings, history });
-				}
-				entry.elapsedMs = detail.memoTurnDuration ?? null;
+				entry.elapsedMs = memoTurnDuration(detail, detailSnapshot);
 			}
 			if (detail?.model) {
 				entry.model = detail.model.model;
@@ -5588,17 +5609,7 @@ function apply(ctx) {
 					// 非运行（暂停等待）：冻结最后已知统计与最近回合耗时，progress 置空隐藏
 					// 进度条（R-01-009/AC-15）；刷新/无留存时回退当前列表投影。
 					Object.assign(entry, mergeRuntimeStats(detail?.lastRuntimeStats, projectionStats));
-					if (detail) {
-						const history = detail.history ?? null;
-						if (detail.memoTurnDurationSnapshotOf !== detailSnapshot || detail.memoTurnDurationHistoryOf !== history) {
-							detail.memoTurnDurationSnapshotOf = detailSnapshot;
-							detail.memoTurnDurationHistoryOf = history;
-							detail.memoTurnDuration = lastTurnDuration({ turnTimings: detailSnapshot?.turnTimings, history });
-						}
-						entry.elapsedMs = detail.memoTurnDuration ?? null;
-					} else {
-						entry.elapsedMs = null;
-					}
+					entry.elapsedMs = detail ? memoTurnDuration(detail, detailSnapshot) : null;
 					entry.progress = null;
 				}
 			}
@@ -5664,19 +5675,24 @@ function apply(ctx) {
 			...active.filter((entry) => entry.kind === "awaiting").map((entry) => entry.id),
 			...recentDurationFallbackIds,
 		]);
-		// 子代理模型溯源读取时机（R-01-012/AC-17）：时间线出现已定案助手行说明
-		// assistant/message 事件已落宿主日志（尾页读取必命中）；不在运行中则整段日志
-		// 已冻结。开局只有流式 partial 时不读，避免早读扑空。
+		// 子代理模型溯源读取时机（R-01-012/AC-17）：运行中看快照最新助手节点是否已
+		// 定案（事件已落宿主日志，尾页读取必命中；工具密集期 4 行折叠窗口可能不含
+		// 助手行，故直接读快照而非折叠时间线）；不在运行中则整段日志已冻结，直接读取。
+		// 开局只有流式 partial 时不读，避免早读扑空。
 		const subagentModelReadIds = new Set();
 		for (const entry of active) {
 			if (entry.kind !== "subagent") continue;
-			if (!runLikeIds.has(entry.id) || entry.timeline.some((row) => row?.kind === "assistant" && row.status === "done")) {
+			if (!runLikeIds.has(entry.id)) {
 				subagentModelReadIds.add(entry.id);
+				continue;
 			}
+			const detail = sessionDetailsById.get(entry.id);
+			const detailSnapshot = livenessById.get(entry.id)?.snapshot ?? detail?.snapshot ?? null;
+			if (chatHasSettledAssistant(detailSnapshot)) subagentModelReadIds.add(entry.id);
 		}
 		const detailIds = [...active, ...recent].map((entry) => entry.id);
 		detailIds.sort((a, b) => Number(String(b) === String(snapshot?.current)) - Number(String(a) === String(snapshot?.current)));
-		loadNativeDetails(detailIds, previewFallbackIds, durationFallbackIds, subagentModelReadIds);
+		loadNativeDetails({ ids: detailIds, previewFallbackIds, durationFallbackIds, subagentModelReadIds });
 		// 累计运行时长懒回填（R-01-020/AC-05）：对可见主会话触发宿主侧存量回合补齐；
 		// 宿主侧每会话单飞，重复触发由宿主合并；完成后经 busy SSE 广播推送。
 		requestBusyBackfill([...active, ...recent].filter((entry) => entry.kind !== "subagent").map((entry) => entry.id));

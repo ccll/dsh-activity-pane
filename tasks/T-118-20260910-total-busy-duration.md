@@ -62,10 +62,15 @@ id: T-118
 
 ## 终态与证据
 
-状态: active
+状态: completed
 
-- 实现: （待填写）
-- 测试: （待填写）
-- DESIGN 对照: （待填写）
-- commit: （待填写）
-- review: （待填写）
+- 实现: 宿主侧（src/host.mjs）新独立 domain `dsh_activity_pane_turns` 表 `turn_stats`（sessionId → { busyMs, openTurnStart, watermarkSeq }），注入 sessionQuery；`session/event` 配对 turn/start–turn/end 实时记账（seq ≤ watermark 幂等跳过、全部结束原因计入、主/子统一登记），表内无记录的会话先经 sessionQuery.listEvents 全量重放懒回填再应用实时事件（每会话单飞）；`GET /dsh-activity-pane/api/busy?ids=` 全量快照 + `/busy/stream` SSE 只读下发。客户端（src/client.mjs）busy SSE 订阅 + 可见主会话回填触发，active/recent 条目注入 totalBusyMs（totalBusyDisplayMs 渲染期合成，运行中含开放回合实时已耗时），标题行最右侧 dap-total-time 呈现，子代理卡不显示。core（src/core.mjs）applyTurnEventToStats/totalBusyDisplayMs 纯函数；cardSignature 纳入 totalBusyMs。`.dsh-plugin/client.js` 随 d72a8aa 重建。
+- 测试: `scripts/check.mjs` 先行补 R-01-020 六条 AC 断言（配对累计、孤儿/逆序回合、水位幂等、显示合成、重放补齐、空数据 null）确认实现后全绿；fetch/EventSource 契约断言按 C-074 演进为 2 处（ack 写回 + busy 懒回填触发；acks/busy 两条 SSE 通道）；e2e session-lifecycle 新增运行卡与历史卡标题行累计时长锚点（R-01-020/AC-01、AC-03、AC-05、AC-06 反向覆盖 hidden）。`pnpm verify:fast` 全绿；`pnpm verify` 全量 13 spec 通过（202140ms）。
+- DESIGN 对照: DESIGN.md 新增「回合统计宿主侧」子系统条目、关键机制「会话累计运行时长」条目、核心数据不变量「回合统计记账」、运行时语义「回合统计运行时」与需求追溯索引行（R-01-020 → 回合统计宿主侧，实现位置 src/host.mjs、src/core.mjs、src/client.mjs）；PRD R-01-020 六条 AC 与实现逐条对应（agentmap lint：requirements=24、design-covered=24、test-anchored=142/142）；DOMAIN.md 登记术语「累计运行时长」与实体「回合统计宿主侧」；无实现与 DESIGN 差异。
+- commit: d72a8aa
+- review:
+  - 审核方: Standards reviewer `91417982-db55-46e7-bf5c-fbd0f25f603b`；Spec reviewer `41ed45aa-1aa8-4de7-97c7-9b33c09dbd98`。
+  - 目的理解: 会话卡片标题行最右侧需显示全会话累计 busy 运行时长（所有回合运行时间之和、不含回合间空闲，运行中逐秒推进），宿主快照 turnTimings 仅有加载窗口口径，故按 C-074 以宿主侧实时记账 + sessionQuery 懒回填 + 只读 HTTP/SSE 通道承载；约束为不引入轮询（R-02-004）、不动 acks 契约（C-030）、PRD R-01-020 六条 AC 为可判定锚点。
+  - 执行方式: `code-review` skill；基线 `0bd600e`，范围 `git diff 0bd600e...HEAD`（提交 d72a8aa）；Standards/Spec 双轴并行独立审核后聚合。
+  - 问题与修复: Standards 轴 3 项判断性意见（active/recent 两处注入块形状重复、{busyMs, openTurnStart} 数据团、变量名 turnStats 与表名 turn_stats 并存），均评估为不阻断、与既有惯例一致，未修改；Spec 轴 2 项证据覆盖备注（子代理卡不显示与宿主重启恢复无 e2e 直证，前者实现路径正确、后者由 storageDomain 持久化架构同构先例推断），无缺陷、无 scope creep、无 spec 缺失。无需要修复的问题。
+  - 复审结论: Standards 轴通过（无硬性标准违反）；Spec 轴通过（AC-01～AC-06 全部有实现与测试锚点，无 scope creep、无错误实现）；双轴最终通过，T-118 实现与追溯证据闭合。

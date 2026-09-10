@@ -333,11 +333,7 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 			return /^\d+(s|m\d+s|h\d+m\d+s)$/.test(text) ? text : null;
 		}, TITLE),
 	);
-	assert.match(
-		recentTotal,
-		/^(?:\d+s|\d+m\d+s|\d+h\d+m\d+s)$/,
-		`历史卡标题行最右侧延续显示累计运行时长（R-01-020/AC-01，实际：${recentTotal}）`,
-	);
+	assert.match(recentTotal, TOTAL_BUSY_RE, `历史卡标题行最右侧延续显示累计运行时长（R-01-020/AC-01，实际：${recentTotal}）`);
 	assert.equal(recentStats.activityIsLast, true, "历史卡活动时间保持最后一行（R-01-013/AC-12）");
 	await openApp(page, url);
 	const refreshedRecentStats = await until("刷新后恢复历史卡最近回合统计", readRecentStats);

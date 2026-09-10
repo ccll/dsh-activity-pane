@@ -5915,6 +5915,7 @@ function apply(ctx) {
 		completeAcksById.clear();
 		busyById.clear();
 		busyRequestedIds.clear();
+		busyRetryAtById.clear();
 		if (clockTimer !== null) clearInterval(clockTimer);
 		if (recentTimeTimer !== null) clearInterval(recentTimeTimer);
 		if (e2eListReleaseTimer !== null) clearTimeout(e2eListReleaseTimer);

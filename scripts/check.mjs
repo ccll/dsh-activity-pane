@@ -1109,6 +1109,23 @@ assert.equal(totalBusyDisplayMs({ busyMs: 0, openTurnStart: null, now: null }), 
 	for (const event of backfillEvents) stats = applyTurnEventToStats(stats, event);
 	assert.equal(stats.busyMs, 500, "R-01-020/AC-05 存量回合重放补齐累计");
 	assert.equal(stats.openTurnStart, 900, "R-01-020/AC-05 重放恢复开放回合起点");
+	// 水位缺口增量（宿主 ensureTurnStatsFresh 已有记录路径）：从已有记账出发，
+	// 仅应用 seq > watermark 的事件，补停机缺口且不重复计数（R-01-020/AC-04、AC-05）。
+	const gapEvents = [
+		{ type: "turn/start", seq: 1, time: 100 },
+		{ type: "turn/end", seq: 2, time: 600 },
+		{ type: "turn/start", seq: 3, time: 900 },
+		{ type: "turn/end", seq: 4, time: 1_400 },
+	];
+	const gapState = { busyMs: 500, openTurnStart: null };
+	const watermark = 2;
+	let gapResult = gapState;
+	for (const event of gapEvents) {
+		if (event.seq <= watermark) continue;
+		gapResult = applyTurnEventToStats(gapResult, event);
+	}
+	assert.equal(gapResult.busyMs, 1_000, "R-01-020/AC-05 增量重放补齐水位缺口回合");
+	assert.equal(gapResult.openTurnStart, null, "R-01-020/AC-05 增量重放后无开放回合");
 }
 // R-01-013/AC-05：历史卡同时显示本地绝对日期时间与相对年龄，异常输入不制造虚假时间。
 const relativeMinute = 60_000;
@@ -3263,7 +3280,7 @@ assert.ok(
 	"按钮点击/键盘激活写回 ack 且阻断卡片跳转（R-01-002/AC-10）",
 );
 assert.ok(bundle.includes('confirm.hidden = entry.waitClass !== "done"'), "仅完成提醒卡显示「移入历史」按钮，阻塞等待卡不显示（R-01-002/AC-10）");
-assert.ok(bundle.includes("new window.EventSource(`${ACK_API_BASE}/acks/stream`)"), "完成确认状态经 SSE 通道订阅（R-01-002/AC-11、AC-12）");
+assert.ok(bundle.includes("new window.EventSource(`${PANE_API_BASE}/acks/stream`)"), "完成确认状态经 SSE 通道订阅（R-01-002/AC-11、AC-12）");
 // R-01-002/AC-12 缺陷回归：移动 PWA 后台恢复后 ack 通道必须自愈（EventSource CLOSED/半开
 // 不再自动重连），否则完成等待中的会话被误判入历史区直至整页重载。
 assert.ok(
@@ -3278,7 +3295,7 @@ assert.ok(
 	bundle.includes('document.removeEventListener("visibilitychange", onVisibilityResume)') && bundle.includes('window.removeEventListener("pageshow", onPageShow)'),
 	"卸载时移除 ack 通道自愈监听（R-01-002/AC-12）",
 );
-assert.ok(bundle.includes("fetch(`${ACK_API_BASE}/ack`"), "确认写回经宿主侧 ack 路由（R-01-002/AC-10、AC-11）");
+assert.ok(bundle.includes("fetch(`${PANE_API_BASE}/ack`"), "确认写回经宿主侧 ack 路由（R-01-002/AC-10、AC-11）");
 assert.ok(
 	!bundle.includes("updateCompletedHolds") && !bundle.includes("heldCompletedIds") && !bundle.includes("prevActiveMainIds"),
 	"响应保持易失记账全套移除（C-030）",
@@ -3425,14 +3442,14 @@ assert.ok(
 // 数量由下两条断言钉住：轮询需要重复请求，受限的调用面即排除轮询形态。
 assert.ok(
 	(bundle.match(/fetch\(/g) ?? []).length === 2
-		&& bundle.includes("fetch(`${ACK_API_BASE}/ack`")
-		&& bundle.includes("fetch(`${ACK_API_BASE}/busy?ids="),
+		&& bundle.includes("fetch(`${PANE_API_BASE}/ack`")
+		&& bundle.includes("fetch(`${PANE_API_BASE}/busy?ids="),
 	"HTTP 请求仅完成确认写回与 busy 懒回填触发两处，指向宿主侧自家路由（R-01-002/AC-10、R-01-020、C-030、C-074）",
 );
 assert.ok(
 	(bundle.match(/new window\.EventSource\(/g) ?? []).length === 2
-		&& bundle.includes("${ACK_API_BASE}/acks/stream")
-		&& bundle.includes("${ACK_API_BASE}/busy/stream"),
+		&& bundle.includes("${PANE_API_BASE}/acks/stream")
+		&& bundle.includes("${PANE_API_BASE}/busy/stream"),
 	"SSE 订阅仅 acks 与 busy 两条通道，均连接即收全量快照（C-030、C-074）",
 );
 

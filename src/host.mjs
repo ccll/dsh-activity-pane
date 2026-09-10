@@ -136,11 +136,12 @@ export function apply(ctx) {
 		}
 	}
 
-	/** 懒回填：无记录会话经 sessionQuery.listEvents 全量重放配对累计（C-074）。
-	 *  宿主与 agent 同生命周期——运行中回合必然经实时流登记，表内无记录即存量会话；
-	 *  重放以「最近未配对 start」策略覆盖实时登记同一口径，写入后广播。回填读取失败
-	 *  保留已有记账（可能为空），随下次请求重试；会话不存在/已删除时静默跳过。 */
-	function ensureTurnStatsBackfilled(id) {
+	/** 懒回填（R-01-020/AC-05，C-074）：经 sessionQuery.listEvents 读取会话事件，保证
+	 *  记账覆盖全部存量回合——无记录会话自空状态全量重放；已有记录会话仅增量应用
+	 *  seq > watermarkSeq 的事件（宿主离线期间经其它入口发生的回合），以水位衔接保证
+	 *  不重复、不遗漏。重放以「最近未配对 start」策略覆盖实时登记同一口径，写入后
+	 *  广播。读取失败保留已有记账，随下次请求重试；会话不存在/已删除时静默跳过。 */
+	function ensureTurnStatsFresh(id) {
 		if (backfills.has(id)) return backfills.get(id)
 		const promise = new Promise((resolve) => {
 			ctx.inject(['sessionQuery'], (sessionQuery) => {
@@ -149,7 +150,27 @@ export function apply(ctx) {
 		}).then(async (sessionQuery) => {
 			try {
 				await domainReady
-				if (turnStats.get(id)) return
+				const current = turnStats.get(id)
+				if (current) {
+					// 已有记账：只补水位之后的缺口回合（宿主离线期间经其它入口发生的回合）。
+					const watermark = Number(current.watermarkSeq)
+					const records = await sessionQuery.listEvents(id)
+					let state = { busyMs: current.busyMs ?? null, openTurnStart: current.openTurnStart ?? null }
+					let watermarkSeq = current.watermarkSeq ?? null
+					for (const record of Array.isArray(records) ? records : []) {
+						const seq = Number(record?.seq)
+						if (!Number.isFinite(seq)) continue
+						if (Number.isFinite(watermark) && seq <= watermark) continue
+						state = applyTurnEventToStats(state, record)
+						if (watermarkSeq === null || seq > watermarkSeq) watermarkSeq = seq
+					}
+					if (watermarkSeq !== null && (watermarkSeq !== (current.watermarkSeq ?? null) || state.busyMs !== (current.busyMs ?? null) || state.openTurnStart !== (current.openTurnStart ?? null))) {
+						await turnStats.put(id, { busyMs: state.busyMs, openTurnStart: state.openTurnStart, watermarkSeq })
+						broadcastBusy()
+					}
+					return
+				}
+				// 无记录：自空状态全量重放（存量会话首次回填）。
 				const records = await sessionQuery.listEvents(id)
 				let state = { busyMs: null, openTurnStart: null }
 				let watermarkSeq = null
@@ -158,12 +179,6 @@ export function apply(ctx) {
 					const seq = Number(record?.seq)
 					if (Number.isFinite(seq) && (watermarkSeq === null || seq > watermarkSeq)) watermarkSeq = seq
 				}
-				if (state.busyMs === null && state.openTurnStart === null && watermarkSeq === null) {
-					// 无任何回合边界事件（空会话/纯 command 会话）：落全空记录作为已回填标记，
-					// 避免每次触发都重复 listEvents。
-				}
-				const current = turnStats.get(id)
-				if (current) return // 回填期间实时事件已建立记录：以实时为准，避免覆盖
 				await turnStats.put(id, { busyMs: state.busyMs, openTurnStart: state.openTurnStart, watermarkSeq })
 				broadcastBusy()
 			} catch (error) {
@@ -242,7 +257,14 @@ export function apply(ctx) {
 		if (id === '') return
 		try {
 			await domainReady
-			if (!turnStats.get(id)) await ensureTurnStatsBackfilled(id)
+			if (!turnStats.get(id)) {
+				await ensureTurnStatsFresh(id)
+			} else {
+				// 回填在途时排队等待其写入完成，再按水位应用实时事件，避免回填快照
+				// 覆盖（回退）实时事件的效果或造成缺口丢失（R-01-020/AC-04）。
+				const inflight = backfills.get(id)
+				if (inflight) await inflight
+			}
 			const current = turnStats.get(id)
 			if (Number.isFinite(current?.watermarkSeq) && seq <= current.watermarkSeq) return
 			const next = applyTurnEventToStats(
@@ -318,7 +340,7 @@ export function apply(ctx) {
 				// 回填完成经 /busy/stream 广播推送（R-01-020/AC-05）。
 				const idsParam = url.searchParams.get('ids') ?? ''
 				for (const id of idsParam.split(',')) {
-					if (id !== '') ensureTurnStatsBackfilled(id)
+					if (id !== '') ensureTurnStatsFresh(id)
 				}
 				res.writeHead(200, { 'Content-Type': 'application/json' })
 				res.end(JSON.stringify(busySnapshot()))

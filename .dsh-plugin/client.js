@@ -2346,7 +2346,7 @@ const INSTANCE_KEY = "__dshActivityPaneCleanup";
 const WIDTH_STORAGE_KEY = "dsh-activity-pane:width";
 const COLLAPSED_WIDTH = 34;
 /** 宿主侧完成确认 API 前缀（C-030）：acks 快照 / SSE 推送 / ack 写回，同源受信。 */
-const ACK_API_BASE = "/dsh-activity-pane/api";
+const PANE_API_BASE = "/dsh-activity-pane/api";
 // 缩进槽宽：与连接线 CSS 几何耦合（left:-8px = INDENT_PX/2 缩进槽中线，
 // top:-6px/bottom:-2px 对应 .dap-list 的 gap:6px），改任一数值须三处同步；
 // scripts/check.mjs 有钉住断言。
@@ -3610,7 +3610,7 @@ function apply(ctx) {
 		acksSource = null;
 		if (disposed || typeof window.EventSource !== "function") return;
 		try {
-			const source = new window.EventSource(`${ACK_API_BASE}/acks/stream`);
+			const source = new window.EventSource(`${PANE_API_BASE}/acks/stream`);
 			source.addEventListener("state", (event) => applyAcksState(event.data ?? ""));
 			acksSource = source;
 		} catch {
@@ -3640,7 +3640,7 @@ function apply(ctx) {
 		completeAcksById.set(id, { ...prev, lastTurnEnd: prev?.lastTurnEnd ?? null, ackedAt: Date.now() });
 		queueSync();
 		try {
-			const response = await fetch(`${ACK_API_BASE}/ack`, {
+			const response = await fetch(`${PANE_API_BASE}/ack`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ sessionId: id }),
@@ -3660,17 +3660,20 @@ function apply(ctx) {
 	// 可见会话的懒回填经 GET /busy?ids= 触发（fire-and-forget），完成后经同一 SSE 广播。
 	const busyById = new Map(); // sessionId -> { busyMs, openTurnStart }
 	const busyRequestedIds = new Set(); // 已触发过回填的会话 id（宿主侧单飞，本地防重复请求）
+	const busyRetryAtById = new Map(); // sessionId -> 回填失败后的最早重试时刻（30s 退避，不逼近轮询）
 	let busySource = null;
 	let busyFetchInflight = false;
 
-	/** SSE 全量快照应用：解析成功才整体替换本地状态并重绘；坏帧静默丢弃。 */
-	function applyBusyState(raw) {
+	/** SSE 全量快照应用：接受已解析对象或原始 JSON 文本；解析失败静默丢弃。 */
+	function applyBusyState(input) {
 		if (disposed) return;
-		let state = null;
-		try {
-			state = JSON.parse(raw);
-		} catch {
-			state = null;
+		let state = typeof input === "object" ? input : null;
+		if (state === null) {
+			try {
+				state = JSON.parse(input);
+			} catch {
+				state = null;
+			}
 		}
 		if (state === null || typeof state !== "object") return;
 		busyById.clear();
@@ -3683,21 +3686,32 @@ function apply(ctx) {
 		queueSync();
 	}
 
+	/** 累计运行时长注入（R-01-020/AC-01、AC-03）：已完成回合累计 + 开放回合实时已耗时，
+	 *  渲染期按 now 合成；子代理条目不注入（entry.totalBusyMs 保持 undefined → 节点隐藏）。 */
+	function applyTotalBusy(entry, now) {
+		const busyRecord = busyById.get(entry.id);
+		entry.totalBusyMs = totalBusyDisplayMs({ busyMs: busyRecord?.busyMs ?? null, openTurnStart: busyRecord?.openTurnStart ?? null, now });
+	}
+
 	/** 触发可见主会话的懒回填：只对未请求过的 id 发一次 GET；在途时跳过（SSE 广播兜底）。 */
 	function requestBusyBackfill(ids) {
 		if (disposed || typeof fetch !== "function") return;
-		const pending = ids.filter((id) => !busyRequestedIds.has(id) && !busyById.has(id));
+		const pending = ids.filter((id) => !busyRequestedIds.has(id) && !busyById.has(id) && Date.now() >= (busyRetryAtById.get(id) ?? 0));
 		if (pending.length === 0 || busyFetchInflight) return;
 		for (const id of pending) busyRequestedIds.add(id);
 		busyFetchInflight = true;
-		fetch(`${ACK_API_BASE}/busy?ids=${encodeURIComponent(pending.join(","))}`)
+		fetch(`${PANE_API_BASE}/busy?ids=${encodeURIComponent(pending.join(","))}`)
 			.then((response) => (response.ok ? response.json() : null))
 			.then((state) => {
-				if (state !== null && typeof state === "object") applyBusyState(JSON.stringify(state));
+				if (state !== null && typeof state === "object") applyBusyState(state);
 			})
 			.catch(() => {
-				// 回填触发失败：允许下次可见集合变化时重试。
-				for (const id of pending) busyRequestedIds.delete(id);
+				// 回填触发失败：30s 退避后允许重试，不逐帧逼近轮询形态。
+				const retryAt = Date.now() + 30_000;
+				for (const id of pending) {
+					busyRequestedIds.delete(id);
+					busyRetryAtById.set(id, retryAt);
+				}
 			})
 			.finally(() => {
 				busyFetchInflight = false;
@@ -3712,19 +3726,23 @@ function apply(ctx) {
 		busySource = null;
 		if (disposed || typeof window.EventSource !== "function") return;
 		try {
-			const source = new window.EventSource(`${ACK_API_BASE}/busy/stream`);
+			const source = new window.EventSource(`${PANE_API_BASE}/busy/stream`);
 			source.addEventListener("state", (event) => applyBusyState(event.data ?? ""));
 			busySource = source;
 		} catch {
 			busySource = null;
 		}
 	}
-	document.addEventListener("visibilitychange", () => {
+	// 回到前台（含 bfcache 还原）时 busy 通道自愈：重建 SSE，借连接全量快照收敛；
+	// 具名 handler 使 cleanup 能移除监听（与 acks 通道同模式，R-02-003）。
+	const onBusyVisibilityResume = () => {
 		if (document.visibilityState === "visible" && !disposed) connectBusyStream();
-	});
-	window.addEventListener("pageshow", (event) => {
+	};
+	const onBusyPageShow = (event) => {
 		if (event?.persisted === true && !disposed) connectBusyStream();
-	});
+	};
+	document.addEventListener("visibilitychange", onBusyVisibilityResume);
+	window.addEventListener("pageshow", onBusyPageShow);
 	connectBusyStream();
 
 	function apiValue(response) {
@@ -5380,10 +5398,7 @@ function apply(ctx) {
 			if (entry.kind === "running" && detail) detail.durationFallbackLoaded = false;
 			// 累计运行时长（R-01-020/AC-01、AC-03）：主会话条目注入显示值——渲染期合成，
 			// 含开放回合的实时已耗时并随时钟逐秒推进；子代理卡片不显示。
-			if (entry.kind !== "subagent") {
-				const busyRecord = busyById.get(entry.id);
-				entry.totalBusyMs = totalBusyDisplayMs({ busyMs: busyRecord?.busyMs ?? null, openTurnStart: busyRecord?.openTurnStart ?? null, now });
-			}
+			if (entry.kind !== "subagent") applyTotalBusy(entry, now);
 			const detailSnapshot = liveRecord?.snapshot ?? detail?.snapshot ?? null;
 			if (detail && detail.memoHistoryAnchorOf !== (detail.history ?? null)) {
 				detail.memoHistoryAnchorOf = detail.history ?? null;
@@ -5513,10 +5528,7 @@ function apply(ctx) {
 			const detailSnapshot = livenessById.get(entry.id)?.snapshot ?? detail?.snapshot ?? null;
 			const elapsedMs = lastTurnDuration({ turnTimings: detailSnapshot?.turnTimings, history: detail?.history });
 			// 累计运行时长（R-01-020/AC-01）：最近历史卡同为标题行右侧显示；历史卡无开放回合。
-			{
-				const busyRecord = busyById.get(entry.id);
-				entry.totalBusyMs = totalBusyDisplayMs({ busyMs: busyRecord?.busyMs ?? null, openTurnStart: busyRecord?.openTurnStart ?? null, now });
-			}
+			applyTotalBusy(entry, now);
 			const stats = statsFromProjection(snapshot?.byId?.[entry.id]?.projectionValues, elapsedMs);
 			const retained = detail?.lastRuntimeStats;
 			Object.assign(entry, stats, retained ? {
@@ -5894,9 +5906,15 @@ function apply(ctx) {
 		workspaceUnsubscribe?.();
 		acksSource?.close();
 		acksSource = null;
+		busySource?.close();
+		busySource = null;
+		document.removeEventListener("visibilitychange", onBusyVisibilityResume);
+		window.removeEventListener("pageshow", onBusyPageShow);
 		document.removeEventListener("visibilitychange", onVisibilityResume);
 		window.removeEventListener("pageshow", onPageShow);
 		completeAcksById.clear();
+		busyById.clear();
+		busyRequestedIds.clear();
 		if (clockTimer !== null) clearInterval(clockTimer);
 		if (recentTimeTimer !== null) clearInterval(recentTimeTimer);
 		if (e2eListReleaseTimer !== null) clearTimeout(e2eListReleaseTimer);

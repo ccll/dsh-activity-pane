@@ -5,6 +5,8 @@
 import { openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
 
 const TITLE = "e2e:slow 慢速任务探针";
+// 标题行累计运行时长的人性化短格式（R-01-020/AC-01）：Ns / NmNs / NhNmNs。
+const TOTAL_BUSY_RE = /^\d+(s|m\d+s|h\d+m\d+s)$/;
 
 export default async function sessionLifecycle({ page, url, mock, assert }) {
 	await openApp(page, url);
@@ -134,7 +136,7 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 		}, TITLE),
 	);
 	assert.ok(
-		/^\d+(s|m\d+s|h\d+m\d+s)$/.test(totalBusy),
+		TOTAL_BUSY_RE.test(totalBusy),
 		`运行卡标题行最右侧显示人性化短格式的累计运行时长（R-01-020/AC-01，实际：${totalBusy}）`,
 	);
 

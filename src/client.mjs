@@ -1123,6 +1123,9 @@ function apply(ctx) {
 	/** 模型目录订阅（R-01-012/AC-16）：id → unsubscribe；模型选择切换经原生
 	 *  modelDirectories store 推送即时到达，随可见性清理/卸载先 unsubscribe 再除名。 */
 	const modelDirectorySubs = new Map();
+	/** 模型目录分组的 modelId → 显示名索引（R-01-012/AC-17）：同一部署的目录分组在
+	 *  主/子会话间共享，经主会话的目录订阅与一次性 models RPC 就地收割，渲染时解析。 */
+	const catalogNames = {};
 	/** native session.open() requests in flight; avoid duplicate cold history reads. */
 	/** 冷数据读取并发池：队列顺序即优先级（调用方已排序），逐个完成逐个重绘。 */
 	const loadQueue = [];
@@ -1457,6 +1460,7 @@ function apply(ctx) {
 			if (disposed) return;
 			const snap = directory.store?.getSnapshot?.();
 			if (!snap?.current) return; // 目录未就绪：不覆写既有取值
+			Object.assign(catalogNames, catalogModelNames(snap.groups ?? []));
 			detail.models = { current: snap.current, groups: snap.groups ?? [] };
 			detail.model = modelMetadata(detail.models);
 			// 订阅已产值标记：晚到的一次性 RPC 快照不得回写切换前的旧值。
@@ -1522,6 +1526,8 @@ function apply(ctx) {
 							if (!detail.modelLive) detail.model = { model: "", reasoning: "" };
 							return;
 						}
+						// 目录分组同时就地收割（部署级共享）：子代理卡据此把溯源 id 解析为显示名。
+						Object.assign(catalogNames, catalogModelNames(value.groups ?? []));
 						// 目录订阅已产出更新的当前选择时，晚到的 RPC 快照不得回写旧值（R-01-012/AC-16）。
 						if (detail.modelLive) return;
 						detail.models = value;
@@ -3178,6 +3184,9 @@ function apply(ctx) {
 				entry.model = detail.model.model;
 				entry.reasoning = detail.model.reasoning;
 			}
+			// 子代理溯源得到的是 provider 模型 id：经目录分组解析为显示名（R-01-012/AC-17），
+			// 目录未覆盖该 id 时保留原始回退。
+			if (entry.kind === "subagent" && entry.model) entry.model = catalogNames[entry.model] ?? entry.model;
 			// 待回复卡列表补全（C-040、C-064）：buildEntries 运行时快照时间线可能仍为空，
 			// 而上面的 memo 才在本帧算出结构化提问预览；等待卡静止后常无下一帧，因此在此
 			// 立即补入 questionPreview，由 cardSignature 驱动本帧 DOM 写入。

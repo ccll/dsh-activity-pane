@@ -56,6 +56,7 @@ import {
 	movedToActiveIds,
 	modelMetadata,
 	modelFromHistoryEvents,
+	catalogModelNames,
 	needsHistorySnapshot,
 	lastTurnEndFromEvents,
 	lastTurnEndFromTimings,
@@ -486,6 +487,22 @@ assert.equal(
 );
 assert.equal(chatLatestAssistantSettled(null), false, "无快照不触发（R-01-012/AC-18）");
 assert.equal(chatLatestAssistantSettled({ chat: { order: [], nodes: new Map() } }), false, "空窗口不触发（R-01-012/AC-18）");
+
+// ---- R-01-012/AC-17 目录分组解析显示名：provider 模型 id → 目录显示名索引 ----
+assert.deepEqual(
+	catalogModelNames([
+		{ id: "g1", models: [{ id: "glm-5.3-flash-512k", name: "(6000D) GLM-5.3-Flash 512K" }, { id: "m2", name: "模型乙" }] },
+		{ id: "g2", models: [{ id: "m3", name: "模型丙" }] },
+	]),
+	{ "glm-5.3-flash-512k": "(6000D) GLM-5.3-Flash 512K", m2: "模型乙", m3: "模型丙" },
+	"多分组展平为 id→显示名索引（R-01-012/AC-17）",
+);
+assert.deepEqual(
+	catalogModelNames([null, {}, { models: null }, { models: [null, {}, { id: "", name: "x" }, { id: "ok", name: "" }, { id: "good", name: "好" }] }]),
+	{ good: "好" },
+	"畸形分组与畸形条目跳过，不抛错（R-01-012/AC-18）",
+);
+assert.deepEqual(catalogModelNames(null), {}, "目录缺失返回空索引，调用方回退显示原始溯源 id（R-01-012/AC-18）");
 
 // ---- R-01-012/AC-16 模型选择切换经目录订阅推送更新，一次性读取仅作初值 ----
 // 目录 store 快照形状（{current, groups, routable, status, ...}）与 RPC value 同形兼容，经同一归一。

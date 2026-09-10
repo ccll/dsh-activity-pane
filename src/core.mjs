@@ -1079,6 +1079,23 @@ export function modelFromHistoryEvents(history) {
 	return null;
 }
 
+/** 模型目录分组的 modelId → 显示名索引（R-01-012/AC-17）：溯源 `source.model` 是
+ *  provider 侧 id，显示名需经目录分组解析；同一部署的目录分组在主/子会话间共享。
+ *  畸形条目跳过；目录缺失返回空索引，调用方回退显示原始溯源 id。 */
+export function catalogModelNames(groups) {
+	const names = {};
+	for (const group of Array.isArray(groups) ? groups : []) {
+		if (!isRecord(group)) continue;
+		for (const model of Array.isArray(group.models) ? group.models : []) {
+			if (!isRecord(model)) continue;
+			if (typeof model.id === "string" && model.id !== "" && typeof model.name === "string" && model.name !== "") {
+				names[model.id] = model.name;
+			}
+		}
+	}
+	return names;
+}
+
 /** 只提供卡片底部所需的原始统计字段，不拼接当前动作文案。 */
 export function runtimeStats({ elapsedMs = null, outputTokens = null, rateTokS = null } = {}) {
 	return {

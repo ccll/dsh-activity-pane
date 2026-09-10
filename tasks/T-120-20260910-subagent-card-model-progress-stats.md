@@ -27,7 +27,7 @@ id: T-120
 ## 收敛方案
 
 1. PRD: R-01-012/AC-17（子代理卡右上角模型溯源）与 AC-18（缺失时空白、不显示 reasoning）；R-01-009/AC-14（运行中子代理卡进度+统计行）与 AC-15（非运行冻结统计、隐藏进度条）。DOMAIN 扩展「模型上下文」词条；DESIGN 同步条目结构、关键机制、产品契约与追溯索引。
-2. core.mjs: 新增纯函数 `modelFromHistoryEvents(history)`（尾扫最近一条携带 `message.source.model` 的 `assistant/message` 事件）与 `chatHasSettledAssistant(snapshot)`（快照最新助手节点已定案即触发）；`detailLoadPlan` 在「存在已定案助手行或不在运行中」时为无模型的可见子代理安排一次 history 读取，每次可见期至多一次（`modelReadDone` 记账，随可见性清理重置）。
+2. core.mjs: 新增纯函数 `modelFromHistoryEvents(history)`（尾扫最近一条携带 `message.source.model` 的 `assistant/message` 事件）与 `chatLatestAssistantSettled(snapshot)`（快照最新助手节点已定案即触发）；`detailLoadPlan` 在「快照最新助手节点已定案或不在运行中」时为无模型的可见子代理安排一次 history 读取，每次可见期至多一次（`modelReadDone` 记账，随可见性清理重置）。
 3. client.mjs: history 读取落地时为子代理提取 `detail.model`（已有 history 时直接复用，不重读）；子代理卡骨架补进度行与统计行；渲染循环对 subagent 条目按锚点计算运行中进度/统计（并保存 `lastRuntimeStats`）、非运行时冻结统计并经 `lastTurnDuration` 显示最近回合耗时；模型区在溯源读取在途时显示加载指示；运行时钟条件纳入运行中子代理卡。
 4. 测试先行: `scripts/check.mjs` 新增 AC 锚定单测；`pnpm verify` 全量回归。
 
@@ -35,11 +35,12 @@ id: T-120
 
 | 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |
 |---|---|---|---|---|
-| R-01-012/AC-17 | 新增：子代理卡右上角模型溯源 | UNIT | add | `scripts/check.mjs#R-01-012/AC-17` `modelFromHistoryEvents` 尾扫命中/畸形条目单测 + `chatHasSettledAssistant` 触发信号单测 + client 渲染契约钉子 |
+| R-01-012/AC-17 | 新增：子代理卡右上角模型溯源 | UNIT | add | `scripts/check.mjs#R-01-012/AC-17` `modelFromHistoryEvents` 尾扫命中/畸形条目单测 + `chatLatestAssistantSettled` 触发信号单测 + client 渲染契约钉子 |
 | R-01-012/AC-18 | 新增：无溯源时空白、不冒充 | UNIT | add | `scripts/check.mjs#R-01-012/AC-18` 空事件/无 assistant 消息返回 null、plan 触发单次不热重试 |
 | R-01-009/AC-14 | 新增：运行中子代理卡进度+统计 | UNIT | add | `scripts/check.mjs#R-01-009/AC-14` 锚点/进度曲线纯函数复用单测 + client 骨架/渲染契约钉子 |
 | R-01-009/AC-15 | 新增：非运行冻结统计、隐藏进度 | UNIT | add | `scripts/check.mjs#R-01-009/AC-15` `mergeRuntimeStats` 冻结口径行为断言 + client 契约钉子；逐帧冻结观感由 `scripts/acceptance.mjs::R-01-009/AC-15` 人工验收 |
 | DESIGN | 条目结构/关键机制/产品契约/追溯索引同步 | UNIT | update | 同次变化由本 task 记录：DESIGN.md 四处与实现同步 |
+| R-01-012/AC-17 | 措辞澄清：模型位收敛为「标题行右缘」（东家反馈布局） | UNIT | none | 同次修改的 active task 记录：位置语义由既有骨架契约断言（`row.append(... model ...)`）承载，行为无变化，仅 PRD 文字与实现对齐 |
 
 ## 验证矩阵
 

@@ -2288,7 +2288,7 @@ function apply(ctx) {
 		if (pct !== null) pct.textContent = `${Math.round(progress ?? 0)}%`;
 		const fill = el.querySelector(".dap-fill");
 		if (fill !== null) {
-			const width = `${Math.min(100, Math.max(0, progress))}%`;
+			const width = `${Math.min(100, Math.max(0, progress ?? 0))}%`;
 			if (fill.style.width !== width) fill.style.width = width;
 		}
 	}
@@ -3314,7 +3314,7 @@ function apply(ctx) {
 			}
 			const detail = sessionDetailsById.get(entry.id);
 			const detailSnapshot = livenessById.get(entry.id)?.snapshot ?? detail?.snapshot ?? null;
-			if (chatHasSettledAssistant(detailSnapshot)) subagentModelReadIds.add(entry.id);
+			if (chatLatestAssistantSettled(detailSnapshot)) subagentModelReadIds.add(entry.id);
 		}
 		const detailIds = [...active, ...recent].map((entry) => entry.id);
 		detailIds.sort((a, b) => Number(String(b) === String(snapshot?.current)) - Number(String(a) === String(snapshot?.current)));

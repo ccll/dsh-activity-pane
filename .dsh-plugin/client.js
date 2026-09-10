@@ -444,9 +444,9 @@ function chatNodeAt(nodes, key) {
 /** 子代理模型读取的触发信号（R-01-012/AC-17）：快照最新一个助手节点已定案
  *  （status === "settled"，即其 assistant/message 事件已落宿主日志，尾页读取必命中）
  *  时为 true。只检查最新一个助手节点——它随流式推送翻转为 settled 的那一刻即产生
- *  触发，成本 O(1) 且完全挂在既有订阅推送上（R-02-004）；工具密集期 4 行折叠窗口
+ *  触发，尾扫即停、近 O(1)，完全挂在既有订阅推送上（R-02-004）；工具密集期 4 行折叠窗口
  *  可能不含助手行，故不看折叠时间线而直接读快照。流式未定案/中断/无快照为 false。 */
-function chatHasSettledAssistant(snapshot) {
+function chatLatestAssistantSettled(snapshot) {
 	const chat = snapshot?.chat;
 	const order = Array.isArray(chat?.order) ? chat.order : [];
 	const nodes = chat?.nodes;
@@ -1248,7 +1248,7 @@ function detailLoadPlan({
 	subagentModelReadNeeded = false,
 } = {}) {
 	// 子代理模型溯源（R-01-012/AC-17）：models RPC 对子代理被宿主拒绝，改经既有
-	// history 读取提取。读取在「存在已定案助手行（事件已落日志，尾页必命中）或不在
+	// history 读取提取。读取在「快照最新助手节点已定案（事件已落日志，尾页必命中）或不在
 	// 运行中」时才发起，避免开局早读扑空；每次可见期至多一次（modelReadDone 记账），
 	// 不构成轮询（R-02-004）。
 	const subagentModelRead =
@@ -4662,7 +4662,7 @@ function apply(ctx) {
 		if (pct !== null) pct.textContent = `${Math.round(progress ?? 0)}%`;
 		const fill = el.querySelector(".dap-fill");
 		if (fill !== null) {
-			const width = `${Math.min(100, Math.max(0, progress))}%`;
+			const width = `${Math.min(100, Math.max(0, progress ?? 0))}%`;
 			if (fill.style.width !== width) fill.style.width = width;
 		}
 	}
@@ -5688,7 +5688,7 @@ function apply(ctx) {
 			}
 			const detail = sessionDetailsById.get(entry.id);
 			const detailSnapshot = livenessById.get(entry.id)?.snapshot ?? detail?.snapshot ?? null;
-			if (chatHasSettledAssistant(detailSnapshot)) subagentModelReadIds.add(entry.id);
+			if (chatLatestAssistantSettled(detailSnapshot)) subagentModelReadIds.add(entry.id);
 		}
 		const detailIds = [...active, ...recent].map((entry) => entry.id);
 		detailIds.sort((a, b) => Number(String(b) === String(snapshot?.current)) - Number(String(a) === String(snapshot?.current)));

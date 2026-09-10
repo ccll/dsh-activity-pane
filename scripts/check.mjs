@@ -19,7 +19,7 @@ import {
 	cardSignature,
 	cleanPreview,
 	clampPaneWidth,
-	chatHasSettledAssistant,
+	chatLatestAssistantSettled,
 	pagedHistoryEvents,
 	delegationActive,
 	progressAnchor,
@@ -470,9 +470,9 @@ const settledAssistantSnapshot = {
 		]),
 	},
 };
-assert.equal(chatHasSettledAssistant(settledAssistantSnapshot), true, "最新助手节点已定案即触发模型读取（R-01-012/AC-17）");
+assert.equal(chatLatestAssistantSettled(settledAssistantSnapshot), true, "最新助手节点已定案即触发模型读取（R-01-012/AC-17）");
 assert.equal(
-	chatHasSettledAssistant({
+	chatLatestAssistantSettled({
 		chat: {
 			order: ["k1", "k2"],
 			nodes: new Map([
@@ -484,8 +484,8 @@ assert.equal(
 	false,
 	"最新助手节点仍在流式（未定案）时不触发，避免早读扑空（R-01-012/AC-18）",
 );
-assert.equal(chatHasSettledAssistant(null), false, "无快照不触发（R-01-012/AC-18）");
-assert.equal(chatHasSettledAssistant({ chat: { order: [], nodes: new Map() } }), false, "空窗口不触发（R-01-012/AC-18）");
+assert.equal(chatLatestAssistantSettled(null), false, "无快照不触发（R-01-012/AC-18）");
+assert.equal(chatLatestAssistantSettled({ chat: { order: [], nodes: new Map() } }), false, "空窗口不触发（R-01-012/AC-18）");
 
 // ---- R-01-012/AC-16 模型选择切换经目录订阅推送更新，一次性读取仅作初值 ----
 // 目录 store 快照形状（{current, groups, routable, status, ...}）与 RPC value 同形兼容，经同一归一。
@@ -4071,13 +4071,13 @@ assert.ok(
 
 // ---- R-01-012/AC-17～AC-18、R-01-009/AC-14～AC-15 子代理卡模型/进度/统计契约 ----
 // 子代理模型经既有 history 溯源提取（models RPC 对子代理被宿主 agent-busy 拒绝）。
-assert.ok(bundle.includes("modelFromHistoryEvents"), "子代理模型溯源提取函数进入 bundle（R-01-012/AC-17）");
+assert.ok(bundle.includes("modelFromHistoryEvents") && bundle.includes("chatLatestAssistantSettled"), "子代理模型溯源提取与触发信号进入 bundle（R-01-012/AC-17）");
 assert.ok(
 	clientSource.includes("if (plan.subagentModelRead) {") && clientSource.includes("detail.modelReadDone = true;"),
 	"history 读取落地时为子代理提取模型溯源并记账每次可见期单次尝试（R-01-012/AC-17）",
 );
 assert.ok(
-	clientSource.includes("chatHasSettledAssistant(detailSnapshot)"),
+	clientSource.includes("chatLatestAssistantSettled(detailSnapshot)"),
 	"模型读取时机锚定已定案助手行或非运行状态（R-01-012/AC-17）",
 );
 assert.ok(

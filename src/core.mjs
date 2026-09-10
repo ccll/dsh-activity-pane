@@ -1687,6 +1687,8 @@ export function cardSignature(entries) {
 			entry.loadingTimeline ?? null,
 			entry.loadingPreviews ?? null,
 			entry.tokenStats ?? [entry.outputTokens ?? null, entry.inputTokens ?? null, entry.cacheHitPct ?? null, entry.rateTokS ?? null, entry.elapsedMs ?? null],
+			// 累计运行时长参与签名（R-01-020）：回填/SSE 推送与逐秒推进都要驱动重绘。
+			entry.totalBusyMs ?? null,
 		]),
 	);
 }
@@ -1924,6 +1926,45 @@ export function lastTurnDuration({ turnTimings = null, history = [] } = {}) {
 		if (latest === null || candidate.end > latest.end) latest = candidate;
 	}
 	return latest?.duration ?? null;
+}
+
+/**
+ * 会话回合统计记账的单步转移（R-01-020）：对单个回合边界事件应用后返回新状态。
+ * 状态 `{ busyMs, openTurnStart }`——busyMs 为已完成回合运行时长的累计（null 表示
+ * 尚无任何有效回合计时），openTurnStart 为当前开放回合起点；completed/blocked/
+ * max-tokens/aborted/error 全部结束原因均计入，回合间空闲不计入。start 覆盖式登记
+ * （串行回合下最后一个 start 为当前回合），end 配对最近 start；起点缺失或时间逆序
+ * 的回合跳过累加、仅清空起点。event 兼容 history 条目包装与裸事件（eventOf 解包），
+ * 宿主实时登记与回填共用同一转移，保证口径一致（R-01-020/AC-02）。
+ */
+export function applyTurnEventToStats(state, entry) {
+	const event = eventOf(entry);
+	const time = durationTime(event?.time);
+	const type = event?.type;
+	if (time === null || (type !== "turn/start" && type !== "turn/end")) return state;
+	const next = { busyMs: state?.busyMs ?? null, openTurnStart: state?.openTurnStart ?? null };
+	if (type === "turn/start") {
+		next.openTurnStart = time;
+		return next;
+	}
+	if (next.openTurnStart !== null && time >= next.openTurnStart) {
+		next.busyMs = (next.busyMs ?? 0) + (time - next.openTurnStart);
+	}
+	next.openTurnStart = null;
+	return next;
+}
+
+/**
+ * 标题行累计运行时长的显示合成（R-01-020/AC-01、AC-03、AC-06）：已完成回合累计加
+ * 开放回合实时已耗时；两者皆不可得时返回 null（调用方不显示，不以 0 冒充）。now
+ * 缺失或无效时不推进实时增量，只返回已完成累计。
+ */
+export function totalBusyDisplayMs({ busyMs = null, openTurnStart = null, now = null } = {}) {
+	let total = typeof busyMs === "number" && Number.isFinite(busyMs) && busyMs >= 0 ? busyMs : null;
+	if (openTurnStart !== null && Number.isFinite(openTurnStart) && Number.isFinite(now) && now > openTurnStart) {
+		total = (total ?? 0) + (now - openTurnStart);
+	}
+	return total;
 }
 
 /**

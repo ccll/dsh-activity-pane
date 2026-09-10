@@ -121,6 +121,23 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 		"窗格实际为 200px 最窄宽时进度条仍可见，9% 与 100% 均完整容纳且不越过卡片或窗格右界（R-01-009/AC-06）",
 	);
 
+	// R-01-020/AC-01、R-01-020/AC-03、R-01-020/AC-05：运行卡标题行最右侧显示累计运行时长
+	// （宿主侧实时记账 + 存量回合懒回填），含开放回合实时已耗时；无数据时节点隐藏不冒充 0。
+	const totalBusy = await until("运行卡标题行累计运行时长就绪", () =>
+		page.evaluate((title) => {
+			const pane = document.querySelector("[data-dsh-activity-pane]");
+			const card = [...(pane?.querySelectorAll('[role="button"]') ?? [])].find((candidate) => candidate.innerText.includes(title));
+			const total = card?.querySelector(".dap-total-time");
+			if (!total || total.hidden) return null;
+			const text = total.textContent.trim();
+			return /^\d+(s|m\d+s|h\d+m\d+s)$/.test(text) ? text : null;
+		}, TITLE),
+	);
+	assert.ok(
+		/^\d+(s|m\d+s|h\d+m\d+s)$/.test(totalBusy),
+		`运行卡标题行最右侧显示人性化短格式的累计运行时长（R-01-020/AC-01，实际：${totalBusy}）`,
+	);
+
 	// R-01-009/AC-09：真实浏览器裁决时间线点整体小于标题点，且与竖线同圆心；
 	// running 节点继续以光晕和脉冲表达当前活动。
 	const dotGeometry = await until("运行卡时间线圆点几何就绪", () =>
@@ -301,6 +318,24 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 	assert.match(recentStats.elapsed, /^(?:\d+s|\d+m\d+s|\d+h\d+m\d+s)$/, "历史卡统计行保留固定回合耗时（R-01-013/AC-12）");
 	assert.equal(recentStats.statsBeforeActivity, true, "历史卡统计行紧邻活动时间行之前（R-01-013/AC-12）");
 	assert.equal(recentStats.statsIsPenultimate, true, "历史卡统计行位于历史卡倒数第二行（R-01-013/AC-12）");
+	// R-01-020/AC-01：迁入历史区后同一主会话卡片的标题行最右侧延续显示累计运行时长。
+	// R-01-020/AC-06：谓词仅在节点可见且有有效值时通过——无计时数据的会话标题行保持
+	// hidden，不以 0 冒充（反向覆盖）。
+	const recentTotal = await until("历史卡标题行累计运行时长延续显示", () =>
+		page.evaluate((title) => {
+			const card = [...(document.querySelectorAll('[data-dsh-activity-pane] [data-kind="recent"]') ?? [])]
+				.find((candidate) => candidate.innerText.includes(title));
+			const total = card?.querySelector(".dap-total-time");
+			if (!total || total.hidden) return null;
+			const text = total.textContent.trim();
+			return /^\d+(s|m\d+s|h\d+m\d+s)$/.test(text) ? text : null;
+		}, TITLE),
+	);
+	assert.match(
+		recentTotal,
+		/^(?:\d+s|\d+m\d+s|\d+h\d+m\d+s)$/,
+		`历史卡标题行最右侧延续显示累计运行时长（R-01-020/AC-01，实际：${recentTotal}）`,
+	);
 	assert.equal(recentStats.activityIsLast, true, "历史卡活动时间保持最后一行（R-01-013/AC-12）");
 	await openApp(page, url);
 	const refreshedRecentStats = await until("刷新后恢复历史卡最近回合统计", readRecentStats);

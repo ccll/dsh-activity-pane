@@ -436,6 +436,13 @@ const CSS = `
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; font-size: 12px; line-height: 16px; font-weight: 700;
 }
+/* 标题行最右侧的累计运行时长（R-01-020/AC-01）：固定占位不参与标题挤压，
+   标题过长时以自身省略号让位；色调弱于标题，不与状态点抢视觉。 */
+[data-dsh-activity-pane] .dap-total-time {
+  flex: none; margin-left: auto; font-size: 11px; line-height: 16px;
+  color: #8a94a3; white-space: nowrap;
+}
+[data-dsh-activity-pane] .dap-total-time[hidden] { display: none; }
 /* 最近历史卡标题降为常规字重：历史区不抢占视觉强调（R-01-013/AC-09）。 */
 [data-dsh-activity-pane] .dap-card[data-kind="recent"] .dap-title {
   font-weight: 400;
@@ -1325,6 +1332,79 @@ function apply(ctx) {
 		}
 	}
 
+	// ---- 累计运行时长通道（R-01-020，C-074） ----
+	// SSE 订阅宿主侧回合统计：连接即收全量快照（刷新/重连恢复），此后每次变更（回合
+	// 边界、回填完成）推送新全量。无 EventSource 环境静默降级为不显示累计时长。
+	// 可见会话的懒回填经 GET /busy?ids= 触发（fire-and-forget），完成后经同一 SSE 广播。
+	const busyById = new Map(); // sessionId -> { busyMs, openTurnStart }
+	const busyRequestedIds = new Set(); // 已触发过回填的会话 id（宿主侧单飞，本地防重复请求）
+	let busySource = null;
+	let busyFetchInflight = false;
+
+	/** SSE 全量快照应用：解析成功才整体替换本地状态并重绘；坏帧静默丢弃。 */
+	function applyBusyState(raw) {
+		if (disposed) return;
+		let state = null;
+		try {
+			state = JSON.parse(raw);
+		} catch {
+			state = null;
+		}
+		if (state === null || typeof state !== "object") return;
+		busyById.clear();
+		for (const [id, record] of Object.entries(state)) {
+			busyById.set(String(id), {
+				busyMs: Number.isFinite(Number(record?.busyMs)) ? Number(record.busyMs) : null,
+				openTurnStart: Number.isFinite(Number(record?.openTurnStart)) ? Number(record.openTurnStart) : null,
+			});
+		}
+		queueSync();
+	}
+
+	/** 触发可见主会话的懒回填：只对未请求过的 id 发一次 GET；在途时跳过（SSE 广播兜底）。 */
+	function requestBusyBackfill(ids) {
+		if (disposed || typeof fetch !== "function") return;
+		const pending = ids.filter((id) => !busyRequestedIds.has(id) && !busyById.has(id));
+		if (pending.length === 0 || busyFetchInflight) return;
+		for (const id of pending) busyRequestedIds.add(id);
+		busyFetchInflight = true;
+		fetch(`${ACK_API_BASE}/busy?ids=${encodeURIComponent(pending.join(","))}`)
+			.then((response) => (response.ok ? response.json() : null))
+			.then((state) => {
+				if (state !== null && typeof state === "object") applyBusyState(JSON.stringify(state));
+			})
+			.catch(() => {
+				// 回填触发失败：允许下次可见集合变化时重试。
+				for (const id of pending) busyRequestedIds.delete(id);
+			})
+			.finally(() => {
+				busyFetchInflight = false;
+			});
+	}
+
+	/** （重）建 SSE 连接：先关闭旧连接再新建；连接即收宿主侧全量快照。 */
+	function connectBusyStream() {
+		try {
+			busySource?.close();
+		} catch {}
+		busySource = null;
+		if (disposed || typeof window.EventSource !== "function") return;
+		try {
+			const source = new window.EventSource(`${ACK_API_BASE}/busy/stream`);
+			source.addEventListener("state", (event) => applyBusyState(event.data ?? ""));
+			busySource = source;
+		} catch {
+			busySource = null;
+		}
+	}
+	document.addEventListener("visibilitychange", () => {
+		if (document.visibilityState === "visible" && !disposed) connectBusyStream();
+	});
+	window.addEventListener("pageshow", (event) => {
+		if (event?.persisted === true && !disposed) connectBusyStream();
+	});
+	connectBusyStream();
+
 	function apiValue(response) {
 		return response?.result?.ok === true ? response.result.value : null;
 	}
@@ -1760,12 +1840,12 @@ function apply(ctx) {
 		head.append(workspace, makeEl("div", "dap-model"));
 		if (kind === "subagent") {
 			const row = makeEl("div", "dap-row");
-			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
+			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-total-time"));
 			return [head, row, makeEl("div", "dap-subtrace")];
 		}
 		if (kind === "recent") {
 			const row = makeEl("div", "dap-row");
-			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
+			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-total-time"));
 			const userLine = makeEl("div", "dap-history-line");
 			userLine.dataset.role = "user";
 			const userIcon = makeEl("span", "dap-history-icon");
@@ -1787,7 +1867,7 @@ function apply(ctx) {
 		}
 		if (kind === "awaiting") {
 			const row = makeEl("div", "dap-row");
-			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
+			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-total-time"));
 			// 等待三类末行结构（R-01-002/AC-08、AC-09，C-043）：首行「类型胶囊」（圆底类型
 			// 图标 + 类型文字），其下为正文行——阻塞/错误的说明文字，完成提醒的
 			// 「继续对话，或移入历史」+ 行尾「移入历史」按钮。
@@ -1806,7 +1886,7 @@ function apply(ctx) {
 			return [head, row, makeEl("div", "dap-trace"), statsRow, foot];
 		}
 		const row = makeEl("div", "dap-row");
-		row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"));
+		row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-total-time"));
 		const track = makeEl("div", "dap-track");
 		track.append(makeEl("div", "dap-fill"));
 		const progressRow = makeEl("div", "dap-progress");
@@ -2278,6 +2358,15 @@ function apply(ctx) {
 		const title = el.querySelector(".dap-title");
 		if (title !== null && title.textContent !== entry.title)
 			title.textContent = entry.title;
+		// 标题行最右侧的累计运行时长（R-01-020/AC-01、AC-06）：有数据才显示，
+		// 无数据（含子代理卡）隐藏节点，不以 0 冒充。
+		const totalTime = el.querySelector(".dap-total-time");
+		if (totalTime !== null) {
+			const totalText = Number.isFinite(entry.totalBusyMs) && entry.totalBusyMs >= 0 ? fmtElapsedMs(entry.totalBusyMs) : "";
+			if (totalTime.textContent !== totalText) totalTime.textContent = totalText;
+			const totalHidden = totalText === "";
+			if (totalTime.hidden !== totalHidden) totalTime.hidden = totalHidden;
+		}
 
 		const capsule = el.querySelector(".dap-capsule");
 		// 陈旧骨架就地迁移（C-043 热装兼容）：旧版「正文行 + 行尾类型徽标」骨架升级为
@@ -2967,6 +3056,12 @@ function apply(ctx) {
 			const live = liveRecord?.liveness ?? null;
 			const detail = sessionDetailsById.get(entry.id);
 			if (entry.kind === "running" && detail) detail.durationFallbackLoaded = false;
+			// 累计运行时长（R-01-020/AC-01、AC-03）：主会话条目注入显示值——渲染期合成，
+			// 含开放回合的实时已耗时并随时钟逐秒推进；子代理卡片不显示。
+			if (entry.kind !== "subagent") {
+				const busyRecord = busyById.get(entry.id);
+				entry.totalBusyMs = totalBusyDisplayMs({ busyMs: busyRecord?.busyMs ?? null, openTurnStart: busyRecord?.openTurnStart ?? null, now });
+			}
 			const detailSnapshot = liveRecord?.snapshot ?? detail?.snapshot ?? null;
 			if (detail && detail.memoHistoryAnchorOf !== (detail.history ?? null)) {
 				detail.memoHistoryAnchorOf = detail.history ?? null;
@@ -3095,6 +3190,11 @@ function apply(ctx) {
 			const detail = sessionDetailsById.get(entry.id);
 			const detailSnapshot = livenessById.get(entry.id)?.snapshot ?? detail?.snapshot ?? null;
 			const elapsedMs = lastTurnDuration({ turnTimings: detailSnapshot?.turnTimings, history: detail?.history });
+			// 累计运行时长（R-01-020/AC-01）：最近历史卡同为标题行右侧显示；历史卡无开放回合。
+			{
+				const busyRecord = busyById.get(entry.id);
+				entry.totalBusyMs = totalBusyDisplayMs({ busyMs: busyRecord?.busyMs ?? null, openTurnStart: busyRecord?.openTurnStart ?? null, now });
+			}
 			const stats = statsFromProjection(snapshot?.byId?.[entry.id]?.projectionValues, elapsedMs);
 			const retained = detail?.lastRuntimeStats;
 			Object.assign(entry, stats, retained ? {
@@ -3132,6 +3232,9 @@ function apply(ctx) {
 		const detailIds = [...active, ...recent].map((entry) => entry.id);
 		detailIds.sort((a, b) => Number(String(b) === String(snapshot?.current)) - Number(String(a) === String(snapshot?.current)));
 		loadNativeDetails(detailIds, previewFallbackIds, durationFallbackIds);
+		// 累计运行时长懒回填（R-01-020/AC-05）：对可见主会话触发宿主侧存量回合补齐；
+		// 宿主侧每会话单飞，重复触发由宿主合并；完成后经 busy SSE 广播推送。
+		requestBusyBackfill([...active, ...recent].filter((entry) => entry.kind !== "subagent").map((entry) => entry.id));
 		const visibleIds = new Set([...active, ...recent].map((entry) => entry.id));
 		// 详情与 loads 记账同生命周期：离开可见集合即放行，重回可见时允许重拉/重试。
 		// 锚点记账不随可见性 prune：瞬时 loading 空帧不得误清（进度重置）；陈旧条目靠

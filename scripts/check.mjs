@@ -60,6 +60,8 @@ import {
 	lastTurnDurationFromEvents,
 	lastTurnDurationFromTimings,
 	lastTurnDuration,
+	applyTurnEventToStats,
+	totalBusyDisplayMs,
 	pendingText,
 	progressHalfLifeSec,
 	progressOf,
@@ -1044,6 +1046,70 @@ assert.equal(fmtElapsedMs(3_599_500), "1h0m0s", "秒数四舍五入进位到小�
 assert.equal(fmtElapsedMs(NaN), "", "NaN 时长归一为空");
 assert.equal(fmtElapsedMs(Infinity), "", "Infinity 时长归一为空");
 assert.equal(fmtElapsedMs(-1), "", "负时长归一为空");
+// ---- R-01-020 会话累计运行时长：事件流配对记账与显示合成 ----
+// R-01-020/AC-02：全部结束原因均计入，回合间空闲不计入。
+{
+	const events = [
+		{ type: "turn/start", seq: 1, time: 1_000 },
+		{ type: "turn/end", seq: 2, time: 3_000 }, // completed：+2s
+		{ type: "turn/start", seq: 3, time: 10_000 },
+		{ type: "turn/end", seq: 4, time: 10_500, data: { reason: { kind: "aborted" } } }, // 中断：+0.5s
+		{ type: "turn/start", seq: 5, time: 20_000 },
+		{ type: "turn/end", seq: 6, time: 21_000, data: { reason: { kind: "error" } } }, // 错误：+1s
+	];
+	let stats = { busyMs: null, openTurnStart: null };
+	for (const event of events) stats = applyTurnEventToStats(stats, event);
+	assert.equal(stats.busyMs, 3_500, "R-01-020/AC-02 全部结束原因计入、空闲不计入");
+	assert.equal(stats.openTurnStart, null, "R-01-020/AC-02 全部回合闭合后无开放起点");
+}
+// R-01-020/AC-02：起点缺失或逆序的回合跳过累加，不制造负值。
+{
+	let stats = { busyMs: null, openTurnStart: null };
+	stats = applyTurnEventToStats(stats, { type: "turn/end", seq: 1, time: 5_000 });
+	assert.equal(stats.busyMs, null, "R-01-020/AC-02 孤儿 turn/end 不累加");
+	stats = applyTurnEventToStats(stats, { type: "turn/start", seq: 2, time: 8_000 });
+	stats = applyTurnEventToStats(stats, { type: "turn/end", seq: 3, time: 7_000 });
+	assert.equal(stats.busyMs, null, "R-01-020/AC-02 时间逆序回合跳过");
+	assert.equal(stats.openTurnStart, null, "R-01-020/AC-02 逆序回合仍清空起点");
+}
+// R-01-020/AC-04：水位幂等——转移函数为纯累加，重复事件必须由调用侧 seq ≤ watermark
+// 检查跳过（host.mjs 实时登记与回填写入前均做该检查）；同批事件重复应用会翻倍。
+{
+	const replay = [
+		{ type: "turn/start", seq: 7, time: 1_000 },
+		{ type: "turn/end", seq: 8, time: 2_000 },
+	];
+	let stats = { busyMs: null, openTurnStart: null };
+	for (const event of replay) stats = applyTurnEventToStats(stats, event);
+	assert.equal(stats.busyMs, 1_000, "R-01-020/AC-04 单次应用配对累计");
+	// 模拟调用侧水位：seq ≤ watermark 的事件跳过，重复推送不重复计数。
+	for (const event of replay) {
+		if (event.seq <= 8) continue;
+		stats = applyTurnEventToStats(stats, event);
+	}
+	assert.equal(stats.busyMs, 1_000, "R-01-020/AC-04 水位检查下重复推送不重复计数");
+}
+// R-01-020/AC-01
+// R-01-020/AC-03：开放回合实时增量与起点不可得降级。
+assert.equal(totalBusyDisplayMs({ busyMs: 3_500, openTurnStart: 30_000, now: 32_000 }), 5_500, "累计加开放回合实时已耗时");
+assert.equal(totalBusyDisplayMs({ busyMs: 3_500, openTurnStart: null, now: 32_000 }), 3_500, "起点不可得只显示已完成累计");
+assert.equal(totalBusyDisplayMs({ busyMs: null, openTurnStart: 30_000, now: 31_000 }), 1_000, "首回合进行中显示实时增量");
+// R-01-020/AC-06：无任何有效计时数据返回 null（调用方不显示，不以 0 冒充）。
+assert.equal(totalBusyDisplayMs({ busyMs: null, openTurnStart: null, now: 32_000 }), null, "无数据显示 null");
+assert.equal(totalBusyDisplayMs({ busyMs: null, openTurnStart: null, now: null }), null, "now 缺失且无累计为 null");
+assert.equal(totalBusyDisplayMs({ busyMs: 0, openTurnStart: null, now: null }), 0, "显式 0 累计仍是有效数据");
+// R-01-020/AC-05：存量回合经全量事件重放补齐（与实时登记同一转移函数）。
+{
+	const backfillEvents = [
+		{ type: "turn/start", seq: 1, time: 100 },
+		{ type: "turn/end", seq: 2, time: 600 },
+		{ type: "turn/start", seq: 3, time: 900 },
+	];
+	let stats = { busyMs: null, openTurnStart: null };
+	for (const event of backfillEvents) stats = applyTurnEventToStats(stats, event);
+	assert.equal(stats.busyMs, 500, "R-01-020/AC-05 存量回合重放补齐累计");
+	assert.equal(stats.openTurnStart, 900, "R-01-020/AC-05 重放恢复开放回合起点");
+}
 // R-01-013/AC-05：历史卡同时显示本地绝对日期时间与相对年龄，异常输入不制造虚假时间。
 const relativeMinute = 60_000;
 const relativeHour = 60 * relativeMinute;
@@ -3353,12 +3419,21 @@ assert.ok(
 	!bundle.includes("ctx.get(\"dsh-answer-pet\")"),
 	"不得以服务方式依赖第三方宠物插件",
 );
-// R-02-004/AC-02（演进，C-030）：完成确认写回是唯一 HTTP 请求——自家宿主侧路由、
-// 用户操作触发的一次性 POST，非状态轮询；轮内状态仍只来自原生订阅推送与 SSE 推送。
-// fetch 唯一性由下条断言钉住：轮询需要重复请求，唯一 fetch 即排除轮询形态。
+// R-02-004/AC-02（演进，C-030、C-074）：HTTP 请求仅两处——完成确认写回（用户操作触发的
+// 一次性 POST）与累计运行时长懒回填触发（每会话至多一次的一次性 GET，随可见会话触发），
+// 均非状态轮询；轮内状态与回合统计仍只来自原生订阅推送与 SSE 推送。fetch/EventSource
+// 数量由下两条断言钉住：轮询需要重复请求，受限的调用面即排除轮询形态。
 assert.ok(
-	(bundle.match(/fetch\(/g) ?? []).length === 1 && bundle.includes("fetch(`${ACK_API_BASE}/ack`"),
-	"唯一的 fetch 调用是完成确认写回，指向宿主侧自家路由（R-01-002/AC-10、C-030）",
+	(bundle.match(/fetch\(/g) ?? []).length === 2
+		&& bundle.includes("fetch(`${ACK_API_BASE}/ack`")
+		&& bundle.includes("fetch(`${ACK_API_BASE}/busy?ids="),
+	"HTTP 请求仅完成确认写回与 busy 懒回填触发两处，指向宿主侧自家路由（R-01-002/AC-10、R-01-020、C-030、C-074）",
+);
+assert.ok(
+	(bundle.match(/new window\.EventSource\(/g) ?? []).length === 2
+		&& bundle.includes("${ACK_API_BASE}/acks/stream")
+		&& bundle.includes("${ACK_API_BASE}/busy/stream"),
+	"SSE 订阅仅 acks 与 busy 两条通道，均连接即收全量快照（C-030、C-074）",
 );
 
 // ---- R-02-003/AC-02 卸载时清理注入元素、样式与监听 ----

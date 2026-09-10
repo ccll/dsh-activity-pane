@@ -6,7 +6,7 @@ id: T-119
 
 # T-119 T-118 双轴审核修复：SSE 卸载、停机缺口与 map 同步
 
-状态: active
+状态: completed
 关联: R-01-020 → 回合统计宿主侧
 风险等级: standard
 
@@ -57,13 +57,13 @@ id: T-119
 
 ## 终态与证据
 
-状态: active
+状态: completed
 
 - 实现: client.mjs busy SSE 纳入 cleanup（`busySource?.close()` + 移除具名监听 onBusyVisibilityResume/onBusyPageShow + busyById/busyRequestedIds/busyRetryAtById 清空）；ACK_API_BASE 更名 PANE_API_BASE（6 处引用与 check.mjs 契约断言同步）；applyBusyState 归一化接受 object/string 消除序列化往返；提取共享 applyTotalBusy 消除注入块重复；回填失败 30s 退避（busyRetryAtById）。host.mjs 回填演进为 ensureTurnStatsFresh——无记录全量重放、已有记录仅增量应用 `seq > watermarkSeq` 的事件（补停机缺口），写入前重读 current 防回退；实时监听对在途回填排队等待写入完成后再应用事件；空 if 块死代码清理。DESIGN.md 同步独立 domain `dsh_activity_pane_turns`、表名 turn_stats、回填双路径与 30s 退避。`.dsh-plugin/client.js` 随本提交重建。
 - 测试: scripts/check.mjs 新增增量重放断言（AC-05 水位缺口补齐、AC-04 幂等）与 fetch/EventSource 契约断言 PANE_API_BASE 同步；e2e session-lifecycle 新增历史卡标题行延续显示锚点（TOTAL_BUSY_RE 共享）。`pnpm verify:fast` 全绿；`pnpm verify` 全量 13 spec 通过（bash-189，exit 0）；收敛残余后复跑 session-lifecycle 通过。
 - DESIGN 对照: DESIGN.md 三处同步（关键机制条目独立 domain 与表名、记账不变量结构名 turn_stats、子系统条目「独立 domain dsh_activity_pane_turns 表 turn_stats」+ 回填双路径 + 30s 退避）——消除审核 finding (c)1 的 map-code 不一致，与实现逐句一致。
 - commit: 1995f06
-- commit: （本提交）
+- commit: bd1d5c7
 - review:
   - 审核方: Standards reviewer `91417982-db55-46e7-bf5c-fbd0f25f603b`；Spec reviewer `41ed45aa-1aa8-4de7-97c7-9b33c09dbd98`（双轴复审，同一审核方）。
   - 目的理解: 兑现 T-118 双轴审核最终报告的三项硬性 finding（busySource 泄漏违反 R-02-003 卸载契约、停机缺口未覆盖 AC-05 原句、DESIGN 表名/domain 滞后）并收敛判断性意见；约束为保持 R-01-020 记账口径与展示契约不变、不引入轮询、不动 acks 契约。

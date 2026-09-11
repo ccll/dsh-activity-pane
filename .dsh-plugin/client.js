@@ -1985,58 +1985,30 @@ function durationTime(value) {
 	return Number.isFinite(time) ? time : null;
 }
 
-/** 从 history 提取最近完整回合的结束时刻与固定耗时；两者始终来自同一回合。 */
-function lastTurnDurationCandidateFromEvents(events) {
-	const starts = new Map();
+/**
+ * 从 history 重放回合/等待边界事件，提取最近一个已结束回合的运行过程耗时（busy 口径：
+ * 起止差值扣除回合内阻塞等待，与 R-01-020 累计口径一致，恒不大于该回合墙钟时长）。
+ * 回合起止不完整、时间逆序或回合运行段不为正时忽略该回合；无可得回合返回 null。
+ */
+function lastTurnBusyFromEvents(events) {
+	let state = emptyTurnStats();
 	let latest = null;
 	for (const entry of Array.isArray(events) ? events : []) {
-		const event = eventOf(entry);
-		const turn = Number(event?.data?.turn);
-		const time = durationTime(event?.time);
-		if (!Number.isFinite(turn) || time === null) continue;
-		if (event.type === "turn/start") {
-			starts.set(turn, time);
-			continue;
-		}
-		if (event.type !== "turn/end") continue;
-		const start = starts.get(turn);
-		if (start === undefined || time < start) continue;
-		if (latest === null || time > latest.end) latest = { end: time, duration: time - start };
-	}
-	return latest;
-}
-
-/** 从 turnTimings 提取最近完整回合的结束时刻与固定耗时；两者始终来自同一回合。 */
-function lastTurnDurationCandidateFromTimings(turnTimings) {
-	if (!(turnTimings instanceof Map)) return null;
-	let latest = null;
-	for (const timing of turnTimings.values()) {
-		const start = durationTime(timing?.startTime);
-		const end = durationTime(timing?.endTime);
-		if (start === null || end === null || end < start) continue;
-		if (latest === null || end > latest.end) latest = { end, duration: end - start };
-	}
-	return latest;
-}
-
-/** 从 history 提取最近完整回合的固定耗时；回合起止不完整或逆序时忽略该回合。 */
-function lastTurnDurationFromEvents(events) {
-	return lastTurnDurationCandidateFromEvents(events)?.duration ?? null;
-}
-
-/** 从 turnTimings 提取最近完整回合的固定耗时；全部回合未结束或无效时返回 null。 */
-function lastTurnDurationFromTimings(turnTimings) {
-	return lastTurnDurationCandidateFromTimings(turnTimings)?.duration ?? null;
-}
-
-/** 在快照与 history 中按最近结束时刻选择同一最新完整回合的固定耗时。 */
-function lastTurnDuration({ turnTimings = null, history = [] } = {}) {
-	const candidates = [lastTurnDurationCandidateFromTimings(turnTimings), lastTurnDurationCandidateFromEvents(history)].filter(Boolean);
-	let latest = null;
-	for (const candidate of candidates) {
-		if (latest === null || candidate.end > latest.end) latest = candidate;
+		const time = durationTime(eventOf(entry)?.time);
+		const prev = state;
+		state = applyTurnEventToStats(state, entry);
+		if (prev.openTurnStart === null || state.openTurnStart !== null) continue;
+		// 能走到回合闭合的必为时刻有效的 turn/end（applyTurnEventToStats 对无效时刻无效果）。
+		const activeMs = (state.busyMs ?? 0) - (prev.busyMs ?? 0);
+		if (activeMs <= 0) continue;
+		latest = { end: time, duration: activeMs };
 	}
 	return latest?.duration ?? null;
+}
+
+/** 最近完整回合的固定耗时（busy 口径）：从 history 事件重放派生。 */
+function lastTurnDuration({ history = [] } = {}) {
+	return lastTurnBusyFromEvents(history);
 }
 
 /** ask_user_question 工具名：提问/计划审查等待的开启边界（tool/call）与配对结算（tool/result）。 */
@@ -2052,7 +2024,7 @@ function isBusyBoundaryEvent(type) {
 
 /** 空记账状态（无任何有效计时）。 */
 function emptyTurnStats() {
-	return { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, openWaitId: null, waitedMs: null };
+	return { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, openWaitId: null, waitedMs: null, watermarkTime: null };
 }
 
 /** 从任意来源拷贝记账状态：缺失字段归一为 null（旧记录/部分记录兼容）。 */
@@ -2064,10 +2036,14 @@ function turnStatsFrom(state) {
 		openWaitKind: state?.openWaitKind ?? null,
 		openWaitId: state?.openWaitId ?? null,
 		waitedMs: state?.waitedMs ?? null,
+		watermarkTime: state?.watermarkTime ?? null,
 	};
 }
 
-/** 记账状态逐字段相等（不含 watermarkSeq——宿主侧无效果事件跳过落盘的判定）。 */
+/**
+ * 记账状态逐字段相等（不含 watermarkSeq——它不是状态字段，由宿主侧随写入一并落盘；
+ * watermarkTime 为水位处已覆盖事件的时刻，参与相等判定以让补写该字段的收敛写入生效）。
+ */
 function turnStatsEqual(a, b) {
 	return (
 		a === b ||
@@ -2076,7 +2052,8 @@ function turnStatsEqual(a, b) {
 			(a?.openWaitStart ?? null) === (b?.openWaitStart ?? null) &&
 			(a?.openWaitKind ?? null) === (b?.openWaitKind ?? null) &&
 			(a?.openWaitId ?? null) === (b?.openWaitId ?? null) &&
-			(a?.waitedMs ?? null) === (b?.waitedMs ?? null))
+			(a?.waitedMs ?? null) === (b?.waitedMs ?? null) &&
+			(a?.watermarkTime ?? null) === (b?.watermarkTime ?? null))
 	);
 }
 
@@ -2198,15 +2175,18 @@ function totalBusyDisplayMs({ busyMs = null, openTurnStart = null, waitedMs = nu
 
 /**
  * 回合统计记账的统一收敛（R-01-020/AC-04、AC-05）：对全会话事件列表重放出下一份
- * 记账，宿主侧懒回填与启动扫描共用。路径选择——无记录、持久化水位非法、或水位
- * 超前于日志最大 seq（事件 seq 空间被重编，如 dsh 0.1.5 V3 迁移）时从空状态全量
- * 重放（超前水位会把后续全部实时事件封死在守卫之外，openTurnStart 永不清空、总
- * 耗时无限增长）；否则从持久化记账出发仅增量应用 `seq > watermarkSeq` 的事件。
+ * 记账，宿主侧懒回填与启动扫描共用。路径选择——无记录、强制重放、持久化水位非法、
+ * 或水位超前于日志最大 seq（事件 seq 空间被重编，如 dsh 0.1.5 V3 迁移）时从空状态
+ * 全量重放（超前水位会把后续全部实时事件封死在守卫之外，openTurnStart 永不清空、
+ * 总耗时无限增长）；否则从持久化记账出发仅增量应用 `seq > watermarkSeq` 的事件。
+ * 水位推进处同步记录 `watermarkTime`（水位处已覆盖事件的时刻，与实时登记按效果事件
+ * 写入的口径互为保守——检测只要求该值不超过真实边界事件时刻）——宿主实时登记据此
+ * 识别 seq 空间重编（低 seq 事件携带比水位更新的时刻，增量口径已失效）。
  * `closeOpenTurn`（宿主启动扫描）：重放后仍存在的开放回合按日志最后事件时刻强制
  * 结算关闭——宿主重启后不存在仍在运行的回合，残留起点只会令总耗时无限增长；尾部
  * 未配对等待一并按同刻结算（不落到运行时长里）。
  */
-function reconcileTurnStats(current, records, { closeOpenTurn = false } = {}) {
+function reconcileTurnStats(current, records, { closeOpenTurn = false, forceFresh = false } = {}) {
 	const list = Array.isArray(records) ? records : [];
 	let maxSeq = null;
 	let lastTime = null;
@@ -2216,23 +2196,32 @@ function reconcileTurnStats(current, records, { closeOpenTurn = false } = {}) {
 		const time = durationTime(eventOf(record)?.time);
 		if (time !== null && (lastTime === null || time > lastTime)) lastTime = time;
 	}
-	const fresh = !isRecord(current) || !Number.isFinite(current.watermarkSeq) || (maxSeq !== null && Number(current.watermarkSeq) > maxSeq);
+	const fresh = forceFresh || !isRecord(current) || !Number.isFinite(current.watermarkSeq) || (maxSeq !== null && Number(current.watermarkSeq) > maxSeq);
 	let state = emptyTurnStats();
 	let watermarkSeq = null;
+	let watermarkTime = null;
+	// 水位推进：seq 更大即前推水位；事件时刻有效才更新 watermarkTime（无效不前推）。
+	const advance = (record) => {
+		const seq = Number(record?.seq);
+		if (!Number.isFinite(seq) || (watermarkSeq !== null && seq <= watermarkSeq)) return;
+		watermarkSeq = seq;
+		const time = durationTime(eventOf(record)?.time);
+		if (time !== null) watermarkTime = time;
+	};
 	if (fresh) {
 		for (const record of list) {
 			state = applyTurnEventToStats(state, record);
-			const seq = Number(record?.seq);
-			if (Number.isFinite(seq) && (watermarkSeq === null || seq > watermarkSeq)) watermarkSeq = seq;
+			advance(record);
 		}
 	} else {
 		state = turnStatsFrom(current);
+		watermarkTime = state.watermarkTime;
 		watermarkSeq = Number(current.watermarkSeq);
 		for (const record of list) {
 			const seq = Number(record?.seq);
 			if (!Number.isFinite(seq) || seq <= watermarkSeq) continue;
 			state = applyTurnEventToStats(state, record);
-			watermarkSeq = seq;
+			advance(record);
 		}
 	}
 	if (closeOpenTurn && state.openTurnStart !== null) {
@@ -2245,7 +2234,7 @@ function reconcileTurnStats(current, records, { closeOpenTurn = false } = {}) {
 		state.openWaitId = null;
 		state.waitedMs = null;
 	}
-	return { ...state, watermarkSeq };
+	return { ...state, watermarkSeq, watermarkTime };
 }
 
 /**
@@ -5053,13 +5042,14 @@ function apply(ctx) {
 		}
 	}
 
-	/** 最近回合耗时 memo（等待卡与暂停子代理卡共用，R-01-009/AC-12、AC-15）：快照/历史引用不变即命中缓存。 */
-	function memoTurnDuration(detail, detailSnapshot) {
+	/** 最近回合耗时 memo（等待卡与暂停子代理卡共用，R-01-009/AC-12、AC-15）：history 引用
+	 *  不变即命中缓存。busy 口径（起止差值扣除回合内阻塞等待），与标题行总耗时同口径，
+	 *  保证恒不大于累计值（R-01-020）。 */
+	function memoTurnDuration(detail) {
 		const history = detail.history ?? null;
-		if (detail.memoTurnDurationSnapshotOf !== detailSnapshot || detail.memoTurnDurationHistoryOf !== history) {
-			detail.memoTurnDurationSnapshotOf = detailSnapshot;
+		if (detail.memoTurnDurationHistoryOf !== history) {
 			detail.memoTurnDurationHistoryOf = history;
-			detail.memoTurnDuration = lastTurnDuration({ turnTimings: detailSnapshot?.turnTimings, history });
+			detail.memoTurnDuration = lastTurnDuration({ history });
 		}
 		return detail.memoTurnDuration ?? null;
 	}
@@ -5964,7 +5954,7 @@ function apply(ctx) {
 				}
 			}
 			if (entry.kind === "awaiting" && detail) {
-				entry.elapsedMs = memoTurnDuration(detail, detailSnapshot);
+				entry.elapsedMs = memoTurnDuration(detail);
 			}
 			if (detail?.model) {
 				entry.model = detail.model.model;
@@ -6036,7 +6026,7 @@ function apply(ctx) {
 					// 非运行（暂停等待）：冻结最后已知统计与最近回合耗时，progress 置空隐藏
 					// 进度条（R-01-009/AC-15）；刷新/无留存时回退当前列表投影。
 					Object.assign(entry, mergeRuntimeStats(detail?.lastRuntimeStats, projectionStats));
-					entry.elapsedMs = detail ? memoTurnDuration(detail, detailSnapshot) : null;
+					entry.elapsedMs = detail ? memoTurnDuration(detail) : null;
 					entry.progress = null;
 				}
 			}
@@ -6059,13 +6049,13 @@ function apply(ctx) {
 		recentTotal = recentCandidates.length;
 		const recent = recentCandidates.slice(0, recentVisibleCount);
 		recentHasMore = recent.length < recentTotal;
-		// 最近卡统计复用运行卡的列表投影口径；耗时从保留快照或已读 history 取最近完整回合，
-		// 缺边界时仅为当前可见历史卡安排一次既有 history 补读（R-01-013/AC-12）。
+		// 最近卡统计复用运行卡的列表投影口径；耗时从已读 history 取最近完整回合的运行
+		// 过程时长（busy 口径，与标题行总耗时一致，R-01-013/AC-12），缺边界时仅为当前
+		// 可见历史卡安排一次既有 history 补读。
 		const recentDurationFallbackIds = new Set();
 		for (const entry of recent) {
 			const detail = sessionDetailsById.get(entry.id);
-			const detailSnapshot = livenessById.get(entry.id)?.snapshot ?? detail?.snapshot ?? null;
-			const elapsedMs = lastTurnDuration({ turnTimings: detailSnapshot?.turnTimings, history: detail?.history });
+			const elapsedMs = lastTurnDuration({ history: detail?.history ?? null });
 			// 累计运行时长（R-01-020/AC-01）：最近历史卡同为标题行右侧显示；历史卡无开放回合。
 			applyTotalBusy(entry, now);
 			const stats = statsFromProjection(snapshot?.byId?.[entry.id]?.projectionValues, elapsedMs);

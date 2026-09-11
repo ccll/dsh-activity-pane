@@ -59,7 +59,9 @@ const domainSpec = defineDomain({
  *  openTurnStart 当前开放回合起点（无开放回合为 null）、openWaitStart/openWaitKind 当前
  *  未配对等待区间（回合内阻塞等待：approval/question）、waitedMs 本回合已配对等待时长
  *  累计、watermarkSeq 实时登记已覆盖的最大事件 seq（回填与实时登记以水位衔接，seq ≤
- *  watermark 的事件不重复应用）。全部字段可选/可空。 */
+ *  watermark 的事件不重复应用）、watermarkTime 水位处事件的时刻（实时登记据此识别 seq
+ *  空间重编：低 seq 事件携带比水位更新的时刻，增量口径失效，须全量重放）。全部字段
+ *  可选/可空。 */
 const turnStatRecord = z.object({
 	busyMs: z.number().nullable().optional(),
 	openTurnStart: z.number().nullable().optional(),
@@ -68,6 +70,7 @@ const turnStatRecord = z.object({
 	openWaitId: z.string().nullable().optional(),
 	waitedMs: z.number().nullable().optional(),
 	watermarkSeq: z.number().nullable().optional(),
+	watermarkTime: z.number().nullable().optional(),
 })
 
 /** 独立 domain：dsh-storage-domain 无迁移机制（version 不同在 open 时拒绝），新增表落新 domain，
@@ -122,8 +125,13 @@ export function apply(ctx) {
 		resolveDomain()
 		// 启动扫描（R-01-020/AC-04）：宿主重启后不存在仍在运行的回合——残留开放回合的
 		// 记账按日志最后事件时刻强制结算关闭，否则总耗时按 now − openTurnStart 无限增长。
+		// 无 watermarkTime 的存量记录（本字段引入前写入）强制全量重放复核一次——无论重编
+		// 后日志 seq 是否已超越旧水位（部分重叠重编）都能收敛，重写后带上该字段、不再
+		// 重复扫描；此后重编由实时登记的重编检测承接。
 		for (const [id, record] of turnStats.entries()) {
-			if (record?.openTurnStart != null) ensureTurnStatsFresh(id, { closeOpenTurn: true })
+			const closeOpenTurn = record?.openTurnStart != null
+			const legacy = record?.watermarkTime == null
+			if (closeOpenTurn || legacy) ensureTurnStatsFresh(id, { closeOpenTurn, forceFresh: legacy })
 		}
 	})
 
@@ -159,10 +167,17 @@ export function apply(ctx) {
 	 *  reconcileTurnStats 收敛——无记录、水位非法或水位超前于日志最大 seq（事件 seq 空间
 	 *  被重编，如 dsh 0.1.5 V3 迁移）的会话自空状态全量重放；已有记录会话仅增量应用
 	 *  seq > watermarkSeq 的事件（宿主离线期间经其它入口发生的回合），以水位衔接保证
-	 *  不重复、不遗漏。closeOpenTurn（启动扫描）：重放后仍开放的回合按日志最后事件
-	 *  时刻强制结算。读取失败保留已有记账，随下次请求重试；会话不存在/已删除时静默跳过。 */
-	function ensureTurnStatsFresh(id, { closeOpenTurn = false } = {}) {
-		if (backfills.has(id)) return backfills.get(id)
+	 *  不重复、不遗漏。forceFresh：调用侧已证实水位口径失效（实时登记识别出 seq 空间
+	 *  重编，或存量记录尚未携带 watermarkTime）时丢弃已有记账、强制从空状态全量重放；
+	 *  在途回填不得吞掉该选项——命中时在其完成后补一次强制重放。closeOpenTurn（启动
+	 *  扫描）：重放后仍开放的回合按日志最后事件时刻强制结算。读取失败保留已有记账，
+	 * 随下次请求重试；会话不存在/已删除时静默跳过。 */
+	function ensureTurnStatsFresh(id, { closeOpenTurn = false, forceFresh = false } = {}) {
+		if (backfills.has(id)) {
+			const inflight = backfills.get(id)
+			if (!forceFresh) return inflight
+			return inflight.then(() => ensureTurnStatsFresh(id, { closeOpenTurn, forceFresh: true }))
+		}
 		const promise = new Promise((resolve) => {
 			ctx.inject(['sessionQuery'], (sessionQuery) => {
 				resolve(sessionQuery)
@@ -170,13 +185,16 @@ export function apply(ctx) {
 		}).then(async (sessionQuery) => {
 			try {
 				await domainReady
-				const current = turnStats.get(id) ?? null
+				const current = forceFresh ? null : turnStats.get(id) ?? null
 				const records = await sessionQuery.listEvents(id)
 				const next = reconcileTurnStats(current, Array.isArray(records) ? records : [], { closeOpenTurn })
 				const changed =
-					current === null || next.watermarkSeq !== (current.watermarkSeq ?? null) || !turnStatsEqual(next, current)
+					forceFresh ||
+					current === null ||
+					next.watermarkSeq !== (current.watermarkSeq ?? null) ||
+					!turnStatsEqual(next, current)
 				if (changed) {
-					await turnStats.put(id, { ...turnStatsFrom(next), watermarkSeq: next.watermarkSeq })
+					await turnStats.put(id, { ...turnStatsFrom(next), watermarkSeq: next.watermarkSeq, watermarkTime: next.watermarkTime })
 					broadcastBusy()
 				}
 			} catch (error) {
@@ -265,15 +283,31 @@ export function apply(ctx) {
 				const inflight = backfills.get(id)
 				if (inflight) await inflight
 			}
-			const current = turnStats.get(id)
-			if (Number.isFinite(current?.watermarkSeq) && seq <= current.watermarkSeq) return
+			let current = turnStats.get(id)
+			if (Number.isFinite(current?.watermarkSeq) && seq <= current.watermarkSeq) {
+				// 重编检测（R-01-020/AC-04）：稳定 seq 空间内低水位事件的时刻不可能比水位处
+				// 事件更新；时刻反而更新说明事件 seq 空间被重编（如 dsh 0.1.5 V3 迁移），
+				// 持久化水位已失效，增量口径不再封死后续事件。无 watermarkTime 的存量记录
+				//（本字段引入前写入，其水位未经重编检测校验）同样不可信——两者统一丢弃旧
+				// 记账强制全量重放自愈；重放若仍覆盖不到本事件（日志写入滞后），落回下方
+				// 正常增量路径应用。
+				const time = Number(event.time)
+				if (!Number.isFinite(time)) return
+				if (Number.isFinite(current.watermarkTime) && time <= current.watermarkTime) return
+				await ensureTurnStatsFresh(id, { forceFresh: true })
+				current = turnStats.get(id)
+				if (Number.isFinite(current?.watermarkSeq) && seq <= current.watermarkSeq) return
+			}
 			const next = applyTurnEventToStats(turnStatsFrom(current), event)
 			if (turnStatsEqual(next, current)) {
 				// 无效果事件（非提问工具调用、未配对的结算事件等）：不落盘不广播，
 				// 水位不前移——重放路径对同类事件同样不改变记账状态，口径一致。
 				return
 			}
-			await turnStats.put(id, { ...turnStatsFrom(next), watermarkSeq: seq })
+			const time = Number(event.time)
+			// 与 reconcile 同口径：时刻无效时保留既有 watermarkTime 不前推（能走到此处的
+			// 必为有效果事件、时刻有效，null 分支仅作防御）。
+			await turnStats.put(id, { ...turnStatsFrom(next), watermarkSeq: seq, watermarkTime: Number.isFinite(time) ? time : turnStatsFrom(current).watermarkTime ?? null })
 			broadcastBusy()
 		} catch (error) {
 			ctx.logger?.warn?.(`dsh-activity-pane: 回合统计登记失败（${id}）: ${String(error)}`)

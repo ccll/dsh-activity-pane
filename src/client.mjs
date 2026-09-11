@@ -2455,13 +2455,14 @@ function apply(ctx) {
 		}
 	}
 
-	/** 最近回合耗时 memo（等待卡与暂停子代理卡共用，R-01-009/AC-12、AC-15）：快照/历史引用不变即命中缓存。 */
-	function memoTurnDuration(detail, detailSnapshot) {
+	/** 最近回合耗时 memo（等待卡与暂停子代理卡共用，R-01-009/AC-12、AC-15）：history 引用
+	 *  不变即命中缓存。busy 口径（起止差值扣除回合内阻塞等待），与标题行总耗时同口径，
+	 *  保证恒不大于累计值（R-01-020）。 */
+	function memoTurnDuration(detail) {
 		const history = detail.history ?? null;
-		if (detail.memoTurnDurationSnapshotOf !== detailSnapshot || detail.memoTurnDurationHistoryOf !== history) {
-			detail.memoTurnDurationSnapshotOf = detailSnapshot;
+		if (detail.memoTurnDurationHistoryOf !== history) {
 			detail.memoTurnDurationHistoryOf = history;
-			detail.memoTurnDuration = lastTurnDuration({ turnTimings: detailSnapshot?.turnTimings, history });
+			detail.memoTurnDuration = lastTurnDuration({ history });
 		}
 		return detail.memoTurnDuration ?? null;
 	}
@@ -3366,7 +3367,7 @@ function apply(ctx) {
 				}
 			}
 			if (entry.kind === "awaiting" && detail) {
-				entry.elapsedMs = memoTurnDuration(detail, detailSnapshot);
+				entry.elapsedMs = memoTurnDuration(detail);
 			}
 			if (detail?.model) {
 				entry.model = detail.model.model;
@@ -3438,7 +3439,7 @@ function apply(ctx) {
 					// 非运行（暂停等待）：冻结最后已知统计与最近回合耗时，progress 置空隐藏
 					// 进度条（R-01-009/AC-15）；刷新/无留存时回退当前列表投影。
 					Object.assign(entry, mergeRuntimeStats(detail?.lastRuntimeStats, projectionStats));
-					entry.elapsedMs = detail ? memoTurnDuration(detail, detailSnapshot) : null;
+					entry.elapsedMs = detail ? memoTurnDuration(detail) : null;
 					entry.progress = null;
 				}
 			}
@@ -3461,13 +3462,13 @@ function apply(ctx) {
 		recentTotal = recentCandidates.length;
 		const recent = recentCandidates.slice(0, recentVisibleCount);
 		recentHasMore = recent.length < recentTotal;
-		// 最近卡统计复用运行卡的列表投影口径；耗时从保留快照或已读 history 取最近完整回合，
-		// 缺边界时仅为当前可见历史卡安排一次既有 history 补读（R-01-013/AC-12）。
+		// 最近卡统计复用运行卡的列表投影口径；耗时从已读 history 取最近完整回合的运行
+		// 过程时长（busy 口径，与标题行总耗时一致，R-01-013/AC-12），缺边界时仅为当前
+		// 可见历史卡安排一次既有 history 补读。
 		const recentDurationFallbackIds = new Set();
 		for (const entry of recent) {
 			const detail = sessionDetailsById.get(entry.id);
-			const detailSnapshot = livenessById.get(entry.id)?.snapshot ?? detail?.snapshot ?? null;
-			const elapsedMs = lastTurnDuration({ turnTimings: detailSnapshot?.turnTimings, history: detail?.history });
+			const elapsedMs = lastTurnDuration({ history: detail?.history ?? null });
 			// 累计运行时长（R-01-020/AC-01）：最近历史卡同为标题行右侧显示；历史卡无开放回合。
 			applyTotalBusy(entry, now);
 			const stats = statsFromProjection(snapshot?.byId?.[entry.id]?.projectionValues, elapsedMs);

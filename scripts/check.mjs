@@ -58,8 +58,7 @@ import {
 	catalogModelEntries,
 	lastTurnEndFromEvents,
 	lastTurnEndFromTimings,
-	lastTurnDurationFromEvents,
-	lastTurnDurationFromTimings,
+	lastTurnBusyFromEvents,
 	lastTurnDuration,
 	applyTurnEventToStats,
 	reconcileTurnStats,
@@ -1365,6 +1364,50 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 	assert.equal(next.busyMs, 1_100, "R-01-020/AC-04 启动扫描按日志末事件时刻结算残留开放回合");
 	assert.equal(next.openTurnStart, null, "R-01-020/AC-04 启动扫描后无残留开放回合");
 	assert.equal(next.waitedMs, null, "R-01-020/AC-04 启动扫描后等待累计清零");
+}
+// 重编检测（R-01-020/AC-04）：水位推进处记录 watermarkTime；增量重放同步更新。
+{
+	const next = reconcileTurnStats(
+		{ busyMs: 500, openTurnStart: null, openWaitStart: null, openWaitKind: null, waitedMs: null, watermarkSeq: 2, watermarkTime: 600 },
+		[
+			{ type: "turn/start", seq: 3, time: 10_000 },
+			{ type: "turn/end", seq: 4, time: 11_000 },
+		],
+	);
+	assert.equal(next.busyMs, 1_500, "R-01-020/AC-04 增量重放补齐缺口回合");
+	assert.equal(next.watermarkTime, 11_000, "R-01-020/AC-04 水位推进处记录最后应用边界事件的时刻");
+}
+// 部分重叠的 seq 空间重编（水位 ≤ 日志最大 seq，既有水位超前检测不可达）：forceFresh
+// 丢弃旧空间记账、从空状态全量重放，实时登记的重编检测据此自愈；存量记录（无
+// watermarkTime）同走该路径。
+{
+	const forced = reconcileTurnStats(
+		{ busyMs: 100, openTurnStart: null, openWaitStart: null, openWaitKind: null, waitedMs: null, watermarkSeq: 2, watermarkTime: 600 },
+		[
+			{ type: "turn/start", seq: 1, time: 10_000 },
+			{ type: "turn/end", seq: 2, time: 11_000 },
+			{ type: "turn/start", seq: 3, time: 11_500 },
+			{ type: "turn/end", seq: 4, time: 12_000 },
+		],
+		{ forceFresh: true },
+	);
+	assert.equal(forced.busyMs, 1_500, "R-01-020/AC-04 强制全量重放按新 seq 空间重算累计");
+	assert.equal(forced.watermarkSeq, 4, "R-01-020/AC-04 强制全量重放后水位落在新空间");
+	assert.equal(forced.watermarkTime, 12_000, "R-01-020/AC-04 强制全量重放后水位时刻为最后边界事件");
+}
+{
+	const legacy = reconcileTurnStats(
+		{ busyMs: 100, openTurnStart: null, openWaitStart: null, openWaitKind: null, waitedMs: null, watermarkSeq: 2 },
+		[
+			{ type: "turn/start", seq: 1, time: 10_000 },
+			{ type: "turn/end", seq: 2, time: 11_000 },
+			{ type: "tool/call", seq: 3, time: 11_500, data: { callId: "c1", name: "bash" } },
+		],
+		{ forceFresh: true },
+	);
+	assert.equal(legacy.busyMs, 1_000, "R-01-020/AC-04 存量记录（无 watermarkTime）强制重放后按新空间重算");
+	assert.equal(legacy.watermarkSeq, 3, "R-01-020/AC-04 存量记录重放后水位覆盖全部事件（含无效果事件）");
+	assert.equal(legacy.watermarkTime, 11_500, "R-01-020/AC-04 存量记录重放后补上水位时刻");
 }
 // R-01-013/AC-05：历史卡同时显示本地绝对日期时间与相对年龄，异常输入不制造虚假时间。
 const relativeMinute = 60_000;
@@ -2824,67 +2867,64 @@ assert.equal(
 	2500,
 	"turnTimings 取最大 endTime，忽略未结束回合",
 );
-// ---- R-01-009/AC-12 等待卡保留最近完整回合耗时 ----
+// ---- R-01-009/AC-12 等待卡保留最近完整回合耗时（busy 口径，R-01-020 语义） ----
 assert.equal(
-	lastTurnDurationFromTimings(new Map([
-		[1, { startTime: 100, endTime: 900 }],
-		[2, { startTime: 1000 }],
-		[3, { startTime: 2000, endTime: 2500 }],
-	])),
-	500,
-	"turnTimings 取最近已结束回合的起止差值，不取更早回合或开放回合",
-);
-assert.equal(
-	lastTurnDurationFromTimings(new Map([[1, { startTime: 900, endTime: 100 }]])),
-	null,
-	"起点晚于终点时不生成虚假回合耗时",
-);
-assert.equal(lastTurnDurationFromTimings(new Map([[1, { startTime: 100 }]])), null, "无 endTime 不生成等待耗时");
-assert.equal(
-	lastTurnDurationFromEvents([
+	lastTurnBusyFromEvents([
 		{ event: { type: "turn/start", time: 100, data: { turn: 1 } } },
 		{ event: { type: "turn/end", time: 900, data: { turn: 1 } } },
 		{ event: { type: "turn/start", time: 1000, data: { turn: 2 } } },
 		{ event: { type: "turn/end", time: 2500, data: { turn: 2 } } },
 	]),
 	1500,
-	"history 按同一 turn 配对并取最近已结束回合的耗时",
+	"history 取最近已结束回合的起止差值",
 );
 assert.equal(
-	lastTurnDurationFromEvents([
-		{ event: { type: "turn/start", time: 900, data: { turn: 1 } } },
-		{ event: { type: "turn/end", time: 100, data: { turn: 1 } } },
+	lastTurnBusyFromEvents([
+		{ event: { type: "turn/start", time: 1000, data: { turn: 1 } } },
+		{ event: { type: "tool/call", time: 2000, data: { callId: "c1", name: "ask_user_question" } } },
+		{ event: { type: "tool/result", time: 7000, data: { message: { source: { kind: "tool", callId: "c1" } } } } },
+		{ event: { type: "turn/end", time: 8000, data: { turn: 1 } } },
+	]),
+	2000,
+	"最近回合耗时扣除回合内提问等待（busy 口径，与总耗时一致）",
+);
+assert.equal(
+	lastTurnBusyFromEvents([
+		{ event: { type: "turn/start", time: 1000, data: { turn: 1 } } },
+		{ event: { type: "approval/asked", time: 2000, data: { id: "a1" } } },
+		{ event: { type: "approval/decided", time: 6000, data: { id: "a1" } } },
+		{ event: { type: "turn/end", time: 7000, data: { turn: 1 } } },
+	]),
+	2000,
+	"最近回合耗时扣除回合内审批等待",
+);
+assert.equal(
+	lastTurnBusyFromEvents([
+		{ event: { type: "turn/start", time: 1000, data: { turn: 1 } } },
+		{ event: { type: "turn/end", time: 900, data: { turn: 1 } } },
 	]),
 	null,
-	"history 起止逆序时不生成虚假回合耗时",
+	"起止逆序时不生成虚假回合耗时",
 );
 assert.equal(
-	lastTurnDurationFromEvents([
+	lastTurnBusyFromEvents([
 		{ event: { type: "turn/start", time: null, data: { turn: 1 } } },
 		{ event: { type: "turn/end", time: 100, data: { turn: 1 } } },
 	]),
 	null,
-	"history 起点缺失时不把 null 当作时间零点",
+	"起点缺失时不把 null 当作时间零点",
 );
 assert.equal(
-	lastTurnDurationFromTimings(new Map([[1, { startTime: Number.NaN, endTime: 100 }]])),
-	null,
-	"turnTimings 起点非有限时不生成等待耗时",
-);
-assert.equal(
-	lastTurnDuration({
-		turnTimings: new Map([
-			[1, { startTime: 100, endTime: 900 }],
-			[2, { endTime: 2500 }],
-		]),
-		history: [],
-	}),
-	800,
-	"turnTimings 最新孤立 end 不得与更早完整回合错配",
+	lastTurnBusyFromEvents([
+		{ event: { type: "turn/start", time: 1000, data: { turn: 1 } } },
+		{ event: { type: "tool/call", time: 2000, data: { callId: "c1", name: "ask_user_question" } } },
+		{ event: { type: "turn/end", time: 5000, data: { turn: 1 } } },
+	]),
+	1000,
+	"turn/end 强制结算未配对等待：等待尾部不计入最近回合耗时",
 );
 assert.equal(
 	lastTurnDuration({
-		turnTimings: new Map(),
 		history: [
 			{ event: { type: "turn/start", time: 100, data: { turn: 1 } } },
 			{ event: { type: "turn/end", time: 900, data: { turn: 1 } } },
@@ -2892,24 +2932,10 @@ assert.equal(
 		],
 	}),
 	800,
-	"history 最新孤立 end 不得与更早完整回合错配",
+	"最新孤立 end 不得与更早完整回合错配",
 );
-assert.equal(
-	lastTurnDuration({
-		turnTimings: new Map([[1, { startTime: 100, endTime: 900 }]]),
-		history: [
-			{ event: { type: "turn/start", time: 1000, data: { turn: 2 } } },
-			{ event: { type: "turn/end", time: 1300, data: { turn: 2 } } },
-		],
-	}),
-	300,
-	"多来源时按最近结束时刻选择同一最新回合耗时",
-);
-assert.equal(
-	lastTurnDuration({ turnTimings: new Map([[1, { startTime: 100, endTime: 900 }]]), history: [] }),
-	800,
-	"无 history 时从 turnTimings 提取回合耗时",
-);
+assert.equal(lastTurnDuration({ history: [] }), null, "空 history 无回合耗时");
+assert.equal(lastTurnDuration({ history: null }), null, "history 缺失回退 null");
 const refineSnap = {
 	ids: ["sTurn", "sPrompt", "sNone"],
 	byId: {

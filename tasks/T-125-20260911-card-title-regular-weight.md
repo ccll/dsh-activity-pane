@@ -6,7 +6,7 @@ id: T-125
 
 # T-125 会话卡标题统一常规字重
 
-状态: active
+状态: completed
 关联: R-01-013/AC-09 / 窗格渲染器
 风险等级: standard
 
@@ -43,4 +43,13 @@ id: T-125
 
 ## 终态与证据
 
-（待实现提交后填写）
+- 实现: `src/client.mjs` 的 `.dap-title` 基础字重 700 → 400，删除冗余的 `[data-kind="recent"] .dap-title` 覆盖；活动卡、子代理卡、最近卡共用同一常规字重规则；`.dsh-plugin/client.js` 同步重建。
+- 测试: `node scripts/check.mjs` 全部断言通过（R-01-013/AC-09 契约断言更新为基础 400 + 无 recent 覆盖）；`pnpm verify:fast` 全绿（AgentMap lint + 测试影响检查 + core 单测与 client bundle 契约）；实现提交 `9e5e31d` 的 pre-commit 全部门禁通过（含 staged client bundle 字节比较）。`scripts/acceptance.mjs` 验收步骤已改为「活动卡与最近历史卡的会话标题均为常规字重」，真实视觉结果仍需人工 GUI 验收。
+- DESIGN 对照: 样式细节属实现自由（T-022 先例），DESIGN 无需演进；R-01-013 需求追溯索引既有行（窗格渲染器 / src/core.mjs、src/client.mjs）保持准确。
+- commit: 9e5e31d
+- review:
+  - 审核方: Standards 子代理 `b1946901-e165-4d82-a81f-f493eb840d77`；Spec 子代理 `fd951b24-e4b5-44d6-9e34-b30c4c2ea2f4`。
+  - 目的理解: 实现东家 2026-09-11 视觉反馈——三类会话卡标题统一常规字重；纯 CSS 呈现调整，不改 DOM 结构、数据流与其他卡片呈现；关联约束为 R-01-013/AC-09 继续成立、AgentMap 纪律与 strict 测试锚定。
+  - 执行方式: `code-review` skill；固定基线 `HEAD`（提交前工作树变更，含未跟踪 task 文件），Standards/Spec 双轴并行审核；Standards 轴另对照 AGENTS.md、CONVENTIONS.md 与 Fowler 坏味基线，Spec 轴以 task T-125 与 PRD R-01-013/AC-09 为规格来源。
+  - 问题与修复: 无 blocking 问题。Standards 一条 judgement call（check.mjs 负向断言按选择器子串耦合实现形状，属既有 bundle 契约断言模式）与 Spec 同一处的轻微提示（未来新增非字重的 recent 标题规则会被误拦）均记录不修；Spec 轴备注的关闭前跑齐 `pnpm verify:fast` 已在提交前满足。
+  - 复审结论: Standards 通过；Spec 通过，无缺漏、无 scope creep、无错误实现，无遗留 finding，无需复审。

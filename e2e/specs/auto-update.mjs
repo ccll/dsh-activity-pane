@@ -222,6 +222,18 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 		}),
 	);
 	assert.match(blockedElapsed.text, /^(?:\d+s|\d+m\d+s|\d+h\d+m\d+s)$/, "阻塞等待统计行最右侧显示固定上一轮耗时（R-01-009/AC-12）");
+	// R-01-020/AC-07：提问等待期间标题行总耗时冻结——等待区间不计入累计。
+	const blockedTotalStart = await until("阻塞等待标题行总耗时呈现", () =>
+		runtimeCard.evaluate((card) => {
+			const total = card.querySelector(".dap-total-time");
+			if (!total || total.hidden) return null;
+			const text = total.textContent.trim();
+			return /^\d+(?:s|m\d+s|h\d+m\d+s)$/.test(text) ? text : null;
+		}),
+	);
+	await page.waitForTimeout(2_200);
+	const blockedTotalEnd = await runtimeCard.evaluate((card) => card.querySelector(".dap-total-time")?.textContent.trim() ?? null);
+	assert.equal(blockedTotalEnd, blockedTotalStart, "提问等待期间标题行总耗时冻结，等待时长不计入（R-01-020/AC-07）");
 	assert.equal(blockedElapsed.sameRow, true, "阻塞等待耗时位于 token 统计行（R-01-009/AC-12）");
 	assert.equal(blockedElapsed.rightAligned, true, "阻塞等待耗时贴合 token 统计行最右侧（R-01-009/AC-12）");
 	assert.equal(blockedElapsed.headTime, "", "阻塞等待胶囊同行不重复显示耗时（R-01-009/AC-12）");

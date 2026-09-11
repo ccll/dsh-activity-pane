@@ -8,10 +8,12 @@
 //   2. `POST /dsh-activity-pane/api/ack` 写回 `ackedAt`；
 //   3. `GET /dsh-activity-pane/api/acks` 全量快照；`GET /dsh-activity-pane/api/acks/stream` SSE 推送
 //      （连接即发全量、变更即广播）。
-//   4. 订阅 `session/event` 配对 `turn/start`–`turn/end` 累计每会话 busy 总时长（R-01-020）：
-//      持久化于独立 domain 表 `turn_stats`（`{ busyMs, openTurnStart, watermarkSeq }`），
-//      无记录会话经 `sessionQuery.listEvents` 懒回填，经 `GET /api/busy` 全量快照与
-//      `/busy/stream` SSE 只读下发，无写回路径。
+//   4. 订阅 `session/event` 按回合与等待边界（`approval/asked`–`decided`、`ask_user_question`
+//      的 `tool/call`–`tool/result`）配对累计每会话运行过程时长（R-01-020）：
+//      持久化于独立 domain 表 `turn_stats`（`{ busyMs, openTurnStart, openWaitStart,
+//      openWaitKind, openWaitId, waitedMs, watermarkSeq }`），无记录/水位缺口/水位超前会话经
+//      `sessionQuery.listEvents` 懒回填（统一 reconcileTurnStats 收敛，启动扫描强制结算
+//      残留开放回合），经 `GET /api/busy` 全量快照与 `/busy/stream` SSE 只读下发，无写回路径。
 //
 // 持久化：storageDomain 声明式 domain 表 `acks`（sessionId → { lastTurnEnd, lastTurnEndKind,
 // lastTurnEndError, ackedAt }）与 `dsh_activity_pane_turns` 表 `turn_stats`（sessionId →
@@ -24,7 +26,7 @@
 
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import { z } from 'zod'
-import { applyTurnEventToStats, truncateErrorNote } from './core.mjs'
+import { applyTurnEventToStats, isBusyBoundaryEvent, reconcileTurnStats, turnStatsEqual, turnStatsFrom, truncateErrorNote } from './core.mjs'
 
 export const name = 'dsh-activity-pane'
 export const inject = ['storageDomain', 'webServer', 'sessionQuery', 'connection']
@@ -53,12 +55,18 @@ const domainSpec = defineDomain({
 	},
 })
 
-/** 每会话累计运行时长记账（R-01-020）：busyMs 已完成回合运行时长累计（null=尚无有效计时）、
- *  openTurnStart 当前开放回合起点（无开放回合为 null）、watermarkSeq 实时登记已覆盖的最大事件
- *  seq（回填与实时登记以水位衔接，seq ≤ watermark 的事件不重复应用）。全部字段可选/可空。 */
+/** 每会话累计运行时长记账（R-01-020）：busyMs 运行过程时长累计（null=尚无有效计时）、
+ *  openTurnStart 当前开放回合起点（无开放回合为 null）、openWaitStart/openWaitKind 当前
+ *  未配对等待区间（回合内阻塞等待：approval/question）、waitedMs 本回合已配对等待时长
+ *  累计、watermarkSeq 实时登记已覆盖的最大事件 seq（回填与实时登记以水位衔接，seq ≤
+ *  watermark 的事件不重复应用）。全部字段可选/可空。 */
 const turnStatRecord = z.object({
 	busyMs: z.number().nullable().optional(),
 	openTurnStart: z.number().nullable().optional(),
+	openWaitStart: z.number().nullable().optional(),
+	openWaitKind: z.string().nullable().optional(),
+	openWaitId: z.string().nullable().optional(),
+	waitedMs: z.number().nullable().optional(),
 	watermarkSeq: z.number().nullable().optional(),
 })
 
@@ -112,14 +120,25 @@ export function apply(ctx) {
 		acks = domain.table('acks')
 		turnStats = turnDomain.table('turn_stats')
 		resolveDomain()
+		// 启动扫描（R-01-020/AC-04）：宿主重启后不存在仍在运行的回合——残留开放回合的
+		// 记账按日志最后事件时刻强制结算关闭，否则总耗时按 now − openTurnStart 无限增长。
+		for (const [id, record] of turnStats.entries()) {
+			if (record?.openTurnStart != null) ensureTurnStatsFresh(id, { closeOpenTurn: true })
+		}
 	})
 
-	/** 全量 busy 快照：{ [sessionId]: { busyMs, openTurnStart } }（水位为宿主内部记账，不下发）。 */
+	/** 全量 busy 快照：{ [sessionId]: { busyMs, openTurnStart, waitedMs, openWaitStart } }
+	 *  （水位与等待种类为宿主内部记账，不下发）。 */
 	function busySnapshot() {
 		const out = {}
 		if (turnStats === null) return out
 		for (const [id, record] of turnStats.entries()) {
-			out[id] = { busyMs: record?.busyMs ?? null, openTurnStart: record?.openTurnStart ?? null }
+			out[id] = {
+				busyMs: record?.busyMs ?? null,
+				openTurnStart: record?.openTurnStart ?? null,
+				waitedMs: record?.waitedMs ?? null,
+				openWaitStart: record?.openWaitStart ?? null,
+			}
 		}
 		return out
 	}
@@ -136,12 +155,13 @@ export function apply(ctx) {
 		}
 	}
 
-	/** 懒回填（R-01-020/AC-05，C-074）：经 sessionQuery.listEvents 读取会话事件，保证
-	 *  记账覆盖全部存量回合——无记录会话自空状态全量重放；已有记录会话仅增量应用
+	/** 懒回填（R-01-020/AC-05，C-074）：经 sessionQuery.listEvents 读取会话事件，统一经
+	 *  reconcileTurnStats 收敛——无记录、水位非法或水位超前于日志最大 seq（事件 seq 空间
+	 *  被重编，如 dsh 0.1.5 V3 迁移）的会话自空状态全量重放；已有记录会话仅增量应用
 	 *  seq > watermarkSeq 的事件（宿主离线期间经其它入口发生的回合），以水位衔接保证
-	 *  不重复、不遗漏。重放以「最近未配对 start」策略覆盖实时登记同一口径，写入后
-	 *  广播。读取失败保留已有记账，随下次请求重试；会话不存在/已删除时静默跳过。 */
-	function ensureTurnStatsFresh(id) {
+	 *  不重复、不遗漏。closeOpenTurn（启动扫描）：重放后仍开放的回合按日志最后事件
+	 *  时刻强制结算。读取失败保留已有记账，随下次请求重试；会话不存在/已删除时静默跳过。 */
+	function ensureTurnStatsFresh(id, { closeOpenTurn = false } = {}) {
 		if (backfills.has(id)) return backfills.get(id)
 		const promise = new Promise((resolve) => {
 			ctx.inject(['sessionQuery'], (sessionQuery) => {
@@ -150,37 +170,15 @@ export function apply(ctx) {
 		}).then(async (sessionQuery) => {
 			try {
 				await domainReady
-				const current = turnStats.get(id)
-				if (current) {
-					// 已有记账：只补水位之后的缺口回合（宿主离线期间经其它入口发生的回合）。
-					const watermark = Number(current.watermarkSeq)
-					const records = await sessionQuery.listEvents(id)
-					let state = { busyMs: current.busyMs ?? null, openTurnStart: current.openTurnStart ?? null }
-					let watermarkSeq = current.watermarkSeq ?? null
-					for (const record of Array.isArray(records) ? records : []) {
-						const seq = Number(record?.seq)
-						if (!Number.isFinite(seq)) continue
-						if (Number.isFinite(watermark) && seq <= watermark) continue
-						state = applyTurnEventToStats(state, record)
-						if (watermarkSeq === null || seq > watermarkSeq) watermarkSeq = seq
-					}
-					if (watermarkSeq !== null && (watermarkSeq !== (current.watermarkSeq ?? null) || state.busyMs !== (current.busyMs ?? null) || state.openTurnStart !== (current.openTurnStart ?? null))) {
-						await turnStats.put(id, { busyMs: state.busyMs, openTurnStart: state.openTurnStart, watermarkSeq })
-						broadcastBusy()
-					}
-					return
-				}
-				// 无记录：自空状态全量重放（存量会话首次回填）。
+				const current = turnStats.get(id) ?? null
 				const records = await sessionQuery.listEvents(id)
-				let state = { busyMs: null, openTurnStart: null }
-				let watermarkSeq = null
-				for (const record of Array.isArray(records) ? records : []) {
-					state = applyTurnEventToStats(state, record)
-					const seq = Number(record?.seq)
-					if (Number.isFinite(seq) && (watermarkSeq === null || seq > watermarkSeq)) watermarkSeq = seq
+				const next = reconcileTurnStats(current, Array.isArray(records) ? records : [], { closeOpenTurn })
+				const changed =
+					current === null || next.watermarkSeq !== (current.watermarkSeq ?? null) || !turnStatsEqual(next, current)
+				if (changed) {
+					await turnStats.put(id, { ...turnStatsFrom(next), watermarkSeq: next.watermarkSeq })
+					broadcastBusy()
 				}
-				await turnStats.put(id, { busyMs: state.busyMs, openTurnStart: state.openTurnStart, watermarkSeq })
-				broadcastBusy()
 			} catch (error) {
 				ctx.logger?.warn?.(`dsh-activity-pane: busy 回填失败（${id}）: ${String(error)}`)
 			} finally {
@@ -243,14 +241,16 @@ export function apply(ctx) {
 		}
 	})
 
-	// 累计运行时长实时登记（R-01-020/AC-02、AC-04、AC-05，C-074）：turn/start–turn/end 配对记账，
-	// completed/blocked/max-tokens/aborted/error 全部结束原因均计入；事件按会话序提交，
-	// seq ≤ watermark 的事件幂等跳过；主/子统一登记，过滤由客户端判定。
+	// 累计运行时长实时登记（R-01-020/AC-02、AC-04、AC-05、AC-07，C-074）：turn/start–turn/end
+	// 配对记账，回合内阻塞等待经 approval/asked–decided 与 ask_user_question 的 tool/call–
+	// tool/result 配对扣除；completed/blocked/max-tokens/aborted/error 全部结束原因均计入；
+	// 事件按会话序提交，seq ≤ watermark 的事件幂等跳过；无效果的边界事件（如非提问工具的
+	// tool/call）不落盘、不广播；主/子统一登记，过滤由客户端判定。
 	// 表内无记录的会话先懒回填存量回合再应用实时事件——否则首个实时事件会以 null 建立记录、
 	// 存量回合永远失去补齐机会。
 	ctx.on('session/event', async (session, event) => {
 		const type = event?.type
-		if (type !== 'turn/start' && type !== 'turn/end') return
+		if (!isBusyBoundaryEvent(type)) return
 		const seq = Number(event.seq)
 		if (!Number.isFinite(seq)) return
 		const id = String(session?.id ?? '')
@@ -267,11 +267,13 @@ export function apply(ctx) {
 			}
 			const current = turnStats.get(id)
 			if (Number.isFinite(current?.watermarkSeq) && seq <= current.watermarkSeq) return
-			const next = applyTurnEventToStats(
-				{ busyMs: current?.busyMs ?? null, openTurnStart: current?.openTurnStart ?? null },
-				event,
-			)
-			await turnStats.put(id, { busyMs: next.busyMs, openTurnStart: next.openTurnStart, watermarkSeq: seq })
+			const next = applyTurnEventToStats(turnStatsFrom(current), event)
+			if (turnStatsEqual(next, current)) {
+				// 无效果事件（非提问工具调用、未配对的结算事件等）：不落盘不广播，
+				// 水位不前移——重放路径对同类事件同样不改变记账状态，口径一致。
+				return
+			}
+			await turnStats.put(id, { ...turnStatsFrom(next), watermarkSeq: seq })
 			broadcastBusy()
 		} catch (error) {
 			ctx.logger?.warn?.(`dsh-activity-pane: 回合统计登记失败（${id}）: ${String(error)}`)

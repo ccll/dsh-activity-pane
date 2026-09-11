@@ -62,6 +62,7 @@ import {
 	lastTurnDurationFromTimings,
 	lastTurnDuration,
 	applyTurnEventToStats,
+	reconcileTurnStats,
 	normalizeBusyMs,
 	totalBusyDisplayMs,
 	pendingText,
@@ -1174,6 +1175,188 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 	}
 	assert.equal(gapResult.busyMs, 1_000, "R-01-020/AC-05 增量重放补齐水位缺口回合");
 	assert.equal(gapResult.openTurnStart, null, "R-01-020/AC-05 增量重放后无开放回合");
+}
+// ---- R-01-020/AC-07：回合内阻塞等待配对记账与停表 ----
+// 审批等待：approval/asked–decided 配对，回合结算扣除等待区间。
+{
+	const events = [
+		{ type: "turn/start", seq: 1, time: 1_000 },
+		{ type: "approval/asked", seq: 2, time: 2_000, data: { id: "a1", toolName: "bash" } },
+		{ type: "approval/decided", seq: 3, time: 5_000, data: { id: "a1", outcome: "allowed-once" } },
+		{ type: "turn/end", seq: 4, time: 6_000, data: { reason: { kind: "completed" } } },
+	];
+	let stats = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, waitedMs: null };
+	for (const event of events) stats = applyTurnEventToStats(stats, event);
+	assert.equal(stats.busyMs, 2_000, "R-01-020/AC-07 回合结算扣除审批等待 3s");
+	assert.equal(stats.openWaitStart, null, "R-01-020/AC-07 回合结束后无未配对等待");
+	assert.equal(stats.waitedMs, null, "R-01-020/AC-07 回合结束后等待累计清零");
+}
+// 提问等待：ask_user_question 的 tool/call–tool/result 配对。
+{
+	const events = [
+		{ type: "turn/start", seq: 1, time: 1_000 },
+		{ type: "tool/call", seq: 2, time: 2_000, data: { callId: "c1", name: "ask_user_question" } },
+		{ type: "tool/result", seq: 3, time: 7_000, data: { message: { source: { kind: "tool", callId: "c1" } } } },
+		{ type: "turn/end", seq: 4, time: 8_000, data: { reason: { kind: "completed" } } },
+	];
+	let stats = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, waitedMs: null };
+	for (const event of events) stats = applyTurnEventToStats(stats, event);
+	assert.equal(stats.busyMs, 2_000, "R-01-020/AC-07 回合结算扣除提问等待 5s");
+}
+// 非提问工具调用不开等待；kind 不一致的结算事件忽略。
+{
+	const events = [
+		{ type: "turn/start", seq: 1, time: 1_000 },
+		{ type: "tool/call", seq: 2, time: 2_000, data: { callId: "c2", name: "bash" } },
+	];
+	let stats = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, waitedMs: null };
+	for (const event of events) stats = applyTurnEventToStats(stats, event);
+	assert.equal(stats.openWaitStart, null, "R-01-020/AC-07 非提问工具调用不开等待");
+	const mismatch = [
+		{ type: "tool/call", seq: 3, time: 2_000, data: { callId: "c3", name: "ask_user_question" } },
+		{ type: "approval/decided", seq: 4, time: 3_000, data: { id: "a9", outcome: "allowed-once" } },
+	];
+	for (const event of mismatch) stats = applyTurnEventToStats(stats, event);
+	assert.equal(stats.openWaitStart, 2_000, "R-01-020/AC-07 kind 不一致的结算事件不关闭提问等待");
+	assert.equal(stats.openWaitKind, "question", "R-01-020/AC-07 提问等待保持开启");
+	const settle = [{ type: "tool/result", seq: 5, time: 4_000, data: { message: { source: { kind: "tool", callId: "c3" } } } }];
+	for (const event of settle) stats = applyTurnEventToStats(stats, event);
+	assert.equal(stats.waitedMs, 2_000, "R-01-020/AC-07 提问等待按配对边界结算");
+}
+// callId/id 不匹配的结算事件忽略，等待保持开启直至配对边界（DESIGN：同 callId 结算）。
+{
+	const events = [
+		{ type: "turn/start", seq: 1, time: 1_000 },
+		{ type: "tool/call", seq: 2, time: 2_000, data: { callId: "c1", name: "ask_user_question" } },
+		{ type: "tool/result", seq: 3, time: 3_000, data: { message: { source: { kind: "tool", callId: "cX" } } } },
+	];
+	let stats = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, openWaitId: null, waitedMs: null };
+	for (const event of events) stats = applyTurnEventToStats(stats, event);
+	assert.equal(stats.openWaitStart, 2_000, "R-01-020/AC-07 callId 不匹配的 tool/result 不关闭提问等待");
+	assert.equal(stats.openWaitId, "c1", "R-01-020/AC-07 等待记录配对 callId");
+	const settle = [{ type: "tool/result", seq: 4, time: 4_000, data: { message: { source: { kind: "tool", callId: "c1" } } } }];
+	for (const event of settle) stats = applyTurnEventToStats(stats, event);
+	assert.equal(stats.waitedMs, 2_000, "R-01-020/AC-07 同 callId 的 result 结算等待");
+}
+{
+	const events = [
+		{ type: "turn/start", seq: 1, time: 1_000 },
+		{ type: "approval/asked", seq: 2, time: 2_000, data: { id: "a1", toolName: "bash" } },
+		{ type: "approval/decided", seq: 3, time: 3_000, data: { id: "aX", outcome: "allowed-once" } },
+	];
+	let stats = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, openWaitId: null, waitedMs: null };
+	for (const event of events) stats = applyTurnEventToStats(stats, event);
+	assert.equal(stats.openWaitStart, 2_000, "R-01-020/AC-07 id 不匹配的 approval/decided 不关闭审批等待");
+	const settle = [{ type: "approval/decided", seq: 4, time: 5_000, data: { id: "a1", outcome: "rejected" } }];
+	for (const event of settle) stats = applyTurnEventToStats(stats, event);
+	assert.equal(stats.waitedMs, 3_000, "R-01-020/AC-07 同 id 的 decided 结算审批等待");
+}
+// 等待串行不嵌套：未配对等待期间的新等待边界忽略。
+{
+	const events = [
+		{ type: "turn/start", seq: 1, time: 1_000 },
+		{ type: "approval/asked", seq: 2, time: 2_000, data: { id: "a1", toolName: "bash" } },
+		{ type: "approval/asked", seq: 3, time: 2_500, data: { id: "a2", toolName: "write" } },
+		{ type: "approval/decided", seq: 4, time: 4_000, data: { id: "a1", outcome: "rejected" } },
+	];
+	let stats = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, waitedMs: null };
+	for (const event of events) stats = applyTurnEventToStats(stats, event);
+	assert.equal(stats.waitedMs, 2_000, "R-01-020/AC-07 串行等待自首个边界起算、不重复计时");
+}
+// turn/end 强制结算未配对等待：等待尾部不落到运行时长里。
+{
+	const events = [
+		{ type: "turn/start", seq: 1, time: 1_000 },
+		{ type: "approval/asked", seq: 2, time: 2_000, data: { id: "a1", toolName: "bash" } },
+		{ type: "turn/end", seq: 3, time: 10_000, data: { reason: { kind: "aborted" } } },
+	];
+	let stats = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, waitedMs: null };
+	for (const event of events) stats = applyTurnEventToStats(stats, event);
+	assert.equal(stats.busyMs, 1_000, "R-01-020/AC-07 回合结束强制结算未配对等待");
+	assert.equal(stats.openTurnStart, null, "R-01-020/AC-07 强制结算后回合闭合");
+}
+// 换回合重置等待累计。
+{
+	const events = [
+		{ type: "turn/start", seq: 1, time: 1_000 },
+		{ type: "tool/call", seq: 2, time: 2_000, data: { callId: "c1", name: "ask_user_question" } },
+		{ type: "tool/result", seq: 3, time: 3_000, data: { message: { source: { kind: "tool", callId: "c1" } } } },
+		{ type: "turn/end", seq: 4, time: 3_500, data: { reason: { kind: "completed" } } },
+		{ type: "turn/start", seq: 5, time: 9_000 },
+	];
+	let stats = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, waitedMs: null };
+	for (const event of events) stats = applyTurnEventToStats(stats, event);
+	assert.equal(stats.busyMs, 1_500, "R-01-020/AC-07 首回合结算扣除提问等待");
+	assert.equal(stats.waitedMs, null, "R-01-020/AC-07 新回合重置等待累计");
+}
+// 显示合成（AC-07）：等待期间冻结——now 推进而显示值不变。
+{
+	const state = { busyMs: 1_000, openTurnStart: 5_000, waitedMs: 2_000, openWaitStart: 9_000 };
+	const frozen = totalBusyDisplayMs({ ...state, now: 10_000 });
+	assert.equal(frozen, 3_000, "R-01-020/AC-07 等待开始时刻的运行时长被冻结显示");
+	assert.equal(totalBusyDisplayMs({ ...state, now: 20_000 }), frozen, "R-01-020/AC-07 等待期间显示值不随 now 增长");
+}
+// 显示合成（AC-07）：等待结算与回合结算处显示值连续，恢复运行后续走。
+{
+	// 回合 1000 起，等待 2000–4000（waitedMs=2000）；now=5000 时显示 2000。
+	const running = { busyMs: 1_000, openTurnStart: 1_000, waitedMs: 2_000, openWaitStart: null };
+	assert.equal(totalBusyDisplayMs({ ...running, now: 5_000 }), 3_000, "R-01-020/AC-07 等待结束后从冻结值继续累计");
+	// turn/end t=6000 结算 busyMs = 1000 + (6000 − 1000 − 2000) = 4000；结算前一刻显示 4000。
+	assert.equal(totalBusyDisplayMs({ ...running, now: 6_000 }), 4_000, "R-01-020/AC-07 回合结算前一刻显示值与结算后一致");
+	assert.equal(totalBusyDisplayMs({ busyMs: 4_000, openTurnStart: null, waitedMs: null, openWaitStart: null, now: 6_000 }), 4_000, "R-01-020/AC-07 回合结算后显示 busyMs 无跳变");
+}
+// ---- R-01-020/AC-04、AC-05：reconcileTurnStats 统一收敛 ----
+// 无记录：全量重放。
+{
+	const next = reconcileTurnStats(null, [
+		{ type: "turn/start", seq: 1, time: 1_000 },
+		{ type: "turn/end", seq: 2, time: 3_000 },
+	]);
+	assert.equal(next.busyMs, 2_000, "R-01-020/AC-05 无记录全量重放补齐累计");
+	assert.equal(next.watermarkSeq, 2, "R-01-020/AC-05 全量重放推进水位");
+}
+// 水位超前于日志最大 seq（seq 空间被重编，如 dsh 0.1.5 V3 迁移）：全量重放自愈，
+// 卡死的开放回合被清除、总耗时不再无限增长（原缺陷回归）。
+{
+	const next = reconcileTurnStats(
+		{ busyMs: 100, openTurnStart: 5_000, openWaitStart: null, openWaitKind: null, waitedMs: null, watermarkSeq: 208_536 },
+		[
+			{ type: "turn/start", seq: 1, time: 1_000 },
+			{ type: "turn/end", seq: 2, time: 3_000 },
+		],
+	);
+	assert.equal(next.busyMs, 2_000, "R-01-020/AC-04 水位超前时全量重放重算累计");
+	assert.equal(next.openTurnStart, null, "R-01-020/AC-04 水位超前时卡死的开放回合被清除");
+	assert.equal(next.watermarkSeq, 2, "R-01-020/AC-04 自愈后水位回归当前 seq 空间");
+}
+// 正常增量：只应用 seq > watermark 的事件，不重复计数。
+{
+	const next = reconcileTurnStats(
+		{ busyMs: 500, openTurnStart: null, openWaitStart: null, openWaitKind: null, waitedMs: null, watermarkSeq: 2 },
+		[
+			{ type: "turn/start", seq: 1, time: 100 },
+			{ type: "turn/end", seq: 2, time: 600 },
+			{ type: "turn/start", seq: 3, time: 900 },
+			{ type: "turn/end", seq: 4, time: 1_400 },
+		],
+	);
+	assert.equal(next.busyMs, 1_000, "R-01-020/AC-05 增量收敛只补水位缺口");
+	assert.equal(next.watermarkSeq, 4, "R-01-020/AC-05 增量收敛推进水位");
+}
+// 启动扫描：closeOpenTurn 把残留开放回合按日志最后事件时刻强制结算，尾部等待不计数。
+{
+	const next = reconcileTurnStats(
+		{ busyMs: 100, openTurnStart: 5_000, openWaitStart: null, openWaitKind: null, waitedMs: null, watermarkSeq: 1 },
+		[
+			{ type: "turn/start", seq: 1, time: 5_000 },
+			{ type: "tool/call", seq: 2, time: 6_000, data: { callId: "c1", name: "ask_user_question" } },
+			{ type: "tool/result", seq: 3, time: 7_000, data: { message: { source: { kind: "tool", callId: "c1" } } } },
+		],
+		{ closeOpenTurn: true },
+	);
+	assert.equal(next.busyMs, 1_100, "R-01-020/AC-04 启动扫描按日志末事件时刻结算残留开放回合");
+	assert.equal(next.openTurnStart, null, "R-01-020/AC-04 启动扫描后无残留开放回合");
+	assert.equal(next.waitedMs, null, "R-01-020/AC-04 启动扫描后等待累计清零");
 }
 // R-01-013/AC-05：历史卡同时显示本地绝对日期时间与相对年龄，异常输入不制造虚假时间。
 const relativeMinute = 60_000;

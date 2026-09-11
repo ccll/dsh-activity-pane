@@ -268,6 +268,25 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 	const completedStatsAfterWait = await readCompletedStats();
 	assert.equal(completedStatsAfterWait?.main, completedStats.main, "完成提醒等待期间 token 统计保持冻结（R-01-009/AC-13）");
 	assert.equal(completedStatsAfterWait?.time, completedStats.time, "完成提醒等待期间耗时保持冻结（R-01-009/AC-12）");
+	// R-01-020/AC-01、AC-07：完成提醒卡片标题行总耗时在完成后保持冻结（回归：开放回合
+	// 残留时总耗时随 now 无限增长）。
+	const completedTotal = await until("完成提醒标题行总耗时呈现", () =>
+		page.evaluate((title) => {
+			const card = [...(document.querySelector("[data-dsh-activity-pane]")?.querySelectorAll('[role="button"]') ?? [])]
+				.find((candidate) => candidate.innerText.includes(title));
+			const total = card?.querySelector(".dap-total-time");
+			if (!total || total.hidden) return null;
+			const text = total.textContent.trim();
+			return /^\d+(?:s|m\d+s|h\d+m\d+s)$/.test(text) ? text : null;
+		}, TITLE),
+	);
+	await page.waitForTimeout(2_200);
+	const completedTotalAfterWait = await page.evaluate((title) => {
+		const card = [...(document.querySelector("[data-dsh-activity-pane]")?.querySelectorAll('[role="button"]') ?? [])]
+			.find((candidate) => candidate.innerText.includes(title));
+		return card?.querySelector(".dap-total-time")?.textContent.trim() ?? null;
+	}, TITLE);
+	assert.equal(completedTotalAfterWait, completedTotal, "完成提醒标题行总耗时保持冻结，不随时间增长（R-01-020/AC-01、R-01-020/AC-07）");
 	await openApp(page, url);
 	const refreshedCompletedElapsed = await until("刷新后恢复完成提醒耗时", () =>
 		page.evaluate((title) => {

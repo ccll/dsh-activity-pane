@@ -2033,29 +2033,131 @@ export function lastTurnDuration({ turnTimings = null, history = [] } = {}) {
 	return latest?.duration ?? null;
 }
 
+/** ask_user_question 工具名：提问/计划审查等待的开启边界（tool/call）与配对结算（tool/result）。 */
+const QUESTION_TOOL_NAME = "ask_user_question";
+
+/** 回合/等待边界事件类型全集：busy 记账只消费这些事件，其余事件对记账无效果。 */
+const BOUNDARY_EVENT_TYPES = new Set(["turn/start", "turn/end", "approval/asked", "approval/decided", "tool/call", "tool/result"]);
+
+/** 边界事件判定（宿主实时登记入口与记账转移共用，新增边界只改 BOUNDARY_EVENT_TYPES 一处）。 */
+export function isBusyBoundaryEvent(type) {
+	return BOUNDARY_EVENT_TYPES.has(type);
+}
+
+/** 空记账状态（无任何有效计时）。 */
+export function emptyTurnStats() {
+	return { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, openWaitId: null, waitedMs: null };
+}
+
+/** 从任意来源拷贝记账状态：缺失字段归一为 null（旧记录/部分记录兼容）。 */
+export function turnStatsFrom(state) {
+	return {
+		busyMs: state?.busyMs ?? null,
+		openTurnStart: state?.openTurnStart ?? null,
+		openWaitStart: state?.openWaitStart ?? null,
+		openWaitKind: state?.openWaitKind ?? null,
+		openWaitId: state?.openWaitId ?? null,
+		waitedMs: state?.waitedMs ?? null,
+	};
+}
+
+/** 记账状态逐字段相等（不含 watermarkSeq——宿主侧无效果事件跳过落盘的判定）。 */
+export function turnStatsEqual(a, b) {
+	return (
+		a === b ||
+		((a?.busyMs ?? null) === (b?.busyMs ?? null) &&
+			(a?.openTurnStart ?? null) === (b?.openTurnStart ?? null) &&
+			(a?.openWaitStart ?? null) === (b?.openWaitStart ?? null) &&
+			(a?.openWaitKind ?? null) === (b?.openWaitKind ?? null) &&
+			(a?.openWaitId ?? null) === (b?.openWaitId ?? null) &&
+			(a?.waitedMs ?? null) === (b?.waitedMs ?? null))
+	);
+}
+
+/** 结算当前未配对等待区间：时刻有效则累加 waitedMs，随后清空等待态。 */
+function settleOpenWait(next, time) {
+	if (next.openWaitStart !== null && time >= next.openWaitStart) {
+		next.waitedMs = (next.waitedMs ?? 0) + (time - next.openWaitStart);
+	}
+	next.openWaitStart = null;
+	next.openWaitKind = null;
+	next.openWaitId = null;
+}
+
+/** 强制关闭开放回合（turn/end 与启动扫描共用）：先按时刻结算未配对等待（等待尾部不
+ *  计入运行时长），再把 `time − openTurnStart − waitedMs` 的运行部分累加进 busyMs，
+ *  最后清空回合态；时间逆序时跳过累加、仅清空。 */
+function settleTurnClose(next, time) {
+	if (next.openWaitStart !== null) settleOpenWait(next, time);
+	if (next.openTurnStart !== null && time >= next.openTurnStart) {
+		const activeMs = time - next.openTurnStart - (next.waitedMs ?? 0);
+		if (activeMs > 0) next.busyMs = (next.busyMs ?? 0) + activeMs;
+	}
+	next.openTurnStart = null;
+	next.waitedMs = null;
+}
+
 /**
- * 会话回合统计记账的单步转移（R-01-020）：对单个回合边界事件应用后返回新状态。
- * 状态 `{ busyMs, openTurnStart }`——busyMs 为已完成回合运行时长的累计（null 表示
- * 尚无任何有效回合计时），openTurnStart 为当前开放回合起点；completed/blocked/
- * max-tokens/aborted/error 全部结束原因均计入，回合间空闲不计入。start 覆盖式登记
- * （串行回合下最后一个 start 为当前回合），end 配对最近 start；起点缺失或时间逆序
- * 的回合跳过累加、仅清空起点。event 兼容 history 条目包装与裸事件（eventOf 解包），
- * 宿主实时登记与回填共用同一转移，保证口径一致（R-01-020/AC-02）。
+ * 会话回合统计记账的单步转移（R-01-020）：对单个回合/等待边界事件应用后返回新状态。
+ * 状态 `{ busyMs, openTurnStart, openWaitStart, openWaitKind, openWaitId, waitedMs }`——
+ * busyMs 为运行过程时长的累计（null 表示尚无任何有效回合计时），openTurnStart 为当前
+ * 开放回合起点，openWaitStart/openWaitKind/openWaitId 为当前未配对等待区间（回合内
+ * 阻塞等待：'approval' 审批 / 'question' 提问，id 为审批 id 或提问 callId），waitedMs
+ * 为本回合内已配对等待时长的累计；completed/blocked/max-tokens/aborted/error 全部结束
+ * 原因均计入，回合间空闲与回合内等待不计入。等待边界：`approval/asked` 与
+ * `ask_user_question` 的 `tool/call` 开启（记录 id/callId），`approval/decided` 与同
+ * id/callId 的 `tool/result` 结算（id 不匹配的结算事件忽略）；等待串行不嵌套（已有
+ * 未配对等待时新边界忽略），`turn/end` 先按事件时刻强制结算未配对等待再以
+ * `time − openTurnStart − waitedMs` 结算回合。start 覆盖式登记（串行回合下最后一个
+ * start 为当前回合），end 配对最近 start；起点缺失或时间逆序的回合跳过累加、仅清空
+ * 状态。event 兼容 history 条目包装与裸事件（eventOf 解包），宿主实时登记与回填共用
+ * 同一转移，保证口径一致（R-01-020/AC-02）。
  */
 export function applyTurnEventToStats(state, entry) {
 	const event = eventOf(entry);
 	const time = durationTime(event?.time);
 	const type = event?.type;
-	if (time === null || (type !== "turn/start" && type !== "turn/end")) return state;
-	const next = { busyMs: state?.busyMs ?? null, openTurnStart: state?.openTurnStart ?? null };
+	if (time === null || !isBusyBoundaryEvent(type)) return state;
+	const next = turnStatsFrom(state);
 	if (type === "turn/start") {
 		next.openTurnStart = time;
+		next.openWaitStart = null;
+		next.openWaitKind = null;
+		next.openWaitId = null;
+		next.waitedMs = null;
 		return next;
 	}
-	if (next.openTurnStart !== null && time >= next.openTurnStart) {
-		next.busyMs = (next.busyMs ?? 0) + (time - next.openTurnStart);
+	if (type === "turn/end") {
+		settleTurnClose(next, time);
+		return next;
 	}
-	next.openTurnStart = null;
+	if (type === "approval/asked") {
+		if (next.openTurnStart === null || next.openWaitStart !== null) return state;
+		next.openWaitStart = time;
+		next.openWaitKind = "approval";
+		next.openWaitId = typeof event?.data?.id === "string" ? event.data.id : null;
+		return next;
+	}
+	if (type === "approval/decided") {
+		if (next.openWaitStart === null || next.openWaitKind !== "approval") return state;
+		if (next.openWaitId !== null && event?.data?.id !== next.openWaitId) return state;
+		settleOpenWait(next, time);
+		return next;
+	}
+	if (type === "tool/call") {
+		if (event?.data?.name !== QUESTION_TOOL_NAME) return state;
+		if (next.openTurnStart === null || next.openWaitStart !== null) return state;
+		next.openWaitStart = time;
+		next.openWaitKind = "question";
+		next.openWaitId = typeof event?.data?.callId === "string" ? event.data.callId : null;
+		return next;
+	}
+	// tool/result：仅结算开启中的提问等待，且 callId 与开启边界一致——其余 result 对
+	// 记账无效果（等待串行，同 callId 的下一个 result 即配对边界）。
+	if (next.openWaitStart === null || next.openWaitKind !== "question") return state;
+	const resultCallId = event?.data?.message?.source?.callId;
+	if (next.openWaitId !== null && resultCallId !== next.openWaitId) return state;
+	settleOpenWait(next, time);
 	return next;
 }
 
@@ -2071,16 +2173,73 @@ export function normalizeBusyMs(value) {
 }
 
 /**
- * 标题行累计运行时长的显示合成（R-01-020/AC-01、AC-03、AC-06）：已完成回合累计加
- * 开放回合实时已耗时；两者皆不可得时返回 null（调用方不显示，不以 0 冒充）。now
- * 缺失或无效时不推进实时增量，只返回已完成累计。
+ * 标题行累计运行时长的显示合成（R-01-020/AC-01、AC-03、AC-06、AC-07）：已完成回合
+ * 累计加开放回合的实时已耗时（扣除回合内已配对等待与进行中的未配对等待）；两者皆
+ * 不可得时返回 null（调用方不显示，不以 0 冒充）。now 缺失或无效时不推进实时增量，
+ * 只返回已完成累计。等待期间 `(now − openTurnStart)` 与 `(now − openWaitStart)` 两项
+ * 随 now 同步增长相互抵消，显示值自冻结；等待结算时 waitedMs 接管同一增量，恢复
+ * 运行后从冻结值继续，回合结算处连续无跳变。
  */
-export function totalBusyDisplayMs({ busyMs = null, openTurnStart = null, now = null } = {}) {
+export function totalBusyDisplayMs({ busyMs = null, openTurnStart = null, waitedMs = null, openWaitStart = null, now = null } = {}) {
 	let total = typeof busyMs === "number" && Number.isFinite(busyMs) && busyMs >= 0 ? busyMs : null;
 	if (openTurnStart !== null && Number.isFinite(openTurnStart) && Number.isFinite(now) && now > openTurnStart) {
-		total = (total ?? 0) + (now - openTurnStart);
+		const waited = typeof waitedMs === "number" && Number.isFinite(waitedMs) && waitedMs >= 0 ? waitedMs : 0;
+		const waitingNow = openWaitStart !== null && Number.isFinite(openWaitStart) && now > openWaitStart ? now - openWaitStart : 0;
+		total = (total ?? 0) + Math.max(0, now - openTurnStart - waited - waitingNow);
 	}
 	return total;
+}
+
+/**
+ * 回合统计记账的统一收敛（R-01-020/AC-04、AC-05）：对全会话事件列表重放出下一份
+ * 记账，宿主侧懒回填与启动扫描共用。路径选择——无记录、持久化水位非法、或水位
+ * 超前于日志最大 seq（事件 seq 空间被重编，如 dsh 0.1.5 V3 迁移）时从空状态全量
+ * 重放（超前水位会把后续全部实时事件封死在守卫之外，openTurnStart 永不清空、总
+ * 耗时无限增长）；否则从持久化记账出发仅增量应用 `seq > watermarkSeq` 的事件。
+ * `closeOpenTurn`（宿主启动扫描）：重放后仍存在的开放回合按日志最后事件时刻强制
+ * 结算关闭——宿主重启后不存在仍在运行的回合，残留起点只会令总耗时无限增长；尾部
+ * 未配对等待一并按同刻结算（不落到运行时长里）。
+ */
+export function reconcileTurnStats(current, records, { closeOpenTurn = false } = {}) {
+	const list = Array.isArray(records) ? records : [];
+	let maxSeq = null;
+	let lastTime = null;
+	for (const record of list) {
+		const seq = Number(record?.seq);
+		if (Number.isFinite(seq) && (maxSeq === null || seq > maxSeq)) maxSeq = seq;
+		const time = durationTime(eventOf(record)?.time);
+		if (time !== null && (lastTime === null || time > lastTime)) lastTime = time;
+	}
+	const fresh = !isRecord(current) || !Number.isFinite(current.watermarkSeq) || (maxSeq !== null && Number(current.watermarkSeq) > maxSeq);
+	let state = emptyTurnStats();
+	let watermarkSeq = null;
+	if (fresh) {
+		for (const record of list) {
+			state = applyTurnEventToStats(state, record);
+			const seq = Number(record?.seq);
+			if (Number.isFinite(seq) && (watermarkSeq === null || seq > watermarkSeq)) watermarkSeq = seq;
+		}
+	} else {
+		state = turnStatsFrom(current);
+		watermarkSeq = Number(current.watermarkSeq);
+		for (const record of list) {
+			const seq = Number(record?.seq);
+			if (!Number.isFinite(seq) || seq <= watermarkSeq) continue;
+			state = applyTurnEventToStats(state, record);
+			watermarkSeq = seq;
+		}
+	}
+	if (closeOpenTurn && state.openTurnStart !== null) {
+		// 启动扫描：宿主重启后不存在仍在运行的回合——按日志最后事件时刻强制结算关闭；
+		// 日志不可得（空/缺失）时仅清除回合态，不制造虚假运行时长。
+		if (lastTime !== null) settleTurnClose(state, lastTime);
+		state.openTurnStart = null;
+		state.openWaitStart = null;
+		state.openWaitKind = null;
+		state.openWaitId = null;
+		state.waitedMs = null;
+	}
+	return { ...state, watermarkSeq };
 }
 
 /**

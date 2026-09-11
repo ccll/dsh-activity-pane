@@ -1379,16 +1379,25 @@ function apply(ctx) {
 			busyById.set(String(id), {
 				busyMs: normalizeBusyMs(record?.busyMs),
 				openTurnStart: normalizeBusyMs(record?.openTurnStart),
+				waitedMs: normalizeBusyMs(record?.waitedMs),
+				openWaitStart: normalizeBusyMs(record?.openWaitStart),
 			});
 		}
 		queueSync();
 	}
 
-	/** 累计运行时长注入（R-01-020/AC-01、AC-03）：已完成回合累计 + 开放回合实时已耗时，
-	 *  渲染期按 now 合成；子代理条目不注入（entry.totalBusyMs 保持 undefined → 节点隐藏）。 */
+	/** 累计运行时长注入（R-01-020/AC-01、AC-03、AC-07）：已完成回合累计 + 开放回合实时
+	 *  已耗时（扣除等待区间）；渲染期按 now 合成，阻塞等待期间公式自冻结；子代理条目
+	 *  不注入（entry.totalBusyMs 保持 undefined → 节点隐藏）。 */
 	function applyTotalBusy(entry, now) {
 		const busyRecord = busyById.get(entry.id);
-		entry.totalBusyMs = totalBusyDisplayMs({ busyMs: busyRecord?.busyMs ?? null, openTurnStart: busyRecord?.openTurnStart ?? null, now });
+		entry.totalBusyMs = totalBusyDisplayMs({
+			busyMs: busyRecord?.busyMs ?? null,
+			openTurnStart: busyRecord?.openTurnStart ?? null,
+			waitedMs: busyRecord?.waitedMs ?? null,
+			openWaitStart: busyRecord?.openWaitStart ?? null,
+			now,
+		});
 	}
 
 	/** 触发可见主会话的懒回填：只对未请求过的 id 发一次 GET；在途时跳过（SSE 广播兜底）。 */

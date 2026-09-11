@@ -78,4 +78,14 @@ export default async function mobileDrawer({ page, url, assert }) {
 	await page.getByRole("button", { name: "收起活动会话窗格" }).click();
 	await waitDrawerClosed(page, "切换后收起抽屉以观察主会话");
 	await until("激活非当前卡切换到甲", () => mainAreaHas(page, TITLE_A));
+
+	// 宿主视图替换窗口期回归（真机宿主重渲染节奏与桌面不同）：窗格被宿主替换移除后，
+	// 开关点击必须重新绑定并展开，而非静默无响应（R-01-008/AC-01）。
+	await page.evaluate(() => document.querySelector("[data-dsh-activity-pane]")?.remove());
+	const reboundToggle = await toggleButton(page);
+	await reboundToggle.click();
+	await until("窗格被移除后开关点击重新绑定并展开", async () => {
+		const box = await paneBox(page);
+		return box && box.x >= -1 ? box : null;
+	});
 }

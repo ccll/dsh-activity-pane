@@ -3803,8 +3803,17 @@ function apply(ctx) {
 
 	// ---- 交互：移动端抽屉开关、弹窗收起、桌面折叠 ----
 	function onToggleClick() {
-		const pane = document.querySelector(`[${PANE_ATTR}]`);
-		const open = pane?.getAttribute("data-open") !== "true";
+		let pane = document.querySelector(`[${PANE_ATTR}]`);
+		if (pane === null) {
+			// 宿主视图替换窗口期/绑定失败时窗格可能缺失：先补绑再开合，开关不得静默无响应
+			// （真机宿主重渲染节奏与桌面不同，此窗口期在触屏上更易被命中，R-01-008/AC-01）。
+			pane = ensurePane();
+			if (pane === null) {
+				console.warn("[dsh-activity-pane] 窗格挂载点不存在（main 槽容器未就绪），已忽略本次开关点击");
+				return;
+			}
+		}
+		const open = pane.getAttribute("data-open") !== "true";
 		togglePane(open);
 	}
 	toggle.addEventListener("click", onToggleClick);

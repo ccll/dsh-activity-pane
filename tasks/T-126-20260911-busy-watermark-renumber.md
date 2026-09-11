@@ -6,7 +6,7 @@ id: T-126
 
 # T-126 会话卡耗时矛盾：busy 水位重编实时自愈 + 最近回合耗时统一 busy 口径
 
-状态: active
+状态: completed
 关联: R-01-020 → 回合统计宿主侧；R-01-009 → 活动状态模型
 风险等级: standard
 
@@ -59,8 +59,13 @@ id: T-126
 
 ## 终态与证据
 
-- 实现: （待实现完成后填写）
-- 测试: （待实现完成后填写）
-- DESIGN 对照: （待实现完成后填写）
-- commit: （待提交后填写）
-- review: （待独立代码审核后填写）
+- 实现: core.mjs 记账状态贯穿 `watermarkTime`（emptyTurnStats/turnStatsFrom/turnStatsEqual/reconcileTurnStats，advance 闭包统一水位推进）、`reconcileTurnStats` 增加 `forceFresh` 强制全量重放、新增 `lastTurnBusyFromEvents`（busy 口径最近回合耗时）且 `lastTurnDuration({ history })` 收敛、移除 turnTimings 耗时来源；host.mjs 实时登记重编检测（低 seq 事件携带比水位更新时刻或记录无 watermarkTime → forceFresh，重放后未覆盖则落回增量路径）、在途回填不吞掉 forceFresh（链式补放）、启动扫描对存量记录 forceFresh 复核；client.mjs `memoTurnDuration` 与最近卡耗时仅走 history busy 口径；PRD R-01-009/AC-12 改写、DESIGN 同步；`.dsh-plugin/client.js` 重建。
+- 测试: `pnpm verify` 全量通过——`node scripts/check.mjs` 全部断言（reconcile watermarkTime 记录/forceFresh 部分重叠重编/存量记录重算、lastTurnBusyFromEvents busy 口径与异常边界）；14 个 E2E spec 全绿（含 auto-update.mjs 既有 R-01-009/AC-12 等待卡耗时断言）；实现提交 ab67a47 的 pre-commit 全部门禁通过（含 staged client bundle 字节比较）。实证回归预期：宿主重启后 docsim 脏记录（busyMs 87717 → 全量重放值）经启动扫描收敛。
+- DESIGN 对照: DESIGN 回合统计记账条目（watermarkTime 语义、重编双路径自愈、存量复核）与 `#lastTurnDuration` 条目（busy 口径）与实现一致；R-01-009 需求追溯索引既有行保持准确。
+- commit: ab67a47
+- review:
+  - 审核方: code-review skill 双轴并行子代理（Standards + Spec 各一，独立上下文）
+  - 目的理解: 修复 seq 空间重编导致 busy 记账永久冻结（docsim 实证）与等待卡/最近卡最近回合耗时墙钟口径同总耗时 busy 口径的同卡矛盾（pi-web 实证）；关联约束 R-01-020（累计只含运行过程、自愈不重复不遗漏）、R-01-009/AC-12（改写后 busy 口径）；预期行为为重编双路径自愈（实时检测 + 启动复核）与耗时恒不大于累计。
+  - 执行方式: code-review skill，评审基线 HEAD 对工作树未提交变更（含 PRD/DESIGN/task），两轴并行报告后由执行 agent 修复再由同一审核方复审。
+  - 问题与修复: ①forceFresh 被 in-flight 回填静默吞掉（Standards 硬伤候选 / Spec c2）→ 链式在其完成后补一次强制重放；②存量记录（无 watermarkTime）被实时检测永久跳过且部分重叠重编不可达（Spec c1）→ 实时检测与启动扫描统一对存量记录 forceFresh；③reconcile 重放对任意 max-seq 事件推进 watermarkTime 与「最后应用边界事件」措辞漂移（Spec b）→ 统一为「水位处已覆盖事件的时刻」；④实时 put 无效时刻覆写 null 与 reconcile 不前推语义不一致（Standards 2/Spec c3）→ 改为保留既有值；⑤reconcile 两分支重复逻辑提取 advance 闭包（Standards 3）；⑥lastTurnBusyFromEvents 死分支移除（Spec c4）；⑦c5 自愈前滞后窗口内不变量可瞬态违背——接受为已知限制并记录于本 task。
+  - 复审结论: 双轴复审均通过（Standards：无遗留硬伤；Spec：c1/c2 修复核对正确，宿主编排与新增断言成立），仅余非阻塞注释措辞已顺手修正。

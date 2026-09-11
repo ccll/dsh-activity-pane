@@ -21,6 +21,24 @@ async function mainScrollTops(page) {
 	);
 }
 
+/** 主会话区可滚动元素的稳定等待：0.1.5 宿主会话为流式渲染，切换会话后正文 flowItem
+ *  容器仍会在数秒内逐项就绪（变为可滚动）。这份与窗格无关的宿主侧收敛不得参与滚动
+ *  隔离基线，先等可滚动集合连续两次采样一致再取基线（R-01-004/AC-02 断言本身不变）。 */
+async function waitMainScrollablesStable(page) {
+	const box = await paneBox(page);
+	const describe = (paneRight) =>
+		[...document.querySelectorAll("body *")]
+			.filter((el) => el.scrollHeight > el.clientHeight + 4 && el.getBoundingClientRect().x >= paneRight - 1)
+			.map((el) => `${el.tagName}:${el.className}:${el.scrollTop}`);
+	let last = JSON.stringify(await page.evaluate(describe, box.x + box.width));
+	for (let i = 0; i < 30; i += 1) {
+		await page.waitForTimeout(500);
+		const current = JSON.stringify(await page.evaluate(describe, box.x + box.width));
+		if (current === last) return;
+		last = current;
+	}
+}
+
 /** 窗格内全部可滚动元素的 scrollTop 快照。 */
 async function paneScrollTops(page) {
 	return page.evaluate(() => {
@@ -262,6 +280,7 @@ export default async function longList({ page, url, assert }) {
 	await until("主会话区出现长文", () => mainAreaHas(page, "慢速输出片段 24/24"));
 	const mainBox = await mainAreaBox(page);
 	await wheelOver(page, mainBox, 400, 15);
+	await waitMainScrollablesStable(page);
 	const before = await mainScrollTops(page);
 	assert.ok(before.some((top) => top > 0), `主会话已滚动到非零位置，实际：${before}`);
 	await wheelOver(page, box, -400, 10);

@@ -2,7 +2,7 @@
 // 桌面拖拽调宽：拖拽右缘实时调宽且主会话让位、宽度夹取 [200,480]、
 // 折叠窄条不可拖拽、刷新后恢复上次宽度。
 
-import { newSessionWithMessage, openApp, paneBox, sendHeroMessage, until } from "../helpers.mjs";
+import { newSessionWithMessage, openApp, paneBox, sendHeroMessage, sessionComposer, until } from "../helpers.mjs";
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 480;
@@ -35,7 +35,7 @@ export default async function resize({ page, url, assert }) {
 	assert.ok(Math.abs(initialWidth - 280) <= 4, `默认宽度 280px（实际 ${initialWidth}）`);
 
 	// R-01-015/AC-01：拖拽右缘实时调宽，主会话内容同步让位。
-	const composerX = async () => (await page.locator('textarea[placeholder="Message the agent"]').boundingBox()).x;
+	const composerX = async () => (await sessionComposer(page).boundingBox()).x;
 	const mainBefore = await composerX();
 	// 「实时」：拖拽进行中（未松手）宽度已随指针变化。
 	const startX = initialBox.x + initialBox.width - 2;

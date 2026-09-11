@@ -1,7 +1,7 @@
 // R-01-007/AC-01、R-01-007/AC-02、R-01-011/AC-03、R-01-011/AC-04、R-01-011/AC-05
 // 桌面贴边布局：窗格位于主会话左侧贴边、不遮挡主会话；键盘折叠/展开控件保持同位。
 
-import { openApp, paneBox, sendHeroMessage, until } from "../helpers.mjs";
+import { openApp, paneBox, sendHeroMessage, sessionComposer, until } from "../helpers.mjs";
 
 // 窄条特征：宽度远小于窗格、高度容纳竖排标题与计数；位置容差取 2px 抗亚像素抖动。
 const STRIP_MAX_WIDTH_PX = 60;
@@ -14,16 +14,16 @@ export default async function desktopLayout({ page, url, assert }) {
 
 	// R-01-007/AC-01：桌面宽度（1280 > 767）下窗格为主会话左侧通高贴边列。
 	const box = await until("窗格出现", () => paneBox(page));
-	const composerBox = await page.locator('textarea[placeholder="Message the agent"]').boundingBox();
+	const composerBox = await sessionComposer(page).boundingBox();
 	assert.ok(box.x >= 0 && box.width > 0, "窗格在视口内");
 	assert.ok(box.y <= 1, "窗格通高贴边（顶缘与外壳侧栏对齐）");
 	assert.ok(box.x + box.width <= composerBox.x + 1, `窗格在主会话左侧（窗格右缘 ${box.x + box.width} ≤ 主会话左缘 ${composerBox.x}）`);
 
 	// R-01-007/AC-02：窗格不阻止主会话操作——composer 可聚焦、可输入。
-	const composer = page.locator('textarea[placeholder="Message the agent"]');
+	const composer = sessionComposer(page);
 	await composer.click();
 	await composer.pressSequentially("主会话可正常输入");
-	assert.equal(await composer.inputValue(), "主会话可正常输入", "主会话 composer 可正常输入");
+	assert.equal((await composer.textContent())?.trim(), "主会话可正常输入", "主会话 composer 可正常输入");
 
 	// R-01-011/AC-03、AC-05：Space 激活标题行收起，控件保持在窗格顶部同一屏幕位置。
 	const header = page.getByRole("button", { name: "收起活动会话窗格" });

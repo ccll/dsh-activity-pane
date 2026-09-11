@@ -3,7 +3,7 @@
 // 折叠时间线不依赖 dsh-auto-collapse（本隔离环境按构造不含该插件，全套件功能断言
 // 即「不降级」证据）、外壳重挂载恢复不重复、全程控制台无插件报错与未捕获异常。
 
-import { mainAreaHas, newSessionWithMessage, openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
+import { mainAreaHas, newSessionWithMessage, openApp, paneRegions, sendHeroMessage, sessionComposer, until } from "../helpers.mjs";
 
 const TITLE_A = "e2e:fast 自动更新探针甲";
 const TITLE_B = "e2e:fast 自动更新探针乙";
@@ -61,7 +61,10 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	// R-02-002/AC-02：全程收集控制台错误，结束后断言无插件报错。
 	const consoleErrors = [];
 	page.on("console", (msg) => {
-		if (msg.type() === "error") consoleErrors.push(msg.text());
+		// 浏览器对 ≥400 资源响应的通用 "Failed to load resource" 文案是宿主侧环境噪声
+		// （0.1.5 工作区图标路由 /open-in-app/icon/filemanager 在隔离环境无对应应用而
+		// 404），非插件报错；本断言对象是插件 console.error 与未捕获异常。
+		if (msg.type() === "error" && !msg.text().startsWith("Failed to load resource")) consoleErrors.push(msg.text());
 	});
 	page.on("pageerror", (error) => consoleErrors.push(String(error)));
 
@@ -172,7 +175,7 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 		const text = await runtimeCard.innerText().catch(() => "");
 		return text.includes("已完成") && text.includes("移入历史") ? text : null;
 	});
-	const composer = page.locator('textarea[placeholder="Message the agent"]');
+	const composer = sessionComposer(page);
 	await until("第二轮 composer 就绪", async () => (await composer.count()) > 0 ? true : null);
 	await composer.fill(TITLE_RUNTIME);
 	await composer.press("Enter");

@@ -830,12 +830,54 @@ export function foldedConversationTimeline(snapshot, limit = 4, cwd = "", descen
 	return [];
 }
 
+/** user/message 非用户 source 的 provenance 投影（对齐宿主 dsh-client-ui-chat
+ *  contextProvenance）：recall = 跨会话召回，其余为注入；label 取各 source 形态的
+ *  稳定标识，未知 kind 直接以 kind 呈现。 */
+function contextProvenanceOf(source) {
+	if (!isRecord(source)) return { role: "inject", label: null };
+	const kind = typeof source.kind === "string" ? source.kind : null;
+	if (kind === null) return { role: "inject", label: null };
+	if (kind === "session-reference") return { role: "recall", label: joinedSourceLabels(source.references, "label") ?? kind };
+	if (kind === "agent-instructions") return { role: "inject", label: joinedSourceLabels(source.changes, "path") ?? kind };
+	if (kind === "plugin") return { role: "inject", label: typeof source.plugin === "string" ? source.plugin : kind };
+	if (kind === "skill-invocation") return { role: "inject", label: typeof source.name === "string" ? source.name : kind };
+	return { role: "inject", label: kind };
+}
+
+/** source 数组成员的字段去重收集（首见顺序），逗号拼接为单行标签。 */
+function joinedSourceLabels(list, field) {
+	if (!Array.isArray(list)) return null;
+	const seen = [];
+	for (const entry of list) {
+		const value = isRecord(entry) && typeof entry[field] === "string" ? entry[field] : null;
+		if (value !== null && !seen.includes(value)) seen.push(value);
+	}
+	return seen.length > 0 ? seen.join(", ") : null;
+}
+
 function timelineItemFromEvent(entry, cwd = "") {
 	const event = isRecord(entry?.event) ? entry.event : entry;
 	const data = isRecord(event?.data) ? event.data : {};
 	if (!event || typeof event.type !== "string") return null;
-	if (event.type === "user/message" && data.source?.kind === "user") {
-		return { id: `user:${event.seq}`, kind: "user", icon: "user", label: "用户", text: contentText(data.content), detail: null, status: "done" };
+	if (event.type === "user/message") {
+		if (data.source?.kind === "user") {
+			return { id: `user:${event.seq}`, kind: "user", icon: "user", label: "用户", text: contentText(data.content), detail: null, status: "done" };
+		}
+		// V3 log 路径的注入上下文行：非用户 source 的 user/message 即宿主 ContextMessageNode
+		// （0.1.5 无独立 context 事件），镜像原生 ContextInjectionRow 的角色文案。
+		const text = contentText(data.content);
+		if (text === "") return null;
+		const provenance = contextProvenanceOf(data.source);
+		return {
+			id: `context:${event.seq}`,
+			kind: "context",
+			icon: "context",
+			label: provenance.role === "recall" ? "跨会话召回" : "上下文注入",
+			text,
+			summary: provenance.label ?? "",
+			detail: null,
+			status: "done",
+		};
 	}
 	if (event.type === "assistant/message") {
 		const text = contentText(data.message?.content);
@@ -877,20 +919,15 @@ function historyToolResultRoot(data, resultView, callInfo = null) {
 	};
 }
 
-/** 判断 session window 是否尚未 hydrate，需用 native history 补齐。 */
-export function needsHistorySnapshot(snapshot) {
-	return !snapshot || !Array.isArray(snapshot.chat?.order) || snapshot.chat.order.length === 0;
-}
-
 /** 冷会话 history 回溯深翻：自尾页起按 beforeSeq 向前翻页，直至命中最近一条用户消息
- *  （messagePreviews 的 userPreview 非空，R-01-013/AC-03）、或翻尽
- *  （hasMore=false/无更多事件/业务错误 null）；requireOpenTurnStart 为 true 时
- *  （运行会话开放回合起点兜底，R-01-009/AC-06）命中用户消息后开放回合起点未命中
- *  仍继续深翻直至起点命中或翻尽。maxPages 仅作显式护栏（默认 Infinity 即不设页数
- *  上限——用户消息必然存在于会话最早段，翻尽必终止，无需预置页数界）。fetchPage
- *  (beforeSeq) 注入实际读取（返回 `{events, hasMore}` 或 null），便于纯函数单测；
- *  中途异常保留已得事件并以 error 返回。返回 `{ events, error }`（events 按时间
- *  正序，新页在后）。 */
+ * （messagePreviews 的 userPreview 非空，R-01-013/AC-03）、或翻尽
+ * （hasMore=false/无更多事件/业务错误 null）；requireOpenTurnStart 为 true 时
+ * （运行会话开放回合起点兜底，R-01-009/AC-06）命中用户消息后开放回合起点未命中
+ * 仍继续深翻直至起点命中或翻尽。maxPages 仅作显式护栏（默认 Infinity 即不设页数
+ * 上限——用户消息必然存在于会话最早段，翻尽必终止，无需预置页数界）。fetchPage
+ * (beforeSeq) 注入实际读取（返回 `{events, hasMore}` 或 null），便于纯函数单测；
+ * 中途异常保留已得事件并以 error 返回。返回 `{ events, error }`（events 按时间
+ * 正序，新页在后）。 */
 export async function pagedHistoryEvents({ fetchPage, maxPages = Infinity, requireOpenTurnStart = false }) {
 	const allEvents = [];
 	let beforeSeq;
@@ -919,17 +956,45 @@ export async function pagedHistoryEvents({ fetchPage, maxPages = Infinity, requi
 	return { events: allEvents, error };
 }
 
-/** 冷会话 history 的扁平工作项映射：供没有 ChatSnapshot 的活动/历史会话折叠分组使用。
- *  native `sessions.history` 响应只含 `{events, hasMore, projections?}`（in-flight
- *  partial 以 chunk 事件携带，不做逐 chunk 折叠），故只从事件流取尾部工作项。
+/** V3 log 窗口的扁平工作项映射：供没有 ChatSnapshot 的活动/历史会话折叠分组使用。
+ *  eventSource 快照含 type === "transient" 的 `assistant/live-chunk` 条目（agent-stream
+ *  增量帧，seq 为插值小数，仅存在于流式期间）：按 attemptId 原位累积为单个 running
+ *  assistant 行（对齐快照路径 mergeLiveItems 的 partial 行语义）；回合落定后 transient
+ *  条目随 attempt 出窗，durable assistant/message 自然接管。tool-call-delta 不折叠——
+ *  tool/call 以 durable 事件落定后经既有 call/result 配对路径呈现。
  *  tool/result 落定同 callId 的 call 项（原位替换，name/arguments/callView 由 call 事件补齐）：
  *  history 是冻结过去，call 事件单独留存会成为永久 running 幽灵行（R-01-016/AC-01）。 */
 export function conversationTimelineFromHistory(history, limit = 4, cwd = "") {
 	const items = [];
 	const inflightCalls = new Map(); // callId → { index, data, callView }：等待结果落定的 tool/call 事件
+	const liveAttempts = new Map(); // attemptId → { index, text, reasoning }：流式期间累积的 live 行
 	for (const entry of Array.isArray(history) ? history : []) {
 		const event = eventOf(entry);
 		const data = isRecord(event?.data) ? event.data : {};
+		if (event?.type === "assistant/live-chunk") {
+			const attemptId = typeof data.attemptId === "string" ? data.attemptId : "";
+			const text = typeof data.chunk?.text === "string" ? data.chunk.text : "";
+			if (attemptId === "" || text === "" || !isRecord(data.chunk)) continue;
+			const attempt = liveAttempts.get(attemptId) ?? (() => {
+				const created = { index: items.length, text: "", reasoning: "" };
+				liveAttempts.set(attemptId, created);
+				items.push({ id: `live:${attemptId}`, kind: "assistant", icon: "assistant", text: "", detail: null, status: "running", live: true });
+				return created;
+			})();
+			if (data.chunk.type === "reasoning-delta") attempt.reasoning += text;
+			else if (data.chunk.type === "text-delta") attempt.text += text;
+			else continue;
+			items[attempt.index] = {
+				...items[attempt.index],
+				text: attempt.text,
+				detail: attempt.reasoning || null,
+				// 镜像原生 ReasoningRow：流式思考显示尾部最新行，避免与已定案首行摘要漂移。
+				summary: attempt.reasoning ? latestLineOf(attempt.reasoning) : attempt.text,
+				status: "running",
+				live: true,
+			};
+			continue;
+		}
 		if (event?.type === "tool/result") {
 			const callId = toolResultCallId(data);
 			const pending = callId !== undefined ? inflightCalls.get(callId) : undefined;
@@ -959,12 +1024,15 @@ export function conversationTimelineFromHistory(history, limit = 4, cwd = "") {
 
 /** 冷 history 折叠分组时间线（R-01-017、R-01-012/AC-12～AC-15）：页内全部事件映射折叠后
  *  套用与快照路径同一窗口/锚行选择（selectTimelineRows），最近用户消息滚动触顶后停留为
- *  首行锚行。 */
-export function foldedHistoryTimeline(history, limit = 4, cwd = "") {
+ *  首行锚行。settleIdle：阻塞等待呈现（pendingText 存在）下折叠前把残留 running 行落定，
+ *  组标题/状态由已定案成员派生（「运行了命令」而非「正在运行」蓝闪），与快照路径的
+ *  settleWhenIdle 前置语义一致。 */
+export function foldedHistoryTimeline(history, limit = 4, cwd = "", settleIdle = false) {
 	const max = Math.max(0, limit);
 	if (max === 0) return [];
 	const items = conversationTimelineFromHistory(history, Number.MAX_SAFE_INTEGER, cwd);
-	return selectTimelineRows(foldWorkGroups(items, Number.MAX_SAFE_INTEGER), max);
+	const settled = settleIdle ? settleWhenIdle(items, true) : items;
+	return selectTimelineRows(foldWorkGroups(settled, Number.MAX_SAFE_INTEGER), max);
 }
 
 /** history 指令锚行提取（R-01-012/AC-12 快照窗口外兜底）：尾部反向取最近一条非空文本的
@@ -981,14 +1049,6 @@ export function historyInstructionAnchor(history) {
 	return null;
 }
 
-
-/** 开放回合起点缺口判定（R-01-009/AC-06 冷窗口兜底触发口径）：快照就绪、宿主判定运行中、
- *  轮内订阅已建立，但快照 turnTimings 无开放回合起点（liveStartTime 为 null）——超长回合
- *  的 turn/start 在尾页窗口之外。等待/空闲会话（非运行或无 liveness 记录）不算缺口，
- *  不触发 history 补读。 */
-export function openTurnStartMissing({ snapshotReady = false, running = false, hasLiveness = false, liveStartTime = null } = {}) {
-	return snapshotReady === true && running === true && hasLiveness === true && liveStartTime == null;
-}
 
 /** 开放回合起点兜底提取（R-01-009/AC-06）：history 事件尾部反向扫描，最近一条边界事件
  *  为 turn/start 即存在开放回合、返回其时刻；为 turn/end 则无开放回合返回 null。
@@ -1260,43 +1320,6 @@ export function escapeCssString(value) {
 		.replace(/\r/g, "\\d ")
 		.replace(/\f/g, "\\c ")
 		.replace(/\0/g, "�");
-}
-
-/** 冷会话补充数据读取决策（单次渲染内是否发起 models/history 读取）。
- *  失败路径会写入空 model/history 使决策转为「不读」（可见期内不热重试）；
- *  详情与记账随可见性清理（pruneInvisibleEntries）一起移除后，决策自然恢复为「读取」。
- *  windowComplete（R-01-009/AC-06、R-01-012/AC-12 冷窗口兜底）：快照已就绪但窗口缺
- *  锚点数据（开放回合起点或可锚用户行在窗口外）时为 false——此时仍发起一次 history
- *  补读，供进度锚点与指令锚行兜底。previewFallbackNeeded 表示最近卡的快照预览
- *  不完整，同样补读一次 history（R-01-013/AC-03、AC-04）；durationFallbackNeeded 表示等待卡或最近卡
- *  需要在已加载的旧 history 之后再取一次最新回合边界（R-01-009/AC-12、R-01-013/AC-12）。 */
-export function detailLoadPlan({
-	detail = {},
-	isSubagent = false,
-	snapshotReady = false,
-	historyNeeded = false,
-	previewFallbackNeeded = false,
-	durationFallbackNeeded = false,
-	windowComplete = true,
-	modelInflight = false,
-	historyInflight = false,
-	subagentModelReadNeeded = false,
-} = {}) {
-	// 子代理模型溯源（R-01-012/AC-17）：models RPC 对子代理被宿主拒绝，改经既有
-	// history 读取提取。读取在「快照最新助手节点已定案（事件已落日志，尾页必命中）或不在
-	// 运行中」时才发起，避免开局早读扑空；每次可见期至多一次（modelReadDone 记账），
-	// 不构成轮询（R-02-004）。
-	const subagentModelRead =
-		isSubagent === true && subagentModelReadNeeded === true && !detail.model && detail.modelReadDone !== true;
-	return {
-		subagent: isSubagent === true,
-		subagentModelRead,
-		model: !isSubagent && !detail.model && !modelInflight,
-		history: !historyInflight && (subagentModelRead ||
-			((durationFallbackNeeded && detail.durationFallbackLoaded !== true) ||
-				(previewFallbackNeeded && detail.previewFallbackLoaded !== true) ||
-				(!detail.history && ((!snapshotReady && historyNeeded) || (snapshotReady === true && windowComplete === false))))),
-	};
 }
 
 /** 打开重试链是否应取消：目标已成为当前会话（已到达），或用户已激活其它卡片（被新意图取代）。 */

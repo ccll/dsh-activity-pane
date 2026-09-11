@@ -114,7 +114,16 @@ export async function cardVisibleInPane(page, text) {
 	}, text);
 }
 
+/** hero composer 占位前缀（宿主 0.1.5 起文案追加「/ commands, @ files...」后缀，按前缀匹配）。 */
 const HERO_PLACEHOLDER = "Describe what you want to build";
+/** 会话页 composer 占位前缀（宿主 0.1.5 起文案为「Message or run a task, / commands...」）。 */
+const COMPOSER_PLACEHOLDER = "Message or run a task";
+
+/** 会话页 composer 定位器：宿主 0.1.5 起为 Lexical contenteditable（非 textarea），
+ *  placeholder 经 `data-placeholder` 属性暴露，按前缀匹配文案前缀差异。 */
+export function sessionComposer(page) {
+	return page.locator(`[data-placeholder^="${COMPOSER_PLACEHOLDER}"]`);
+}
 
 /** mock LLM 固定输出（与 e2e/mock-llm.mjs 剧本一致），spec 断言复用避免多处硬编码。 */
 export const MOCK_FAST_REPLY = "E2E 快速回合已完成。";
@@ -126,7 +135,7 @@ export const MOCK_MODEL = "DeepSeek-V4-Flash";
  *  宿主偶发在启动时直接恢复进会话视图（无 hero）——先点 New session 回 hero。
  *  二次水合可能清空输入，填入后校验、被清空则重填；发送成功以 hero 消失为准。 */
 export async function sendHeroMessage(page, text) {
-	const hero = page.locator(`textarea[placeholder="${HERO_PLACEHOLDER}"]`);
+	const hero = page.locator(`[data-placeholder^="${HERO_PLACEHOLDER}"]`);
 	await dismissNotice(page);
 	for (let attempt = 0; ; attempt += 1) {
 		const visible = await hero.waitFor({ timeout: 8_000 }).then(() => true).catch(() => false);
@@ -139,7 +148,8 @@ export async function sendHeroMessage(page, text) {
 		await dismissNotice(page);
 		await hero.fill(text).catch(() => {});
 		await page.waitForTimeout(400);
-		if ((await hero.inputValue().catch(() => "")) !== text) return null; // 被水合清空，下轮重填
+		// contenteditable 无 inputValue，经 textContent 校验草稿（被水合清空则下轮重填）。
+		if ((await hero.textContent().catch(() => "")) !== text) return null;
 		await page.keyboard.press("Enter");
 		await page.waitForTimeout(1000);
 		return (await hero.count()) === 0 ? true : null; // 已进入会话页
@@ -150,7 +160,7 @@ export async function sendHeroMessage(page, text) {
 export async function newSessionWithMessage(page, text) {
 	await page.getByRole("button", { name: "New session" }).first().click();
 	await until("hero composer 出现", async () => {
-		const hero = page.locator(`textarea[placeholder="${HERO_PLACEHOLDER}"]`);
+		const hero = page.locator(`[data-placeholder^="${HERO_PLACEHOLDER}"]`);
 		return (await hero.count()) > 0 ? true : null;
 	});
 	await sendHeroMessage(page, text);

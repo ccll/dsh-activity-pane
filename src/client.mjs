@@ -1,18 +1,23 @@
 // dsh-activity-pane 浏览器运行时。
 //
-// 挂载策略：把窗格作为 AppFrame 中 `conversation` 槽座的前置兄弟列插入
-// （`#root [data-slot="conversation"] || .parentElement` 即 flex 行），让外壳的
-// 让步链挤压中间栏；窄屏（<=767px）转为固定抽屉 + 浮动开关按钮。
+// 挂载策略：把窗格作为 AppFrame 中 keyed `main` 槽容器的前置兄弟列插入
+// （`#root [data-slot="main"] || .parentElement` 即中列 flex，dsh 0.1.5 起原
+// `conversation` Slot 迁移为 `main` 的 `conversation` key），让外壳的让步链
+// 挤压中间栏；窄屏（<=767px）转为固定抽屉 + 浮动开关按钮。
 //
-// 数据来源：DSH 原生 `sessions` / `workspaces` 客户端服务（推送式快照）+ native
-// `sessions.history` / `sessions.models` 冷会话读取 + 运行中会话的原生订阅
-//（binding().session）+ 可选 `modelDirectories` 目录 store 订阅（模型选择实时更新，
-// 缺失时回落一次性读取），不依赖任何第三方插件数据路由，也不做状态轮询。
+// 数据来源：DSH 原生 `sessions` / `workspaces` 客户端服务（推送式快照）+ `remote`
+// 服务的部署级模型目录（session/modelCatalog）与会话日志分页（session/page，
+// Session 格式 V3——dsh 0.1.5 起快照不再携带会话内容、connection.api 门面移除）+
+// 运行中会话的原生订阅（binding().session，运行状态面）+ 可选 `modelDirectories`
+// 目录 store 订阅（模型选择实时更新），不依赖任何第三方插件数据路由，也不做状态轮询。
 
 const name = "dsh-activity-pane";
-const inject = ["connection", "sessions", "workspaces"];
+// remote.session：dsh 0.1.5 起会话 RPC（目录/日志分页）经 api-remotes 的点分命名空间
+// 注入（cordis 代理对未注入属性直接抛错，父服务声明不代表子命名空间可用；仅声明
+// 子命名空间即可解析，无需再注入父面）。
+const inject = ["sessions", "workspaces", "uiSession", "remote.session"];
 
-const CONVERSATION_SELECTOR = "#root [data-slot=\"conversation\"]";
+const CONVERSATION_SELECTOR = "#root [data-slot=\"main\"]";
 const PANE_ATTR = "data-dsh-activity-pane";
 const PANE_CLASS = "dap-pane";
 const LIST_CLASS = "dap-list";
@@ -1043,8 +1048,10 @@ function apply(ctx) {
 	let disposed = false;
 	let sessions = null;
 	let workspaces = null;
+	let uiSession = null;
 	let sessionUnsubscribe = null;
 	let workspaceUnsubscribe = null;
+	let pendingUnsubscribe = null;
 	let clockTimer = null;
 	let recentTimeTimer = null;
 	let syncScheduled = false;
@@ -1117,8 +1124,9 @@ function apply(ctx) {
 	const sessionDetailsById = new Map();
 	/** 会话跳转的单一重试链；避免重复点击叠加 refresh/timer。 */
 	const openRetryStates = new Map();
-	/** native cold-session model/history reads, one promise per session and no polling. */
+	/** 主会话目录一次性 load 的在途记账：id → promise（字段级加载指示消费）。 */
 	const modelLoads = new Map();
+	/** native cold-session log reads, one promise per session and no polling. */
 	const historyLoads = new Map();
 	/** 模型目录订阅（R-01-012/AC-16）：id → unsubscribe；模型选择切换经原生
 	 *  modelDirectories store 推送即时到达，随可见性清理/卸载先 unsubscribe 再除名。 */
@@ -1128,6 +1136,11 @@ function apply(ctx) {
 	 *  渲染时解析显示名与 effort 回退。无原型对象：模型 id 可能恰为 "constructor" 等
 	 *  继承键名，不得穿透回退。 */
 	const catalogEntries = Object.create(null);
+	/** 部署级目录分组（dsh 0.1.5 起模型上下文的显示名/effort 解析来源）：由
+	 *  remote.sessions.modelCatalog 与 modelDirectories 订阅推送共同收割。 */
+	let catalogGroups = [];
+	/** 部署级 modelCatalog 一次性读取的在途 Promise：成功即缓存、失败允许重试。 */
+	let catalogPromise = null;
 	/** native session.open() requests in flight; avoid duplicate cold history reads. */
 	/** 冷数据读取并发池：队列顺序即优先级（调用方已排序），逐个完成逐个重绘。 */
 	const loadQueue = [];
@@ -1429,8 +1442,37 @@ function apply(ctx) {
 	window.addEventListener("pageshow", onBusyPageShow);
 	connectBusyStream();
 
-	function apiValue(response) {
-		return response?.result?.ok === true ? response.result.value : null;
+	function remoteValue(response) {
+		if (response?.ok === true) return response.value;
+		throw response?.error ?? new Error("remote request failed");
+	}
+
+	/** 会话日志分页地址（R-01-012）：主会话 `{kind:"session", sessionId}`；子代理
+	 *  `{kind:"subagent", parentSessionId, childSessionId, mode}`——母会话 id 兼容
+	 *  `parentSessionId` / `parentId` 两种条目键名，mode 无条目标注时按一次性子代理
+	 *  处理、读取失败由 pagedHistoryEvents 以 null 收敛为空白详情（R-01-013）。 */
+	function sessionPageAddress(id, byId) {
+		const row = byId[id] ?? {};
+		if (row?.origin === "subagent") {
+			const parentId = row.parentSessionId ?? row.parentId;
+			if (parentId !== undefined && parentId !== null) {
+				return {
+					kind: "subagent",
+					parentSessionId: String(parentId),
+					childSessionId: String(id),
+					mode: row.continuable === true ? "continuable" : "one-shot",
+				};
+			}
+		}
+		return { kind: "session", sessionId: String(id) };
+	}
+
+	/** 部署级目录分组收割（R-01-012/AC-01）：modelCatalog RPC 与 modelDirectories
+	 *  目录订阅推送共享同一部署目录，后到覆盖（分组集合一致）；展平索引进
+	 *  `catalogEntries` 供子代理溯源 id 解析显示名。空分组不覆盖既有缓存。 */
+	function harvestCatalog(groups) {
+		if (Array.isArray(groups) && groups.length > 0) catalogGroups = groups;
+		Object.assign(catalogEntries, catalogModelEntries(groups));
 	}
 
 	/** 同帧重启等待提醒动画：数量胶囊保持亮度呼吸，卡片末行保持 opacity 脉冲，
@@ -1455,17 +1497,17 @@ function apply(ctx) {
 		try {
 			directory = ctx.get("modelDirectories")?.directoryFor?.(id) ?? null;
 		} catch {
-			directory = null; // 会话无 scope：回落一次性读取
+			directory = null; // 会话无 scope：回落日志提取
 		}
 		if (directory === null) return;
 		const syncFromDirectory = () => {
 			if (disposed) return;
 			const snap = directory.store?.getSnapshot?.();
 			if (!snap?.current) return; // 目录未就绪：不覆写既有取值
-			Object.assign(catalogEntries, catalogModelEntries(snap.groups));
+			harvestCatalog(snap.groups);
 			detail.models = { current: snap.current, groups: snap.groups ?? [] };
 			detail.model = modelMetadata(detail.models);
-			// 订阅已产值标记：晚到的一次性 RPC 快照不得回写切换前的旧值。
+			// 订阅已产值标记：晚到的一次性快照不得回写切换前的旧值。
 			detail.modelLive = true;
 			queueSync();
 		};
@@ -1473,17 +1515,44 @@ function apply(ctx) {
 		try {
 			unsubscribe = directory.store.subscribe(syncFromDirectory);
 		} catch {
-			return; // 订阅失败：保持一次性读取结果
+			return; // 订阅失败：保持日志提取结果
 		}
 		modelDirectorySubs.set(id, unsubscribe);
-		syncFromDirectory(); // 目录已被主窗口加载时立即同步，该会话免发一次性 RPC
+		syncFromDirectory(); // 目录已被主窗口加载时立即同步，该会话免发一次性读取
+	}
+
+	/** 目录 store 一次性 load（dsh 0.1.5 起惰性加载：不 load 不产出当前选择，原生模型
+	 *  选择器同样先 load）。load 与 select() 的 generation 竞争以「最新操作胜出」，用户
+	 *  切换后到仍胜出。e2e 接缝（dap-e2e-model-delay）延迟 load 发起，使模型上下文
+	 *  严格晚于时间线呈现，渐进渲染可观察（R-01-014/AC-03）。 */
+	function loadDirectoryOnce(id) {
+		if (disposed || !modelDirectorySubs.has(id) || modelLoads.has(id)) return;
+		let directory = null;
+		try {
+			directory = ctx.get("modelDirectories")?.directoryFor?.(id) ?? null;
+		} catch {
+			directory = null;
+		}
+		if (directory === null) return;
+		try {
+			const loadPromise = delayedModelCall(() => (typeof directory.load === "function" ? directory.load() : null));
+			if (loadPromise && typeof loadPromise.finally === "function") {
+				modelLoads.set(id, loadPromise);
+				loadPromise.finally(() => {
+					if (modelLoads.get(id) === loadPromise) modelLoads.delete(id);
+				});
+			}
+			loadPromise?.catch(() => {});
+		} catch {
+			// load 不可用：保持订阅，等待主窗口加载后的推送。
+		}
 	}
 
 	function loadNativeDetails({ ids, previewFallbackIds = new Set(), durationFallbackIds = new Set(), subagentModelReadIds = new Set() }) {
-		const api = ctx.get("connection")?.api?.sessions;
-		if (!api) return;
+		const sessionRemote = ctx.get("remote.session") ?? null;
+		if (!sessionRemote) return;
+		ensureCatalogGroups(sessionRemote);
 		const byId = getSnapshot(sessions, "list")?.byId ?? {};
-		const modelPromises = [];
 		const historyPromises = [];
 		for (const id of ids) {
 			const detail = sessionDetailsById.get(id) ?? {};
@@ -1491,95 +1560,52 @@ function apply(ctx) {
 			if (liveSnapshot) detail.snapshot = liveSnapshot;
 			sessionDetailsById.set(id, detail);
 			const subagent = isSubagentRow(byId[id], byId);
-			// 主会话先试模型目录订阅：store 已有当前选择时同步填充（随后 plan.model 为假、免发 RPC）；
-			// 子代理的目录不可用（宿主以 agent-busy 拒绝其模型 RPC），不建立订阅。
-			if (!subagent && e2eModelDelayMs === 0) subscribeModelDirectory(id, detail);
-			const snapshotReady = detail.snapshot?.openState === "open";
-			// 冷窗口兜底（R-01-009/AC-06、R-01-012/AC-12）：快照就绪但窗口缺开放回合起点
-			// （超长回合的 turn/start 在尾页窗口之外；等待/空闲会话不算缺口）或缺可锚
-			// 用户行时，补读一次 history。
-			const turnStartMissing = openTurnStartMissing({
-				snapshotReady,
-				running: byId[id]?.running === true,
-				hasLiveness: livenessById.has(id),
-				liveStartTime: livenessById.get(id)?.liveness?.startTime ?? null,
-			});
-			const windowComplete = snapshotReady !== true || (!turnStartMissing && detail.snapshotHasAnchorableUserRow === true);
-			const durationFallbackNeeded = durationFallbackIds.has(id) && detail.durationFallbackLoaded !== true;
-			const plan = detailLoadPlan({
-				detail,
-				isSubagent: subagent,
-				snapshotReady,
-				historyNeeded: needsHistorySnapshot(detail.snapshot),
-				previewFallbackNeeded: previewFallbackIds.has(id),
-				durationFallbackNeeded,
-				windowComplete,
-				modelInflight: modelLoads.has(id),
-				historyInflight: historyLoads.has(id) || sessionOpenLoads.has(id),
-				subagentModelReadNeeded: subagentModelReadIds.has(id),
-			});
-			// 子代理的 models 读取必被宿主以 agent-busy 拒绝：不发注定失败的 RPC；
-			// 模型经既有 history 读取溯源提取（R-01-012/AC-17）。
-			if (!plan.subagent && plan.model && typeof api.models === "function") {
-				const promise = enqueueDetailLoad(() => delayedModelCall(() => api.models({ sessionId: id }))
-					.then((response) => {
-						const value = apiValue(response);
-						if (!value) {
-							if (!detail.modelLive) detail.model = { model: "", reasoning: "" };
-							return;
-						}
-						// 目录分组同时就地收割（部署级共享）：子代理卡据此把溯源 id 解析为显示名。
-						Object.assign(catalogEntries, catalogModelEntries(value.groups));
-						// 目录订阅已产出更新的当前选择时，晚到的 RPC 快照不得回写旧值（R-01-012/AC-16）。
-						if (detail.modelLive) return;
-						detail.models = value;
-						detail.model = modelMetadata(value);
-					})
-					.catch((error) => {
-						if (!detail.modelLive) detail.model = { model: "", reasoning: "" };
-						detail.modelError = error instanceof Error ? error.message : String(error);
-					}));
-				modelLoads.set(id, promise);
-				// settle 即移除记账：在途判定驱动加载指示，残留会让空字段永久误报加载。
-				promise.finally(() => {
-					if (modelLoads.get(id) === promise) modelLoads.delete(id);
-				});
-				modelPromises.push(promise);
+			// 主会话建立模型目录订阅：dsh 0.1.5 起目录 store 惰性加载（不 load 不产出当前
+			// 选择），订阅与一次性 load 一并触发；子代理的目录不可用（宿主以 agent-busy
+			// 拒绝其模型 RPC），不建立订阅。e2e 接缝把订阅与 load 整体延后，使模型上下文
+			// 严格晚于时间线呈现（R-01-014/AC-03 渐进语义可观察）。
+			if (!subagent) {
+				if (e2eModelDelayMs === 0) {
+					subscribeModelDirectory(id, detail);
+					loadDirectoryOnce(id);
+				} else {
+					delayedModelCall(() => {
+						subscribeModelDirectory(id, detail);
+						loadDirectoryOnce(id);
+						return null;
+					});
+				}
 			}
-			if (plan.history && typeof api.history === "function") {
-				if (durationFallbackNeeded) detail.durationFallbackLoaded = true;
-				if (previewFallbackIds.has(id)) detail.previewFallbackLoaded = true;
+			captureSessionLog(id, { subagent, cwd: byId[id]?.cwd ?? "" });
+			// 长会话深读兜底（R-01-013/AC-03）：最近卡预览/子代理溯源不在尾页日志窗口内
+			// 且宿主标记 hasMore 时，按 beforeSeq 向前回溯翻页（默认无页数上限）。
+			const windowEntries = Array.isArray(detail.log?.entries) ? detail.log.entries : [];
+			const lastSeq = Number(windowEntries.at(-1)?.event?.seq);
+			const deepReadNeeded =
+				(previewFallbackIds.has(id) || durationFallbackIds.has(id) || (subagent && subagentModelReadIds.has(id))) &&
+				detail.log?.hasMore === true &&
+				Number.isFinite(lastSeq) &&
+				detail.historyDeepReadDone !== true;
+			if (deepReadNeeded) {
+				detail.previewFallbackLoaded = true;
+				detail.durationFallbackLoaded = true;
+				const address = sessionPageAddress(id, byId);
 				const promise = enqueueDetailLoad(() => Promise.resolve()
 					.then(async () => {
-						// 单池任务内串行回溯深翻（默认无页数上限）：向前翻到命中最近一条
-						// 用户消息或翻尽为止——超长会话的最后用户消息可能在尾页窗口之外，
-						// 固定页数上限会让历史卡用户预览永久缺失（R-01-013/AC-03 回溯承诺）。
-						// 运行会话缺窗口内回合起点时要求深翻至命中开放回合 turn/start
-						// （R-01-009/AC-06 冷窗口兜底）。
 						const { events, error } = await pagedHistoryEvents({
-							fetchPage: async (beforeSeq) => apiValue(await api.history({ sessionId: id, beforeSeq, maxMessages: 50 })),
-							requireOpenTurnStart: turnStartMissing,
+							fetchPage: async (beforeSeq) => {
+								const value = remoteValue(
+									await sessionRemote.page({ address, throughSeq: lastSeq, beforeSeq, maxMessages: 50 }),
+								);
+								if (!value) return null;
+								return { events: Array.isArray(value.records) ? value.records : [], hasMore: value.hasMore === true };
+							},
 						});
 						if (error) detail.historyError = error instanceof Error ? error.message : String(error);
 						detail.history = events;
-						// 子代理模型溯源（R-01-012/AC-17）：模型读取落地即记账并提取；
-						// 主会话不从此处取模型（其口径为模型目录服务，R-01-012/AC-01、AC-16）。
-						if (plan.subagentModelRead) {
-							detail.modelReadDone = true;
-							if (!detail.model) detail.model = modelFromHistoryEvents(events);
-						} else if (plan.subagent && !detail.model) {
-							detail.model = modelFromHistoryEvents(events);
-						}
-						// 子代理 reasoning effort（R-01-012/AC-17）：与溯源同一页 history 折叠
-						// 最新请求头配置，无请求头/未声明时留空由渲染层目录条目回退。
-						if (plan.subagent && detail.model && !detail.model.reasoning) {
-							detail.model.reasoning = reasoningEffortFromHistoryEvents(events) ?? "";
-						}
-						// R-01-017：冷路径同样折叠分组（取全量页内事件再折成最多 4 组，
-						// 含指令锚行窗口选择，R-01-012/AC-12～AC-15）。
-						detail.timeline = foldedHistoryTimeline(events, 4, byId[id]?.cwd ?? "");
-						detail.previews = messagePreviews({ history: events });
-					}))
+						detail.historyDeepReadDone = true;
+						applyLogEvents(id, detail, events, { subagent, cwd: byId[id]?.cwd ?? "", planSubagentModelRead: subagent });
+					}));
 				historyLoads.set(id, promise);
 				promise.finally(() => {
 					if (historyLoads.get(id) === promise) historyLoads.delete(id);
@@ -1587,7 +1613,7 @@ function apply(ctx) {
 				historyPromises.push(promise);
 			}
 		}
-		const pending = modelPromises.concat(historyPromises);
+		const pending = historyPromises;
 		if (pending.length > 0) {
 			// 逐个完成即重绘（先就绪先显示，不等待全部，R-01-014/AC-03）；
 			// 并立即重绘一次让加载指示在数据返回前出现。
@@ -1596,15 +1622,90 @@ function apply(ctx) {
 		}
 	}
 
+	/** 日志页落地后的详情派生（R-01-012、R-01-017）：时间线折叠、消息预览与子代理模型上下文。
+	 *  子代理沿用溯源链（assistant/message source.model + 请求头 effort，T-122）；主会话模型
+	 *  不经日志提取（目录链订阅 + 一次性 load 承载，见 installServiceSubscriptions 注）。
+	 *  无请求头/无溯源时保持空白，不以部署默认或其它会话取值冒充（R-01-012/AC-18）。 */
+	function applyLogEvents(id, detail, events, { subagent, cwd = "", planSubagentModelRead = false }) {
+		detail.history = events;
+		detail.timeline = foldedHistoryTimeline(events, 4, cwd);
+		detail.previews = messagePreviews({ history: events });
+		if (subagent) {
+			if (planSubagentModelRead) {
+				detail.modelReadDone = true;
+				if (!detail.model) detail.model = modelFromHistoryEvents(events);
+			} else if (!detail.model) {
+				detail.model = modelFromHistoryEvents(events);
+			}
+			if (detail.model && !detail.model.reasoning) {
+				detail.model.reasoning = reasoningEffortFromHistoryEvents(events) ?? "";
+			}
+			return;
+		}
+		// 主会话模型上下文不经日志提取：以 modelDirectories 目录订阅为准（实时推送
+		// 当前选择），不可得时保持空白，不以日志历史取值或部署默认冒充（R-01-012/AC-18）。
+	}
+
+	/** 绑定会话并水合事件源（dsh 0.1.5 起会话内容经 eventSource 流式下发：打开即收
+	 *  完整日志窗口 + 实时尾，原生 Conversation 同源）。冷会话补一次 open()，日志窗口
+	 *  快照引用变化即重派生详情（时间线/预览/模型），窗口由宿主按消息对齐分页。 */
+	function captureSessionLog(id, { subagent, cwd }) {
+		const detail = sessionDetailsById.get(id) ?? {};
+		sessionDetailsById.set(id, detail);
+		let session = null;
+		try {
+			session = sessions?.binding?.(id)?.session ?? null;
+		} catch {
+			session = null;
+		}
+		if (session === null) return;
+		try {
+			if (detail.snapshot?.openState !== "open" && !sessionOpenLoads.has(id) && typeof session.open === "function") {
+				const opening = Promise.resolve(session.open()).catch(() => {});
+				sessionOpenLoads.set(id, opening);
+				opening.finally(() => {
+					if (sessionOpenLoads.get(id) === opening) sessionOpenLoads.delete(id);
+					queueSync();
+				});
+			}
+		} catch {
+			// open 不可用：保持当前窗口。
+		}
+		const log = session.eventSource?.getSnapshot?.() ?? null;
+		if (log === detail.log) return;
+		detail.log = log;
+		const entries = Array.isArray(log?.entries) ? log.entries : [];
+		applyLogEvents(id, detail, entries, { subagent, cwd });
+	}
+
+	/** 部署级模型目录一次性读取（R-01-012/AC-01）：dsh 0.1.5 起 per-session models
+	 *  RPC 移除，目录经 `remote.session.modelCatalog()` 无参数读取；成功即缓存不再
+	 *  重发，失败留待下轮详情读取重试。 */
+	function ensureCatalogGroups(sessionRemote) {
+		if (catalogGroups.length > 0 || catalogPromise !== null) return;
+		catalogPromise = Promise.resolve()
+			.then(() => remoteValue(sessionRemote.modelCatalog()))
+			.then((value) => {
+				if (value && Array.isArray(value.groups)) harvestCatalog(value.groups);
+			})
+			.catch(() => {})
+			.finally(() => {
+				catalogPromise = null;
+			});
+	}
+
 	function installServiceSubscriptions() {
 		const nextSessions = ctx.get("sessions");
 		const nextWorkspaces = ctx.get("workspaces");
-		if (nextSessions === sessions && nextWorkspaces === workspaces) return;
+		const nextUiSession = ctx.get("uiSession");
+		if (nextSessions === sessions && nextWorkspaces === workspaces && nextUiSession === uiSession) return;
 
 		sessionUnsubscribe?.();
 		workspaceUnsubscribe?.();
+		pendingUnsubscribe?.();
 		sessions = nextSessions ?? null;
 		workspaces = nextWorkspaces ?? null;
+		uiSession = nextUiSession ?? null;
 		try {
 			sessionUnsubscribe = sessions?.list?.subscribe?.(queueSync) ?? null;
 		} catch {
@@ -1614,6 +1715,14 @@ function apply(ctx) {
 			workspaceUnsubscribe = workspaces?.list?.subscribe?.(queueSync) ?? null;
 		} catch {
 			workspaceUnsubscribe = null;
+		}
+		try {
+			// 0.1.5 起 sessions 行不再承载 pendingInteraction：待确认/待审查/待回复改由
+			// uiSession.pendingInteractions（Map<sessionId, interaction>）独立承载，
+			// 订阅其快照变化驱动等待卡重算（R-01-002/AC-03）。
+			pendingUnsubscribe = uiSession?.pendingInteractions?.subscribe?.(queueSync) ?? null;
+		} catch {
+			pendingUnsubscribe = null;
 		}
 
 		queueSync();
@@ -2586,6 +2695,10 @@ function apply(ctx) {
 					const detail = sessionDetailsById.get(id) ?? {};
 					detail.snapshot = snapshot;
 					sessionDetailsById.set(id, detail);
+					// dsh 0.1.5 起快照不再携带会话内容：时间线经 eventSource 日志窗口
+					// 就地重派生（R-01-009）。
+					const listSnap = getSnapshot(sessions, "list");
+					captureSessionLog(id, { subagent: isSubagentRow(listSnap?.byId?.[id], listSnap ?? {}), cwd: listSnap?.byId?.[id]?.cwd ?? "" });
 					queueSync();
 				});
 			} catch {
@@ -3108,6 +3221,19 @@ function apply(ctx) {
 			}
 		}
 		const listState = listLoadState(snapshot);
+		// 0.1.5 sessions 行不再承载 pendingInteraction：从 uiSession.pendingInteractions
+		// 快照（Map<sessionId, interaction>，kind ∈ approval/plan-review/question）回填到
+		// 行副本上，等待卡分类（awaiting/blocked/提问中）保持既有单一口径（R-01-002/AC-03）。
+		const pendingSnapshot = uiSession?.pendingInteractions?.getSnapshot?.() ?? null;
+		if (pendingSnapshot instanceof Map && pendingSnapshot.size > 0 && snapshot?.byId) {
+			const byId = { ...snapshot.byId };
+			for (const [id, interaction] of pendingSnapshot) {
+				const row = byId[id];
+				if (!isRecord(row) || typeof interaction?.kind !== "string") continue;
+				byId[id] = { ...row, pendingInteraction: interaction.kind };
+			}
+			snapshot = { ...snapshot, byId };
+		}
 		// 只消费上一轮追加请求；列表短暂 pending 时保留已展开页，ready 后继续从同一前缀呈现。
 		recentAppendQueued = false;
 		const workspaceSnapshot = getSnapshot(workspaces, "list");
@@ -3145,13 +3271,24 @@ function apply(ctx) {
 				detail.memoHistoryAnchorOf = detail.history ?? null;
 				detail.memoHistoryAnchor = historyInstructionAnchor(detail.history);
 			}
+			// 等待/暂停呈现（pendingText 存在）且自身快照为冻结值时，残留 running 行全部落定；
+			// 存在活动后代时保留尾部提升的「agent 工作中」呈现（R-01-009/AC-10 委托周期语义）。
+			const entryIdle = (entry.pendingText ?? null) !== null && entry.descendantActive !== true;
+			const entryCwd = snapshot?.byId?.[entry.id]?.cwd ?? "";
+			// log 派生 memo：history 引用 / idle / cwd 变化才重算。落定在折叠前生效
+			// （foldedHistoryTimeline 的 settleIdle），组标题由已定案成员派生——阻塞等待卡
+			// 呈现「运行了命令」+「等待回答」摘要，而非「正在运行」蓝闪（R-01-009/AC-09）。
+			const historyRef = detail?.history ?? null;
+			const logReady = Array.isArray(historyRef) && historyRef.length > 0;
+			if (detail && logReady && (detail.memoLogTimelineOf !== historyRef || detail.memoLogTimelineIdle !== entryIdle || detail.memoLogTimelineCwd !== entryCwd)) {
+				detail.memoLogTimelineOf = historyRef;
+				detail.memoLogTimelineIdle = entryIdle;
+				detail.memoLogTimelineCwd = entryCwd;
+				detail.memoLogTimeline = foldedHistoryTimeline(historyRef, 4, entryCwd, entryIdle);
+			}
 			if (detail && detailSnapshot) {
 				// 按快照引用 memo：引用不变（时钟 tick、无关推送）时命中缓存，
 				// 长会话不再每次渲染全序扫描。
-				const entryCwd = snapshot?.byId?.[entry.id]?.cwd ?? "";
-				// 等待/暂停呈现（pendingText 存在）且自身快照为冻结值时，残留 running 行全部落定；
-				// 存在活动后代时保留尾部提升的「agent 工作中」呈现（R-01-009/AC-10 委托周期语义）。
-				const entryIdle = (entry.pendingText ?? null) !== null && entry.descendantActive !== true;
 				if (detail.memoTimelineOf !== detailSnapshot || detail.memoTimelineCwd !== entryCwd || detail.memoTimelineDescendantActive !== (entry.descendantActive === true) || detail.memoTimelineIdle !== entryIdle || detail.memoTimelineAnchor !== (detail.memoHistoryAnchor ?? null)) {
 					detail.memoTimelineOf = detailSnapshot;
 					detail.memoTimelineCwd = entryCwd;
@@ -3163,7 +3300,11 @@ function apply(ctx) {
 					// 出现在输出（窗口行或锚行），反之需 history 补读。
 					detail.snapshotHasAnchorableUserRow = detail.memoTimeline.some(isAnchorableUserRow);
 				}
-				entry.timeline = detail.memoTimeline.length > 0 ? detail.memoTimeline : detail.timeline ?? [];
+				// V3 快照不再承载 chat/partial：活动时间线以 log 派生（eventSource 窗口，含
+				// live-chunk 流式行）为主源；快照派生仅在 log 未就绪时兜底（锚行回退）。
+				entry.timeline = logReady ? detail.memoLogTimeline : detail.memoTimeline ?? [];
+			} else if (logReady) {
+				entry.timeline = detail.memoLogTimeline;
 			} else {
 				entry.timeline = detail?.timeline ?? entry.timeline ?? [];
 			}
@@ -3206,7 +3347,8 @@ function apply(ctx) {
 				if (question !== null) entry.questionPreview = question;
 			}
 			// 字段级加载指示（R-01-014/AC-02）：补充数据在途时卡片对应位置显示活动图标。
-			// 子代理模型同样经 history 读取提取，读取在途时模型区显示指示（R-01-012/AC-17）。
+			// 主会话模型经目录 store 一次性 load 到达（modelLoads 记账），子代理模型经
+			// 日志读取提取（R-01-012/AC-17）。
 			entry.loadingModel = !detail?.model && (modelLoads.has(entry.id) || (entry.kind === "subagent" && historyLoads.has(entry.id)));
 			entry.loadingTimeline =
 				entry.timeline.length === 0 &&
@@ -3228,7 +3370,8 @@ function apply(ctx) {
 			// 之外）时，取 history 深翻提取的开放回合起点。
 			const anchor = progressAnchor(progressAnchorById.get(entry.id) ?? null, {
 				descendantActive: entry.descendantActive === true,
-				hostStartTime: live?.startTime ?? detail?.memoOpenTurnStart ?? null,
+				// dsh 0.1.5 起快照不再携带 turnTimings：开放回合起点由宿主侧 busy 记账兜底。
+				hostStartTime: live?.startTime ?? busyById.get(entry.id)?.openTurnStart ?? detail?.memoOpenTurnStart ?? null,
 				now,
 			});
 			progressAnchorById.set(entry.id, anchor);
@@ -3677,6 +3820,7 @@ function apply(ctx) {
 		disposed = true;
 		sessionUnsubscribe?.();
 		workspaceUnsubscribe?.();
+		pendingUnsubscribe?.();
 		acksSource?.close();
 		acksSource = null;
 		busySource?.close();

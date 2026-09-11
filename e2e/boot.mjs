@@ -64,6 +64,10 @@ function settingsYaml(mockUrl) {
 		"agent-default-model:",
 		"  provider: deepseek-official",
 		"  model: deepseek-v4-flash",
+		// 预置欢迎内测声明确认（dsh 0.1.5 宿主 OnboardingModal）：不预置则宿主会在运行
+		// 途中弹出带遮罩的模态，拦截 spec 的指针操作（环境噪声，非被测行为）。
+		"ui-onboarding:",
+		'  welcomeNoticeVersion: "2026-08-13.1"',
 		"",
 	].join("\n");
 }

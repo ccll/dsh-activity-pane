@@ -23,7 +23,6 @@ import {
 	pagedHistoryEvents,
 	delegationActive,
 	progressAnchor,
-	detailLoadPlan,
 	conversationWorkItems,
 	conversationTimelineFromHistory,
 	foldWorkGroups,
@@ -31,7 +30,6 @@ import {
 	foldedHistoryTimeline,
 	historyInstructionAnchor,
 	openTurnStartFromEvents,
-	openTurnStartMissing,
 	escapeCssString,
 	firstPhysicalLine,
 	fmtAbsoluteDateTime,
@@ -58,7 +56,6 @@ import {
 	modelFromHistoryEvents,
 	reasoningEffortFromHistoryEvents,
 	catalogModelEntries,
-	needsHistorySnapshot,
 	lastTurnEndFromEvents,
 	lastTurnEndFromTimings,
 	lastTurnDurationFromEvents,
@@ -337,95 +334,6 @@ assert.deepEqual(
 	buildEntries(subagentUnderFork, [], {}, null, null, ["source"]).map((entry) => entry.id),
 	["fork", "nested-subagent"],
 	"归档 fork 来源不影响独立 fork 及其真实子代理子树");
-// models/history 加载决策行为链：首读 → 在途不重发 → 失败置空后可见期内不热重试 → 离开可见清理后重回可重试
-const loadDetail = {};
-assert.deepEqual(
-	detailLoadPlan({ detail: loadDetail }),
-	{ subagent: false, subagentModelRead: false, model: true, history: false },
-	"冷会话首次决策发起 models 读取",
-);
-assert.equal(
-	detailLoadPlan({ detail: loadDetail, modelInflight: true }).model,
-	false,
-	"读取在途时不重复发起",
-);
-loadDetail.model = { model: "", reasoning: "" };
-assert.equal(detailLoadPlan({ detail: loadDetail }).model, false, "失败置空后可见期内不热重试");
-assert.equal(detailLoadPlan({ detail: {} }).model, true, "离开可见清理后重回可见允许重试");
-assert.deepEqual(
-	detailLoadPlan({ detail: {}, isSubagent: true, subagentModelReadNeeded: true }),
-	{ subagent: true, subagentModelRead: true, model: false, history: true },
-	"子代理不发起 models 读取；出现已定案助手行或非运行时安排一次 history 溯源读取（R-01-012/AC-17）",
-);
-assert.deepEqual(
-	detailLoadPlan({ detail: {}, isSubagent: true }),
-	{ subagent: true, subagentModelRead: false, model: false, history: false },
-	"开局仅有流式 partial（无已定案助手行且在运行）时不早读，避免扑空（R-01-012/AC-17）",
-);
-assert.equal(
-	detailLoadPlan({ detail: {}, isSubagent: true, subagentModelReadNeeded: true, historyInflight: true }).history,
-	false,
-	"子代理 history 读取在途时不重复发起（R-01-012/AC-18）",
-);
-assert.equal(
-	detailLoadPlan({ detail: { modelReadDone: true }, isSubagent: true, subagentModelReadNeeded: true }).history,
-	false,
-	"子代理模型读取每次可见期至多一次，读尽仍无命中不热重试（R-01-012/AC-18）",
-);
-assert.equal(
-	detailLoadPlan({ detail: { model: { model: "m", reasoning: "" } }, isSubagent: true, subagentModelReadNeeded: true }).history,
-	false,
-	"子代理模型溯源已提取后不再安排读取（R-01-012/AC-17）",
-);
-assert.equal(
-	detailLoadPlan({ detail: {}, historyNeeded: true }).history,
-	true,
-	"无快照冷会话决策发起 history 读取",
-);
-assert.equal(
-	detailLoadPlan({ detail: {}, historyNeeded: true, snapshotReady: true }).history,
-	false,
-	"原生快照已就绪且窗口数据齐全时不发 history 读取",
-);
-// R-01-013/AC-03、AC-04：最近卡窗口快照缺用户或 agent 预览时补读一次 history。
-assert.equal(
-	detailLoadPlan({ detail: { history: [{ event: { seq: 1 } }] }, snapshotReady: true, previewFallbackNeeded: true }).history,
-	true,
-	"最近卡预览不完整时即使已有早到 history 也重新补读一次",
-);
-assert.equal(
-	detailLoadPlan({ detail: { history: [], previewFallbackLoaded: true }, snapshotReady: true, previewFallbackNeeded: true }).history,
-	false,
-	"最近卡预览 fallback 已尝试后可见期内不热重试",
-);
-// R-01-009/AC-12：等待卡转入 awaiting 后，即使旧 history 已加载也必须补读最新边界。
-assert.equal(
-	detailLoadPlan({ detail: { history: [{ event: { seq: 1 } }] }, snapshotReady: true, durationFallbackNeeded: true }).history,
-	true,
-	"等待卡耗时 fallback 在已有旧 history 时仍发起一次最新 history 读取",
-);
-assert.equal(
-	detailLoadPlan({ detail: { history: [], durationFallbackLoaded: true }, snapshotReady: true, durationFallbackNeeded: true }).history,
-	false,
-	"等待卡耗时 fallback 已尝试后可见期内不重复读取",
-);
-// R-01-009/AC-06、R-01-012/AC-12 冷窗口兜底：快照就绪但窗口缺锚点数据（开放回合起点/用户行在窗口外）时补读 history
-assert.equal(
-	detailLoadPlan({ detail: {}, snapshotReady: true, windowComplete: false }).history,
-	true,
-	"快照就绪但窗口缺锚点数据时发起 history 补读",
-);
-assert.equal(
-	detailLoadPlan({ detail: {}, snapshotReady: true, windowComplete: true }).history,
-	false,
-	"快照窗口锚点数据齐全时不发 history 读取",
-);
-assert.equal(
-	detailLoadPlan({ detail: { history: [] }, snapshotReady: true, windowComplete: false }).history,
-	false,
-	"窗口补读失败置空后可见期内不热重试",
-);
-
 // ---- R-01-012/AC-17、AC-18 子代理模型溯源：history 尾扫最近一条携带 source.model 的 assistant/message ----
 const subModelEvents = [
 	{ event: { type: "turn/start", seq: 1, data: { turn: 1 } } },
@@ -533,7 +441,6 @@ assert.equal(
 	"畸形条目与缺失 header 跳过不抛错（R-01-012/AC-18）",
 );
 
-// ---- R-01-012/AC-16 模型选择切换经目录订阅推送更新，一次性读取仅作初值 ----
 // 目录 store 快照形状（{current, groups, routable, status, ...}）与 RPC value 同形兼容，经同一归一。
 assert.deepEqual(
 	modelMetadata({
@@ -1361,8 +1268,6 @@ const bodyLabelItems = conversationWorkItems({
 	chat: { order: ["bd"], nodes: { get: (key) => ({ key, kind: "assistant-step", data: { status: "settled", turn: 1, step: 0, blocks: [{ kind: "text", text: "纯正文" }] } }) } },
 });
 assert.equal(bodyLabelItems[0].label, "助手", "正文工作项 label 为中文「助手」（R-01-012/AC-09）");
-assert.equal(needsHistorySnapshot({ chat: { order: [] } }), true, "空 chat snapshot 需要 history fallback");
-assert.equal(needsHistorySnapshot({ chat: { order: ["item"] } }), false, "已 hydrate 的 chat snapshot 优先使用 order");
 const models = modelMetadata({
 	current: { provider: "p", model: "m", reasoningEffort: "high" },
 	groups: [{ id: "p", models: [{ id: "m", name: "Model M", reasoning: { efforts: [{ id: "high", name: "High" }] } }] }],
@@ -1697,6 +1602,46 @@ assert.equal(coldInterrupted[0].status, "stopped", "interrupted 结果落定 sto
 const coldOrphan = conversationTimelineFromHistory([hToolResult(1, "hc9")], 10);
 assert.equal(coldOrphan.length, 1, "call 在窗口外的孤儿 result 仍成行（信息不丢失）");
 assert.equal(coldOrphan[0].status, "done", "孤儿 result 落定 done，不造 running 行");
+// ---- V3 log 路径行为证据（T-123 dsh 0.1.5 适配）：0.1.5 无独立 context 事件，非用户 source 的
+// user/message 即宿主 ContextMessageNode；流式期间 eventSource 以 transient assistant/live-chunk
+// 条目携带增量，须累积为 running live 行（否则运行卡无 running 圆点，R-01-009/AC-09 呈现缺失）----
+const hContext = (seq, source, text = "上下文正文") => ({ event: { type: "user/message", seq, data: { source, content: [{ type: "text", text }] } } });
+const ctxInject = conversationTimelineFromHistory([
+	hUser(1, "指令"),
+	hContext(2, { kind: "plugin", plugin: "dsh-activity-pane" }),
+	hAgent(3, "回复"),
+], 10);
+assert.equal(ctxInject[1].kind, "context", "非用户 source 的 user/message 映射为上下文行（镜像宿主 ContextMessageNode）");
+assert.equal(ctxInject[1].label, "上下文注入", "注入角色标题为上下文注入");
+assert.equal(ctxInject[1].summary, "dsh-activity-pane", "插件 source 摘要取 plugin 名（镜像原生 provenance.label）");
+const ctxRecall = conversationTimelineFromHistory([
+	hContext(1, { kind: "session-reference", references: [{ label: "会话甲" }, { label: "会话乙" }, { label: "会话甲" }] }),
+], 10);
+assert.equal(ctxRecall[0].label, "跨会话召回", "session-reference source 映射为召回角色");
+assert.equal(ctxRecall[0].summary, "会话甲, 会话乙", "召回摘要取引用标题去重逗号拼接（镜像原生 collect/joined）");
+const hLiveChunk = (seq, attemptId, text, type = "text-delta") => ({
+	type: "transient",
+	event: { type: "assistant/live-chunk", seq, time: 0, data: { attemptId, turn: 1, step: 0, chunk: { type, text } } },
+});
+const streaming = conversationTimelineFromHistory([hUser(1, "流式指令"), hLiveChunk(1.9, "a1", "正在"), hLiveChunk(1.95, "a1", "流式输出")], 10);
+assert.equal(streaming.length, 2, "流式期间用户行与 live 行并存");
+assert.equal(streaming[1].kind, "assistant", "live-chunk 累积为 assistant 行");
+assert.equal(streaming[1].status, "running", "流式 live 行为 running（运行卡 running 圆点来源）");
+assert.equal(streaming[1].live, true, "live 行携带 live 标记");
+assert.equal(streaming[1].text, "正在流式输出", "text-delta 按到达序累积为流式正文");
+const streamingReasoning = conversationTimelineFromHistory([hLiveChunk(1.8, "a2", "思考中", "reasoning-delta")], 10);
+assert.equal(streamingReasoning[0].status, "running", "reasoning-delta 同样呈现 running 行");
+assert.equal(streamingReasoning[0].detail, "思考中", "reasoning-delta 累积进 detail");
+assert.equal(streamingReasoning[0].text, "", "reasoning-delta 不混入正文");
+const settledStream = foldedHistoryTimeline([hUser(1, "流式指令"), hAgent(2, "最终回复")], 10);
+assert.ok(settledStream.every((row) => row.status !== "running"), "回合落定后 transient 条目出窗，无 running 残留");
+// 阻塞等待呈现（settleIdle）：折叠前落定残留 running 行，组标题/状态由已定案成员派生
+// （快照路径 settleWhenIdle 前置语义对齐，R-01-009/AC-09「仅执行中行闪烁」）。
+const blockedAskRunning = foldedHistoryTimeline([hUser(1, "指令"), hToolCall(2, "ha")], 10);
+assert.equal(blockedAskRunning.at(-1).label, "正在运行", "未落定呈现保留「正在运行」组标题");
+const blockedAskSettled = foldedHistoryTimeline([hUser(1, "指令"), hToolCall(2, "ha")], 10, "", true);
+assert.equal(blockedAskSettled.at(-1).status, "done", "阻塞等待呈现下折叠前落定残留 running 行");
+assert.equal(blockedAskSettled.at(-1).label, "运行了命令", "落定后组标题由已定案成员派生（非「正在运行」）");
 // historyInstructionAnchor：尾扫最近一条非空文本真实用户消息（R-01-012/AC-12 快照窗口外兜底）
 assert.equal(historyInstructionAnchor([hUser(1, "旧指令"), hAgent(2, "回复"), hUser(3, "新指令")])?.text, "新指令", "锚行取最近一条用户消息");
 assert.equal(historyInstructionAnchor([hUser(1, "  "), hAgent(2, "回复")]), null, "空文本用户消息不作锚");
@@ -2032,33 +1977,6 @@ assert.equal(
 assert.equal(openTurnStartFromEvents([turnStartEv(1, 1, Number.NaN)]), null, "turn/start 时刻非法时无可用起点");
 assert.equal(openTurnStartFromEvents([]), null, "空事件无开放回合起点");
 assert.equal(openTurnStartFromEvents(null), null, "非数组输入归一 null");
-// 补读触发口径（R-01-009/AC-06）：仅「运行中 + 轮内订阅已建立 + 快照无开放回合起点」算缺口
-assert.equal(
-	openTurnStartMissing({ snapshotReady: true, running: true, hasLiveness: true, liveStartTime: null }),
-	true,
-	"运行中且快照无开放回合起点判定为缺口（超长回合冷窗口）",
-);
-assert.equal(
-	openTurnStartMissing({ snapshotReady: true, running: true, hasLiveness: true, liveStartTime: 1000 }),
-	false,
-	"窗口内含开放回合起点时不是缺口",
-);
-assert.equal(
-	openTurnStartMissing({ snapshotReady: true, running: false, hasLiveness: false, liveStartTime: null }),
-	false,
-	"等待/空闲会话（非运行、无 liveness 记录）不算缺口、不触发补读",
-);
-assert.equal(
-	openTurnStartMissing({ snapshotReady: true, running: true, hasLiveness: false, liveStartTime: null }),
-	false,
-	"轮内订阅尚未建立时不算缺口（下一帧建立后再判定）",
-);
-assert.equal(
-	openTurnStartMissing({ snapshotReady: false, running: true, hasLiveness: true, liveStartTime: null }),
-	false,
-	"快照未就绪走 historyNeeded 原路径，不算窗口缺口",
-);
-
 // ---- R-01-009/AC-07 工作项时间线的状态与主会话窗口语义摘要（无行级耗时，C-012）----
 const statusTimeline = conversationWorkItems({
 	chat: {
@@ -3152,9 +3070,9 @@ assert.deepEqual(
 );
 
 // ---- R-01-014/AC-05 补充数据失败降级为空字段并可重试 ----
-// （行为链详见 R-01-012/AC-01 的 detailLoadPlan 锚点：失败置空 → 可见期内不热重试 →
-//  离开可见清理 → 重回可见允许重试。）
-assert.equal(detailLoadPlan({ detail: { model: { model: "", reasoning: "" } } }).model, false, "失败置空即降级为空字段");
+// （dsh 0.1.5 起 per-session models RPC 移除，模型提取随日志读取统一进行：失败置空
+//  语义由 R-01-012/AC-18 的空白归一单测与本文件日志读取门禁锚点共同
+//  承载——失败不置标记、下一可见期允许重试。）
 
 // ---- R-01-015/AC-02 拖拽宽度夹取 ｜ R-01-015/AC-04 持久化恢复归一 ----
 assert.equal(clampPaneWidth(280), 280, "范围内宽度原样保留");
@@ -3310,8 +3228,8 @@ assert.ok(
 assert.ok(!bundle.includes("dshcf") && !bundle.includes("autoCollapseActive"), "无 dsh-auto-collapse 探测残留（R-01-017、C-017）");
 assert.ok(!bundle.includes("nativeWorkItemRow") && !bundle.includes("cloneNativeIcon") && !bundle.includes("nativeIconsByTraceKey"), "原生行匹配/图标克隆机器无残留（C-017）");
 assert.ok(!bundle.includes("mergeTraceStatus") && !bundle.includes("allowNativePresentation"), "行状态直接采用核心派生值，无合并/切换层（C-017）");
-assert.ok(bundle.includes("api.history"), "冷会话使用 native history 一次性补齐");
-assert.ok(bundle.includes("api.models"), "模型/reasoning 使用 native models 数据");
+assert.ok(bundle.includes(".page("), "冷会话使用 remote 日志分页一次性补齐（Session V3）");
+assert.ok(bundle.includes(".modelCatalog("), "模型/reasoning 使用部署级 modelCatalog 数据");
 assert.ok(bundle.includes("dap-token-stats"), "token 统计 DOM 位于进度条之后");
 assert.ok(
 	bundle.includes('makeEl("span", "dap-token-main")') && bundle.includes('makeEl("span", "dap-token-time")'),
@@ -3512,8 +3430,16 @@ assert.ok(!bundle.includes('"Think"') && !bundle.includes('"Assistant"'), "bundl
 assert.ok(bundle.includes('"思考"') && bundle.includes('"助手"'), "bundle 含中文「思考」「助手」标签（R-01-012/AC-09、AC-10）");
 assert.ok(bundle.includes("session.subscribe"), "运行卡通过 native session subscribe 接收实时推送");
 assert.ok(
-	clientSource.includes('const inject = ["connection", "sessions", "workspaces"];'),
-	"sessions/workspaces 通过 client inject 注入，不依赖服务发现定时器",
+	clientSource.includes('const inject = ["sessions", "workspaces", "uiSession", "remote.session"];'),
+	"sessions/workspaces/uiSession/remote.session 通过 client inject 注入，不依赖服务发现定时器",
+);
+assert.ok(
+	bundle.includes("uiSession?.pendingInteractions") && bundle.includes("pendingInteraction: interaction.kind"),
+	"0.1.5 等待行动经 uiSession.pendingInteractions 快照回填行副本（sessions 行不再承载 pendingInteraction）",
+);
+assert.ok(
+	bundle.includes("historyDeepReadDone = true") && bundle.includes("historyDeepReadDone !== true"),
+	"日志深翻每可见期至多一次：完成即置位（失败同样置位不热重试），重入可见由详情记账清理放行重试（R-01-014/AC-05）",
 );
 assert.ok(!bundle.includes("serviceTimer"), "服务发现不得保留后台定时器");
 assert.ok(!bundle.includes("frameProbeTimer"), "宿主 frame 发现不得保留后台定时器");
@@ -3545,18 +3471,27 @@ assert.ok(bundle.includes("loadingPreviews"), "预览字段级加载指示并入
 assert.ok(bundle.includes("renderTraceLoading"), "时间线区数据在途时显示加载行");
 assert.ok(clientSource.includes('e2eParams.get("dap-e2e-model-delay")'), "detail 渐进 E2E 接缝由显式 URL fragment 启用");
 assert.ok(clientSource.includes("Math.min(requestedModelDelay, 1_000)"), "detail 渐进 E2E 延迟上限为 1 秒");
-assert.ok(clientSource.includes("if (!subagent && e2eModelDelayMs === 0) subscribeModelDirectory(id, detail);"), "fixture 模式仅绕开 model directory 抢先初值");
-assert.ok(clientSource.includes("delayedModelCall(() => api.models({ sessionId: id }))"), "detail fixture 延迟正式 models RPC，不伪造 model response");
+assert.ok(
+	clientSource.includes("if (!subagent) {") &&
+		clientSource.includes("subscribeModelDirectory(id, detail);") &&
+		clientSource.includes("loadDirectoryOnce(id);"),
+	"仅主会话建立 model directory 订阅与一次性 load（子代理目录不可用不订阅）",
+);
+assert.ok(
+	clientSource.includes('delayedModelCall(() => (typeof directory.load === "function" ? directory.load() : null))'),
+	"detail fixture 延迟目录一次性 load，不伪造 model response",
+);
 assert.ok(clientSource.includes("Promise.resolve().then(call)"), "detail fixture 保留 models RPC 同步异常的 Promise catch 降级语义");
 assert.ok(clientSource.includes("e2eModelDelayWaiters.clear()"), "卸载时取消并结清 detail fixture 延迟，不残留 timer/promise");
 assert.ok(bundle.includes("promise.then(queueSync, queueSync)"), "补充数据逐个完成即重绘（先就绪先显示）");
 assert.ok(bundle.includes("LOAD_CONCURRENCY"), "冷数据读取经并发池限制慢网挤占");
 assert.ok(bundle.includes("session.open"), "运行卡通过 native session open hydrate 非当前会话");
 assert.ok(bundle.includes("sessionOpenLoads"), "session.open 请求与 cold history fallback 不重复");
-// R-01-012/AC-16 模型目录订阅：store 推送更新、只订阅不 load、随可见性/卸载清理
+// R-01-012/AC-16 模型目录订阅：store 推送更新、随可见性/卸载清理；dsh 0.1.5 起目录
+// store 惰性加载，订阅后补一次一次性 load（C-024 的 generation 竞争以最新操作胜出）
 assert.ok(bundle.includes('ctx.get("modelDirectories")'), "模型实时选择来自原生 modelDirectories 服务（可选软依赖）");
 assert.ok(bundle.includes("directory.store.subscribe"), "订阅目录 store 推送模型选择变更");
-assert.ok(!bundle.includes("directory.load("), "不调用目录 load()，不与 select() 竞争 generation（C-024）");
+assert.ok(bundle.includes("directory.load"), "目录 store 一次性 load：0.1.5 惰性加载下不 load 不产出当前选择");
 assert.ok(bundle.includes("pruneSubscriptions(modelDirectorySubs, visibleIds)"), "模型目录订阅随可见性先 unsubscribe 再除名");
 assert.ok(bundle.includes("pruneSubscriptions(modelDirectorySubs, new Set())"), "卸载时模型目录订阅整体退订归零");
 assert.ok(bundle.includes("detail.modelLive"), "目录订阅已产值时晚到的一次性 RPC 不回写旧值");
@@ -4119,7 +4054,7 @@ assert.ok(
 // 子代理模型经既有 history 溯源提取（models RPC 对子代理被宿主 agent-busy 拒绝）。
 assert.ok(bundle.includes("modelFromHistoryEvents") && bundle.includes("chatLatestAssistantSettled"), "子代理模型溯源提取与触发信号进入 bundle（R-01-012/AC-17）");
 assert.ok(
-	clientSource.includes("if (plan.subagentModelRead) {") && clientSource.includes("detail.modelReadDone = true;"),
+	clientSource.includes("if (planSubagentModelRead) {") && clientSource.includes("detail.modelReadDone = true;"),
 	"history 读取落地时为子代理提取模型溯源并记账每次可见期单次尝试（R-01-012/AC-17）",
 );
 assert.ok(
@@ -4136,9 +4071,9 @@ assert.ok(
 	"目录条目索引为无原型对象，模型 id 恰为继承键名时不得穿透回退（R-01-012/AC-17）",
 );
 assert.ok(
-	clientSource.includes("Object.assign(catalogEntries, catalogModelEntries(snap.groups));") &&
-		clientSource.includes("Object.assign(catalogEntries, catalogModelEntries(value.groups));"),
-	"目录分组在 store 订阅与一次性 models RPC 两条到达路径就地收割（R-01-012/AC-17）",
+	clientSource.includes("harvestCatalog(snap.groups);") &&
+		clientSource.includes("harvestCatalog(value.groups);"),
+	"目录分组在 store 订阅与一次性 modelCatalog 两条到达路径就地收割（R-01-012/AC-17）",
 );
 assert.ok(
 	clientSource.includes("detail.model.reasoning = reasoningEffortFromHistoryEvents(events) ?? \"\";"),

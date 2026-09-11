@@ -1069,9 +1069,10 @@ function modelMetadata(models) {
 }
 
 /** 子代理模型溯源（R-01-012/AC-17）：从 history 事件流尾扫最近一条携带模型溯源的
- *  `assistant/message` 事件，取 `message.source.model`。事件流不携带 reasoning level，
- *  返回值 reasoning 恒为空串；无命中（空事件、无助手消息或溯源缺失）返回 null，
- *  调用方保持模型区空白、不以 preset 或母会话模型冒充（R-01-012/AC-18）。 */
+ *  `assistant/message` 事件，取 `message.source.model`。返回值 reasoning 恒为空串，
+ *  effort 由调用方以 `reasoningEffortFromHistoryEvents` 同页折叠；无命中（空事件、
+ *  无助手消息或溯源缺失）返回 null，调用方保持模型区空白、不以 preset 或母会话
+ *  模型冒充（R-01-012/AC-18）。 */
 function modelFromHistoryEvents(history) {
 	const entries = Array.isArray(history) ? history : [];
 	for (let i = entries.length - 1; i >= 0; i -= 1) {
@@ -1085,21 +1086,44 @@ function modelFromHistoryEvents(history) {
 	return null;
 }
 
-/** 模型目录分组的 modelId → 显示名索引（R-01-012/AC-17）：溯源 `source.model` 是
- *  provider 侧 id，显示名需经目录分组解析；同一部署的目录分组在主/子会话间共享。
- *  畸形条目跳过；目录缺失返回空索引，调用方回退显示原始溯源 id。 */
-function catalogModelNames(groups) {
-	const names = {};
+/** 子代理 reasoning effort（R-01-012/AC-17）：history 尾扫最新一条 `request/header`
+ *  事件，取 `config.reasoningEffort`——宿主的会话选择即从该折叠读取。命中最新请求头
+ *  即停：更早请求头属已废弃纪元，即使声明过 effort 也不再回扫。最新请求头未声明
+ *  effort 或页内无请求头（超长子会话的 header 在日志开头、可能落在尾页窗口之外）
+ *  返回 null，调用方回落目录条目 `reasoning` 后保持空值（R-01-012/AC-18）。 */
+function reasoningEffortFromHistoryEvents(history) {
+	const entries = Array.isArray(history) ? history : [];
+	for (let i = entries.length - 1; i >= 0; i -= 1) {
+		const event = eventOf(entries[i]);
+		if (event?.type !== "request/header") continue;
+		const config = isRecord(event.data?.header?.config) ? event.data.header.config : null;
+		if (config !== null && typeof config.reasoningEffort === "string" && config.reasoningEffort !== "") {
+			return config.reasoningEffort;
+		}
+		return null;
+	}
+	return null;
+}
+
+/** 模型目录分组的 modelId → {name, reasoning} 索引（R-01-012/AC-17）：溯源
+ *  `source.model` 是 provider 侧 id，显示名需经目录分组解析；同一部署的目录分组在
+ *  主/子会话间共享，条目 `reasoning` 是请求头 effort 不可得时的回退来源。畸形条目
+ *  跳过；目录缺失返回空索引，调用方回退显示原始溯源 id（R-01-012/AC-18）。 */
+function catalogModelEntries(groups) {
+	const entries = {};
 	for (const group of Array.isArray(groups) ? groups : []) {
 		if (!isRecord(group)) continue;
 		for (const model of Array.isArray(group.models) ? group.models : []) {
 			if (!isRecord(model)) continue;
 			if (typeof model.id === "string" && model.id !== "" && typeof model.name === "string" && model.name !== "") {
-				names[model.id] = model.name;
+				entries[model.id] = {
+					name: model.name,
+					reasoning: typeof model.reasoning === "string" && model.reasoning !== "" ? model.reasoning : "",
+				};
 			}
 		}
 	}
-	return names;
+	return entries;
 }
 
 /** 只提供卡片底部所需的原始统计字段，不拼接当前动作文案。 */
@@ -3514,10 +3538,11 @@ function apply(ctx) {
 	/** 模型目录订阅（R-01-012/AC-16）：id → unsubscribe；模型选择切换经原生
 	 *  modelDirectories store 推送即时到达，随可见性清理/卸载先 unsubscribe 再除名。 */
 	const modelDirectorySubs = new Map();
-	/** 模型目录分组的 modelId → 显示名索引（R-01-012/AC-17）：同一部署的目录分组在
-	 *  主/子会话间共享，经主会话的目录订阅与一次性 models RPC 就地收割，渲染时解析。
-	 *  无原型对象：模型 id 可能恰为 "constructor" 等继承键名，不得穿透回退。 */
-	const catalogNames = Object.create(null);
+	/** 模型目录分组的 modelId → {name, reasoning} 索引（R-01-012/AC-17）：同一部署的
+	 *  目录分组在主/子会话间共享，经主会话的目录订阅与一次性 models RPC 就地收割，
+	 *  渲染时解析显示名与 effort 回退。无原型对象：模型 id 可能恰为 "constructor" 等
+	 *  继承键名，不得穿透回退。 */
+	const catalogEntries = Object.create(null);
 	/** native session.open() requests in flight; avoid duplicate cold history reads. */
 	/** 冷数据读取并发池：队列顺序即优先级（调用方已排序），逐个完成逐个重绘。 */
 	const loadQueue = [];
@@ -3852,7 +3877,7 @@ function apply(ctx) {
 			if (disposed) return;
 			const snap = directory.store?.getSnapshot?.();
 			if (!snap?.current) return; // 目录未就绪：不覆写既有取值
-			Object.assign(catalogNames, catalogModelNames(snap.groups));
+			Object.assign(catalogEntries, catalogModelEntries(snap.groups));
 			detail.models = { current: snap.current, groups: snap.groups ?? [] };
 			detail.model = modelMetadata(detail.models);
 			// 订阅已产值标记：晚到的一次性 RPC 快照不得回写切换前的旧值。
@@ -3919,7 +3944,7 @@ function apply(ctx) {
 							return;
 						}
 						// 目录分组同时就地收割（部署级共享）：子代理卡据此把溯源 id 解析为显示名。
-						Object.assign(catalogNames, catalogModelNames(value.groups));
+						Object.assign(catalogEntries, catalogModelEntries(value.groups));
 						// 目录订阅已产出更新的当前选择时，晚到的 RPC 快照不得回写旧值（R-01-012/AC-16）。
 						if (detail.modelLive) return;
 						detail.models = value;
@@ -3959,6 +3984,11 @@ function apply(ctx) {
 							if (!detail.model) detail.model = modelFromHistoryEvents(events);
 						} else if (plan.subagent && !detail.model) {
 							detail.model = modelFromHistoryEvents(events);
+						}
+						// 子代理 reasoning effort（R-01-012/AC-17）：与溯源同一页 history 折叠
+						// 最新请求头配置，无请求头/未声明时留空由渲染层目录条目回退。
+						if (plan.subagent && detail.model && !detail.model.reasoning) {
+							detail.model.reasoning = reasoningEffortFromHistoryEvents(events) ?? "";
 						}
 						// R-01-017：冷路径同样折叠分组（取全量页内事件再折成最多 4 组，
 						// 含指令锚行窗口选择，R-01-012/AC-12～AC-15）。
@@ -5576,9 +5606,13 @@ function apply(ctx) {
 				entry.model = detail.model.model;
 				entry.reasoning = detail.model.reasoning;
 			}
-			// 子代理溯源得到的是 provider 模型 id：经目录分组解析为显示名（R-01-012/AC-17），
-			// 目录未覆盖该 id 时保留原始回退。
-			if (entry.kind === "subagent" && entry.model) entry.model = catalogNames[entry.model] ?? entry.model;
+			// 子代理溯源得到的是 provider 模型 id：经目录分组解析为显示名，effort 缺失时
+			// 以同一目录条目回退（R-01-012/AC-17）；目录未覆盖该 id 时保留原始回退（AC-18）。
+			if (entry.kind === "subagent" && detail?.model) {
+				const catalogEntry = catalogEntries[detail.model.model];
+				if (catalogEntry?.name) entry.model = catalogEntry.name;
+				if (!entry.reasoning && catalogEntry?.reasoning) entry.reasoning = catalogEntry.reasoning;
+			}
 			// 待回复卡列表补全（C-040、C-064）：buildEntries 运行时快照时间线可能仍为空，
 			// 而上面的 memo 才在本帧算出结构化提问预览；等待卡静止后常无下一帧，因此在此
 			// 立即补入 questionPreview，由 cardSignature 驱动本帧 DOM 写入。

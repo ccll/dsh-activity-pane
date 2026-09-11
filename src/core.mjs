@@ -1063,9 +1063,10 @@ export function modelMetadata(models) {
 }
 
 /** 子代理模型溯源（R-01-012/AC-17）：从 history 事件流尾扫最近一条携带模型溯源的
- *  `assistant/message` 事件，取 `message.source.model`。事件流不携带 reasoning level，
- *  返回值 reasoning 恒为空串；无命中（空事件、无助手消息或溯源缺失）返回 null，
- *  调用方保持模型区空白、不以 preset 或母会话模型冒充（R-01-012/AC-18）。 */
+ *  `assistant/message` 事件，取 `message.source.model`。返回值 reasoning 恒为空串，
+ *  effort 由调用方以 `reasoningEffortFromHistoryEvents` 同页折叠；无命中（空事件、
+ *  无助手消息或溯源缺失）返回 null，调用方保持模型区空白、不以 preset 或母会话
+ *  模型冒充（R-01-012/AC-18）。 */
 export function modelFromHistoryEvents(history) {
 	const entries = Array.isArray(history) ? history : [];
 	for (let i = entries.length - 1; i >= 0; i -= 1) {
@@ -1079,21 +1080,44 @@ export function modelFromHistoryEvents(history) {
 	return null;
 }
 
-/** 模型目录分组的 modelId → 显示名索引（R-01-012/AC-17）：溯源 `source.model` 是
- *  provider 侧 id，显示名需经目录分组解析；同一部署的目录分组在主/子会话间共享。
- *  畸形条目跳过；目录缺失返回空索引，调用方回退显示原始溯源 id。 */
-export function catalogModelNames(groups) {
-	const names = {};
+/** 子代理 reasoning effort（R-01-012/AC-17）：history 尾扫最新一条 `request/header`
+ *  事件，取 `config.reasoningEffort`——宿主的会话选择即从该折叠读取。命中最新请求头
+ *  即停：更早请求头属已废弃纪元，即使声明过 effort 也不再回扫。最新请求头未声明
+ *  effort 或页内无请求头（超长子会话的 header 在日志开头、可能落在尾页窗口之外）
+ *  返回 null，调用方回落目录条目 `reasoning` 后保持空值（R-01-012/AC-18）。 */
+export function reasoningEffortFromHistoryEvents(history) {
+	const entries = Array.isArray(history) ? history : [];
+	for (let i = entries.length - 1; i >= 0; i -= 1) {
+		const event = eventOf(entries[i]);
+		if (event?.type !== "request/header") continue;
+		const config = isRecord(event.data?.header?.config) ? event.data.header.config : null;
+		if (config !== null && typeof config.reasoningEffort === "string" && config.reasoningEffort !== "") {
+			return config.reasoningEffort;
+		}
+		return null;
+	}
+	return null;
+}
+
+/** 模型目录分组的 modelId → {name, reasoning} 索引（R-01-012/AC-17）：溯源
+ *  `source.model` 是 provider 侧 id，显示名需经目录分组解析；同一部署的目录分组在
+ *  主/子会话间共享，条目 `reasoning` 是请求头 effort 不可得时的回退来源。畸形条目
+ *  跳过；目录缺失返回空索引，调用方回退显示原始溯源 id（R-01-012/AC-18）。 */
+export function catalogModelEntries(groups) {
+	const entries = {};
 	for (const group of Array.isArray(groups) ? groups : []) {
 		if (!isRecord(group)) continue;
 		for (const model of Array.isArray(group.models) ? group.models : []) {
 			if (!isRecord(model)) continue;
 			if (typeof model.id === "string" && model.id !== "" && typeof model.name === "string" && model.name !== "") {
-				names[model.id] = model.name;
+				entries[model.id] = {
+					name: model.name,
+					reasoning: typeof model.reasoning === "string" && model.reasoning !== "" ? model.reasoning : "",
+				};
 			}
 		}
 	}
-	return names;
+	return entries;
 }
 
 /** 只提供卡片底部所需的原始统计字段，不拼接当前动作文案。 */

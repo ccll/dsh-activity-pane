@@ -56,7 +56,8 @@ import {
 	movedToActiveIds,
 	modelMetadata,
 	modelFromHistoryEvents,
-	catalogModelNames,
+	reasoningEffortFromHistoryEvents,
+	catalogModelEntries,
 	needsHistorySnapshot,
 	lastTurnEndFromEvents,
 	lastTurnEndFromTimings,
@@ -488,21 +489,49 @@ assert.equal(
 assert.equal(chatLatestAssistantSettled(null), false, "无快照不触发（R-01-012/AC-18）");
 assert.equal(chatLatestAssistantSettled({ chat: { order: [], nodes: new Map() } }), false, "空窗口不触发（R-01-012/AC-18）");
 
-// ---- R-01-012/AC-17 目录分组解析显示名：provider 模型 id → 目录显示名索引 ----
+// ---- R-01-012/AC-17 目录分组解析显示名与 effort：provider 模型 id → {name, reasoning} 索引 ----
 assert.deepEqual(
-	catalogModelNames([
-		{ id: "g1", models: [{ id: "glm-5.3-flash-512k", name: "(6000D) GLM-5.3-Flash 512K" }, { id: "m2", name: "模型乙" }] },
-		{ id: "g2", models: [{ id: "m3", name: "模型丙" }] },
+	catalogModelEntries([
+		{ id: "g1", models: [{ id: "glm-5.3-flash-512k", name: "(6000D) GLM-5.3-Flash 512K", reasoning: "high" }, { id: "m2", name: "模型乙" }] },
+		{ id: "g2", models: [{ id: "m3", name: "模型丙", reasoning: "low" }] },
 	]),
-	{ "glm-5.3-flash-512k": "(6000D) GLM-5.3-Flash 512K", m2: "模型乙", m3: "模型丙" },
-	"多分组展平为 id→显示名索引（R-01-012/AC-17）",
+	{ "glm-5.3-flash-512k": { name: "(6000D) GLM-5.3-Flash 512K", reasoning: "high" }, m2: { name: "模型乙", reasoning: "" }, m3: { name: "模型丙", reasoning: "low" } },
+	"多分组展平为 id→{name, reasoning} 索引（R-01-012/AC-17）",
 );
 assert.deepEqual(
-	catalogModelNames([null, {}, { models: null }, { models: [null, {}, { id: "", name: "x" }, { id: "ok", name: "" }, { id: "good", name: "好" }] }]),
-	{ good: "好" },
+	catalogModelEntries([null, {}, { models: null }, { models: [null, {}, { id: "", name: "x" }, { id: "ok", name: "" }, { id: "good", name: "好", reasoning: "medium" }] }]),
+	{ good: { name: "好", reasoning: "medium" } },
 	"畸形分组与畸形条目跳过，不抛错（R-01-012/AC-18）",
 );
-assert.deepEqual(catalogModelNames(null), {}, "目录缺失返回空索引，调用方回退显示原始溯源 id（R-01-012/AC-18）");
+assert.deepEqual(catalogModelEntries(null), {}, "目录缺失返回空索引，调用方回退显示原始溯源 id（R-01-012/AC-18）");
+
+// ---- R-01-012/AC-17 reasoning effort 提取：history 尾扫最新一条 request/header 配置 ----
+const headerEvent = (config) => ({ event: { type: "request/header", seq: 1, data: { header: { config } } } });
+assert.equal(
+	reasoningEffortFromHistoryEvents([
+		{ event: { type: "user/message", seq: 0, data: {} } },
+		headerEvent({ provider: "p", model: "m", reasoningEffort: "low" }),
+		{ event: { type: "assistant/message", seq: 2, data: { message: { source: { provider: "p", model: "ok" } } } } },
+	]),
+	"low",
+	"请求头事件的 config.reasoningEffort 提取（R-01-012/AC-17）",
+);
+assert.equal(
+	reasoningEffortFromHistoryEvents([headerEvent({ provider: "p", model: "m", reasoningEffort: "low" }), headerEvent({ provider: "p", model: "m", reasoningEffort: "high" })]),
+	"high",
+	"多条请求头取最新纪元（R-01-012/AC-17）",
+);
+assert.equal(
+	reasoningEffortFromHistoryEvents([headerEvent({ provider: "p", model: "m", reasoningEffort: "low" }), headerEvent({ provider: "p", model: "m" })]),
+	null,
+	"最新请求头未声明 effort 即停，不回扫已废弃纪元（R-01-012/AC-18）",
+);
+assert.equal(reasoningEffortFromHistoryEvents([]), null, "空事件流无 effort（R-01-012/AC-18）");
+assert.equal(
+	reasoningEffortFromHistoryEvents([null, { event: undefined }, { event: { type: "request/header", seq: 3, data: {} } }]),
+	null,
+	"畸形条目与缺失 header 跳过不抛错（R-01-012/AC-18）",
+);
 
 // ---- R-01-012/AC-16 模型选择切换经目录订阅推送更新，一次性读取仅作初值 ----
 // 目录 store 快照形状（{current, groups, routable, status, ...}）与 RPC value 同形兼容，经同一归一。
@@ -4103,17 +4132,22 @@ assert.ok(
 );
 // 溯源 id → 显示名：目录分组经主会话既有两条到达路径就地收割，渲染时对子代理条目解析。
 assert.ok(
-	clientSource.includes("const catalogNames = Object.create(null);"),
-	"显示名索引为无原型对象，模型 id 恰为继承键名时不得穿透回退（R-01-012/AC-17）",
+	clientSource.includes("const catalogEntries = Object.create(null);"),
+	"目录条目索引为无原型对象，模型 id 恰为继承键名时不得穿透回退（R-01-012/AC-17）",
 );
 assert.ok(
-	clientSource.includes("Object.assign(catalogNames, catalogModelNames(snap.groups));") &&
-		clientSource.includes("Object.assign(catalogNames, catalogModelNames(value.groups));"),
+	clientSource.includes("Object.assign(catalogEntries, catalogModelEntries(snap.groups));") &&
+		clientSource.includes("Object.assign(catalogEntries, catalogModelEntries(value.groups));"),
 	"目录分组在 store 订阅与一次性 models RPC 两条到达路径就地收割（R-01-012/AC-17）",
 );
 assert.ok(
-	clientSource.includes('if (entry.kind === "subagent" && entry.model) entry.model = catalogNames[entry.model] ?? entry.model;'),
-	"渲染时子代理溯源 id 经目录解析为显示名，目录未覆盖回退原始 id（R-01-012/AC-17、AC-18）",
+	clientSource.includes("detail.model.reasoning = reasoningEffortFromHistoryEvents(events) ?? \"\";"),
+	"子代理 history 落地时折叠最新请求头 effort（R-01-012/AC-17）",
+);
+assert.ok(
+	clientSource.includes("if (catalogEntry?.name) entry.model = catalogEntry.name;") &&
+		clientSource.includes("if (!entry.reasoning && catalogEntry?.reasoning) entry.reasoning = catalogEntry.reasoning;"),
+	"渲染时子代理溯源 id 经目录解析为显示名与 effort 回退，未覆盖保留原始（R-01-012/AC-17、AC-18）",
 );
 // 运行中子代理卡与主会话运行卡同构：进度行 + 统计行进骨架，渲染按同一锚点与曲线。
 assert.ok(

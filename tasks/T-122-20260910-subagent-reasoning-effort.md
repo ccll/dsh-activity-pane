@@ -6,7 +6,7 @@ id: T-122
 
 # T-122 子代理卡显示 reasoning effort：请求头提取 + 目录条目回退
 
-状态: active
+状态: completed
 关联: R-01-012 → 活动状态模型
 风险等级: standard
 
@@ -57,5 +57,16 @@ id: T-122
 - 备注（2026-09-11）：本机 dsh 升级 0.1.5-rc.1 后 web 外壳挂载与数据 RPC 面破坏，`pnpm verify` 全量回归在 T-123（dsh 0.1.5 适配）内兑现；本 task 单元证据（`pnpm check`）已落。
 
 ## 终态与证据
+
+- 实现: 子代理卡经日志 `request/header` 的 `config.reasoningEffort` 提取 effort（`reasoningEffortFromHistoryEvents` 反扫命中最新请求头即停），目录条目 `reasoning` 回退，均不可得保持空白；卡片标题行右缘呈现「模型显示名 · effort」，`cardSignature` 携带 reasoning 驱动落地重绘。
+- 测试: `scripts/check.mjs` effort 提取/目录索引/签名单测通过（`pnpm check` 全绿）；e2e 全量回归因宿主 0.1.5 破坏推迟至 T-123 兑现（906da61，13 个 spec 全绿）。
+- DESIGN 对照: DESIGN 模型上下文条目记载子代理溯源链与 effort 折叠前置（以溯源模型在场为前置，避免「· high」式畸形卡头）；与实现对照无差异。
+- commit: fa96572
+- review:
+  - 审核方: code-review skill（独立 reviewer 子代理，fixed point = fa96572~1）
+  - 目的理解: 子代理卡标题行右缘显示「模型显示名 · effort」，提取链为同页 history 最新 request/header 的 config.reasoningEffort → 目录条目 reasoning 回退 → 空白（R-01-012/AC-17、AC-18）；对照 task T-122 与 PRD/DESIGN 逐行核验，且以该提交时点的宿主 API 状态为准。
+  - 执行方式: code-review skill 双向评审（规范轴 + spec 轴，独立子代理）
+  - 问题与修复: 无阻塞问题；两条轻微备注——① effort 折叠以溯源模型在场为前置属可辩护边界解读，已在本 task 关闭同批补 DESIGN 口径句；② 验证矩阵 e2e 证据因宿主 0.1.5 破坏延后至 T-123 兑现，task 测试计划与 commit message 均已如实披露。
+  - 复审结论: 通过。
 
 （active 期间待填）

@@ -6,7 +6,7 @@ id: T-124
 
 # T-124 总耗时口径改为仅运行过程计时 + 水位卡死自愈
 
-状态: active
+状态: completed
 关联: R-01-020 → 回合统计宿主侧
 风险等级: standard
 
@@ -61,13 +61,13 @@ id: T-124
 
 ## 终态与证据
 
-- 实现: （待填）
-- 测试: （待填）
-- DESIGN 对照: （待填）
-- commit: （待填）
+- 实现: 记账 v2——`applyTurnEventToStats` 配对回合内阻塞等待（`approval/asked`–`decided`、`ask_user_question` 的 `tool/call`–同 `callId` `tool/result`，id/callId 不匹配忽略、串行不嵌套、`turn/end` 强制结算）；`reconcileTurnStats` 统一收敛（无记录/水位非法/水位超前全量重放自愈，启动扫描 `closeOpenTurn` 强制结算残留开放回合）；host 事件订阅经 `isBusyBoundaryEvent` 放行、无效果事件不落盘不广播、busy 通道增 `waitedMs`/`openWaitStart`；client 消费新字段，显示公式等待期自冻结；`emptyTurnStats`/`turnStatsFrom`/`turnStatsEqual`/`settleTurnClose` 收敛数据集团与结算算式。
+- 测试: `pnpm verify` 全量通过——lint（agentmap + test-impact：+R-01-020/AC-07、~AC-02）、`node scripts/check.mjs` 全部断言（等待配对/id·callId 不匹配/强制结算/冻结连续性/水位自愈/启动扫描）、14 个 e2e spec 全绿（`session-lifecycle` 完成后总耗时冻结回归、`auto-update` 提问等待期总耗时冻结；中途一次 session-lifecycle 时序偶发，单跑复跑通过、全量复跑通过）。
+- DESIGN 对照: 回合统计记账 v2 字段清单（含 `openWaitId`）、等待边界配对与强制结算规则、显示公式、reconcile 自愈与启动扫描均与实现对照无差异；审核发现的 map≠code（callId 配对缺失、字段清单漏列 `openWaitId`）已同次收敛。
+- commit: 6e151c1
 - review:
-  - 审核方: （待填）
-  - 目的理解: （待填）
-  - 执行方式: （待填）
-  - 问题与修复: （待填）
-  - 复审结论: （待填）
+  - 审核方: code-review skill（Standards/Spec 双轴并行独立 reviewer 子代理，fixed point = HEAD 0ca0c15 对工作树全 diff；复审同章程另行发起）
+  - 目的理解: 让总耗时只计运行过程——① 修复存量记账被迁移前 seq 空间水位封死导致的「完成后总耗时无限增长」缺陷（增量登记失效、openTurnStart 永不清空）；② 落实东家新需求 AC-07（回合内提问/审批/计划审查等待停表、等待时长永久不计入）；③ 记账、显示、通道、文档（PRD AC-02/AC-07 + DESIGN 记账 v2）同次演进。
+  - 执行方式: code-review skill 双轴评审（Standards 轴对照 AGENTS.md 工程原则 + CONVENTIONS.md + Fowler 基线；Spec 轴对照 T-124 收敛方案 + PRD R-01-020 + DESIGN 目标态），两轴独立并行后聚合；复审仅复核修复 hunks 与文档收敛。
+  - 问题与修复: ① callId/id 配对缺失（DESIGN 写同 callId 结算而实现只查 kind，map≠code）→ 新增 `openWaitId` 持久化字段并实现 id/callId 配对结算，补不匹配忽略断言；② 边界事件类型清单 core/host 重复 → 收敛为 `isBusyBoundaryEvent` 单点；③ 记账五字段数据集团（≥8 处逐字段展开）→ 收敛为 `emptyTurnStats`/`turnStatsFrom`/`turnStatsEqual`，强制结算算式下沉 `settleTurnClose` 共用；④ 冗余守卫与增量水位赋值简化；⑤ DESIGN 字段清单与 host 头注释漏列 `openWaitId` → 补齐；⑥ 计划外项（无效果事件跳过落盘、非法水位全量重放、空日志关闭行为）→ 记入 task 收敛方案。全部修复后 `pnpm verify` 复跑通过。
+  - 复审结论: 通过（Standards 轴：四项修复确认应用、无新增违规；Spec 轴：配对实现忠实于 spec、越计划项已文档化，遗留仅文档层微瑕并已同次收敛）。

@@ -1586,7 +1586,10 @@ function apply(ctx) {
 				detail.log?.hasMore === true &&
 				Number.isFinite(lastSeq) &&
 				detail.historyDeepReadDone !== true;
-			if (deepReadNeeded) {
+			// 在途守卫：深翻未在途才入队。渲染逐帧发生而 deepReadNeeded 在深翻完成前恒真，
+			// 无守卫时每帧重复入队新 job，队列以 LOAD_CONCURRENCY 并发放大发——同一会话的
+			// page RPC 风暴，且 historyLoads 的 set/delete 随 job 翻转驱动加载指示高频闪烁。
+			if (deepReadNeeded && !historyLoads.has(id)) {
 				detail.previewFallbackLoaded = true;
 				detail.durationFallbackLoaded = true;
 				const address = sessionPageAddress(id, byId);
@@ -1660,7 +1663,10 @@ function apply(ctx) {
 		}
 		if (session === null) return;
 		try {
-			if (detail.snapshot?.openState !== "open" && !sessionOpenLoads.has(id) && typeof session.open === "function") {
+			// 日志窗口缺席才发起 open：非订阅会话（等待/历史卡）无快照推送，openState 永远
+			// 不可知，只以 openState 把关会对已水合会话逐帧重发 open，settle→delete→重发
+			// 的在途翻转同样驱动加载指示抖动（docsim 卡闪烁根因之一）。
+			if (!detail.log && detail.snapshot?.openState !== "open" && !sessionOpenLoads.has(id) && typeof session.open === "function") {
 				const opening = Promise.resolve(session.open()).catch(() => {});
 				sessionOpenLoads.set(id, opening);
 				opening.finally(() => {

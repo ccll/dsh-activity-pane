@@ -3441,6 +3441,14 @@ assert.ok(
 	bundle.includes("historyDeepReadDone = true") && bundle.includes("historyDeepReadDone !== true"),
 	"日志深翻每可见期至多一次：完成即置位（失败同样置位不热重试），重入可见由详情记账清理放行重试（R-01-014/AC-05）",
 );
+assert.ok(
+	clientSource.includes("deepReadNeeded && !historyLoads.has(id)"),
+	"深翻在途守卫：同一会话深翻在途不重复入队，防 page RPC 风暴与加载指示在途性高频抖动（R-01-014/AC-05）",
+);
+assert.ok(
+	clientSource.includes('!detail.log && detail.snapshot?.openState !== "open"'),
+	"open 仅在日志窗口缺席时发起：已水合会话不逐帧重发 open，防在途翻转驱动加载指示抖动",
+);
 assert.ok(!bundle.includes("serviceTimer"), "服务发现不得保留后台定时器");
 assert.ok(!bundle.includes("frameProbeTimer"), "宿主 frame 发现不得保留后台定时器");
 assert.ok(bundle.includes("conversationObserver"), "流式 DOM 观察绑定到 conversation seat");

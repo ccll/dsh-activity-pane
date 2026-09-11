@@ -3569,6 +3569,7 @@ function apply(ctx) {
 	/** 模型目录订阅（R-01-012/AC-16）：id → unsubscribe；模型选择切换经原生
 	 *  modelDirectories store 推送即时到达，随可见性清理/卸载先 unsubscribe 再除名。 */
 	const modelDirectorySubs = new Map();
+	const logSourceSubs = new Map();
 	/** 模型目录分组的 modelId → {name, reasoning} 索引（R-01-012/AC-17）：同一部署的
 	 *  目录分组在主/子会话间共享，经主会话的目录订阅与一次性 models RPC 就地收割，
 	 *  渲染时解析显示名与 effort 回退。无原型对象：模型 id 可能恰为 "constructor" 等
@@ -3976,7 +3977,11 @@ function apply(ctx) {
 			const loadPromise = delayedModelCall(() => (typeof directory.load === "function" ? directory.load() : null));
 			if (loadPromise && typeof loadPromise.finally === "function") {
 				modelLoads.set(id, loadPromise);
-				loadPromise.finally(() => {
+				// 守卫只在失败时释放（放行下一次渲染重试）；成功后保持到可见性 prune，
+				// 兑现一次性 load 语义。若 settle 即释放，目录 store 的每次广播
+				// （syncInputs 无条件以新引用 set）都会再驱动 render → load → 广播，
+				// 形成 rAF 速率反馈环——空闲期 60fps 满载，手机端表现为持续发烫。
+				loadPromise.catch(() => {
 					if (modelLoads.get(id) === loadPromise) modelLoads.delete(id);
 				});
 			}
@@ -4100,6 +4105,28 @@ function apply(ctx) {
 			session = null;
 		}
 		if (session === null) return;
+		// 日志窗口无效化订阅（事件驱动，不构成轮询，R-02-004）：等待/历史卡无会话状态
+		// 订阅（syncLiveness 只订阅运行中），窗口推进（回合收尾、流式尾）必须经此回调
+		// 重读快照并重绘；否则窗口更新只能靠渲染期重读兜底——渲染一旦静默（一次性
+		// load 修复后），完成提醒耗时等窗口派生数据将永久停摆。随可见性 prune。
+		if (typeof session.eventSource?.subscribe === "function" && !logSourceSubs.has(id)) {
+			try {
+				logSourceSubs.set(
+					id,
+					session.eventSource.subscribe(() => {
+						if (disposed) return;
+						const listSnap = getSnapshot(sessions, "list");
+						captureSessionLog(id, {
+							subagent: isSubagentRow(listSnap?.byId?.[id], listSnap ?? {}),
+							cwd: listSnap?.byId?.[id]?.cwd ?? "",
+						});
+						queueSync();
+					}),
+				);
+			} catch {
+				// 订阅不可用：回退渲染期重读。
+			}
+		}
 		try {
 			// 日志窗口缺席才发起 open：非订阅会话（等待/历史卡）无快照推送，openState 永远
 			// 不可知，只以 openState 把关会对已水合会话逐帧重发 open，settle→delete→重发
@@ -5936,6 +5963,7 @@ function apply(ctx) {
 		pruneInvisibleEntries([sessionDetailsById, modelLoads, historyLoads, sessionOpenLoads], visibleIds);
 		// 模型目录订阅同生命周期：不可见即先 unsubscribe 再除名，监听器不残留（R-01-012/AC-16）。
 		pruneSubscriptions(modelDirectorySubs, visibleIds);
+		pruneSubscriptions(logSourceSubs, visibleIds);
 		// 重试链目标已成为当前会话（他途到达）即取消，避免过期链条拽回会话。
 		cancelStaleOpenRetries({ currentId: snapshot?.current ?? null, activatedId: lastActivatedId });
 
@@ -6311,6 +6339,7 @@ function apply(ctx) {
 		livenessById.clear();
 		// 卸载即全量退订：空可见集合驱动 pruneSubscriptions 先 unsubscribe 再除名。
 		pruneSubscriptions(modelDirectorySubs, new Set());
+		pruneSubscriptions(logSourceSubs, new Set());
 		progressAnchorById.clear();
 		sessionOpenLoads.clear();
 		loadQueue.length = 0;

@@ -27,7 +27,7 @@ import { z } from 'zod'
 import { applyTurnEventToStats, truncateErrorNote } from './core.mjs'
 
 export const name = 'dsh-activity-pane'
-export const inject = ['storageDomain', 'webServer', 'sessionQuery']
+export const inject = ['storageDomain', 'webServer', 'sessionQuery', 'connection']
 
 const API_PATH = '/dsh-activity-pane/api'
 
@@ -279,9 +279,18 @@ export function apply(ctx) {
 	})
 
 	// HTTP API（前缀挂载，handler 内按子路径分发）。
+	// A1-08：自定义 webServer 路由不继承宿主鉴权门——每个请求先过
+	// connection.requestRejection，401/403 直接拒绝，避免 acks/busy 读写通道
+	// 成为绕过 bootstrap token/signed cookie 的安全空洞。
 	ctx.webServer.register({
 		path: API_PATH,
 		handler(req, res) {
+			const rejection = ctx.connection?.requestRejection?.(req)
+			if (rejection !== undefined) {
+				res.writeHead(rejection, { 'Content-Type': 'text/plain' })
+				res.end('unauthorized')
+				return
+			}
 			const url = new URL(req.url || '/', 'http://dsh-activity-pane')
 			const route = url.pathname.slice(API_PATH.length)
 			const method = req.method || 'GET'

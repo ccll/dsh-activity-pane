@@ -4122,6 +4122,14 @@ assert.ok(hostSource.includes("const API_PATH = '/dsh-activity-pane/api'") && ho
 assert.ok(hostSource.includes("'/acks/stream'") && hostSource.includes("text/event-stream"), "SSE 推送通道（AC-11、AC-12）");
 assert.ok(hostSource.includes("'/ack'") && hostSource.includes("ackedAt: Date.now()"), "ack 写回路由（AC-10～AC-12）");
 assert.ok(hostSource.includes("streamClients") && hostSource.includes("for (const res of streamClients)"), "SSE 连接集合随卸载全数关闭");
+assert.ok(
+	hostSource.includes("ctx.connection?.requestRejection?.(req)") && hostSource.includes("res.end('unauthorized')"),
+	"自定义 webServer 路由经 connection.requestRejection 鉴权门（A1-08：不继承宿主鉴权，acks/busy 读写通道不得裸奔）",
+);
+assert.ok(
+	bundle.includes("} else if (nextSeat !== seat) {") && bundle.includes("流式观察者换绑到新节点"),
+	"宿主原地替换槽容器时流式观察者换绑到新节点，不留已分离旧节点（借鉴 -mig 并行实现）",
+);
 
 
 // ---- E2E runner 浏览器生命周期契约（C-046、C-047，T-085）----

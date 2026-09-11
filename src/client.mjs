@@ -3780,7 +3780,16 @@ function apply(ctx) {
 		// 只观察 center 的直接子节点，捕获 seat/pane 重挂载，不观察 pane 子树。
 		centerObserver = new MutationObserver(() => {
 			const nextSeat = document.querySelector(CONVERSATION_SELECTOR);
-			if (nextSeat?.parentElement !== center) installFrameObserver();
+			if (nextSeat?.parentElement !== center) {
+				installFrameObserver();
+			} else if (nextSeat !== seat) {
+				// 中间列未换但槽容器被宿主原地替换：流式观察者换绑到新节点，
+				// 不整层重装（旧节点已脱离 DOM，留着会让流式 childList 更新丢失）。
+				conversationObserver?.disconnect();
+				conversationObserver = new MutationObserver(queueSync);
+				conversationObserver.observe(nextSeat, { childList: true, subtree: true });
+				observedSeat = nextSeat;
+			}
 			queueSync();
 		});
 		centerObserver.observe(center, { childList: true });

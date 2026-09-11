@@ -209,6 +209,14 @@ unbindCard();
 assert.equal(cardListeners.size, 0, "card 卸载移除 click/keydown 监听");
 
 // ---- R-01-005/AC-01 回归：移动端切换会话后抑制原生 composer 自动聚焦（不弹软键盘） ----
+// 宿主 DOM 契约（dsh-client-ui-conversation ComposerContentEditable）：composer 输入面是
+// Lexical contenteditable div，显式标记 data-composer-input。旧 textarea[data-phase] 在宿主
+// DOM 上零命中会使抑制整体退化为空操作（软键盘回归根因），故钉住选择器防再漂移。
+assert.equal(
+	COMPOSER_SELECTOR,
+	"[data-composer-input]",
+	"composer 选择器须锚定宿主 contenteditable div 的显式标记 data-composer-input",
+);
 const composerEl = {
 	focused: true,
 	matches: (selector) => selector === COMPOSER_SELECTOR,

@@ -2552,8 +2552,9 @@ function scrollCardIntoView(scroll, card, behavior = "smooth") {
 	return Number(scroll.scrollTop) !== currentTop;
 }
 
-/** 原生会话输入框（dsh-client-ui-conversation composer 的 textarea）。 */
-const COMPOSER_SELECTOR = "textarea[data-phase]";
+/** 原生会话输入框：dsh-client-ui-conversation 的 composer 输入面（Lexical contenteditable div，
+ * 宿主以 data-composer-input 显式标记；宿主 0.1.5 重写前为 textarea[data-phase]）。 */
+const COMPOSER_SELECTOR = "[data-composer-input]";
 
 /**
  * 抑制切换会话后原生 composer 的自动聚焦（R-01-005/AC-01 移动端回归）。

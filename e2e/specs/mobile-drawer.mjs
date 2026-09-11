@@ -75,9 +75,33 @@ export default async function mobileDrawer({ page, url, assert }) {
 	// 激活非当前卡仍走原生会话切换路径。
 	await openDrawer(page);
 	await activateCard(page, TITLE_A);
+	// R-01-005/AC-01 回归：切换会话后宿主 composer 不得自动聚焦（真机上会弹软键盘）。
+	// 卡片 data-current 标记即插件观察到 current 切换完成的时点，宿主聚焦 effect 在同一
+	// 提交周期内发生；补 150ms 沉降保证断言前 effect 已执行。
+	await until("卡片甲标记为当前会话", () =>
+		page.evaluate((text) => {
+			const pane = document.querySelector("[data-dsh-activity-pane]");
+			return [...(pane?.querySelectorAll('[role="button"]') ?? [])]
+				.some((card) => card.innerText.includes(text) && card.hasAttribute("data-current"));
+		}, TITLE_A),
+	);
+	await page.waitForTimeout(150);
+	assert.equal(
+		await page.evaluate(() => document.activeElement?.matches?.("[data-composer-input]") ?? false),
+		false,
+		"移动端切换会话后 composer 未自动聚焦",
+	);
 	await page.getByRole("button", { name: "收起活动会话窗格" }).click();
 	await waitDrawerClosed(page, "切换后收起抽屉以观察主会话");
 	await until("激活非当前卡切换到甲", () => mainAreaHas(page, TITLE_A));
+	// 抑制窗口（1200ms）结束后手动点按 composer 仍可正常聚焦，抑制不得误伤用户输入。
+	await page.waitForTimeout(1_300);
+	await page.locator("[data-composer-input]").click();
+	assert.equal(
+		await page.evaluate(() => document.activeElement?.matches?.("[data-composer-input]") ?? false),
+		true,
+		"抑制窗口结束后手动点按 composer 可正常聚焦",
+	);
 
 	// 宿主视图替换窗口期回归（真机宿主重渲染节奏与桌面不同）：窗格被宿主替换移除后，
 	// 开关点击必须重新绑定并展开，而非静默无响应（R-01-008/AC-01）。

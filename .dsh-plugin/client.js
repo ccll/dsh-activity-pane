@@ -3035,9 +3035,11 @@ const CSS = `
   box-shadow: none;
   animation: none;
 }
+/* 会话卡标题（活动卡、子代理卡与最近卡共用 .dap-title）统一常规字重，不加粗
+   （R-01-013/AC-09 及东家 2026-09-11 视觉反馈）；无按卡类的字重覆盖。 */
 [data-dsh-activity-pane] .dap-title {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; font-size: 12px; line-height: 16px; font-weight: 700;
+  white-space: nowrap; font-size: 12px; line-height: 16px; font-weight: 400;
 }
 /* 标题行最右侧的累计运行时长（R-01-020/AC-01）：固定占位不参与标题挤压，
    标题过长时以自身省略号让位；色调弱于标题，不与状态点抢视觉。 */
@@ -3046,10 +3048,6 @@ const CSS = `
   color: #8a94a3; white-space: nowrap;
 }
 [data-dsh-activity-pane] .dap-total-time[hidden] { display: none; }
-/* 最近历史卡标题降为常规字重：历史区不抢占视觉强调（R-01-013/AC-09）。 */
-[data-dsh-activity-pane] .dap-card[data-kind="recent"] .dap-title {
-  font-weight: 400;
-}
 /* 等待卡末行首行「类型胶囊」（R-01-002/AC-01、AC-02、AC-09、AC-13，C-043）：圆底类型
    图标 + 类型文字，色相随等待类别（--dap-wait-color）——阻塞金/完成绿/错误红；
    胶囊为行内元素不自占满宽，随文字内容收缩。 */

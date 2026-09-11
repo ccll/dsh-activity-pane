@@ -3836,9 +3836,9 @@ assert.ok(bundle.includes("dataset.traceKey"), "同一流程节点复用 DOM，�
 assert.ok(!bundle.includes(".dap-trace-item[data-status=\"running\"]::before {\n    animation: none !important;"), "降低动效设置不关闭运行点脉冲");
 
 // R-01-013/AC-09
-// 最近历史卡标题降为常规字重（不加粗），活动卡标题保持加粗。
-assert.ok(bundle.includes('[data-kind="recent"] .dap-title {\n  font-weight: 400;'), "最近历史卡标题使用常规字重（不加粗）");
-assert.ok(bundle.includes("white-space: nowrap; font-size: 12px; line-height: 16px; font-weight: 700;"), "活动卡标题保持加粗 700");
+// 全部会话卡标题（活动卡、子代理卡、最近卡）统一常规字重（不加粗），无按卡类覆盖。
+assert.ok(bundle.includes("white-space: nowrap; font-size: 12px; line-height: 16px; font-weight: 400;"), "会话卡标题使用常规字重（不加粗）");
+assert.ok(!bundle.includes('[data-kind="recent"] .dap-title {'), "最近卡标题不再有独立字重覆盖（与活动卡共用常规字重）");
 
 // R-01-013/AC-10
 // 最近历史卡整体不透明度低于活动卡，弱化历史区视觉强调。

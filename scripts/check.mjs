@@ -3712,6 +3712,23 @@ assert.ok(bundle.includes("promise.then(queueSync, queueSync)"), "补充数据�
 assert.ok(bundle.includes("LOAD_CONCURRENCY"), "冷数据读取经并发池限制慢网挤占");
 assert.ok(bundle.includes("session.open"), "运行卡通过 native session open hydrate 非当前会话");
 assert.ok(bundle.includes("sessionOpenLoads"), "session.open 请求与 cold history fallback 不重复");
+// T-127 移动端常驻功耗收敛：屏外休眠、渲染节流与流式派生合并。
+assert.ok(
+	bundle.includes(':not([data-open="true"]) { content-visibility: hidden; }') && bundle.includes("content-visibility: hidden"),
+	"移动断点内抽屉关闭即屏外休眠（content-visibility: hidden）进 bundle",
+);
+assert.ok(
+	bundle.includes("SYNC_MIN_INTERVAL_MS") && bundle.includes("syncThrottleTimer") && bundle.includes("lastSyncAt = Date.now()"),
+	"queueSync leader-follower 节流（渲染频率硬顶）进 bundle",
+);
+assert.ok(
+	bundle.includes("logDeriveTimer") && bundle.includes("detail.log = log;"),
+	"流式派生合并（日志引用更新标脏，applyLogEvents 经窗口消化）进 bundle",
+);
+assert.ok(
+	bundle.includes("if (detail.logDeriveTimer) clearTimeout(detail.logDeriveTimer);"),
+	"卸载清理流式派生在途 timer，不残留唤醒",
+);
 // R-01-012/AC-16 模型目录订阅：store 推送更新、随可见性/卸载清理；dsh 0.1.5 起目录
 // store 惰性加载，订阅后补一次一次性 load（C-024 的 generation 竞争以最新操作胜出）
 assert.ok(bundle.includes('ctx.get("modelDirectories")'), "模型实时选择来自原生 modelDirectories 服务（可选软依赖）");

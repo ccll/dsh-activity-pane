@@ -37,6 +37,10 @@ const INDENT_PX = 16;
 const MOBILE_BREAKPOINT = "767px";
 /** 运行卡时钟：只要存在运行中会话，就以该周期刷新时长显示。 */
 const CLOCK_MS = 1000;
+/** 渲染与流式派生的最小合并间隔：事件密集（流式输出）时把渲染/派生频率硬顶在
+ *  10Hz——事件率随宿主流式 chunk 数增长，显示粒度（秒级时长、块级时间线）无感，
+ *  而渲染与 O(日志窗口) 派生不再随刷新率（移动端 120Hz）与事件率线性放大（T-127）。 */
+const SYNC_MIN_INTERVAL_MS = 100;
 /** 历史卡相对时间刷新周期；无需每秒重绘整列。 */
 const RECENT_TIME_REFRESH_MS = 60_000;
 /** 冷数据读取并发池上限：慢网下避免几十张卡片的 models/history 一次性挤占通道。 */
@@ -861,6 +865,11 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
     touch-action: none;
   }
   [data-dsh-activity-pane][data-open="true"] { transform: translateX(0); }
+  /* 屏外休眠（T-127）：抽屉关闭（含初始未开，data-open 缺省视同关闭）时子树整体
+     跳过渲染——无限动画与样式失效不再产生渲染开销；布局状态保留，scrollTop 不归零
+     （区别于 display:none，T-027）；打开瞬间恢复渲染，滑入过渡不变。开关与遮罩挂
+     body，不落本规则，浮动开关徽标脉冲（R-01-002/AC-06、AC-07）照常。 */
+  [data-dsh-activity-pane]:not([data-open="true"]) { content-visibility: hidden; }
   .dap-backdrop[data-drawer-open] { display: block; }
   .dap-toggle { display: flex; }
   .dap-toggle[data-drawer-open] { display: none; }
@@ -1053,6 +1062,10 @@ function apply(ctx) {
 	let clockTimer = null;
 	let recentTimeTimer = null;
 	let syncScheduled = false;
+	/** 渲染节流状态（T-127）：lastSyncAt 取 0 保证首轮立即渲染；syncThrottleTimer 为
+	 *  节流窗口尾的在途 timer，交付或卸载时清空。 */
+	let lastSyncAt = 0;
+	let syncThrottleTimer = null;
 	let lastSig = "";
 	/** 等待条目 id/类别队列签名：变化时统一重启数量胶囊与等待卡末行动画对相（R-01-002/AC-07、AC-08）。 */
 	let pulseSignature = "";
@@ -1254,13 +1267,23 @@ function apply(ctx) {
 		if (changed) notifyLayoutChange();
 	}
 
+	function deliverSync() {
+		syncScheduled = false;
+		syncThrottleTimer = null;
+		if (disposed) return;
+		lastSyncAt = Date.now();
+		render();
+	}
+
+	/** 渲染入口合帧 + 节流（T-127）：距上次渲染落点不足 SYNC_MIN_INTERVAL_MS 时，
+	 *  本轮请求合并到窗口尾由 timer 交付（在途请求只此一个）；达到间隔走原 rAF
+	 *  合帧立即渲染。空闲期无事件即无排队，不引入常驻唤醒。 */
 	function queueSync() {
 		if (disposed || syncScheduled) return;
 		syncScheduled = true;
-		schedule(() => {
-			syncScheduled = false;
-			if (!disposed) render();
-		});
+		const wait = SYNC_MIN_INTERVAL_MS - (Date.now() - lastSyncAt);
+		if (wait > 0) syncThrottleTimer = setTimeout(deliverSync, wait);
+		else schedule(deliverSync);
 	}
 
 	// ---- 完成确认通道（R-01-002/AC-10～AC-12、R-01-010/AC-06，C-030） ----
@@ -1714,8 +1737,20 @@ function apply(ctx) {
 		const log = session.eventSource?.getSnapshot?.() ?? null;
 		if (log === detail.log) return;
 		detail.log = log;
-		const entries = Array.isArray(log?.entries) ? log.entries : [];
-		applyLogEvents(id, detail, entries, { subagent, cwd });
+		// 流式派生合并（T-127）：事件到达只更新引用并标脏，applyLogEvents 的 O(日志窗口)
+		// 全量折叠/预览/模型提取合并进 SYNC_MIN_INTERVAL_MS 窗口执行——事件率与派生成本
+		// 解耦，消化时读到的即最新窗口。subagent/cwd 取建窗时的入参：会话生命周期内
+		// 近乎不变，突变时经下个派生窗口收敛。深翻路径为一次性同步调用，不经本窗口。
+		if (!detail.logDeriveTimer && typeof setTimeout === "function") {
+			detail.logDeriveTimer = setTimeout(() => {
+				detail.logDeriveTimer = null;
+				if (disposed) return;
+				const entries = Array.isArray(detail.log?.entries) ? detail.log.entries : [];
+				applyLogEvents(id, detail, entries, { subagent, cwd });
+				queueSync();
+			}, SYNC_MIN_INTERVAL_MS);
+		}
+		queueSync();
 	}
 
 	/** 部署级模型目录一次性读取（R-01-012/AC-01）：dsh 0.1.5 起 per-session models
@@ -3895,6 +3930,11 @@ function apply(ctx) {
 		busyRetryAtById.clear();
 		if (clockTimer !== null) clearInterval(clockTimer);
 		if (recentTimeTimer !== null) clearInterval(recentTimeTimer);
+		if (syncThrottleTimer !== null) clearTimeout(syncThrottleTimer);
+		// 流式派生合并窗口：逐 detail 清理在途 timer（T-127）。
+		for (const detail of sessionDetailsById.values()) {
+			if (detail.logDeriveTimer) clearTimeout(detail.logDeriveTimer);
+		}
 		if (e2eListReleaseTimer !== null) clearTimeout(e2eListReleaseTimer);
 		for (const [timer, resolve] of e2eModelDelayWaiters) {
 			clearTimeout(timer);

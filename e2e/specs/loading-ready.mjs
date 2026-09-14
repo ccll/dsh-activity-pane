@@ -17,11 +17,12 @@ export default async function loadingReady({ page, url, assert }) {
 				const rect = toggleSpinner.getBoundingClientRect();
 				if (rect.width > 0 && rect.height > 0 && getComputedStyle(toggleSpinner).animationName === "dap-spin") window.__dapLoadingEvidence.toggle = true;
 			}
-			if (pane.querySelector(".dap-list")?.innerText.includes("加载中")) window.__dapLoadingEvidence.active = true;
-			if (pane.querySelector(".dap-recent")?.innerText.includes("加载中")) window.__dapLoadingEvidence.recent = true;
+			// textContent 而非 innerText：抽屉关闭时 pane 子树屏外休眠（T-127），无布局。
+			if (pane.querySelector(".dap-list")?.textContent.includes("加载中")) window.__dapLoadingEvidence.active = true;
+			if (pane.querySelector(".dap-recent")?.textContent.includes("加载中")) window.__dapLoadingEvidence.recent = true;
 			if (pane.querySelector(".dap-count")?.getAttribute("aria-label") === "活动会话计数加载中") window.__dapLoadingEvidence.count = true;
-			const card = [...pane.querySelectorAll('[role="button"]')].find((candidate) => candidate.innerText.includes(detailTitle));
-			const text = card?.innerText ?? "";
+			const card = [...pane.querySelectorAll('[role="button"]')].find((candidate) => candidate.textContent.includes(detailTitle));
+			const text = card?.textContent ?? "";
 			if (text.includes(detailTitle) && text.includes("用户") && !text.includes(model)) window.__dapLoadingEvidence.detailWithoutModel = true;
 			if (window.__dapLoadingEvidence.detailWithoutModel && text.includes(model) && text.includes("High")) window.__dapLoadingEvidence.detailWithModel = true;
 		};
@@ -56,8 +57,9 @@ export default async function loadingReady({ page, url, assert }) {
 		"pending 阶段实际呈现双区加载状态、加载中计数与移动按钮 spinner",
 	);
 	assert.ok(ready.active.includes("暂无活动会话"), "ready 空列表显示真实空态，而非继续显示 loading");
-	assert.equal((await page.locator("[data-dsh-activity-pane] .dap-count").innerText()).trim(), "0/0", "ready 后列头数量标识切换为 0/0");
-	assert.equal((await page.locator(".dap-toggle .dap-toggle-count").innerText()).trim(), "0/0", "ready 后移动按钮数量标识切换为 0/0");
+	// textContent 而非 innerText：抽屉关闭时 pane 子树屏外休眠（T-127），无布局。
+	assert.equal((await page.locator("[data-dsh-activity-pane] .dap-count").textContent()).trim(), "0/0", "ready 后列头数量标识切换为 0/0");
+	assert.equal((await page.locator(".dap-toggle .dap-toggle-count").textContent()).trim(), "0/0", "ready 后移动按钮数量标识切换为 0/0");
 	assert.equal(await page.locator("[data-dsh-activity-pane] .dap-spinner").count(), 0, "ready 后窗格内加载指示移除");
 	assert.equal(await page.locator(".dap-toggle .dap-spinner").count(), 0, "ready 后移动按钮加载指示移除");
 

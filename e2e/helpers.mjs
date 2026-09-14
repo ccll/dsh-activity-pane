@@ -21,12 +21,15 @@ export async function until(label, fn, timeoutMs = 10_000) {
 	}
 }
 
-/** 读取窗格可见文字，按「最近历史」区段标题切成活动区/历史区两段。 */
+/** 读取窗格可见文字，按「最近历史」区段标题切成活动区/历史区两段。
+ *  用 textContent 而非 innerText：移动端抽屉关闭时 pane 子树屏外休眠
+ *  （content-visibility: hidden，T-127）无布局，innerText 返回空；休眠期数据
+ *  仍在更新，textContent 不依赖布局，恰好锚定「隐藏不冻结数据」语义。 */
 export async function paneRegions(page) {
 	return page.evaluate(() => {
 		const pane = document.querySelector("[data-dsh-activity-pane]");
 		if (!pane) return null;
-		const text = pane.innerText;
+		const text = pane.textContent;
 		const marker = text.indexOf("最近历史");
 		return {
 			active: marker === -1 ? text : text.slice(0, marker),

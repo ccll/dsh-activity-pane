@@ -10,7 +10,7 @@ const WINDOW_MS = 5_000;
  *  无节流直通时渲染请求随事件率与刷新率（headless 60Hz）放大，无法压到该线内。 */
 const MAX_RAF_REQUESTS = 80;
 
-async function drawerClosedComputedVisibility(page) {
+async function paneComputedVisibility(page) {
 	return page.evaluate(() => {
 		const pane = document.querySelector("[data-dsh-activity-pane]");
 		if (!pane) return null;
@@ -23,7 +23,7 @@ export default async function mobileThermal({ page, url, assert }) {
 	await openApp(page, url);
 	// 初始未点过开关（data-open 缺省视同关闭）：抽屉屏外且子树休眠。
 	assert.equal(
-		await drawerClosedComputedVisibility(page),
+		await paneComputedVisibility(page),
 		"hidden",
 		"移动端抽屉关闭时 pane 子树屏外休眠（content-visibility: hidden）",
 	);
@@ -59,7 +59,7 @@ export default async function mobileThermal({ page, url, assert }) {
 	});
 	// 打开后 data-open="true"，休眠解除。
 	assert.equal(
-		await drawerClosedComputedVisibility(page),
+		await paneComputedVisibility(page),
 		"visible",
 		"抽屉打开后 content-visibility 恢复 visible",
 	);

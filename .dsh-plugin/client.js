@@ -4198,7 +4198,7 @@ function apply(ctx) {
 					});
 				}
 			}
-			captureSessionLog(id, { subagent, cwd: byId[id]?.cwd ?? "" });
+			captureSessionLog(id, { cwd: byId[id]?.cwd ?? "" });
 			// 长会话深读兜底（R-01-013/AC-03）：最近卡预览/子代理溯源不在尾页日志窗口内
 			// 且宿主标记 hasMore 时，按 beforeSeq 向前回溯翻页（默认无页数上限）。
 			const windowEntries = Array.isArray(detail.log?.entries) ? detail.log.entries : [];
@@ -4274,7 +4274,7 @@ function apply(ctx) {
 	/** 绑定会话并水合事件源（dsh 0.1.5 起会话内容经 eventSource 流式下发：打开即收
 	 *  完整日志窗口 + 实时尾，原生 Conversation 同源）。冷会话补一次 open()，日志窗口
 	 *  快照引用变化即重派生详情（时间线/预览/模型），窗口由宿主按消息对齐分页。 */
-	function captureSessionLog(id, { subagent, cwd }) {
+	function captureSessionLog(id, { cwd } = {}) {
 		const detail = sessionDetailsById.get(id) ?? {};
 		sessionDetailsById.set(id, detail);
 		let session = null;
@@ -4295,10 +4295,7 @@ function apply(ctx) {
 					session.eventSource.subscribe(() => {
 						if (disposed) return;
 						const listSnap = getSnapshot(sessions, "list");
-						captureSessionLog(id, {
-							subagent: isSubagentRow(listSnap?.byId?.[id], listSnap ?? {}),
-							cwd: listSnap?.byId?.[id]?.cwd ?? "",
-						});
+						captureSessionLog(id, { cwd: listSnap?.byId?.[id]?.cwd ?? "" });
 						queueSync();
 					}),
 				);
@@ -4326,14 +4323,20 @@ function apply(ctx) {
 		detail.log = log;
 		// 流式派生合并（T-127）：事件到达只更新引用并标脏，applyLogEvents 的 O(日志窗口)
 		// 全量折叠/预览/模型提取合并进 SYNC_MIN_INTERVAL_MS 窗口执行——事件率与派生成本
-		// 解耦，消化时读到的即最新窗口。subagent/cwd 取建窗时的入参：会话生命周期内
-		// 近乎不变，突变时经下个派生窗口收敛。深翻路径为一次性同步调用，不经本窗口。
+		// 解耦，消化时读到的即最新窗口。subagent/cwd 在回调内经 list 快照现取（timer 在途
+		// 期间行属性可能突变，建窗入参不代表消化时刻；与 logSourceSubs 回调同模式），
+		// cwd 在快照不可得时回退建窗入参（subagent 现取即权威，无建窗回退）。
+		// 深翻路径为一次性同步调用，不经本窗口。
 		if (!detail.logDeriveTimer && typeof setTimeout === "function") {
 			detail.logDeriveTimer = setTimeout(() => {
 				detail.logDeriveTimer = null;
 				if (disposed) return;
+				const listSnap = getSnapshot(sessions, "list");
 				const entries = Array.isArray(detail.log?.entries) ? detail.log.entries : [];
-				applyLogEvents(id, detail, entries, { subagent, cwd });
+				applyLogEvents(id, detail, entries, {
+					subagent: isSubagentRow(listSnap?.byId?.[id], listSnap?.byId ?? {}),
+					cwd: listSnap?.byId?.[id]?.cwd ?? cwd,
+				});
 				queueSync();
 			}, SYNC_MIN_INTERVAL_MS);
 		}
@@ -5361,7 +5364,7 @@ function apply(ctx) {
 					// dsh 0.1.5 起快照不再携带会话内容：时间线经 eventSource 日志窗口
 					// 就地重派生（R-01-009）。
 					const listSnap = getSnapshot(sessions, "list");
-					captureSessionLog(id, { subagent: isSubagentRow(listSnap?.byId?.[id], listSnap ?? {}), cwd: listSnap?.byId?.[id]?.cwd ?? "" });
+					captureSessionLog(id, { cwd: listSnap?.byId?.[id]?.cwd ?? "" });
 					queueSync();
 				});
 			} catch {

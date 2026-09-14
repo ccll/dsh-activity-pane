@@ -6,7 +6,7 @@ id: T-127
 
 # T-127 移动端常驻功耗收敛：屏外休眠、渲染节流与流式派生合并
 
-状态: active
+状态: completed
 关联: R-02-002 → 渲染稳定与资源释放；R-01-002 → 等待行动可见性（脉冲语义保持不变）；R-01-008 → 移动端抽屉
 风险等级: standard
 
@@ -46,13 +46,15 @@ id: T-127
 
 ## 终态与证据
 
-- 实现:
-- 测试:
-- DESIGN 对照:
-- commit:
+- 实现: src/client.mjs——① 移动断点 CSS 新增 `[data-dsh-activity-pane]:not([data-open="true"]) { content-visibility: hidden; }` 屏外休眠（初始缺省 data-open 视同关闭；开关/遮罩挂 body 不受影响）；② `queueSync` 100ms leader-follower 节流（`SYNC_MIN_INTERVAL_MS`/`lastSyncAt`/`syncThrottleTimer`，达间隔走原 rAF 合帧立即渲染、否则合并至窗口尾 timer 交付，空闲零排队，卸载清理）；③ `captureSessionLog` 流式派生合并——日志引用变化只标脏，`applyLogEvents` 合并进 100ms 窗口执行（每会话至多一个在途 `logDeriveTimer`，回调内经 list 快照现取 subagent/cwd，cwd 回退建窗入参），深翻路径保持同步；签名收敛 `{ cwd } = {}`、三调用点删除死 subagent 字段；④ 卸载清理 syncThrottleTimer 与逐 detail 派生 timer；e2e/helpers.mjs `paneRegions` 与 loading-ready 检测 innerText→textContent（休眠期无布局）；`.dsh-plugin/client.js` 重建。
+- 测试: `pnpm verify` 全量通过——`scripts/check.mjs` 全部断言（含 T-127 四条 bundle 契约：屏外休眠 CSS 选择器、节流组件标识符、派生合并标识符、卸载清理）；15 个 E2E spec 全绿，含新增 `e2e/specs/mobile-thermal.mjs`（抽屉关闭 computed `contentVisibility === "hidden"`、流式回合 5s rAF 计数 72/70 次 ≤ 阈值 80、休眠期 `textContent` 持续更新、打开抽屉即最新且恢复 visible）与 loading-ready/mobile-drawer/idle-quiescence 回归；`scripts/acceptance.mjs` 新增真机发热对照人工验收点（东家核验）。真机热对照实测值待东家按单验收。
+- DESIGN 对照: 达标类性能优化，PRD/DESIGN 无渲染频率与屏外呈现约束，map 不变；R-01-002 脉冲语义（可见时持续闪烁、三处数量标识同频同相）、R-01-008 抽屉行为、R-01-009 逐秒时钟（1s 粒度 > 100ms 合并窗口）、R-02-004 订阅纪律（timer 仅随事件存在，无新轮询）均未被破坏，需求追溯索引无变化。
+- commit: 022d5fd
+- commit: f274f65
 - review:
-  - 审核方:
-  - 目的理解:
-  - 执行方式:
-  - 问题与修复:
-  - 复审结论:
+  - 审核方: code-review skill 双轴并行子代理（Standards + Spec 各一，独立上下文）
+  - 目的理解: 在不改变任何用户可观察呈现语义（R-01-002 脉冲、R-01-008 抽屉、R-01-009 逐秒时钟、R-02-004 无轮询）前提下收敛移动端常驻功耗——屏外即休眠、渲染频率硬顶 10Hz、流式派生与事件率解耦；预期行为为抽屉关闭零渲染开销、数据不冻结、卸载无 timer 残留。
+  - 执行方式: code-review skill，评审基线 66ca0df 对实现提交 022d5fd（含 task 文件），两轴并行报告；执行 agent 修复后由同一审核方分别复审（修复提交 f274f65 工作树）。
+  - 问题与修复: ①（Spec，阻塞）派生合并回调 isSubagentRow 第二参误传 list 快照整体而非 byId map，子代理判别恒 false、流式路径模型提取被跳过 → 改传 `listSnap?.byId ?? {}`，并确认 logSourceSubs 回调与 syncLiveness 回调的同款潜伏判别（66ca0df 起存在）已随死字段清理消失；②（Standards）e2e 探针 `drawerClosedComputedVisibility` 命名断言未检查的状态 → 改名 `paneComputedVisibility`；③（Standards）check.mjs 断言匹配精确语句文本且含冗余子检查 → 放宽为组件标识符存在性并注明行为证据归 e2e；④（Spec）派生回调闭包捕获建窗时刻 subagent/cwd 存在陈旧值滞留 → 回调内经 list 快照现取；⑤ captureSessionLog 死 subagent 字段三调用点清理。维持不改（judgement call）：双 100ms timer 形状不提取公共节流器（交付语义不同，KISS & YAGNI 覆盖）；timer id 0、cv:hidden 子树内 focus no-op（抽屉关闭时聚焦屏外元素本就不当）、隐藏期 scrollTop 惰性写自愈，记录为非阻塞已知限制。
+  - 复审结论: 双轴复审均通过——Standards 轴确认命名修正、断言分工化解原则 9 张力、无新问题；Spec 轴确认阻塞回归已修（isSubagentRow 契约一致、row 与 byId 同源同快照）、三机制符合收敛方案、timer 生命周期无泄漏、既有 PRD 契约未破坏。
+

@@ -745,17 +745,29 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 [data-dsh-activity-pane] .dap-fill {
   position: absolute; inset: 0 auto 0 0; width: 0%;
   border-radius: 6px;
-  background: repeating-linear-gradient(90deg, #58c98f 0 10px, #3fbf86 10px 20px);
-  background-size: 200% 100%;
+  overflow: hidden;
   box-shadow: 0 0 7px rgba(88, 201, 143, 0.5);
   transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
   /* 进度条仅存于运行卡骨架：会话运行全程持续向右滚动条纹，作为活动标志
      （对齐 answer-pet 的 ap-stripes，R-01-009/AC-08）。 */
+  /* 条带载体 ::after 与滚动动画分离（T-128）：background-position 不可合成，
+     每帧重绘；改由伪元素 transform 平移承载滚动，fill 只保留 width 过渡与
+     裁切，滚动帧全程合成器驱动。 */
+}
+[data-dsh-activity-pane] .dap-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  /* 覆盖 fill 宽度 + 一次位移量：平移全程右缘不落后于 fill 右缘，无缝循环。 */
+  width: calc(100% + 40px);
+  /* 周期 40px（色带 20px）与原 background-size:200% 拉伸后的观感等价，
+     translateX(-40px) 恰为一个周期，速度 40px/0.8s 与原实现一致。 */
+  background: repeating-linear-gradient(90deg, #58c98f 0 20px, #3fbf86 20px 40px);
   animation: dap-stripes 0.8s linear infinite;
 }
 @keyframes dap-stripes {
-  from { background-position: 0 0; }
-  to { background-position: 40px 0; }
+  from { transform: translateX(0); }
+  to { transform: translateX(-40px); }
 }
 @media (prefers-reduced-motion: reduce) {
   /* answer-pet 保留状态脉冲/进度条纹；仅关闭宽度过渡，避免状态反馈消失。 */

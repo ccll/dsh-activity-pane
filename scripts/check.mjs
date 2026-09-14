@@ -3868,10 +3868,19 @@ assert.ok(bundle.includes(".dap-dot {\n  width: 7px; height: 7px;"), "标题点�
 assert.ok(bundle.includes("padding-left: 14px"), "时间线文字轨道保持 14px 内缩");
 assert.ok(bundle.includes(".dap-subtrace {\n  position: relative;   /* 容器级整条竖线的定位基准 */\n  min-width: 0;"), "子代理容器不再 padding/border/overflow 包裹（不裁切圆点），并为容器级整条竖线提供定位基准（T-069）");
 assert.ok(bundle.includes(".dap-fill { transition: none; }"), "降低动效设置不关闭状态动画（对齐 answer-pet）");
-// R-01-009/AC-08：进度条仅存于运行卡骨架，条纹挂在 .dap-fill 基础规则上——
+// R-01-009/AC-08：进度条仅存于运行卡骨架，条纹挂在 .dap-fill::after 载体上——
 // 会话运行全程（含工具/思考阶段与委托周期母会话）持续向右滚动，不再经流式阶段门控。
-assert.ok(bundle.includes(".dap-fill {\n  position: absolute; inset: 0 auto 0 0; width: 0%;\n  border-radius: 6px;\n  background: repeating-linear-gradient(90deg, #58c98f 0 10px, #3fbf86 10px 20px);\n  background-size: 200% 100%;"), "进度条基础规则携带条纹渐变，运行全程呈现（R-01-009/AC-08）");
+// T-128 起载体与滚动动画分离：fill 只保留宽度/裁切，渐变与滚动由 ::after 承载。
+assert.ok(
+	bundle.includes(".dap-fill::after") && bundle.includes("repeating-linear-gradient(90deg, #58c98f 0 20px, #3fbf86 20px 40px)"),
+	"进度条条带载体携带条纹渐变，运行全程呈现（R-01-009/AC-08、T-128）",
+);
 assert.ok(bundle.includes("animation: dap-stripes 0.8s linear infinite;"), "进度条条纹持续向右滚动动画（R-01-009/AC-08）");
+assert.ok(
+	bundle.includes("transform: translateX(-40px)") && bundle.includes("calc(100% + 40px)"),
+	"条纹滚动由合成器驱动的 transform 载体平移承载，不经 background-position 逐帧重绘（T-128）",
+);
+assert.ok(!bundle.includes("background-position: 40px"), "background-position 滚动机制无残留（T-128）");
 assert.ok(!bundle.includes("data-streaming"), "条纹不再经 data-streaming 流式门控（R-01-009/AC-08）");
 assert.ok(!bundle.includes("entry.streaming"), "streaming 派生字段随条纹门控移除（R-01-009/AC-08）");
 assert.ok(bundle.indexOf('const track = makeEl("div", "dap-track");') > bundle.indexOf('return [head, row, makeEl("div", "dap-trace"), noteRow];'), "进度条骨架仅属运行卡，非运行卡不呈现条纹（R-01-009/AC-08）");

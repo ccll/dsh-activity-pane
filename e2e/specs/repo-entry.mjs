@@ -1,8 +1,8 @@
 // R-01-022/AC-01、R-01-022/AC-02、R-01-022/AC-03
 // 仓库入口：标题行右侧工具区常显纯图标 GitHub 链接（可访问名称、新标签页打开仓库页）；
-// 激活不进入标题区收起激活路径、不改变呈现档位与折叠状态；折叠窄条不显示。
+// 激活不进入标题区收起激活路径——不折叠窗格、不改变呈现档位与当前选中会话；折叠窄条不显示。
 
-import { openApp, until } from "../helpers.mjs";
+import { newSessionWithMessage, openApp, until } from "../helpers.mjs";
 
 /** 仓库入口与窗格状态的单次 DOM 观测（不经 locator 自动等待）。 */
 function repoState(page) {
@@ -19,6 +19,7 @@ function repoState(page) {
 			label: link?.getAttribute("aria-label") ?? null,
 			collapsed: pane.getAttribute("data-collapsed") === "true",
 			density: pane.getAttribute("data-density"),
+			currentSessionId: pane.querySelector(".dap-card[data-current]")?.getAttribute("data-session-id") ?? null,
 			hidden: !link || getComputedStyle(link).display === "none" || rect.width === 0 || rect.height === 0,
 		};
 	});
@@ -36,14 +37,20 @@ export default async function repoEntry({ page, url, assert }) {
 	assert.equal(state.rel, "noreferrer noopener", "仓库入口以 noreferrer noopener 断开引用（R-01-022/AC-01）");
 	assert.equal(state.label, "打开 GitHub 仓库", "仓库入口提供可访问名称（R-01-022/AC-01）");
 
-	// R-01-022/AC-02：合成 click（不发起导航）不折叠窗格、不改变呈现档位。
+	// 建一个会话使「当前选中会话」非平凡，AC-02 的不变量才有断言对象。
+	await newSessionWithMessage(page, "e2e:fast 仓库入口探针");
+	const before = await repoState(page);
+	assert.ok(before.currentSessionId !== null, "前置：存在当前选中会话卡片");
+
+	// R-01-022/AC-02：合成 click（不发起导航）不折叠窗格、不改变呈现档位与当前选中会话。
 	await page.evaluate(() => {
 		document.querySelector("[data-dsh-activity-pane] .dap-repo")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 	});
 	await page.waitForTimeout(300);
 	const afterClick = await repoState(page);
 	assert.equal(afterClick.collapsed, false, "激活仓库入口不折叠窗格（R-01-022/AC-02）");
-	assert.equal(afterClick.density, "medium", "激活仓库入口不改变呈现档位（R-01-022/AC-02）");
+	assert.equal(afterClick.density, before.density, "激活仓库入口不改变呈现档位（R-01-022/AC-02）");
+	assert.equal(afterClick.currentSessionId, before.currentSessionId, "激活仓库入口不改变当前选中会话（R-01-022/AC-02）");
 
 	// R-01-022/AC-03：折叠为窄条后仓库入口不显示。
 	await page.getByRole("button", { name: "收起活动会话窗格" }).click();

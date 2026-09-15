@@ -3505,12 +3505,8 @@ assert.ok(
 );
 // R-01-022/AC-01 标题行工具区仓库入口（GitHub 链接、新标签页打开）
 assert.ok(
-	bundle.includes('class="dap-repo"') && bundle.includes('href="https://github.com/ccll/dsh-activity-pane"'),
-	"仓库入口随窗格骨架创建于标题行工具区并指向 GitHub 仓库页（R-01-022/AC-01）",
-);
-assert.ok(
-	bundle.includes('target="_blank"') && bundle.includes('rel="noreferrer noopener"'),
-	"仓库入口以 target=_blank 与 noreferrer noopener 在新标签页打开（R-01-022/AC-01）",
+	bundle.includes('<a class="dap-repo" href="https://github.com/ccll/dsh-activity-pane" target="_blank" rel="noreferrer noopener"'),
+	"仓库入口随窗格骨架创建于标题行工具区，指向 GitHub 仓库页并以 target=_blank 与 noreferrer noopener 在新标签页打开（R-01-022/AC-01）",
 );
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-repo {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: 22px;'),

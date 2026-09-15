@@ -2197,7 +2197,7 @@ function apply(ctx) {
 					</span>
 					<span class="dap-tools">
 						<button class="dap-density" type="button" aria-label="切换为紧凑显示" title="紧凑显示"></button>
-						<a class="dap-repo" href="https://github.com/ccll/dsh-activity-pane" target="_blank" rel="noreferrer noopener" aria-label="打开 GitHub 仓库" title="GitHub 仓库"></a>
+						<a class="dap-repo" href="https://github.com/ccll/dsh-activity-pane" target="_blank" rel="noreferrer noopener" aria-label="打开 GitHub 仓库" title="打开 GitHub 仓库"></a>
 					</span>
 				</div>
 				<div class="dap-scroll">

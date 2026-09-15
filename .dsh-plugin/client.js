@@ -1521,31 +1521,10 @@ function resolveWorkspaceColors(keys) {
 	return resolved;
 }
 
-
-/** 主会话按左侧工作区顺序排序的权重；不在任何 workspace 的排在最后保持 lineage 顺序。 */
-function workspaceRank(workspaceItems) {
-	const wsIndex = new Map();
-	const posIndex = new Map();
-	for (const workspace of workspaceItems ?? []) {
-		if (!isRecord(workspace)) continue;
-		const sessionIds = Array.isArray(workspace.sessionIds)
-			? workspace.sessionIds
-			: [];
-		sessionIds.forEach((sid, p) => {
-			const key = String(sid);
-			if (!wsIndex.has(key)) {
-				wsIndex.set(key, wsIndex.size);
-				posIndex.set(key, p);
-			}
-		});
-	}
-	return (id) => {
-		const key = String(id);
-		return {
-			ws: wsIndex.get(key) ?? Number.MAX_SAFE_INTEGER,
-			pos: posIndex.get(key) ?? Number.MAX_SAFE_INTEGER,
-		};
-	};
+/** 主会话活动区排序用的最后用户指令时刻：宿主列表时间，缺失/非法视为最旧。 */
+function instructionTime(row) {
+	const time = Number(row?.updatedAt);
+	return Number.isFinite(time) ? time : -1;
 }
 
 /** 子代理的展示标题：优先目录 label，其次 displayTitle，兜底 "子任务"。 */
@@ -1608,7 +1587,6 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 		}
 		return false;
 	};
-	const rank = workspaceRank(workspaceItems ?? []);
 	const descendantIds = descendantActiveIds(byId, isArchived);
 	// 第一遍：层级关系 + 显示判定（show = 自身活动 || 委托周期 || 完成提醒，单点实现避免漂移）。
 	const rootIds = [];
@@ -1641,12 +1619,11 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 		meta.set(id, { row, running, pending, isSub, show, done, err, descendantActive, delegating, depth: 0 });
 	}
 
-	// 主会话按 workspace 顺序排序；未归入任何工作区的主会话保持在 lineage 中靠后。
+	// 主会话按最后一次用户指令时间（宿主列表时间）从新到旧；缺失视为最旧；相同时间
+	// 保持宿主列表出现顺序。工作区顺序不参与排序，仅承载卡片徽标与名称（R-01-001/AC-07）。
 	rootIds.sort((a, b) => {
-		const ra = rank(a);
-		const rb = rank(b);
-		if (ra.ws !== rb.ws) return ra.ws - rb.ws;
-		if (ra.pos !== rb.pos) return ra.pos - rb.pos;
+		const byTime = instructionTime(byId[b]) - instructionTime(byId[a]);
+		if (byTime !== 0) return byTime;
 		return ids.indexOf(a) - ids.indexOf(b);
 	});
 

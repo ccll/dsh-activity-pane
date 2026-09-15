@@ -809,6 +809,26 @@ assert.deepEqual(trackRuns(hierarchyEntries.slice(0, 3)), [
 	{ parentId: "A", depth: 2, childIds: ["G"] },
 ], "无后续同级时轨道収于各自末级子代理");
 assert.deepEqual(trackRuns([hierarchyEntries[0]]), [], "无子代理的母会话不产生轨道");
+
+// ---- R-01-001/AC-07 活动区主会话按最后一次用户指令时间（宿主列表时间）倒序 ----
+// ids 顺序刻意与新到旧相反且仅 sOld 在工作区首列：证明工作区顺序与 lineage 不再决定排列。
+const recencyWorkspace = [{ title: "Ops", path: "/srv/ops", sessionIds: ["sOld"] }];
+const recencyActivity = {
+	ids: ["sMiss", "sOld", "sTie1", "sTie2", "sNew"],
+	byId: {
+		sMiss: { id: "sMiss", displayTitle: "缺时刻", running: true },
+		sOld: { id: "sOld", displayTitle: "旧指令", running: true, updatedAt: 1_000 },
+		sTie1: { id: "sTie1", displayTitle: "平局一", running: true, updatedAt: 2_000 },
+		sTie2: { id: "sTie2", displayTitle: "平局二", running: true, updatedAt: 2_000 },
+		sNew: { id: "sNew", displayTitle: "新指令", running: true, updatedAt: 3_000 },
+	},
+	current: null,
+};
+assert.deepEqual(
+	buildEntries(recencyActivity, recencyWorkspace).map((entry) => entry.id),
+	["sNew", "sTie1", "sTie2", "sOld", "sMiss"],
+	"活动区主会话按宿主列表时间从新到旧；相同时间保持宿主列表出现顺序；缺失视为最旧（R-01-001/AC-07）",
+);
 assert.deepEqual(trackRuns([{ kind: "subagent", parentId: "p", depth: 1 }]), [], "无 id 条目不产生轨道");
 assert.deepEqual(
 	trackRuns([...hierarchyEntries, { id: "X", kind: "subagent", parentId: "root", depth: 3 }]),

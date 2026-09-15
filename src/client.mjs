@@ -218,6 +218,23 @@ const CSS = `
 [data-dsh-activity-pane] .dap-density:focus-visible {
   background: #262932;
 }
+[data-dsh-activity-pane] .dap-repo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: #1d1f25;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+[data-dsh-activity-pane] .dap-repo:hover,
+[data-dsh-activity-pane] .dap-repo:focus-visible {
+  background: #262932;
+}
 [data-dsh-activity-pane] .dap-collapse-hint {
   margin-left: auto;
   display: flex;
@@ -1068,17 +1085,20 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-track {
 body:not([data-ds-dark-theme]) .dap-toggle {
   background: var(--dsw-alias-button-floating-fill, rgba(255, 255, 255, 0.94));
 }
-/* 「回到顶部」与标题行工具区档位按钮的浅色覆盖：不透明层-2 底色与外壳描边别名
-   （R-01-018/AC-05、R-01-021/AC-05）。 */
+/* 「回到顶部」与标题行工具区档位/仓库入口按钮的浅色覆盖：不透明层-2 底色与外壳描边别名
+   （R-01-018/AC-05、R-01-021/AC-05、R-01-022/AC-01）。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top,
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density {
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density,
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-repo {
   background: var(--dsw-alias-bg-layer-2, #ffffff);
   border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top:hover,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top:focus-visible,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density:hover,
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density:focus-visible {
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density:focus-visible,
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-repo:hover,
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-repo:focus-visible {
   background: var(--dsw-alias-bg-layer-3, #eceef1);
 }
 `;
@@ -2177,6 +2197,7 @@ function apply(ctx) {
 					</span>
 					<span class="dap-tools">
 						<button class="dap-density" type="button" aria-label="切换为紧凑显示" title="紧凑显示"></button>
+						<a class="dap-repo" href="https://github.com/ccll/dsh-activity-pane" target="_blank" rel="noreferrer noopener" aria-label="打开 GitHub 仓库" title="GitHub 仓库"></a>
 					</span>
 				</div>
 				<div class="dap-scroll">
@@ -2199,6 +2220,8 @@ function apply(ctx) {
 			// 紧凑显示切换按钮常显于标题行右侧工具区（R-01-021/AC-05）；切换时以 data-density
 			// 驱动纯 CSS 呈现，骨架重建后由 bindPaneControls 的 applyDensity 恢复形态。
 			pane.querySelector(".dap-density").append(createDensityIcon());
+			// 仓库入口常显于标题行右侧工具区（R-01-022/AC-01）；图标在创建时注入。
+			pane.querySelector(".dap-repo").append(createRepoIcon());
 			// 收起方向图标为标题行悬停/聚焦的可见性提示（R-01-011/AC-07），图标在创建时注入。
 			pane.querySelector(".dap-collapse-hint").append(createCollapseIcon());
 		}
@@ -2400,6 +2423,19 @@ function apply(ctx) {
 				{ attrs: { d: "M3 2.5v9", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
 				{ attrs: { d: "M11.5 7H5", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
 				{ attrs: { d: "M8.25 3.75 5 7l3.25 3.25", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
+			],
+		});
+	}
+
+	/** 标题行工具区的仓库入口图标（R-01-022/AC-01）：GitHub Octicon `mark-github` 字形
+	 *  （MIT 许可，Primer Octicons），与工具区既有图标同用 14px 字形盒。 */
+	function createRepoIcon() {
+		return createInlineIcon({
+			viewBox: "0 0 16 16",
+			width: 14,
+			height: 14,
+			parts: [
+				{ attrs: { d: "M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z", fill: "currentColor" } },
 			],
 		});
 	}

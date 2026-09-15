@@ -3503,6 +3503,19 @@ assert.ok(
 		bundle.includes('[data-dsh-activity-pane] .dap-density {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: 22px;'),
 	"切换按钮常显于标题行右侧工具区（R-01-021/AC-05）",
 );
+// R-01-022/AC-01 标题行工具区仓库入口（GitHub 链接、新标签页打开）
+assert.ok(
+	bundle.includes('class="dap-repo"') && bundle.includes('href="https://github.com/ccll/dsh-activity-pane"'),
+	"仓库入口随窗格骨架创建于标题行工具区并指向 GitHub 仓库页（R-01-022/AC-01）",
+);
+assert.ok(
+	bundle.includes('target="_blank"') && bundle.includes('rel="noreferrer noopener"'),
+	"仓库入口以 target=_blank 与 noreferrer noopener 在新标签页打开（R-01-022/AC-01）",
+);
+assert.ok(
+	bundle.includes('[data-dsh-activity-pane] .dap-repo {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: 22px;'),
+	"仓库入口与工具区按钮同视觉语言（22px 圆形纯图标，R-01-022/AC-01）",
+);
 // R-01-015/AC-03 折叠窄条与移动端抽屉不提供拖拽
 assert.ok(bundle.includes('[data-collapsed="true"] .dap-resize { display: none; }'), "折叠窄条不提供拖拽调宽");
 assert.ok(bundle.includes("[data-dsh-activity-pane] .dap-resize { display: none; }"), "移动端抽屉不提供拖拽调宽");
@@ -4383,8 +4396,8 @@ assert.ok(
 	"按钮底色为不透明纯色（非 color-mix 半透明，R-01-018/AC-05）",
 );
 assert.ok(
-	bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top,\nbody:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density {\n  background: var(--dsw-alias-bg-layer-2, #ffffff);\n  border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));"),
-	"浅色主题底色取外壳 layer-2 别名（同样不透明，R-01-018/AC-05）",
+	bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top,\nbody:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density,\nbody:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-repo {\n  background: var(--dsw-alias-bg-layer-2, #ffffff);\n  border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));"),
+	"浅色主题底色取外壳 layer-2 别名（同样不透明；仓库入口并入同组覆盖，R-01-018/AC-05、R-01-022/AC-01）",
 );
 assert.ok(
 	bundle.includes("[data-dsh-activity-pane] .dap-top[hidden] { display: none; }"),

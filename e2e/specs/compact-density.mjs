@@ -164,8 +164,8 @@ export default async function compactDensity({ page, url, assert }) {
 	assert.equal(mediumState.inTools, true, "切换按钮位于标题行右侧固定工具区内（R-01-021/AC-05）");
 	assert.equal(mediumState.label, "切换为紧凑显示", "中间档下按钮可访问名称表达目标档位（R-01-021/AC-01）");
 	assert.ok(
-		mediumState.buttonBox && mediumState.buttonBox.y >= box.y && mediumState.buttonBox.y + mediumState.buttonBox.height <= box.y + 48 && mediumState.buttonBox.x + mediumState.buttonBox.width >= box.x + box.width - 40,
-		`切换按钮位于标题行右侧工具区（button y=${Math.round(mediumState.buttonBox?.y ?? -1)}，pane y=${Math.round(box.y)}，R-01-021/AC-05）`,
+		mediumState.buttonBox && mediumState.buttonBox.y >= box.y && mediumState.buttonBox.y + mediumState.buttonBox.height <= box.y + 48 && mediumState.buttonBox.x + mediumState.buttonBox.width >= box.x + box.width - 72,
+		`切换按钮位于标题行右侧工具区（右侧可再并排仓库入口按钮，button y=${Math.round(mediumState.buttonBox?.y ?? -1)}，pane y=${Math.round(box.y)}，R-01-021/AC-05、R-01-022/AC-01）`,
 	);
 
 	// 中间档基线（默认档）：完成提醒卡时间线仅最新一行。

@@ -6,7 +6,7 @@ id: T-129
 
 # T-129 卡片紧凑显示（右下角悬浮一键收缩）
 
-状态: active
+状态: completed
 关联: R-01-021/AC-01～AC-07 → 窗格渲染器
 风险等级: standard
 
@@ -62,4 +62,14 @@ id: T-129
 
 ## 终态与证据
 
-（进行中）
+- 实现: `src/client.mjs` 新增 `.dap-density` 常显悬浮切换按钮（28px 圆形、`bottom:48px; right:12px`，与 `.dap-top` 共用声明仅 bottom 分列，`aria-pressed` + 可访问名称随形态翻转，`createDensityIcon` 密度隐喻图标）；激活翻转窗格根 `data-density="compact"` 驱动纯 CSS 隐藏卡片次要行（标题行保留），DOM 复用/渲染签名/激活跳转不感知形态；形态经 `normalizeDensity` 归一存 localStorage（键 `dsh-activity-pane:density`）并在启动/重挂载恢复；窄条态 CSS 隐藏、移动抽屉同构。`src/core.mjs` 新增 `normalizeDensity` 纯函数。`.dsh-plugin/client.js` 已重建。
+- 测试: `pnpm verify` 全量通过——16 个 E2E spec（含新增 compact-density.mjs 覆盖 AC-01～AC-07）+ agentmap lint（154 AC 全锚定）+ test-impact（+7 AC）+ core 单测与 bundle 契约；审核修复后 back-to-top/compact-density 重跑通过。
+- DESIGN 对照: 需求追溯索引恰一行 R-01-021（主责子系统「窗格渲染器」）、产品契约「卡片紧凑呈现」条目、窗格渲染器职责与内部结构、配置可变点表均已与实现一致；持久化键名 `dsh-activity-pane:density` 经复审从文档侧收敛（复审发现文档写点号，同次改文档对齐代码）。
+- commit: 3c56a08
+- commit: 4a688ad
+- review:
+  - 审核方: Standards reviewer `42b6afeb-04f7-4c2d-9237-c543ac987735`；Spec reviewer `da438b58-7c18-43c5-bf4b-4f5912d7ae76`（code-review skill 并行双轴）
+  - 目的理解: 在不触碰 R-01-011 窗格折叠语义的前提下，为活动区与历史区全体卡片提供一键紧凑/完整切换——按钮常显于「回到顶部」正上方同规格悬浮，紧凑仅保留标题行，等待类别着色保持，跳转与持久化行为符合 R-01-021 七条 AC 与 C-076 决策（全体收缩、状态变化不解除）。
+  - 执行方式: `code-review` skill，Standards/Spec 双轴并行审核，基线 `3f12c6e...3c56a08`；修复后基于工作树 `git diff HEAD` 与全景 diff 复审。
+  - 问题与修复: Standards 3 硬违规 2 判断题——键名 map-code 不一致（文档改冒号收敛）、T-128 条纹观感收敛工作树改动被实现提交夹带（按审核方允许方案在测试影响表补记 R-01-009/AC-08 update 行）、条纹注释 U+FFFD 乱码（修复）、`.dap-density`/`.dap-top` 三组选择器重复（采纳合并为逗号分组，check.mjs 契约断言同步改写）；Spec 4 项轻微——AC-03 覆盖收窄（澄清完成提醒卡即等待行动三类之一，覆盖成立）、条纹夹带（同上补记）、键名（同上）、acceptance「图标随形态切换」措辞与实现不符（改为「按下态与可访问名称随形态翻转」）。修复提交后由同一审核方复审。
+  - 复审结论: Standards 与 Spec 两轴均确认全部 finding 关闭、无遗留阻塞项，通过。

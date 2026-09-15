@@ -6,7 +6,7 @@ id: T-132
 
 # T-132 活动区主会话按最后一次用户指令时间倒序排列
 
-状态: active
+状态: completed
 关联: R-01-001/AC-07 → 活动状态模型
 风险等级: standard
 
@@ -50,4 +50,14 @@ id: T-132
 
 ## 终态与证据
 
-（active 期间留空，关闭时填写）
+- 实现: `src/core.mjs#buildEntries` rootIds 排序改为按 `instructionTime`（宿主列表时间 = `row.updatedAt`，缺失/非法视为最旧）从新到旧，相同时间回落 `ids` 宿主列表出现顺序；工作区顺序退出排序，`workspaceItems` 入参保留供 `workspaceInfoForSession` 徽标/名称；死代码 `workspaceRank` 删除。子代理仍嵌套跟随母会话、不参与排序。
+- 测试: `pnpm verify` 全量通过——agentmap lint（156 AC 全锚定）+ test-impact（+R-01-001/AC-07）+ core 单测与 client bundle 契约 + 17 个浏览器 E2E spec；审核修复后单元检查复跑全绿。
+- DESIGN 对照: 排序不变量（活动状态模型关键内部结构）、产品契约 `buildEntries` 条目与实现一致；复审补载「缺失视为最旧」防御语义后无缝隙；追溯索引 R-01-001 主责子系统不变；DOMAIN「宿主列表时间」词条沿用未改。
+- commit: 9a742f7
+- commit: 5cba571
+- review:
+  - 审核方: Standards reviewer 与 Spec reviewer（code-review skill 并行双轴，基线 `9bc76ab...HEAD`）
+  - 目的理解: R-01-001/AC-07 演进后，活动区主会话按最后一次用户指令时间（宿主列表时间，无用户消息取创建时刻，缺失视为最旧）从新到旧排列，相同时间保持宿主列表出现顺序，工作区顺序退出排序仅承载徽标，子代理不参与排序、始终跟随母会话；历史区口径（C-020）不变。
+  - 执行方式: `code-review` skill，Standards/Spec 双轴并行审核，基线 `9bc76ab`→`9a742f7`；修复后同审核方基于 `git diff 9a742f7...HEAD` 复审。
+  - 问题与修复: Standards 轴 judgement call——DESIGN 排序不变量未载「缺失视为最旧」防御语义 → 已补（5cba571）；Spec 轴——AC-07 子代理条款缺新排序键激活下的直接断言 → `sNew-c1` 子代理行（母会话 `updatedAt=3000` 互异）加入用例并断言 `[id, kind, depth, parentId]` 组合；Standards 轴 Primitive Obsession（`-1` 哨兵）经评估维持现状，处置留痕于 commit 取舍。
+  - 复审结论: 两轴复审均通过——Standards 轴确认防御语义落点正确、测试锚定 strict 闭合、无新违规；Spec 轴确认子代理条款锚点真有区分力、顺序仍 spec 一致、无生产代码漂移。

@@ -847,7 +847,7 @@ const mixedActivity = {
 		sRunOld: { id: "sRunOld", displayTitle: "运行旧指令", running: true, updatedAt: 1_000 },
 		sWait: { id: "sWait", displayTitle: "阻塞等待", running: false, pendingInteraction: "approval", updatedAt: 600 },
 		sDone2: { id: "sDone2", displayTitle: "完成二", running: false, updatedAt: 700 },
-		sWaitNoRec: { id: "sWaitNoRec", displayTitle: "无登记等待", running: false, pendingInteraction: "question", updatedAt: 2_500 },
+		sWaitNoRec: { id: "sWaitNoRec", displayTitle: "无登记等待", running: false, pendingInteraction: "question", updatedAt: 10_000 },
 	},
 	current: null,
 };
@@ -860,12 +860,12 @@ assert.deepEqual(
 	buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions).map((entry) => [entry.id, entry.kind]),
 	[
 		["sRunOld", "running"],
+		["sWaitNoRec", "awaiting"],
 		["sWait", "awaiting"],
 		["sDone1", "awaiting"],
 		["sDone2", "awaiting"],
-		["sWaitNoRec", "awaiting"],
 	],
-	"运行中置顶（即便其指令时间更旧）；等待/完成组按进入状态时刻倒序，无登记回落宿主列表时间（R-01-001/AC-07）",
+	"运行中置顶（即便其指令时间更旧）；等待/完成组按进入状态时刻倒序，无登记回落宿主列表时间（可新于他卡登记时刻，非视为最旧）（R-01-001/AC-07）",
 );
 assert.deepEqual(trackRuns([{ kind: "subagent", parentId: "p", depth: 1 }]), [], "无 id 条目不产生轨道");
 assert.deepEqual(

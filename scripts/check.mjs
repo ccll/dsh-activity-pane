@@ -4242,8 +4242,10 @@ assert.ok(
 	"按钮图标在窗格创建时经 createTopIcon 注入（向上箭头描边几何，14 盒，createInlineIcon 保证 aria-hidden）",
 );
 assert.ok(
-	bundle.includes("[data-dsh-activity-pane] .dap-top {\n  position: absolute;\n  bottom: 12px;\n  right: 12px;"),
-	"回到顶部按钮悬浮定位于窗格右下角（不居中，R-01-018/AC-01）",
+	bundle.includes("[data-dsh-activity-pane] .dap-top,\n[data-dsh-activity-pane] .dap-density {")
+		&& bundle.includes("[data-dsh-activity-pane] .dap-top { bottom: 12px; }")
+		&& bundle.includes("[data-dsh-activity-pane] .dap-density { bottom: 48px; }"),
+	"回到顶部与紧凑切换两枚悬浮按钮共用同规格声明（右缘对齐防双处漂移），纵向锚点分列：回到顶部右下角、切换按钮在其正上方（R-01-018/AC-01、R-01-021/AC-05）",
 );
 assert.ok(!bundle.includes(".dap-top {\n  position: absolute;\n  bottom: 12px;\n  left: 50%;"), "底部居中定位已移除");
 assert.ok(
@@ -4252,7 +4254,7 @@ assert.ok(
 	"按钮底色为不透明纯色（非 color-mix 半透明，R-01-018/AC-05）",
 );
 assert.ok(
-	bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top {\n  background: var(--dsw-alias-bg-layer-2, #ffffff);\n  border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));"),
+	bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top,\nbody:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density {\n  background: var(--dsw-alias-bg-layer-2, #ffffff);\n  border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));"),
 	"浅色主题底色取外壳 layer-2 别名（同样不透明，R-01-018/AC-05）",
 );
 assert.ok(

@@ -26,7 +26,7 @@ id: T-129
 
 - AgentMap：PRD 新增 R-01-021（AC-01～AC-07，已由东家确认立项）；DESIGN 需求追溯索引、配置可变点、产品契约与窗格渲染器内部结构同步；DOMAIN 新增「紧凑显示」术语；C-076 记录交互与落位决策。
 - `src/core.mjs`：新增 `normalizeDensity(value)` 纯函数（`'compact'` → `'compact'`，其余 → `'full'`），供渲染层启动恢复与持久化写入共用。
-- `src/client.mjs`：新增 `.dap-density` 悬浮按钮（`bottom:48px; right:12px`，规格同 `.dap-top`，`aria-pressed` + 可访问名称）；激活翻转窗格根 `data-density` 属性；紧凑态经 CSS 隐藏卡片次要行；localStorage 键 `dsh-activity-pane.density` 持久化；窄条态经 CSS 隐藏按钮。
+- `src/client.mjs`：新增 `.dap-density` 悬浮按钮（`bottom:48px; right:12px`，规格同 `.dap-top`，`aria-pressed` + 可访问名称）；激活翻转窗格根 `data-density` 属性；紧凑态经 CSS 隐藏卡片次要行；localStorage 键 `dsh-activity-pane:density`（与列宽键同冒号惯例）持久化；窄条态经 CSS 隐藏按钮。
 - 测试先行：先补 `normalizeDensity` 单测与 `compact-density` E2E spec（切换、跳转、刷新恢复、窄条隐藏），再实现转绿。
 
 ## 测试影响
@@ -41,6 +41,7 @@ id: T-129
 | R-01-021/AC-05 | 新增：回到顶部上方常显悬浮按钮、窄条隐藏 | UNIT/E2E/MANUAL | add | `scripts/check.mjs#R-01-021/AC-05` + `e2e/specs/compact-density.mjs#R-01-021/AC-05` + `scripts/acceptance.mjs#R-01-021/AC-05` |
 | R-01-021/AC-06 | 新增：形态持久化恢复 | UNIT/E2E | add | `scripts/check.mjs#R-01-021/AC-06` + `e2e/specs/compact-density.mjs#R-01-021/AC-06` |
 | R-01-021/AC-07 | 新增：状态变化不解除形态 | E2E | add | `e2e/specs/compact-density.mjs#R-01-021/AC-07` |
+| R-01-009/AC-08 | 同次夹带：进度条纹色带周期 20px→10px、keyframes 方向反转（工作树预存的 T-128 后续观感收敛，随实现提交一并入库；条纹滚动动画的可观察行为不变） | UNIT | update | `scripts/check.mjs` 条纹 bundle 契约断言同步改写，`pnpm verify` 全量通过 |
 
 ## 测试计划
 

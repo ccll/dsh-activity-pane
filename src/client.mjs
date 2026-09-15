@@ -161,36 +161,14 @@ const CSS = `
     scrollbar-color: var(--dsh-scrollbar-thumb, color-mix(in srgb, currentColor 25%, transparent)) transparent;
   }
 }
-/* 「回到顶部」悬浮图标按钮（R-01-018）：窗格内右下角圆形按钮，纯图标无文字、不透明底色；
-   默认 hidden，scrollTop 超阈值时由滚动监听揭隐。基类 display:flex 会压过 UA 的
-   [hidden] 规则，故显式补 [hidden] 隐藏。 */
-[data-dsh-activity-pane] .dap-top {
-  position: absolute;
-  bottom: 12px;
-  right: 12px;
-  z-index: 6;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
-  background: #1d1f25;
-  color: inherit;
-  cursor: pointer;
-}
-[data-dsh-activity-pane] .dap-top[hidden] { display: none; }
-[data-dsh-activity-pane] .dap-top:hover,
-[data-dsh-activity-pane] .dap-top:focus-visible {
-  background: #262932;
-}
-/* 卡片紧凑显示切换按钮（R-01-021/AC-05）：与「回到顶部」同规格的常显悬浮按钮，
-   位于其正上方（bottom = 回到顶部 12px + 按钮高 28px + 间距 8px）。 */
+/* 「回到顶部」（R-01-018）与卡片紧凑显示切换（R-01-021/AC-05）两枚悬浮图标按钮共用
+   同规格外观：右缘对齐、28px 圆形、不透明底色，声明合并防止双处规格漂移，仅纵向
+   锚点分列（回到顶部 bottom 12px；切换按钮在其正上方 48px = 12 + 28 + 8）。
+   「回到顶部」默认 hidden，scrollTop 超阈值时由滚动监听揭隐；基类 display:flex 会
+   压过 UA 的 [hidden] 规则，故显式补 [hidden] 隐藏。 */
+[data-dsh-activity-pane] .dap-top,
 [data-dsh-activity-pane] .dap-density {
   position: absolute;
-  bottom: 48px;
   right: 12px;
   z-index: 6;
   display: flex;
@@ -205,6 +183,11 @@ const CSS = `
   color: inherit;
   cursor: pointer;
 }
+[data-dsh-activity-pane] .dap-top { bottom: 12px; }
+[data-dsh-activity-pane] .dap-density { bottom: 48px; }
+[data-dsh-activity-pane] .dap-top[hidden] { display: none; }
+[data-dsh-activity-pane] .dap-top:hover,
+[data-dsh-activity-pane] .dap-top:focus-visible,
 [data-dsh-activity-pane] .dap-density:hover,
 [data-dsh-activity-pane] .dap-density:focus-visible {
   background: #262932;
@@ -801,7 +784,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   /* 覆盖 fill 宽度 + 一次位移量：平移全程右缘不落后于 fill 右缘，无缝循环。 */
   width: calc(100% + 40px);
   /* 周期 20px（色带 10px）与原 background-position 实现一致——px 色标不受
-     background-size 拉伸（T-128 双轴实测）；translateX(-40px) �为 2 个周期，
+     background-size 拉伸（T-128 双轴实测）；translateX(-40px) 恰为 2 个周期，
      无缝且速度 40px/0.8s 与原实现一致。 */
   background: repeating-linear-gradient(90deg, #58c98f 0 10px, #3fbf86 10px 20px);
   animation: dap-stripes 0.8s linear infinite;
@@ -1017,18 +1000,13 @@ body:not([data-ds-dark-theme]) .dap-toggle {
   background: var(--dsw-alias-button-floating-fill, rgba(255, 255, 255, 0.94));
 }
 /* 「回到顶部」图标按钮浅色覆盖：不透明层-2 底色与外壳描边别名（R-01-018/AC-05）。 */
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top {
-  background: var(--dsw-alias-bg-layer-2, #ffffff);
-  border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
-}
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top:hover,
-body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top:focus-visible {
-  background: var(--dsw-alias-bg-layer-3, #eceef1);
-}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density {
   background: var(--dsw-alias-bg-layer-2, #ffffff);
   border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
 }
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top:hover,
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top:focus-visible,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density:hover,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density:focus-visible {
   background: var(--dsw-alias-bg-layer-3, #eceef1);

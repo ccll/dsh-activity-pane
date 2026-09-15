@@ -6,7 +6,7 @@ id: T-133
 
 # T-133 活动区运行中置顶、等待/完成按进入状态时刻倒序
 
-状态: active
+状态: completed
 关联: R-01-001/AC-07 → 活动状态模型
 风险等级: standard
 
@@ -52,4 +52,14 @@ id: T-133
 
 ## 终态与证据
 
-（active 期间留空，关闭时填写）
+- 实现: `src/core.mjs#buildEntries` rootIds 排序改两段式——分组键 `isRunningEntry`（`pending` 或非 running 非委托 → 等待/完成组排后，其余运行中组置顶）；组内时间键 `sortTime`：运行中组取 `instructionTime`（宿主列表时间），等待/完成组取 `completionFor(id, completions).lastTurnEnd`（缺失回落宿主列表时间）；两组相同时间均回落 `ids.indexOf` 宿主列表出现顺序。子代理仍嵌套跟随母会话、不参与排序。
+- 测试: `pnpm verify` 全量通过——agentmap lint（156 AC 全锚定）+ test-impact（~R-01-001/AC-07）+ core 单测与 client bundle 契约 + 17 个浏览器 E2E spec（含适配后的 long-list）；审核修复后单元检查复跑全绿。
+- DESIGN 对照: 排序不变量、产品契约 `buildEntries` 条目、子系统内部结构三处均与实现一致（两段式分组、`lastTurnEnd` 口径、回落语义、lineage 稳定序）；追溯索引 R-01-001 主责子系统不变。
+- commit: b85ca95
+- commit: dcd43e6
+- review:
+  - 审核方: Standards reviewer 与 Spec reviewer（code-review skill 并行双轴，基线 `cd05eaa...HEAD`）
+  - 目的理解: AC-07 演进后，活动区两段式排序——运行中主会话置顶且组内按最后用户指令时间（宿主列表时间）倒序；等待/完成组（阻塞等待、完成提醒、错误提醒）排其后且组内按进入该状态的时刻（最近一次回合结束登记时刻 `lastTurnEnd`，缺失回落宿主列表时间）倒序；两组平局回落宿主列表出现顺序；子代理不参与排序、始终跟随母会话；历史区口径（C-020）不变。
+  - 执行方式: `code-review` skill，Standards/Spec 双轴并行审核，基线 `cd05eaa`→`b85ca95`；修复后同审核方基于 `git diff b85ca95...HEAD` 复审。
+  - 问题与修复: Spec 轴——PRD AC-07「时刻缺失时视为最旧」与已确认决策/DESIGN「缺失回落宿主列表时间」语义冲突，且用例回落时间恰为最旧无法区分两种语义 → PRD 措辞收敛为「无该登记时以其宿主列表时间作为进入时刻」，sWaitNoRec 回落时间改为全场景最新（10_000）使断言具唯一裁决力（dcd43e6）；Standards 轴两条 judgement call（long-list 底卡可见性与 helpers 判定形状相近、比较器内重复求值）经评估维持现状，处置留痕于 commit 取舍。
+  - 复审结论: Spec 轴复审通过——PRD 措辞与决策/DESIGN/实现一致、断言对两种语义具唯一裁决力、无漂移；Standards 轴无硬性违规、判断项均有依据，不阻断关闭。

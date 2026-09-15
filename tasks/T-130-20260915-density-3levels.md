@@ -6,7 +6,7 @@ id: T-130
 
 # T-130 显示档位三档化、切换锚定与按钮移位
 
-状态: active
+状态: completed
 关联: R-01-021/AC-01～AC-08 → 窗格渲染器
 风险等级: standard
 
@@ -59,4 +59,14 @@ T-129 交付二档紧凑显示后，东家实测提出三点改进：切换时�
 
 ## 终态与证据
 
-（进行中）
+- 实现: `src/client.mjs` `.dap-density` 移位窗格右上角、标题栏正下方（`top:44px; right:12px`，与 `.dap-top` 共用声明仅纵向锚点分列）；`data-density` 三值（full/medium/compact）驱动两段 CSS——medium 隐藏时间线/进度/统计，compact 递增隐藏 head/等待末行/预览行仅留标题行；`onDensityClick` 按完整→中间→紧凑循环并执行滚动锚定（记录当前卡切换前相对视口位置，翻转后补偿 `scrollTop`，当前卡不可得或补偿目标超出滚动边界时不补偿/钳制）；`aria-pressed` 移除、可访问名称表达目标档位；`normalizeDensity` 值域扩三档、新增 `nextDensity` 循环纯函数（`src/core.mjs`）；档位持久化并在启动/重挂载恢复。`.dsh-plugin/client.js` 已重建。
+- 测试: `pnpm verify` 全量通过——16 个 E2E spec（含更新后 compact-density.mjs 覆盖 AC-01～AC-08：三档循环、中间档内容、锚定、右上位置、刷新恢复、状态不解除、窄条隐藏）+ agentmap lint（155 AC 全锚定）+ test-impact（+AC-08，~AC-01/03/04/05/06/07）+ core 单测与 bundle 契约；审核修复后 compact-density 重跑通过。
+- DESIGN 对照: 需求追溯索引恰一行 R-01-021（主责子系统「窗格渲染器」）、产品契约「卡片紧凑呈现」条目（三档循环、滚动锚定含边界钳制、top:44px、持久化键）与窗格渲染器内部结构条目均与实现一致；DOMAIN「紧凑显示」拆为「显示档位」+「紧凑显示」两词条。
+- commit: 646c159
+- commit: 9ec5bfd
+- review:
+  - 审核方: Standards reviewer `baa877dc-97ba-4fc4-a822-7a6ab8a31301`；Spec reviewer `0e0d75d4-0360-4b21-85fe-18c870dee4ae`（code-review skill 并行双轴）
+  - 目的理解: 在 T-129 二档紧凑显示基础上演进三档（完整/中间/紧凑）循环切换，锚定当前选中卡片顶部视口位置使切换不移位，按钮移至右上角标题栏正下方；符合 R-01-021 八条 AC 与 C-076 决策的演进口径。
+  - 执行方式: `code-review` skill，Standards/Spec 双轴并行审核，基线 `c40aee9...646c159`；修复后基于工作树 `git diff HEAD` 复审。
+  - 问题与修复: Standards 1 硬违规 5 判断题——check.mjs 逐字重复断言（删除）、densityValue 命名弱（全量改名 densityLevel）、DESIGN 紧凑档隐藏层级措辞与实现漂移（改述 .dap-foot）、compact CSS 重复罗列（两段各自表达档位递进语义，审核方接受不合并）、activateCardByIndex 泛化（两处使用，保留）；Spec 2 项——AC-01 锚定边界未收敛（PRD 补「滚动余量不足时以不使当前卡片移出滚动视口为准」、DESIGN 补 [0,maxScroll] 钳制语义）、AC-03/AC-04 medium 分支无 e2e 锚点（补中间档底色一致与激活跳转断言，compact 段改 index 1 避免重复激活）；另 top:40px→44px（header 实测 ~36px + 8px）。两轮修复提交后由同一审核方复审。
+  - 复审结论: Standards 与 Spec 两轴均确认全部 finding 关闭（含 DESIGN 产品契约行 top:44px 同步），无阻塞项，通过。

@@ -689,7 +689,7 @@ const hueSpread = new Set();
 for (let i = 0; i < 50; i += 1) hueSpread.add(workspaceHue(`/home/user/proj/ws-${i}`));
 assert.ok(hueSpread.size >= 40, `50 个长前缀身份分散到 ${hueSpread.size} 个不同色相（≥40，R-01-003/AC-09）`);
 
-// ---- R-01-003/AC-12 OKLCH 十二前景槽、三档背景变体、主题距离与复合容量 ----
+// ---- R-01-003/AC-08、AC-12 逐身份槽位映射：十二前景槽、三档背景变体、主题距离与身份稳定性 ----
 const workspacePrimaryHues = [55, 100, 145, 190, 235, 280, 325];
 const workspacePaletteHues = WORKSPACE_COLOR_SLOTS.map((slot) => slot.hue);
 const realWorkspaceCluster = [
@@ -703,21 +703,69 @@ assert.deepEqual(
 	[...resolvedCluster.entries()].map(([key, color]) => [key, color.foreground.hue]),
 	[
 		["/home/cailei/ops", 280],
-		["/home/cailei/proj/docsim", 55],
+		["/home/cailei/proj/docsim", 302],
 		["/home/cailei/proj/dsh-activity-pane", 190],
-		["/home/cailei/proj/dsh-control-center", 100],
+		["/home/cailei/proj/dsh-control-center", 235],
 	],
-	"真实撞槽子集保持 +3 探测拆分到蓝紫/橙/青/黄绿明显色区（R-01-003/AC-12）",
+	"真实工作区身份按基色色相就近归槽（R-01-003/AC-12）",
 );
+// 身份稳定性（C-077）：新增/移除/乱序其它工作区不得改变既有身份的前景与背景复合槽位
+const extraKeys = Array.from({ length: 8 }, (_, index) => `/home/cailei/newcomer-${index}`);
+const resolvedWithExtra = resolveWorkspaceColors([...realWorkspaceCluster, ...extraKeys]);
+for (const key of realWorkspaceCluster) {
+	assert.equal(
+		resolvedWithExtra.get(key).foreground.slot,
+		resolvedCluster.get(key).foreground.slot,
+		`新增其它工作区不改变 ${key} 的前景槽位（R-01-003/AC-08）`,
+	);
+	assert.equal(
+		resolvedWithExtra.get(key).background.slot,
+		resolvedCluster.get(key).background.slot,
+		`新增其它工作区不改变 ${key} 的背景变体槽位（R-01-003/AC-08）`,
+	);
+}
+const resolvedWithoutLast = resolveWorkspaceColors(realWorkspaceCluster.slice(0, -1));
+for (const key of realWorkspaceCluster.slice(0, -1)) {
+	assert.equal(
+		resolvedWithoutLast.get(key).foreground.slot,
+		resolvedCluster.get(key).foreground.slot,
+		`移除其它工作区不改变 ${key} 的前景槽位（R-01-003/AC-08）`,
+	);
+	assert.equal(
+		resolvedWithoutLast.get(key).background.slot,
+		resolvedCluster.get(key).background.slot,
+		`移除其它工作区不改变 ${key} 的背景变体槽位（R-01-003/AC-08）`,
+	);
+}
 assert.deepEqual(
-	[...resolveWorkspaceColors([...realWorkspaceCluster].reverse(), "", "  ", realWorkspaceCluster[0]).entries()].map(([key, color]) => [key, color.foreground.slot, color.background.slot]),
-	[...resolvedCluster.entries()].map(([key, color]) => [key, color.foreground.slot, color.background.slot]),
+	[...resolveWorkspaceColors([...realWorkspaceCluster].reverse(), "", "  ", realWorkspaceCluster[0]).entries()],
+	[...resolvedCluster.entries()],
 	"输入顺序、重复项与空白身份不影响前景/背景复合槽位映射（R-01-003/AC-08、AC-12）",
 );
 assert.deepEqual([...resolveWorkspaceColors(null).entries()], [], "无身份集合返回空映射（R-01-003/AC-12）");
-const sevenColors = [...resolveWorkspaceColors(Array.from({ length: 7 }, (_, index) => `/home/user/proj/seven-${index}`)).values()];
-assert.deepEqual([...sevenColors].map((color) => color.foreground.hue).sort((a, b) => a - b), workspacePrimaryHues, "七个工作区仍恰占满七个主色相槽位（R-01-003/AC-12）");
-assert.ok([...sevenColors].every((color) => color.foreground.slot < workspacePrimaryHues.length), "七个工作区不提前使用补充槽位（R-01-003/AC-12）");
+// 就近归槽性质：任意身份的前景槽位色相应为十二槽中对基色环形距离最近的色相
+const hueDistance = (a, b) => {
+	const d = Math.abs(a - b) % 360;
+	return Math.min(d, 360 - d);
+};
+const nearestSample = [...hueFamily, "/opt/alpha", "/opt/beta", ...Array.from({ length: 24 }, (_, index) => `/home/user/proj/near-${index}`)];
+for (const [key, color] of resolveWorkspaceColors(nearestSample)) {
+	const base = workspaceHue(key);
+	const nearest = Math.min(...workspacePaletteHues.map((hue) => hueDistance(base, hue)));
+	assert.equal(hueDistance(base, color.foreground.hue), nearest, `身份 ${key} 基色 ${base} 就近归槽（R-01-003/AC-12）`);
+}
+// 平局归低槽位（R-01-003/AC-12）：基色恰为相邻槽位色相中点的身份应取更低槽位
+const tieExpectations = [
+	["/tie/workspace-50", 0],
+	["/tie/workspace-949", 1],
+	["/tie/workspace-383", 2],
+	["/tie/workspace-221", 4],
+	["/tie/workspace-44", 5],
+];
+for (const [key, expectedSlot] of tieExpectations) {
+	const color = resolveWorkspaceColors([key]).get(key);
+	assert.equal(color.foreground.slot, expectedSlot, `基色 ${workspaceHue(key)} 与相邻槽位等距时取更低槽位（R-01-003/AC-12）`);
+}
 const oklabPoint = (color, theme) => {
 	const hue = color.hue * Math.PI / 180;
 	const lightness = theme === "dark" ? color.darkL : color.lightL;
@@ -729,12 +777,7 @@ const oklabDistance = (colorA, colorB, theme) => {
 	const b = oklabPoint(colorB, theme);
 	return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 };
-const twelveColors = [...resolveWorkspaceColors(Array.from({ length: 12 }, (_, index) => `/home/user/proj/twelve-${index}`)).values()];
-assert.deepEqual(
-	[...twelveColors].map((color) => color.foreground.slot).sort((a, b) => a - b),
-	Array.from({ length: 12 }, (_, index) => index),
-	"十二个工作区恰好使用十二个唯一前景颜色槽位（R-01-003/AC-12）",
-);
+assert.deepEqual(workspacePaletteHues.slice(0, workspacePrimaryHues.length), workspacePrimaryHues, "前七个主色相槽位保持不变（R-01-003/AC-12）");
 assert.equal(new Set(workspacePaletteHues).size, workspacePaletteHues.length, "十二槽 hue 不重复（R-01-003/AC-12）");
 assert.ok(workspacePaletteHues.every((hue) => hue > 30 && hue < 330), "十二槽 hue 均避开红色警戒环段（R-01-003/AC-09、AC-12）");
 assert.deepEqual(
@@ -745,22 +788,14 @@ assert.deepEqual(
 assert.equal(new Set(WORKSPACE_BACKGROUND_SLOTS.map((slot) => slot.dark.l)).size, 3, "深色背景变体具有三档独立明度（R-01-003/AC-10、AC-11）");
 assert.equal(new Set(WORKSPACE_BACKGROUND_SLOTS.map((slot) => slot.light.l)).size, 3, "浅色背景变体具有三档独立明度（R-01-003/AC-10、AC-11）");
 for (const theme of ["dark", "light"])
-	for (let i = 0; i < twelveColors.length; i += 1)
-		for (let j = i + 1; j < twelveColors.length; j += 1)
-			assert.ok(oklabDistance(twelveColors[i].foreground, twelveColors[j].foreground, theme) >= 0.11, `${theme} 主题十二槽任意两前景色 OKLab 距离至少 0.11（R-01-003/AC-12）`);
-const thirtySixColors = [...resolveWorkspaceColors(Array.from({ length: 36 }, (_, index) => `/home/user/proj/thirty-six-${index}`)).values()];
-const pairKeys = thirtySixColors.map((color) => `${color.foreground.slot}/${color.background.slot}`);
-assert.equal(new Set(pairKeys).size, 36, "三十六个工作区恰好使用三十六个唯一前景/背景复合槽位（R-01-003/AC-12）");
-for (const foregroundSlot of WORKSPACE_COLOR_SLOTS.map((slot) => slot.slot)) {
-	const backgrounds = thirtySixColors.filter((color) => color.foreground.slot === foregroundSlot).map((color) => color.background.slot);
-	assert.deepEqual(backgrounds.sort((a, b) => a - b), [0, 1, 2], `前景槽 ${foregroundSlot} 先使用三个背景变体（R-01-003/AC-12）`);
-}
-const crowdedColors = resolveWorkspaceColors(Array.from({ length: 40 }, (_, index) => `/home/user/proj/crowded-${index}`));
-assert.equal(crowdedColors.size, 40, "超容量集合仍为每个身份返回复合颜色槽位并有限终止（R-01-003/AC-12）");
-assert.ok([...crowdedColors.values()].every((color) => color.foreground.slot >= 0 && color.foreground.slot < WORKSPACE_COLOR_SLOTS.length), "超容量时仍只使用十二个前景颜色槽位（R-01-003/AC-12）");
-assert.ok([...crowdedColors.values()].every((color) => color.background.slot >= 0 && color.background.slot < WORKSPACE_BACKGROUND_SLOTS.length), "超容量时仍只使用三个背景变体槽位（R-01-003/AC-12）");
-const pairUses = [...new Set([...crowdedColors.values()].map((color) => `${color.foreground.slot}/${color.background.slot}`))].map((pair) => [...crowdedColors.values()].filter((color) => `${color.foreground.slot}/${color.background.slot}` === pair).length);
-assert.ok(Math.max(...pairUses) - Math.min(...pairUses) <= 1, "超容量时三十六个复合槽位复用计数差不超过 1（R-01-003/AC-12）");
+	for (let i = 0; i < WORKSPACE_COLOR_SLOTS.length; i += 1)
+		for (let j = i + 1; j < WORKSPACE_COLOR_SLOTS.length; j += 1)
+			assert.ok(oklabDistance(WORKSPACE_COLOR_SLOTS[i], WORKSPACE_COLOR_SLOTS[j], theme) >= 0.11, `${theme} 主题十二槽任意两前景色 OKLab 距离至少 0.11（R-01-003/AC-12）`);
+// 背景变体由身份哈希独立派生：三十个身份应覆盖全部三档背景变体且每档均合法
+const resolvedBackgrounds = [...resolveWorkspaceColors(Array.from({ length: 30 }, (_, index) => `/home/user/proj/variant-${index}`)).values()].map((color) => color.background.slot);
+assert.deepEqual([...new Set(resolvedBackgrounds)].sort(), [0, 1, 2], "背景变体哈希派生在三档之间分散（R-01-003/AC-12）");
+assert.ok(resolvedBackgrounds.every((slot) => slot >= 0 && slot < WORKSPACE_BACKGROUND_SLOTS.length), "背景变体槽位合法（R-01-003/AC-12）");
+
 
 // ---- R-01-001/AC-01 活动卡片逐条显示 ｜ R-01-003/AC-01 子代理嵌套 ｜ R-01-003/AC-02 子代理结束即消失 ｜ R-01-006/AC-01 当前会话 ----
 const snapshot = {

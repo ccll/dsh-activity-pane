@@ -1406,16 +1406,11 @@ function workspaceInfoForSession(sessionId, workspaceItems, byId = {}) {
 }
 
 /**
- * 工作区徽标基色色相（R-01-003/AC-08、AC-09）：以工作区身份为唯一输入的纯函数——
- * djb2 哈希经雪崩终混（异或右移 + 乘法，把高位熵折入低位，消除 djb2 低位分布
- * 聚集；每步 >>> 0 保持无符号，异或结果可能带符号位）后在避开红色警戒区的
- * 色相弧 [30°,320°] 上均匀取色（30 + hash % 291），输出 [30,320] 整数。
- * 同一身份恒得同一基色色相，与工作区列表顺序、会话状态及持久化存储无关，页面
- * 刷新后不变；空身份返回 null。
+ * 身份字符串 → 32 位无符号哈希：djb2 经雪崩终混（见 C-029 决策记录）。
+ * 异或右移 + 乘法把高位熵折入低位，消除 djb2 低位分布聚集；每步 >>> 0 保持
+ * 无符号，异或结果可能带符号位。
  */
-function workspaceHue(key) {
-	const text = cleanText(key);
-	if (!text) return null;
+function identityHash(text) {
 	let hash = 5381;
 	for (let i = 0; i < text.length; i += 1)
 		hash = ((hash << 5) + hash + text.charCodeAt(i)) >>> 0;
@@ -1425,8 +1420,24 @@ function workspaceHue(key) {
 	// 乘法的乘积（最大约 5×10^18）超出 double 精确整数上限 2^53，低 32 位
 	// 会丢失精度。
 	hash = Math.imul(hash, 0x45d9f3b) >>> 0;
-	hash = (hash ^ (hash >>> 16)) >>> 0;
-	return 30 + (hash % 291);
+	return (hash ^ (hash >>> 16)) >>> 0;
+}
+
+// 避红基色色相弧 [30°,320°] 的起点与取值数（30 + hash % 291）；背景变体
+// 以同一弧宽的商派生，共享常量避免两处口径漂移（R-01-003/AC-09、C-077）。
+const WORKSPACE_HUE_ARC_START = 30;
+const WORKSPACE_HUE_ARC_SIZE = 291;
+
+/**
+ * 工作区徽标基色色相（R-01-003/AC-08、AC-09）：以工作区身份为唯一输入的纯函数，
+ * 在避开红色警戒区的色相弧 [30°,320°] 上均匀取色，输出 [30,320] 整数；哈希
+ * 机制见 {@link identityHash}。同一身份恒得同一基色色相，与工作区列表顺序、
+ * 会话状态及持久化存储无关，页面刷新后不变；空身份返回 null。
+ */
+function workspaceHue(key) {
+	const text = cleanText(key);
+	if (!text) return null;
+	return WORKSPACE_HUE_ARC_START + (identityHash(text) % WORKSPACE_HUE_ARC_SIZE);
 }
 
 const WORKSPACE_COLOR_SLOTS = Object.freeze([
@@ -1462,60 +1473,37 @@ const WORKSPACE_BACKGROUND_SLOTS = Object.freeze([
 	},
 ].map(Object.freeze));
 
-const WORKSPACE_PRIMARY_SLOT_COUNT = 7;
-const WORKSPACE_SECONDARY_SLOT_COUNT = WORKSPACE_COLOR_SLOTS.length - WORKSPACE_PRIMARY_SLOT_COUNT;
-
-function workspaceSlotProbe(start, count, step) {
-	return Array.from({ length: count }, (_, offset) => (start + offset * step) % count);
+/** 环形色相距离（度，0–180）。 */
+function hueDistance(a, b) {
+	const d = Math.abs(a - b) % 360;
+	return Math.min(d, 360 - d);
 }
 
 /**
- * 同屏工作区复合颜色槽位消解（R-01-003/AC-08、AC-12）：前七个身份沿原七色
- * OKLCH 主槽位分配，主槽位占满后再使用五个受控明度/色相补充槽位；每个前景槽位
- * 内优先使用未用的三个背景变体；超过三十六个复合身份后按槽位使用次数均衡复用。
+ * 同屏工作区复合颜色槽位消解（R-01-003/AC-08、AC-12）：逐身份纯映射——每个
+ * 身份独立地以其 32 位雪崩哈希派生前景与背景槽位，身份之间互不影响，创建、
+ * 移除或变更其它工作区不改变既有工作区的颜色（C-077）；前景取基色色相在 12 个
+ * 前景槽位中环形距离最近者（平局取低槽位），背景变体取 floor(hash / 弧宽) % 3。
+ * 均匀哈希使不同身份的前景碰撞概率保持在约 1/12、复合碰撞约 1/36 的最小水平。
  */
 function resolveWorkspaceColors(keys) {
 	const identities = [...new Set((Array.isArray(keys) ? keys : []).map(cleanText).filter(Boolean))].sort();
-	const uses = WORKSPACE_COLOR_SLOTS.map(() => 0);
-	const backgroundUses = WORKSPACE_COLOR_SLOTS.map(() => WORKSPACE_BACKGROUND_SLOTS.map(() => 0));
 	const resolved = new Map();
 	for (const identity of identities) {
-		const baseHue = workspaceHue(identity);
-		const primaryOrder = workspaceSlotProbe(
-			(baseHue - 30) % WORKSPACE_PRIMARY_SLOT_COUNT,
-			WORKSPACE_PRIMARY_SLOT_COUNT,
-			3,
-		);
-		const secondaryOrder = workspaceSlotProbe(
-			(baseHue - 30) % WORKSPACE_SECONDARY_SLOT_COUNT,
-			WORKSPACE_SECONDARY_SLOT_COUNT,
-			2,
-		).map((index) => WORKSPACE_PRIMARY_SLOT_COUNT + index);
-		const order = [...primaryOrder, ...secondaryOrder];
-		const backgroundOrder = workspaceSlotProbe(
-			(baseHue - 30) % WORKSPACE_BACKGROUND_SLOTS.length,
-			WORKSPACE_BACKGROUND_SLOTS.length,
-			2,
-		);
-		const availableForegroundOrder = order.filter((index) => backgroundOrder.some((backgroundSlot) => backgroundUses[index][backgroundSlot] === 0));
-		const foregroundOrder = availableForegroundOrder.length > 0 ? availableForegroundOrder : order;
-		let foregroundSlot = foregroundOrder.find((index) => uses[index] === 0);
-		if (foregroundSlot === undefined) {
-			foregroundSlot = foregroundOrder.reduce(
-				(best, index) => (uses[index] < uses[best] ? index : best),
-				foregroundOrder[0],
-			);
+		const hash = identityHash(identity);
+		const baseHue = WORKSPACE_HUE_ARC_START + (hash % WORKSPACE_HUE_ARC_SIZE);
+		let foregroundSlot = 0;
+		let nearest = hueDistance(baseHue, WORKSPACE_COLOR_SLOTS[0].hue);
+		for (let slot = 1; slot < WORKSPACE_COLOR_SLOTS.length; slot += 1) {
+			const distance = hueDistance(baseHue, WORKSPACE_COLOR_SLOTS[slot].hue);
+			if (distance < nearest) {
+				nearest = distance;
+				foregroundSlot = slot;
+			}
 		}
-		uses[foregroundSlot] += 1;
-		const backgroundUsesForForeground = backgroundUses[foregroundSlot];
-		const backgroundSlot = backgroundOrder.reduce(
-			(best, index) => (backgroundUsesForForeground[index] < backgroundUsesForForeground[best] ? index : best),
-			backgroundOrder[0],
-		);
-		backgroundUsesForForeground[backgroundSlot] += 1;
 		resolved.set(identity, {
 			foreground: WORKSPACE_COLOR_SLOTS[foregroundSlot],
-			background: WORKSPACE_BACKGROUND_SLOTS[backgroundSlot],
+			background: WORKSPACE_BACKGROUND_SLOTS[Math.floor(hash / WORKSPACE_HUE_ARC_SIZE) % WORKSPACE_BACKGROUND_SLOTS.length],
 		});
 	}
 	return resolved;

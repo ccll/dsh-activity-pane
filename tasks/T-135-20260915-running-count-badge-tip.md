@@ -6,7 +6,7 @@ id: T-135
 
 # T-135 数量徽标分子改为运行中数并新增悬停 tips
 
-状态: active
+状态: completed
 关联: R-01-001/AC-04、AC-05（口径演进）、R-01-001/AC-08（新增）→ 活动状态模型 / 窗格渲染器
 风险等级: standard
 
@@ -56,4 +56,13 @@ id: T-135
 
 ## 终态与证据
 
-（待验证后填写）
+- 实现: `src/core.mjs` `countBadgeState` 分子取 `running = total − waiting`（随会话完成递减至 0），`text` 改 `${running}/${total}`，aria 文案以「N 个活动会话，R 个正在运行」开头、阻塞/完成计数追加说明，新增 `tip` 字段单点派生悬停提示文案（loading 态为空串）；`src/client.mjs` `setCountBadgeContent` 计数态写入 `title`（值未变不重写）、加载态 `removeAttribute("title")`，列头/窄条/移动端开关三处徽标共用；`.dsh-plugin/client.js` 经 `node scripts/check.mjs` 从工作树重建并过 staged 一致性校验。
+- 测试: `pnpm verify` 全量通过——17 个 E2E spec；`scripts/check.mjs` 新增/改写 `countBadgeState` 七项断言（loading/空态/阻塞/混合/纯完成/aria/文案）与两条 bundle 契约（title 写入与摘除）；`e2e/specs/auto-update.mjs` badgeSnapshot 采集 `title` 并断言三处徽标 tips 与 0/1 新口径；agentmap lint 157 AC 全锚定；test-impact 记录 `+R-01-001/AC-08`、`~R-01-001/AC-04`、`~R-01-001/AC-05`。
+- DESIGN 对照: PRD R-01-001/AC-04、AC-05 改写分子口径并新增 AC-08；DESIGN 活动状态模型「徽标计数与脉冲提醒」条目同步分子派生式、`title` 悬停 tips 文案与加载态摘除、「渲染层只写文本、`title`、data-awaiting 与徽标 tone」；`scripts/acceptance.mjs` 人工验收口径同步；DOMAIN 无数量标识词条无需同步——map 与 code 对照无差异。
+- commit: 2913575
+- review:
+  - 审核方: Standards reviewer `3c72f63e-7d04-4f64-b092-7a53da113527`；Spec reviewer `92d45006-e713-483c-92fd-3c88806aab67`（`code-review` skill 并行双轴）
+  - 目的理解: R-01-001/AC-04、AC-05 演进后数量徽标分子为运行中主会话数（running = total − waiting，随会话完成递减至 0），分母与子代理排除口径不变；AC-08 新增悬停 tips（定稿文案「运行中的会话 <数字> / 总活动会话 <数字>」）；PRD/DESIGN/验收口径与测试同次同步。审核基线为工作区 diff vs HEAD 153c226。
+  - 执行方式: `code-review` skill，Standards/Spec 双轴并行审核；修复后由 Standards 审核方复审该一行改动并确认关闭。
+  - 问题与修复: 硬违规 1 项（双轴同报）——`scripts/acceptance.mjs` 新增 AC-08 验收步骤行尾 `,,,` 使 steps 数组产生两处空洞、人工验收清单编号跳号；已修复为单个逗号，审核方实测清单编号 1..86 连续、finding 关闭。judgement call 2 项（非阻塞）：tips 文案模板三处字面量重复（与仓库 bundle 契约字面量锚定风格一致，判可接受）；check.mjs `bundle.includes` 断言耦合实现源码（既有风格，非新违规）。Spec 轴弱点提示 1 项：加载态 title 摘除仅有 bundle 字符串断言、无运行时行为断言，证据强度可接受。
+  - 复审结论: 双轴通过——Standards 轴确认修复 hunk 干净且维持其余结论；Spec 轴确认 spec 达成完整、aria 文案重排为计划内口径同步而非 scope creep；无新 finding。

@@ -131,11 +131,23 @@ function clampPaneWidth(raw) {
 }
 
 /**
- * 把任意输入（localStorage 字符串等）归一为合法卡片呈现形态：
- * 仅字符串 'compact' 为紧凑显示，其余（含缺失/非法值）回退完整显示（R-01-021/AC-06）。
+ * 把任意输入（localStorage 字符串等）归一为合法卡片显示档位：
+ * 仅 'compact'/'medium' 为合法档位，其余（含缺失/非法值）回退完整呈现（R-01-021/AC-06）。
  */
 function normalizeDensity(raw) {
-	return raw === "compact" ? "compact" : "full";
+	return raw === "compact" || raw === "medium" ? raw : "full";
+}
+
+/** 显示档位的循环次序：完整 → 中间 → 紧凑 → 完整（R-01-021/AC-01）。 */
+const DENSITY_ORDER = ["full", "medium", "compact"];
+
+/**
+ * 返回循环切换后的下一显示档位：完整 → 中间 → 紧凑 → 完整；
+ * 输入先经 normalizeDensity 归一，非法值视作完整档（R-01-021/AC-01）。
+ */
+function nextDensity(value) {
+	const index = DENSITY_ORDER.indexOf(normalizeDensity(value));
+	return DENSITY_ORDER[(index + 1) % DENSITY_ORDER.length];
 }
 
 function isRecord(value) {
@@ -2624,6 +2636,8 @@ const INSTANCE_KEY = "__dshActivityPaneCleanup";
 const WIDTH_STORAGE_KEY = "dsh-activity-pane:width";
 /** 卡片紧凑显示的 localStorage 持久化键（R-01-021/AC-06）。 */
 const DENSITY_STORAGE_KEY = "dsh-activity-pane:density";
+/** 三档显示的可访问名称用中文标签，键为档位值（R-01-021/AC-01）。 */
+const DENSITY_LABELS = { full: "完整", medium: "中间", compact: "紧凑" };
 const COLLAPSED_WIDTH = 34;
 /** 宿主侧完成确认 API 前缀（C-030）：acks 快照 / SSE 推送 / ack 写回，同源受信。 */
 const PANE_API_BASE = "/dsh-activity-pane/api";
@@ -2756,9 +2770,10 @@ const CSS = `
     scrollbar-color: var(--dsh-scrollbar-thumb, color-mix(in srgb, currentColor 25%, transparent)) transparent;
   }
 }
-/* 「回到顶部」（R-01-018）与卡片紧凑显示切换（R-01-021/AC-05）两枚悬浮图标按钮共用
+/* 「回到顶部」（R-01-018）与卡片显示档位切换（R-01-021/AC-05）两枚悬浮图标按钮共用
    同规格外观：右缘对齐、28px 圆形、不透明底色，声明合并防止双处规格漂移，仅纵向
-   锚点分列（回到顶部 bottom 12px；切换按钮在其正上方 48px = 12 + 28 + 8）。
+   锚点分列（回到顶部在右下 bottom 12px；切换按钮在窗格右上角、标题栏正下方
+   top 40px 约为标题栏 32px + 8px 间距，R-01-021/AC-05）。
    「回到顶部」默认 hidden，scrollTop 超阈值时由滚动监听揭隐；基类 display:flex 会
    压过 UA 的 [hidden] 规则，故显式补 [hidden] 隐藏。 */
 [data-dsh-activity-pane] .dap-top,
@@ -2779,7 +2794,7 @@ const CSS = `
   cursor: pointer;
 }
 [data-dsh-activity-pane] .dap-top { bottom: 12px; }
-[data-dsh-activity-pane] .dap-density { bottom: 48px; }
+[data-dsh-activity-pane] .dap-density { top: 40px; }
 [data-dsh-activity-pane] .dap-top[hidden] { display: none; }
 [data-dsh-activity-pane] .dap-top:hover,
 [data-dsh-activity-pane] .dap-top:focus-visible,
@@ -2787,8 +2802,18 @@ const CSS = `
 [data-dsh-activity-pane] .dap-density:focus-visible {
   background: #262932;
 }
-/* 紧凑呈现（R-01-021/AC-02）：每卡仅保留标题行，其余行整体隐藏——纯呈现层
-   开关，卡片 DOM 复用、渲染签名与激活跳转不感知形态（R-01-021/AC-04）。 */
+/* 卡片显示档位（R-01-021）：中间档保留标题行、工作区徽标行、等待末行与最近卡
+   消息预览行、隐藏时间线/进度/统计（AC-08）；紧凑档在中间档基础上再隐藏工作区
+   徽标行、等待末行与消息预览行，仅保留标题行（AC-02）——纯呈现层开关，卡片 DOM
+   复用、渲染签名与激活跳转不感知档位（R-01-021/AC-04）。 */
+[data-dsh-activity-pane][data-density="medium"] .dap-card :is(
+    .dap-trace,
+    .dap-subtrace,
+    .dap-progress,
+    .dap-token-stats
+  ) {
+  display: none;
+}
 [data-dsh-activity-pane][data-density="compact"] .dap-card :is(
     .dap-card-head,
     .dap-trace,
@@ -3679,19 +3704,19 @@ function writeStoredPaneWidth(width) {
 	} catch {}
 }
 
-/** 读取持久化卡片呈现形态：缺失/非法值经 normalizeDensity 归一为完整显示；
+/** 读取持久化卡片显示档位：缺失/非法值经 normalizeDensity 归一为完整呈现；
  *  localStorage 不可用（隐私模式）静默回退完整（R-01-021/AC-06）。 */
 function readStoredDensity() {
 	try {
-		return normalizeDensity(window.localStorage.getItem(DENSITY_STORAGE_KEY)) === "compact";
+		return normalizeDensity(window.localStorage.getItem(DENSITY_STORAGE_KEY));
 	} catch {
-		return false;
+		return "full";
 	}
 }
-/** 切换时持久化卡片呈现形态；localStorage 不可用时静默跳过（R-01-021/AC-06）。 */
-function writeStoredDensity(compact) {
+/** 切换时持久化卡片显示档位；localStorage 不可用时静默跳过（R-01-021/AC-06）。 */
+function writeStoredDensity(value) {
 	try {
-		window.localStorage.setItem(DENSITY_STORAGE_KEY, compact ? "compact" : "full");
+		window.localStorage.setItem(DENSITY_STORAGE_KEY, value);
 	} catch {}
 }
 
@@ -3750,8 +3775,9 @@ function apply(ctx) {
 	let collapsed = false;
 	/** 当前桌面列宽：启动时从 localStorage 恢复，拖拽实时更新，重挂载后保留（R-01-015）。 */
 	let paneWidth = readStoredPaneWidth();
-	/** 卡片呈现形态：启动时从 localStorage 恢复，切换实时更新，重挂载后保留（R-01-021/AC-06）。 */
-	let densityCompact = readStoredDensity();
+	/** 卡片显示档位（full/medium/compact）：启动时从 localStorage 恢复，切换实时更新，
+	 *  重挂载后保留（R-01-021/AC-06）。 */
+	let densityValue = readStoredDensity();
 	/** 用户最近一次激活的卡片 id；打开重试链被更新的激活意图取代即取消。 */
 	let lastActivatedId = null;
 	/** 最近一次已处理的当前卡片；同一卡片的运行时重绘不反复打断用户手动滚动。 */
@@ -4585,21 +4611,31 @@ function apply(ctx) {
 		const onTopClick = () => {
 			scroll?.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
 		};
-		// 紧凑/完整呈现切换（R-01-021/AC-01）：形态写窗格根属性驱动纯 CSS 呈现，
-		// 持久化于 localStorage（AC-06），会话状态变化不触碰已选形态（AC-07）。
+		// 显示档位循环切换（R-01-021/AC-01）：完整→中间→紧凑→完整，形态写窗格根属性
+		// 驱动纯 CSS 呈现，持久化于 localStorage（AC-06），会话状态变化不触碰已选档位（AC-07）。
 		const densityBtn = pane.querySelector(".dap-density");
 		const applyDensity = () => {
-			pane.setAttribute("data-density", densityCompact ? "compact" : "full");
+			pane.setAttribute("data-density", densityValue);
 			if (densityBtn !== null) {
-				densityBtn.setAttribute("aria-pressed", String(densityCompact));
-				densityBtn.setAttribute("aria-label", densityCompact ? "切换为完整显示" : "切换为紧凑显示");
-				densityBtn.title = densityCompact ? "完整显示" : "紧凑显示";
+				const next = nextDensity(densityValue);
+				densityBtn.setAttribute("aria-label", `切换为${DENSITY_LABELS[next]}显示`);
+				densityBtn.title = `${DENSITY_LABELS[next]}显示`;
 			}
 		};
 		const onDensityClick = () => {
-			densityCompact = !densityCompact;
-			writeStoredDensity(densityCompact);
+			// 滚动锚定（R-01-021/AC-01）：记录切换前当前选中卡片顶部相对滚动视口的
+			// 位置，档位翻转后把 scrollTop 补偿回该相对位置，使卡片顶部在屏幕上不动。
+			const scrollEl = scroll ?? pane.querySelector(".dap-scroll");
+			const currentCard = scrollEl?.querySelector(".dap-card[data-current]") ?? null;
+			const viewportTop = scrollEl?.getBoundingClientRect().top ?? 0;
+			const anchorTop = currentCard ? currentCard.getBoundingClientRect().top - viewportTop : null;
+			densityValue = nextDensity(densityValue);
+			writeStoredDensity(densityValue);
 			applyDensity();
+			if (currentCard && scrollEl !== null) {
+				const shiftedTop = currentCard.getBoundingClientRect().top - viewportTop;
+				scrollEl.scrollTop += shiftedTop - anchorTop;
+			}
 		};
 		densityBtn?.addEventListener("click", onDensityClick);
 		applyDensity();
@@ -4655,7 +4691,7 @@ function apply(ctx) {
 						<button class="dap-recent-more" type="button" hidden>加载更多...</button>
 					</div>
 				</div>
-				<button class="dap-density" type="button" aria-label="切换为紧凑显示" title="紧凑显示" aria-pressed="false"></button>
+				<button class="dap-density" type="button" aria-label="切换为中间显示" title="中间显示"></button>
 				<button class="dap-top" type="button" aria-label="回到顶部" title="回到顶部" hidden></button>
 				<button class="dap-rail" type="button" aria-label="展开活动会话窗格">
 					<span class="dap-rail-title" aria-hidden="true">活动会话</span>

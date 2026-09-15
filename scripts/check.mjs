@@ -20,6 +20,7 @@ import {
 	cleanPreview,
 	clampPaneWidth,
 	normalizeDensity,
+	nextDensity,
 	chatLatestAssistantSettled,
 	pagedHistoryEvents,
 	delegationActive,
@@ -3303,12 +3304,17 @@ assert.equal(clampPaneWidth("abc"), 280, "非法持久化值回退默认 280px")
 assert.equal(clampPaneWidth(999), 480, "越界持久化值夹取进允许范围");
 assert.equal(clampPaneWidth(-5), 200, "负值持久化值夹取到最小 200px");
 
-// ---- R-01-021/AC-06 呈现形态持久化归一（缺失/非法回退完整显示） ----
+// ---- R-01-021/AC-06 显示档位持久化归一（缺失/非法回退完整档）与三档循环 ----
 assert.equal(normalizeDensity("compact"), "compact", "紧凑持久化值恢复为紧凑显示");
+assert.equal(normalizeDensity("medium"), "medium", "中间持久化值恢复为中间显示");
 assert.equal(normalizeDensity("full"), "full", "完整持久化值恢复为完整显示");
 assert.equal(normalizeDensity(null), "full", "无持久化记录回退完整显示");
 assert.equal(normalizeDensity(""), "full", "空串回退完整显示");
 assert.equal(normalizeDensity("abc"), "full", "非法持久化值回退完整显示");
+assert.equal(nextDensity("full"), "medium", "完整档的下一档为中间（R-01-021/AC-01）");
+assert.equal(nextDensity("medium"), "compact", "中间档的下一档为紧凑（R-01-021/AC-01）");
+assert.equal(nextDensity("compact"), "full", "紧凑档的下一档回到完整（R-01-021/AC-01）");
+assert.equal(nextDensity("junk"), "medium", "非法值经归一视作完整档再循环（R-01-021/AC-01）");
 
 // ---- 重建 client bundle 并校验产物契约 ----
 await mkdir(join(root, ".dsh-plugin"), { recursive: true });
@@ -3381,7 +3387,17 @@ assert.ok(
 	"紧凑呈现经窗格根属性驱动 CSS 隐藏次要行（R-01-021/AC-02）",
 );
 assert.ok(bundle.includes('class="dap-density"'), "紧凑显示切换按钮随窗格骨架创建（R-01-021/AC-05）");
-assert.ok(bundle.includes("writeStoredDensity(densityCompact)"), "呈现形态切换持久化于 localStorage（R-01-021/AC-06）");
+assert.ok(
+	bundle.includes('[data-dsh-activity-pane][data-density="medium"]')
+		&& bundle.includes('[data-dsh-activity-pane][data-density="compact"]'),
+	"中间/紧凑档经窗格根属性驱动 CSS 递增隐藏次要行（R-01-021/AC-02、AC-08）",
+);
+assert.ok(bundle.includes('class="dap-density"'), "显示档位切换按钮随窗格骨架创建（R-01-021/AC-05）");
+assert.ok(bundle.includes("writeStoredDensity(densityValue)"), "显示档位切换持久化于 localStorage（R-01-021/AC-06）");
+assert.ok(
+	bundle.includes('[data-dsh-activity-pane] .dap-density { top: 40px; }'),
+	"切换按钮位于窗格右上角、标题栏正下方（R-01-021/AC-05）",
+);
 // R-01-015/AC-03 折叠窄条与移动端抽屉不提供拖拽
 assert.ok(bundle.includes('[data-collapsed="true"] .dap-resize { display: none; }'), "折叠窄条不提供拖拽调宽");
 assert.ok(bundle.includes("[data-dsh-activity-pane] .dap-resize { display: none; }"), "移动端抽屉不提供拖拽调宽");
@@ -4244,8 +4260,8 @@ assert.ok(
 assert.ok(
 	bundle.includes("[data-dsh-activity-pane] .dap-top,\n[data-dsh-activity-pane] .dap-density {")
 		&& bundle.includes("[data-dsh-activity-pane] .dap-top { bottom: 12px; }")
-		&& bundle.includes("[data-dsh-activity-pane] .dap-density { bottom: 48px; }"),
-	"回到顶部与紧凑切换两枚悬浮按钮共用同规格声明（右缘对齐防双处漂移），纵向锚点分列：回到顶部右下角、切换按钮在其正上方（R-01-018/AC-01、R-01-021/AC-05）",
+		&& bundle.includes("[data-dsh-activity-pane] .dap-density { top: 40px; }"),
+	"回到顶部与紧凑切换两枚悬浮按钮共用同规格声明（右缘对齐防双处漂移），纵向锚点分列：回到顶部右下角、切换按钮右上角标题栏正下方（R-01-018/AC-01、R-01-021/AC-05）",
 );
 assert.ok(!bundle.includes(".dap-top {\n  position: absolute;\n  bottom: 12px;\n  left: 50%;"), "底部居中定位已移除");
 assert.ok(

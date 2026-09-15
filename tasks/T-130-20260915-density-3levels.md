@@ -1,0 +1,62 @@
+---
+doc-type: task
+mutation: lifecycle
+id: T-130
+---
+
+# T-130 显示档位三档化、切换锚定与按钮移位
+
+状态: active
+关联: R-01-021/AC-01～AC-08 → 窗格渲染器
+风险等级: standard
+
+## 背景与目标
+
+T-129 交付二档紧凑显示后，东家实测提出三点改进：切换时当前选中卡片会移位甚至滚出屏幕（缺锚定）；完整与紧凑之间缺少过渡档（一档信息过丰、一档过简）；切换按钮在右下角，而用户主要在活动区工作、远离鼠标轨迹。东家已确认：三档循环切换（单按钮）、中间档为「上下文档」（保留工作区徽标行、标题行、等待末行、最近卡预览行）、按钮移至右上角标题栏正下方。R-01-021 原地演进（AC-01/AC-05 改写、新增 AC-08，AC-09 锚定并入 AC-01），本次 T-130 承载。
+
+## 差距评估
+
+- `src/core.mjs`：`normalizeDensity` 为二值归一（'compact'/'full'），无三档循环函数。
+- `src/client.mjs`：`.dap-density` 位于右下 `bottom:48px`；`onDensityClick` 为二态布尔翻转，无滚动锚定；CSS 仅有 compact 档隐藏集合。
+- `scripts/check.mjs`：`normalizeDensity` 单测与 bundle 契约均为二值口径。
+- `e2e/specs/compact-density.mjs`：断言二态循环、右下位置、aria-pressed；无中间档与锚定断言。
+- `scripts/acceptance.mjs`：人工步骤为二档口径。
+
+## 收敛方案
+
+- AgentMap：PRD R-01-021 陈述与 AC 改写（三档循环、中间档内容 AC-08、按钮右上 AC-05、锚定 AC-01 内）；DESIGN 产品契约与内部结构条目重写；DOMAIN「紧凑显示」拆为「显示档位」+「紧凑显示」两词条。
+- `src/core.mjs`：`normalizeDensity` 值域扩为 'full'/'medium'/'compact'（非法回退 full）；新增 `nextDensity` 循环纯函数。
+- `src/client.mjs`：`.dap-density` 移位右上（`top:40px; right:12px`，标题栏 ~32px + 8px 间距），与 `.dap-top` 共用声明保留；`data-density` 三值驱动两段 CSS（medium 隐藏时间线/进度/统计；compact 递增隐藏 head/等待末行/预览行）；`onDensityClick` 循环切换并执行滚动锚定（记录当前卡切换前相对视口 top，翻转后补偿 `scrollTop`）；`aria-pressed` 移除，可访问名称表达目标档位。
+- 测试：check.mjs 归一三值断言与 bundle 契约更新；e2e 更新为三档循环/中间档内容/锚定/右上位置/刷新恢复；acceptance 改三档口径。
+
+## 测试计划
+
+- `pnpm build:client && pnpm check`（unit/contract 锚定 R-01-021）。
+- `pnpm test:e2e`（更新 compact-density spec 锚定 R-01-021/AC-01～AC-08）。
+- `python3 tools/agentmap_lint.py --report`；`pnpm verify` 全量门禁。
+- 独立 `code-review` skill 双轴审核；存在 finding 时由同一 reviewer 复审至通过。
+
+## 测试影响
+
+| 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |
+|---|---|---|---|---|
+| DESIGN | 改写：三档呈现（full/medium/compact）、循环切换、滚动锚定、按钮移位右上 | UNIT/E2E | update | 产品契约与内部结构条目重写为三档口径 |
+| R-01-021/AC-01 | 改写：二态切换 → 三档循环 + 当前卡顶部视口位置稳定 | E2E | update | `e2e/specs/compact-density.mjs#R-01-021/AC-01` |
+| R-01-021/AC-05 | 改写：按钮移至右上角标题栏正下方 | UNIT/E2E | update | `scripts/check.mjs#R-01-021/AC-05` + `e2e/specs/compact-density.mjs#R-01-021/AC-05` |
+| R-01-021/AC-06 | 改写：持久化值域扩为三档 | UNIT/E2E | update | `scripts/check.mjs#R-01-021/AC-06` + `e2e/specs/compact-density.mjs#R-01-021/AC-06` |
+| R-01-021/AC-08 | 新增：中间呈现内容（上下文档） | E2E | add | `e2e/specs/compact-density.mjs#R-01-021/AC-08` |
+| R-01-021/AC-02、AC-03、AC-04、AC-07 | 保持：紧凑仅标题行、着色保持、跳转、状态不解除（语义延续至三档） | E2E | update | `e2e/specs/compact-density.mjs#R-01-021/AC-02` 等既有断言沿用 |
+
+## 验证矩阵
+
+| 维度 | 适用性/理由 | 可执行证据 |
+|---|---|---|
+| 成功 | 适用：三档循环切换，中间档保留工作区/等待末行/预览行，紧凑仅标题行 | `e2e/specs/compact-density.mjs#R-01-021/AC-01`、`e2e/specs/compact-density.mjs#R-01-021/AC-08`、`src/client.mjs::applyDensity` |
+| 异常 | 适用：localStorage 缺失/非法值回退完整档；刷新恢复档位 | `scripts/check.mjs#R-01-021/AC-06`、`src/core.mjs::normalizeDensity` |
+| 边界配置 | 适用：当前卡不可得时不补偿滚动；窄条不显示按钮；紧凑/中间下跳转照常 | `e2e/specs/compact-density.mjs#R-01-021/AC-05`、`scripts/acceptance.mjs#R-01-021/AC-03`、`src/client.mjs::applyDensity` |
+| 副作用 | 适用：状态变化不解除档位；卡片复用与渲染签名不受 CSS 开关影响；卸载随骨架清理 | `e2e/specs/compact-density.mjs#R-01-021/AC-07`、`src/client.mjs::ensurePane` |
+| 兼容性 | 适用：旧持久化值（full/compact）在新值域下直接有效；非法值回退完整 | `scripts/check.mjs#R-01-021/AC-06`、`src/client.mjs::readStoredDensity` |
+
+## 终态与证据
+
+（进行中）

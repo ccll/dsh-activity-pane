@@ -140,6 +140,8 @@ export default async function compactDensity({ page, url, assert }) {
 
 	// R-01-021/AC-08：完整 → 中间，保留标题行/工作区徽标行/等待末行/消息预览行，隐藏时间线与统计。
 	await page.getByRole("button", { name: "切换为中间显示" }).click();
+	// 等渲染落地与锚定补偿执行（queueSync 经 SYNC_MIN_INTERVAL_MS 节流）。
+	await page.waitForTimeout(300);
 	await untilDensity(page, "medium", "切换后进入中间呈现");
 	const anchorAfter = await currentCardAnchor(page);
 	assert.ok(
@@ -150,7 +152,12 @@ export default async function compactDensity({ page, url, assert }) {
 	assert.equal(mediumActive?.titleRow, true, "中间下完成提醒卡标题行保留（R-01-021/AC-08）");
 	assert.equal(mediumActive?.head, true, "中间下工作区徽标行保留（R-01-021/AC-08）");
 	assert.equal(mediumActive?.foot, true, "中间下等待胶囊与正文行保留（R-01-021/AC-08）");
-	assert.equal(mediumActive?.trace, false, "中间下时间线隐藏（R-01-021/AC-08）");
+	assert.equal(mediumActive?.trace, true, "中间下时间线保留（R-01-021/AC-08）");
+	const mediumTraceLines = await page.evaluate((sel) => {
+		const card = document.querySelector(`[data-dsh-activity-pane] ${sel}`);
+		return card ? card.querySelectorAll(".dap-trace .dap-trace-item").length : -1;
+	}, DONE_CARD);
+	assert.equal(mediumTraceLines, 1, "中间档每卡时间线恰 1 行——时间线最新一行（R-01-021/AC-08）");
 	const mediumRecent = await cardRowState(page, RECENT_CARD);
 	assert.equal(mediumRecent?.head, true, "中间下最近卡工作区徽标行保留（R-01-021/AC-08）");
 	assert.equal(mediumRecent?.historyLine, true, "中间下最近卡消息预览行保留（R-01-021/AC-08）");

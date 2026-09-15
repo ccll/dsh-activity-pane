@@ -196,12 +196,11 @@ const CSS = `
   background: #262932;
 }
 /* 卡片显示档位（R-01-021）：中间档保留标题行、工作区徽标行、等待末行与最近卡
-   消息预览行、隐藏时间线/进度/统计（AC-08）；紧凑档在中间档基础上再隐藏工作区
-   徽标行、等待末行与消息预览行，仅保留标题行（AC-02）——纯呈现层开关，卡片 DOM
-   复用、渲染签名与激活跳转不感知档位（R-01-021/AC-04）。 */
+   消息预览行、经渲染层 lastOnly 单行渲染时间线（仅最新一行，AC-08）；紧凑档在
+   中间档基础上再隐藏工作区徽标行、时间线末行、等待末行与消息预览行，仅保留
+   标题行（AC-02）——激活跳转逻辑不感知档位，渲染签名含显示档位分量（档位切换
+   经 queueSync 触发一轮重渲染）（R-01-021/AC-04）。 */
 [data-dsh-activity-pane][data-density="medium"] .dap-card :is(
-    .dap-trace,
-    .dap-subtrace,
     .dap-progress,
     .dap-token-stats
   ) {
@@ -1171,6 +1170,9 @@ function apply(ctx) {
 	/** 卡片显示档位（full/medium/compact）：启动时从 localStorage 恢复，切换实时更新，
 	 *  重挂载后保留（R-01-021/AC-06）。 */
 	let densityLevel = readStoredDensity();
+	/** 待执行的锚定补偿：档位切换时登记当前选中卡片顶部的视口相对位置，本轮渲染
+	 *  提交后量测该卡新位置并补偿 scrollTop（R-01-021/AC-01）。 */
+	let pendingDensityAnchor = null;
 	/** 用户最近一次激活的卡片 id；打开重试链被更新的激活意图取代即取消。 */
 	let lastActivatedId = null;
 	/** 最近一次已处理的当前卡片；同一卡片的运行时重绘不反复打断用户手动滚动。 */
@@ -2025,10 +2027,11 @@ function apply(ctx) {
 			densityLevel = nextDensity(densityLevel);
 			writeStoredDensity(densityLevel);
 			applyDensity();
-			if (currentCard && scrollEl !== null) {
-				const shiftedTop = currentCard.getBoundingClientRect().top - viewportTop;
-				scrollEl.scrollTop += shiftedTop - anchorTop;
-			}
+			// 档位已纳入渲染签名：触发一轮同步让时间线按新档位以 lastOnly 重建；
+			// 锚定补偿在本轮渲染提交后执行，此时量测才含新行高
+			//（R-01-021/AC-01、AC-08）。
+			pendingDensityAnchor = currentCard && anchorTop !== null ? anchorTop : null;
+			queueSync();
 		};
 		densityBtn?.addEventListener("click", onDensityClick);
 		applyDensity();
@@ -2788,7 +2791,7 @@ function apply(ctx) {
 		if (entry.kind === "running") {
 			renderProgressRow(el, entry.progress);
 			const traceContainer = el.querySelector(".dap-trace");
-			if (traceContainer !== null) renderTimelineArea(traceContainer, entry);
+			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, { lastOnly: densityLevel === "medium" });
 			renderTokenStats(el, entry);
 			return;
 		}
@@ -2832,7 +2835,7 @@ function apply(ctx) {
 
 		if (entry.kind === "awaiting") {
 			const traceContainer = el.querySelector(".dap-trace");
-			if (traceContainer !== null) renderTimelineArea(traceContainer, entry);
+			if (traceContainer !== null) renderTimelineArea(traceContainer, entry, { lastOnly: densityLevel === "medium" });
 			removeAwaitingHeadDuration(el);
 			renderTokenStats(el, entry);
 			const confirm = el.querySelector(".dap-confirm");
@@ -3704,7 +3707,7 @@ function apply(ctx) {
 		// 进入渲染，以便与当前可见等待卡末行重新对相（R-01-002/AC-07）。
 		// 历史卡的相对活动时间随分钟级时钟变化，纳入签名后只在文案实际变化时重绘。
 		const recentTimeSignature = recent.map((entry) => fmtRecentTime(entry.activityAt));
-		const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature]);
+		const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature, densityLevel]);
 		if (sig === lastSig) return;
 		const colorByWorkspace = resolveWorkspaceColors(visibleEntries.map((entry) => entry.workspaceKey));
 		// 跨区迁移（双向，R-01-010/AC-07）：DOM 写入前量取旧卡矩形并克隆 ghost。
@@ -3850,6 +3853,21 @@ function apply(ctx) {
 			pulseSignature = nextPulseSignature;
 			prevRenderedActiveIds = new Set(active.map((entry) => String(entry.id)));
 			prevRenderedRecentIds = new Set(recent.map((entry) => String(entry.id)));
+		}
+		// 锚定补偿（R-01-021/AC-01）：档位切换的渲染落地后量测当前选中卡的新位置并
+		// 补偿 scrollTop，使当前卡顶部回到切换前相对视口的位置；补偿量超滚动边界时
+		// 由浏览器钳制（以当前卡不滚出可视范围为准）。
+		if (pendingDensityAnchor !== null) {
+			const scrollEl = pane.querySelector(".dap-scroll");
+			// 补偿按当前 DOM 的 data-current 卡实时定位：跨区迁移等渲染可能重建卡片
+			// 元素，不持有旧引用（量测恒为 attached 节点）。
+			const currentCard = scrollEl?.querySelector(".dap-card[data-current]") ?? null;
+			if (scrollEl !== null && currentCard !== null) {
+				const viewportTop = scrollEl.getBoundingClientRect().top;
+				const shiftedTop = currentCard.getBoundingClientRect().top - viewportTop;
+				scrollEl.scrollTop += shiftedTop - pendingDensityAnchor;
+			}
+			pendingDensityAnchor = null;
 		}
 	}
 

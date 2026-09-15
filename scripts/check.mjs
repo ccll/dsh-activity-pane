@@ -3404,8 +3404,8 @@ assert.ok(bundle.includes("notifyLayoutChange"), "布局变化通知 sibling ove
 assert.ok(bundle.includes('window.dispatchEvent(new Event("resize"))'), "布局变化派发标准 resize 通知");
 assert.ok(bundle.includes("pane !== renderedPane"), "新窗格实例必须重置渲染签名");
 assert.ok(
-	clientSource.includes("const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature]);"),
-	"列表 phase 与历史时间文案必须参与结构化渲染签名，空列表不得冻结在加载/失败状态（T-087）",
+	clientSource.includes("const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature, densityLevel]);"),
+	"列表 phase、历史时间文案与显示档位必须参与结构化渲染签名，空列表不得冻结在加载/失败状态（T-087），档位切换触发时间线按新档位重建（R-01-021/AC-08）",
 );
 assert.ok(
 	clientSource.includes("scroll?.querySelector?.(`.${LIST_CLASS} .${CARD_CLASS}[data-current]`)") &&

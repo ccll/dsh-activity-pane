@@ -30,7 +30,7 @@ owner: agent 主笔，项目属主审批
 | 状态与生命周期 | 适用：完成确认有明确生命周期（回合结束登记 → 保持 → 显式确认或新回合隐式更替解除），其余状态一律来自宿主快照 | DESIGN.md#核心数据与不变量 |
 | 运行时、并发与失败语义 | 适用：渲染去重、打开重试与卸载清理有明确语义 | DESIGN.md#运行时、并发与失败语义 |
 | 外部集成 | 适用：宿主侧集成（session/event 事件、webServer 路由、storageDomain 持久化）| DESIGN.md#完成确认宿主侧 |
-| 配置与可变点 | 适用：桌面列宽为用户可调（右缘拖拽 200–480px，localStorage 持久化）；移动断点仍为代码常量 | DESIGN.md#边界与对外契约 |
+| 配置与可变点 | 适用：桌面列宽为用户可调（右缘拖拽 200–480px，localStorage 持久化）；卡片呈现形态（紧凑/完整）为用户可切换并持久化；移动断点仍为代码常量 | DESIGN.md#边界与对外契约 |
 | 安全与信任边界 | 不适用：只读宿主快照，不处理敏感数据、不引入外部资源 | — |
 | 部署、迁移与恢复 | 不适用：随宿主 web 打包分发，无独立部署/迁移语义 | — |
 | 兼容性与版本演进 | 不适用：新项目无既有兼容契约，依赖外壳稳定槽座 | — |
@@ -242,6 +242,7 @@ flowchart LR
 | R-01-018 | 窗格渲染器 | 回到顶部悬浮按钮 | src/client.mjs |
 | R-01-019 | 窗格渲染器 | 历史分页与手动追加 | src/client.mjs |
 | R-01-020 | 回合统计宿主侧 | 累计运行时长记账、懒回填与标题行呈现 | src/host.mjs、src/core.mjs、src/client.mjs |
+| R-01-021 | 窗格渲染器 | 卡片紧凑呈现悬浮切换与持久化 | src/core.mjs、src/client.mjs |
 ## 产品契约
 
 - 活动卡片集合：`活动状态模型#buildEntries(snapshot, workspaceItems, detailsById, completions, delegatingIds)` 产出已排序的活动卡片条目数组（R-01-001）；`completions` 入参（Map id → `{ lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }`，来自宿主侧 ack 状态）使完成提醒/错误提醒中会话以 awaiting 条目保留在活动区（R-01-002/AC-05、AC-13、R-01-010/AC-06）。
@@ -276,6 +277,8 @@ flowchart LR
 - 迁移动画：渲染器比较相邻两帧派生的活动区/历史区 id 集合，id 由活动区消失且出现于历史区（或反向由历史区消失且出现于活动区）即判定一次迁移（id 彻底消失不播放）；动画以旧卡克隆 ghost 经 FLIP 平移并形变至目标区卡片矩形、到位后淡出，真卡同步淡入，`transitionend` 移除 ghost，时长约 300ms，多次迁移各自独立播放；同一渲染帧内位置受影响的其它卡片（含历史区段头）经 FLIP 反向位移后过渡到新位置，与 ghost 同向同步；`prefers-reduced-motion` 或目标矩形不可量取时降级为直接落位（R-01-010/AC-07、AC-10）。
 - 层级结构：子代理经 `parentId` 关联并以 `depth` 表达缩进；子代理标题优先取目录 label，其次显示标题；渲染层在缩进槽内绘制母会话到直属子代理的层级连接线（R-01-003/AC-01、AC-04）。
 - 工作区徽标着色：渲染层先以 `活动状态模型#resolveWorkspaceColors` 对当帧可见条目的身份集合做 12 个前景槽位与背景变体分配，再把前景槽位的 hue/L/C 及背景变体的主题 L/C/混合强度写入徽标元素 `--dap-workspace-hue`、`--dap-workspace-dark-l`、`--dap-workspace-dark-c`、`--dap-workspace-light-l`、`--dap-workspace-light-c`、`--dap-workspace-bg-dark-l`、`--dap-workspace-bg-dark-c`、`--dap-workspace-bg-dark-mix`、`--dap-workspace-bg-dark-border-mix`、`--dap-workspace-bg-light-l`、`--dap-workspace-bg-light-c`、`--dap-workspace-bg-light-mix`、`--dap-workspace-bg-light-border-mix`（无归属时徽标隐藏、不写入；映射是条目身份序列的纯函数，稳定签名已含 workspaceKey，无需额外签名分量）；CSS 以 `oklch(var(--dap-workspace-*-l) var(--dap-workspace-*-c) var(--dap-workspace-hue))` 为文字与背景源色，文字直接使用前景调色板色、不再混入 currentColor，底色使用独立背景变体、描边使用前景调色板色，并以 `color-mix(in oklch, …, transparent)` 保持同色相族层次。主槽位深/浅主题 L/C 为 `0.78/0.16`、`0.48/0.15`，补充槽位为 `0.64/0.15`、`0.36/0.15`；背景变体按前景槽位提供 3 档深/浅主题 L/C 与混合强度；胶囊几何（圆角、padding、行高）与名称字号下限不变（R-01-003/AC-08～AC-12）。
+- 窗口形态：桌面为左栏旁贴边列，可经「活动会话」标题行整体折叠为窄条（窄条竖排标题 + 计数，整条可点展开）；移动端（≤767px）为固定抽屉 + 左上角浮动开关（文案「活动」，抽屉打开时隐藏）（R-01-007、R-01-008、R-01-011）。桌面列宽可经右缘手柄拖拽在 200–480px 内调整，拖拽实时生效并令主会话弹性让位，结果存 localStorage 于启动时恢复（R-01-015）。
+- 卡片紧凑呈现：`窗格渲染器` 以窗格根属性 `data-density="compact"` 承载紧凑形态，经一组 CSS 规则对活动区与历史区全部卡片隐藏标题行以外的显示行（工作区徽标行、工作项时间线、进度行、token 统计行、等待类型胶囊与正文行、最近卡消息预览行与「移入历史」按钮），仅保留标题行；卡片的 `data-wait` 类别底色与状态点着色由既有属性驱动、在紧凑呈现下保持，卡片的 DOM 复用、渲染签名与激活跳转逻辑不感知形态切换（纯 CSS 呈现开关，R-02-003 渲染签名无新增分量）。等待卡末行隐藏期间 R-01-002 的胶囊/正文脉冲暂不呈现，恢复完整呈现后随既有渲染自然恢复。切换按钮 `.dap-density` 与 `.dap-top` 同规格（圆形、不透明底色、hover/focus-visible 高亮、可访问名称），常显于其正上方（`right:12px`、`bottom` 取「回到顶部」按钮位上移固定间距），窄条态经 CSS 隐藏、移动端抽屉内同样提供；激活在紧凑/完整间翻转并同步 `aria-pressed` 与可访问名称，形态存 localStorage（键 `dsh-activity-pane.density`，缺失/非法值经 `normalizeDensity` 回退完整呈现）于启动时恢复；会话状态变化不解除已选形态（R-01-021）。
 - 窗口形态：桌面为左栏旁贴边列，可经「活动会话」标题行整体折叠为窄条（窄条竖排标题 + 计数，整条可点展开）；移动端（≤767px）为固定抽屉 + 左上角浮动开关（文案「活动」，抽屉打开时隐藏）（R-01-007、R-01-008、R-01-011）。桌面列宽可经右缘手柄拖拽在 200–480px 内调整，拖拽实时生效并令主会话弹性让位，结果存 localStorage 于启动时恢复（R-01-015）。
 - 交互面：点击或 Enter/Space 激活卡片 → 切换会话；当前会话卡片高亮。原生左侧栏切换当前会话后，若对应卡片已呈现但未完整可见，渲染器通过原生 `scrollTo({ top, behavior: "smooth" })` 只调整 `.dap-scroll.scrollTop` 的最小必要距离，使其快速平滑地完整可见；命中降低动效偏好时传入 `auto`，不居中且不影响主会话滚动；`scrollTo` 不可用或调用失败时回退同步定位（R-01-005、R-01-006/AC-01～AC-02）。
 - 折叠时间线：`活动状态模型#foldedConversationTimeline(snapshot, limit, cwd, descendantActive, idle, fallbackAnchor)` 是渲染层时间线的唯一来源（无条件折叠，不做任何探测切换）：先按指数扩窗收集尾部原始工作项并合并 live 项，live partial/running call 以内部标记穿透 `#foldWorkGroups`，再经分组派生组标题、摘要与状态；用户输入项与含正文的 assistant 项为硬边界，连续 context 单独成组，状态聚合 running > error > stopped > done。窗口选择由 `selectTimelineRows` 单点完成（C-039）：可锚用户行（非空文本用户输入行）作为普通显示行参与尾部窗口滚动；滚动至显示第一行时停留为首行指令锚行并占一个名额（满窗几何为其后有 limit-1 个显示行；时间线不足一窗时自然窗口首行的可锚用户行直接停留），其后为最近 limit-1 个工作显示行；已存在停留锚行且更近的可锚用户行滚动至显示第二行时，该行取代旧锚行升上首行，其后各行上移、总行数暂减一；窗口内不存在可锚用户行或停留锚行已滚出快照尾窗时，以 `fallbackAnchor`（history 提取的最近用户消息）充当停留锚行。工作行选取优先保留最新真实当前活动行作为末行，再以最新历史工作行填满剩余名额；无真实当前活动行时才按 R-01-009/AC-10 提升尾部；空文本用户输入行不参与停留与取代。总行数不超过 limit，锚行存在时工作行预算为 limit-1。history 锚行在调用核心派生前作为 `fallbackAnchor` 输入，渲染层不得在派生完成后再次裁剪；冷 history 时间线经同一 `#foldWorkGroups` 与窗口选择但不做运行提升。该派生不依赖 dsh-auto-collapse 存在，分组语义改编自 dsh-auto-collapse@0.1.3 `src/fold.ts`（C-016）（R-01-009/AC-10、AC-11，R-01-012/AC-12～AC-15，R-01-017，C-035、C-039）。
@@ -334,7 +337,7 @@ flowchart LR
 
 ### 窗格渲染器
 - 职责:
-  - 窗格结构与交互：挂载窗格、双区绘制、历史分页与手动追加、独立滚动、回到顶部悬浮按钮、卡片激活跳转、桌面折叠、移动端抽屉、真实布局参与（实现 R-01-004、R-01-005、R-01-006、R-01-007、R-01-008、R-01-011、R-01-018、R-01-019、R-01-020）
+  - 窗格结构与交互：挂载窗格、双区绘制、历史分页与手动追加、独立滚动、回到顶部悬浮按钮、卡片紧凑呈现切换、卡片激活跳转、桌面折叠、移动端抽屉、真实布局参与（实现 R-01-004、R-01-005、R-01-006、R-01-007、R-01-008、R-01-011、R-01-018、R-01-019、R-01-020、R-01-021）
   - 内容呈现与加载：轮内状态订阅生命周期、加载状态模型与渐进呈现、历史卡片可见页详情加载、重挂载自愈（实现 R-01-009、R-01-010、R-01-012、R-01-013、R-01-014、R-01-016、R-01-019、R-02-002、R-02-004）
   - 桌面调宽：右缘拖拽手柄实时调宽、范围夹取与 localStorage 持久化（实现 R-01-015）
 - 关键内部结构:
@@ -358,6 +361,7 @@ flowchart LR
   - 抽屉开合状态经 `togglePane` 单点写入，同步 `data-open`、透明遮罩显隐与浮动开关显隐（抽屉打开时开关隐藏、关闭恢复，R-01-008/AC-05）；遮罩为 `position:fixed` 透明层（z-index 介于主会话与抽屉之间），点击经 `bindBackdropDismiss` 收起抽屉；触摸轻点经浏览器 tap→click 合成事件覆盖（与 ×/卡片交互一致，仅绑 click，不额外绑 touch 事件避免双触发与滑动误收起）；桌面断点外由媒体查询直接隐藏，无需 JS 断点监听（R-01-008/AC-03）。抽屉打开且处于移动断点时，激活当前会话对应的卡片（click 与 Enter/Space 同路径）经 `shouldDismissDrawerOnActivation` 纯函数判定转为 `togglePane(false)` 收起抽屉直达会话，不发起会话切换；分流前先按最新激活意图取消过期打开重试链（R-01-005），桌面断点、抽屉未打开或激活非当前卡片时维持既有切换行为（R-01-008/AC-06）。
   - 每张 card 在创建时注册自身的 `click` / `keydown` handler，直接读取当前 card 的 `data-session-id`；外部菜单与 pane 空白不进入卡片处理，配列表就绪重试。
   - 回到顶部悬浮按钮：`.dap-top` 为窗格内 `position:absolute` 的圆形图标按钮（右下角 `bottom:12px; right:12px`，纯向上箭头图标无文字、`aria-label` 提供可访问名称，不透明底色——深色纯色 `#1d1f25`、浅色经外壳 layer-2 别名覆盖），随窗格骨架创建、默认 `hidden`；滚动监听在 `scrollTop` 超过阈值 `TOP_THRESHOLD`（200px）时显示、回到阈值内隐藏；激活时 `scrollTo({ top: 0 })`，`prefersReducedMotion()` 命中用 `auto` 直接定位、否则 `smooth` 平滑滚动，滚动回顶经同一滚动监听自然收口隐藏；桌面折叠窄条态经 CSS 隐藏，移动端抽屉形态同样适用（抽屉即同一窗格）；监听随 `bindPaneControls` 的 unbind 清理，按钮随窗格骨架移除（R-01-018、R-02-003）。
+  - 卡片紧凑呈现切换：`.dap-density` 为窗格内 `position:absolute` 的圆形图标按钮，常显于「回到顶部」按钮正上方（`right:12px`、`bottom:48px` 即回到顶部 `bottom:12px` + 28px 高度 + 8px 间距），规格与 `.dap-top` 一致（纯图标无文字、`aria-label` 可访问名称、不透明底色、hover/focus 高亮），另有 `aria-pressed` 表达按下态；激活时翻转窗格根 `data-density="compact"` 属性，紧凑态经 CSS 隐藏卡片的 `.dap-card-head`、时间线与轨迹、进度行、统计行、等待末行（`.dap-await-head`/`.dap-note-row`）与最近卡消息预览行，仅保留标题行——纯呈现层开关，卡片 DOM 复用、渲染签名与激活跳转逻辑不感知形态（R-01-021/AC-01、AC-02、AC-04）；形态经 `normalizeDensity` 归一后存 localStorage，启动恢复，会话状态变化不翻转已选形态；桌面折叠窄条态经 CSS 隐藏，移动端抽屉形态同样适用；按钮随窗格骨架创建与移除（R-01-021、R-02-003）。
 - 代码位置: src/client.mjs
 - 实现: 单端（浏览器 client bundle）
 

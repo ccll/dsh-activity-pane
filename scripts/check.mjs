@@ -19,6 +19,7 @@ import {
 	cardSignature,
 	cleanPreview,
 	clampPaneWidth,
+	normalizeDensity,
 	chatLatestAssistantSettled,
 	pagedHistoryEvents,
 	delegationActive,
@@ -3302,6 +3303,13 @@ assert.equal(clampPaneWidth("abc"), 280, "非法持久化值回退默认 280px")
 assert.equal(clampPaneWidth(999), 480, "越界持久化值夹取进允许范围");
 assert.equal(clampPaneWidth(-5), 200, "负值持久化值夹取到最小 200px");
 
+// ---- R-01-021/AC-06 呈现形态持久化归一（缺失/非法回退完整显示） ----
+assert.equal(normalizeDensity("compact"), "compact", "紧凑持久化值恢复为紧凑显示");
+assert.equal(normalizeDensity("full"), "full", "完整持久化值恢复为完整显示");
+assert.equal(normalizeDensity(null), "full", "无持久化记录回退完整显示");
+assert.equal(normalizeDensity(""), "full", "空串回退完整显示");
+assert.equal(normalizeDensity("abc"), "full", "非法持久化值回退完整显示");
+
 // ---- 重建 client bundle 并校验产物契约 ----
 await mkdir(join(root, ".dsh-plugin"), { recursive: true });
 execFileSync(process.execPath, [join(root, "scripts/build-client.mjs")], {
@@ -3368,6 +3376,12 @@ assert.ok(bundle.includes("resize.setPointerCapture(event.pointerId)"), "拖拽�
 assert.ok(bundle.includes("resizeNotifyHandle = requestAnimationFrame("), "拖拽期间经 rAF 合帧派发 resize 通知（overlay 实时跟随）");
 // R-01-015/AC-02 拖拽目标宽度经夹取
 assert.ok(bundle.includes("clampPaneWidth(startWidth + move.clientX - startX)"), "拖拽目标宽度经 clampPaneWidth 夹取 200–480px");
+assert.ok(
+	bundle.includes('[data-dsh-activity-pane][data-density="compact"]'),
+	"紧凑呈现经窗格根属性驱动 CSS 隐藏次要行（R-01-021/AC-02）",
+);
+assert.ok(bundle.includes('class="dap-density"'), "紧凑显示切换按钮随窗格骨架创建（R-01-021/AC-05）");
+assert.ok(bundle.includes("writeStoredDensity(densityCompact)"), "呈现形态切换持久化于 localStorage（R-01-021/AC-06）");
 // R-01-015/AC-03 折叠窄条与移动端抽屉不提供拖拽
 assert.ok(bundle.includes('[data-collapsed="true"] .dap-resize { display: none; }'), "折叠窄条不提供拖拽调宽");
 assert.ok(bundle.includes("[data-dsh-activity-pane] .dap-resize { display: none; }"), "移动端抽屉不提供拖拽调宽");
@@ -3872,13 +3886,13 @@ assert.ok(bundle.includes(".dap-fill { transition: none; }"), "降低动效设�
 // 会话运行全程（含工具/思考阶段与委托周期母会话）持续向右滚动，不再经流式阶段门控。
 // T-128 起载体与滚动动画分离：fill 只保留宽度/裁切，渐变与滚动由 ::after 承载。
 assert.ok(
-	bundle.includes(".dap-fill::after") && bundle.includes("repeating-linear-gradient(90deg, #58c98f 0 20px, #3fbf86 20px 40px)"),
+	bundle.includes(".dap-fill::after") && bundle.includes("repeating-linear-gradient(90deg, #58c98f 0 10px, #3fbf86 10px 20px)"),
 	"进度条条带载体携带条纹渐变，运行全程呈现（R-01-009/AC-08、T-128）",
 );
 assert.ok(bundle.includes("animation: dap-stripes 0.8s linear infinite;"), "进度条条纹持续向右滚动动画（R-01-009/AC-08）");
 assert.ok(
-	bundle.includes("transform: translateX(-40px)") && bundle.includes("calc(100% + 40px)"),
-	"条纹滚动由合成器驱动的 transform 载体平移承载，不经 background-position 逐帧重绘（T-128）",
+	bundle.includes("from { transform: translateX(-40px); }") && bundle.includes("to { transform: translateX(0); }"),
+	"条纹滚动由合成器驱动的 transform 载体承载，负向起步正向右滚（R-01-009/AC-08、T-128）",
 );
 assert.ok(!bundle.includes("background-position: 40px"), "background-position 滚动机制无残留（T-128）");
 assert.ok(!bundle.includes("data-streaming"), "条纹不再经 data-streaming 流式门控（R-01-009/AC-08）");

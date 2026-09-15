@@ -130,6 +130,14 @@ function clampPaneWidth(raw) {
 	return Math.min(PANE_WIDTH_MAX, Math.max(PANE_WIDTH_MIN, Math.round(value)));
 }
 
+/**
+ * 把任意输入（localStorage 字符串等）归一为合法卡片呈现形态：
+ * 仅字符串 'compact' 为紧凑显示，其余（含缺失/非法值）回退完整显示（R-01-021/AC-06）。
+ */
+function normalizeDensity(raw) {
+	return raw === "compact" ? "compact" : "full";
+}
+
 function isRecord(value) {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -2614,6 +2622,8 @@ const STYLE_ID = "dsh-activity-pane-style";
 const INSTANCE_KEY = "__dshActivityPaneCleanup";
 /** 拖拽调宽的 localStorage 持久化键（R-01-015/AC-04）。 */
 const WIDTH_STORAGE_KEY = "dsh-activity-pane:width";
+/** 卡片紧凑显示的 localStorage 持久化键（R-01-021/AC-06）。 */
+const DENSITY_STORAGE_KEY = "dsh-activity-pane:density";
 const COLLAPSED_WIDTH = 34;
 /** 宿主侧完成确认 API 前缀（C-030）：acks 快照 / SSE 推送 / ack 写回，同源受信。 */
 const PANE_API_BASE = "/dsh-activity-pane/api";
@@ -2771,6 +2781,43 @@ const CSS = `
 [data-dsh-activity-pane] .dap-top:focus-visible {
   background: #262932;
 }
+/* 卡片紧凑显示切换按钮（R-01-021/AC-05）：与「回到顶部」同规格的常显悬浮按钮，
+   位于其正上方（bottom = 回到顶部 12px + 按钮高 28px + 间距 8px）。 */
+[data-dsh-activity-pane] .dap-density {
+  position: absolute;
+  bottom: 48px;
+  right: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: #1d1f25;
+  color: inherit;
+  cursor: pointer;
+}
+[data-dsh-activity-pane] .dap-density:hover,
+[data-dsh-activity-pane] .dap-density:focus-visible {
+  background: #262932;
+}
+/* 紧凑呈现（R-01-021/AC-02）：每卡仅保留标题行，其余行整体隐藏——纯呈现层
+   开关，卡片 DOM 复用、渲染签名与激活跳转不感知形态（R-01-021/AC-04）。 */
+[data-dsh-activity-pane][data-density="compact"] .dap-card :is(
+    .dap-card-head,
+    .dap-trace,
+    .dap-subtrace,
+    .dap-progress,
+    .dap-token-stats,
+    .dap-foot,
+    .dap-history-line,
+    .dap-note
+  ) {
+  display: none;
+}
 [data-dsh-activity-pane] .dap-list {
   display: flex;
   flex-direction: column;
@@ -2881,6 +2928,7 @@ const CSS = `
   [data-dsh-activity-pane][data-collapsed="true"] .dap-scroll { display: none; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-resize { display: none; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-top { display: none; }
+  [data-dsh-activity-pane][data-collapsed="true"] .dap-density { display: none; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-rail { display: flex; cursor: pointer; }
   /* 与展开态标题行对等的可点反馈（R-01-011/AC-04）：悬停/聚焦高亮。 */
   [data-dsh-activity-pane][data-collapsed="true"] .dap-rail:hover,
@@ -3347,14 +3395,15 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   inset: 0 auto 0 0;
   /* 覆盖 fill 宽度 + 一次位移量：平移全程右缘不落后于 fill 右缘，无缝循环。 */
   width: calc(100% + 40px);
-  /* 周期 40px（色带 20px）与原 background-size:200% 拉伸后的观感等价，
-     translateX(-40px) 恰为一个周期，速度 40px/0.8s 与原实现一致。 */
-  background: repeating-linear-gradient(90deg, #58c98f 0 20px, #3fbf86 20px 40px);
+  /* 周期 20px（色带 10px）与原 background-position 实现一致——px 色标不受
+     background-size 拉伸（T-128 双轴实测）；translateX(-40px) �为 2 个周期，
+     无缝且速度 40px/0.8s 与原实现一致。 */
+  background: repeating-linear-gradient(90deg, #58c98f 0 10px, #3fbf86 10px 20px);
   animation: dap-stripes 0.8s linear infinite;
 }
 @keyframes dap-stripes {
-  from { transform: translateX(0); }
-  to { transform: translateX(-40px); }
+  from { transform: translateX(-40px); }
+  to { transform: translateX(0); }
 }
 @media (prefers-reduced-motion: reduce) {
   /* answer-pet 保留状态脉冲/进度条纹；仅关闭宽度过渡，避免状态反馈消失。 */
@@ -3571,6 +3620,14 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top:hover,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top:focus-visible {
   background: var(--dsw-alias-bg-layer-3, #eceef1);
 }
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density {
+  background: var(--dsw-alias-bg-layer-2, #ffffff);
+  border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density:hover,
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density:focus-visible {
+  background: var(--dsw-alias-bg-layer-3, #eceef1);
+}
 `;
 
 function getSnapshot(service, key) {
@@ -3644,6 +3701,22 @@ function writeStoredPaneWidth(width) {
 	} catch {}
 }
 
+/** 读取持久化卡片呈现形态：缺失/非法值经 normalizeDensity 归一为完整显示；
+ *  localStorage 不可用（隐私模式）静默回退完整（R-01-021/AC-06）。 */
+function readStoredDensity() {
+	try {
+		return normalizeDensity(window.localStorage.getItem(DENSITY_STORAGE_KEY)) === "compact";
+	} catch {
+		return false;
+	}
+}
+/** 切换时持久化卡片呈现形态；localStorage 不可用时静默跳过（R-01-021/AC-06）。 */
+function writeStoredDensity(compact) {
+	try {
+		window.localStorage.setItem(DENSITY_STORAGE_KEY, compact ? "compact" : "full");
+	} catch {}
+}
+
 function apply(ctx) {
 	const previousCleanup = document[INSTANCE_KEY] ?? globalThis[INSTANCE_KEY];
 	if (typeof previousCleanup === "function") previousCleanup();
@@ -3699,6 +3772,8 @@ function apply(ctx) {
 	let collapsed = false;
 	/** 当前桌面列宽：启动时从 localStorage 恢复，拖拽实时更新，重挂载后保留（R-01-015）。 */
 	let paneWidth = readStoredPaneWidth();
+	/** 卡片呈现形态：启动时从 localStorage 恢复，切换实时更新，重挂载后保留（R-01-021/AC-06）。 */
+	let densityCompact = readStoredDensity();
 	/** 用户最近一次激活的卡片 id；打开重试链被更新的激活意图取代即取消。 */
 	let lastActivatedId = null;
 	/** 最近一次已处理的当前卡片；同一卡片的运行时重绘不反复打断用户手动滚动。 */
@@ -4532,6 +4607,24 @@ function apply(ctx) {
 		const onTopClick = () => {
 			scroll?.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
 		};
+		// 紧凑/完整呈现切换（R-01-021/AC-01）：形态写窗格根属性驱动纯 CSS 呈现，
+		// 持久化于 localStorage（AC-06），会话状态变化不触碰已选形态（AC-07）。
+		const densityBtn = pane.querySelector(".dap-density");
+		const applyDensity = () => {
+			pane.setAttribute("data-density", densityCompact ? "compact" : "full");
+			if (densityBtn !== null) {
+				densityBtn.setAttribute("aria-pressed", String(densityCompact));
+				densityBtn.setAttribute("aria-label", densityCompact ? "切换为完整显示" : "切换为紧凑显示");
+				densityBtn.title = densityCompact ? "完整显示" : "紧凑显示";
+			}
+		};
+		const onDensityClick = () => {
+			densityCompact = !densityCompact;
+			writeStoredDensity(densityCompact);
+			applyDensity();
+		};
+		densityBtn?.addEventListener("click", onDensityClick);
+		applyDensity();
 		header?.addEventListener("click", onHeaderActivate);
 		header?.addEventListener("keydown", onHeaderKeydown);
 		rail?.addEventListener("click", onRailClick);
@@ -4552,6 +4645,7 @@ function apply(ctx) {
 			recentMore?.removeEventListener("click", onRecentMoreClick);
 			if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);
 			topBtn?.removeEventListener("click", onTopClick);
+			densityBtn?.removeEventListener("click", onDensityClick);
 			resize?.removeEventListener("pointerdown", onResizeDown);
 		};
 	}
@@ -4583,6 +4677,7 @@ function apply(ctx) {
 						<button class="dap-recent-more" type="button" hidden>加载更多...</button>
 					</div>
 				</div>
+				<button class="dap-density" type="button" aria-label="切换为紧凑显示" title="紧凑显示" aria-pressed="false"></button>
 				<button class="dap-top" type="button" aria-label="回到顶部" title="回到顶部" hidden></button>
 				<button class="dap-rail" type="button" aria-label="展开活动会话窗格">
 					<span class="dap-rail-title" aria-hidden="true">活动会话</span>
@@ -4593,6 +4688,9 @@ function apply(ctx) {
 			pane.style.setProperty("--dap-width", `${paneWidth}px`);
 			// 「回到顶部」按钮为纯图标呈现（R-01-018/AC-05）：骨架无文字，图标在创建时注入。
 			pane.querySelector(".dap-top").append(createTopIcon());
+			// 紧凑显示切换按钮同为纯图标呈现（R-01-021/AC-05）；切换时以 data-density
+			// 驱动纯 CSS 呈现，骨架重建后由 bindPaneControls 的 applyDensity 恢复形态。
+			pane.querySelector(".dap-density").append(createDensityIcon());
 		}
 		if (pane !== boundPane) {
 			unbindPaneControls?.();
@@ -4761,6 +4859,22 @@ function apply(ctx) {
 			parts: [
 				{ attrs: { d: "M7 12.5V2", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
 				{ attrs: { d: "m2.5 6.5 4.5-4.5 4.5 4.5", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
+			],
+		});
+	}
+
+	/** 紧凑显示切换按钮的「多行收拢为单行」密度图标：上下两个指向中线的箭头夹一条
+	 *  标题行横线，与「回到顶部」的单向箭头、窄条折叠的 « 方向符号均可区分
+	 *  （canonical 图标集无现成字形，14 盒 stroke 风格与 createTopIcon 一致，R-01-021/AC-05）。 */
+	function createDensityIcon() {
+		return createInlineIcon({
+			viewBox: "0 0 14 14",
+			width: 14,
+			height: 14,
+			parts: [
+				{ attrs: { d: "m3.5 4.5 3.5-3.5 3.5 3.5", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
+				{ attrs: { d: "M3 7h8", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
+				{ attrs: { d: "m3.5 9.5 3.5 3.5 3.5-3.5", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
 			],
 		});
 	}

@@ -124,6 +124,14 @@ export function clampPaneWidth(raw) {
 	return Math.min(PANE_WIDTH_MAX, Math.max(PANE_WIDTH_MIN, Math.round(value)));
 }
 
+/**
+ * 把任意输入（localStorage 字符串等）归一为合法卡片呈现形态：
+ * 仅字符串 'compact' 为紧凑显示，其余（含缺失/非法值）回退完整显示（R-01-021/AC-06）。
+ */
+export function normalizeDensity(raw) {
+	return raw === "compact" ? "compact" : "full";
+}
+
 function isRecord(value) {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }

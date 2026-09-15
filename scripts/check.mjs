@@ -3754,6 +3754,12 @@ assert.ok(
 	bundle.includes("clearTimeout(detail.logDeriveTimer)"),
 	"卸载清理流式派生在途 timer，不残留唤醒",
 );
+// 回到前台渲染管线自愈：挂起丢弃在途节流/派生 timer 后，回前台无条件清掉并立即
+// 交付一轮渲染（R-01-001/AC-03 回归）；机制行为由 e2e/specs/mobile-resume.mjs 断言。
+assert.ok(
+	bundle.includes("resumeRenderPipeline") && bundle.includes("logDeriveFlush"),
+	"回前台渲染管线自愈（丢弃 timer 补交付）进 bundle",
+);
 // R-01-012/AC-16 模型目录订阅：store 推送更新、随可见性/卸载清理；dsh 0.1.5 起目录
 // store 惰性加载，订阅后补一次一次性 load（C-024 的 generation 竞争以最新操作胜出）
 assert.ok(bundle.includes('ctx.get("modelDirectories")'), "模型实时选择来自原生 modelDirectories 服务（可选软依赖）");

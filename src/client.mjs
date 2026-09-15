@@ -1546,6 +1546,36 @@ function apply(ctx) {
 	window.addEventListener("pageshow", onBusyPageShow);
 	connectBusyStream();
 
+	// ---- 回到前台渲染管线自愈（R-01-001/AC-03 回归修复） ----
+	// iOS 后台挂起会丢弃在途 setTimeout：queueSync 的节流窗口尾与流式派生窗口若在
+	// 挂起前排队，恢复后永不交付——syncScheduled/logDeriveTimer 永久滞留，此后一切
+	// 更新（store 订阅推送、SSE 快照、时钟 tick）都被 queueSync 早退吞掉，窗格停留
+	// 在挂起前状态（会话已完成仍显示运行中）。回前台时无条件清掉两类在途 timer 并
+	// 立即交付一轮渲染（rAF 路径挂起安全），与 acks/busy 通道回前台重建同模式。
+	function resumeRenderPipeline() {
+		if (disposed) return;
+		if (syncThrottleTimer !== null) {
+			clearTimeout(syncThrottleTimer);
+			syncThrottleTimer = null;
+		}
+		syncScheduled = false;
+		for (const detail of sessionDetailsById.values()) {
+			if (detail.logDeriveTimer && detail.logDeriveFlush) {
+				clearTimeout(detail.logDeriveTimer);
+				detail.logDeriveFlush();
+			}
+		}
+		schedule(deliverSync);
+	}
+	const onSyncVisibilityResume = () => {
+		if (document.visibilityState === "visible") resumeRenderPipeline();
+	};
+	const onSyncPageShow = (event) => {
+		if (event?.persisted === true) resumeRenderPipeline();
+	};
+	document.addEventListener("visibilitychange", onSyncVisibilityResume);
+	window.addEventListener("pageshow", onSyncPageShow);
+
 	function remoteValue(response) {
 		if (response?.ok === true) return response.value;
 		throw response?.error ?? new Error("remote request failed");
@@ -1812,10 +1842,12 @@ function apply(ctx) {
 		// 解耦，消化时读到的即最新窗口。subagent/cwd 在回调内经 list 快照现取（timer 在途
 		// 期间行属性可能突变，建窗入参不代表消化时刻；与 logSourceSubs 回调同模式），
 		// cwd 在快照不可得时回退建窗入参（subagent 现取即权威，无建窗回退）。
-		// 深翻路径为一次性同步调用，不经本窗口。
+		// 深翻路径为一次性同步调用，不经本窗口。交付体同时挂在 detail.logDeriveFlush
+		// 上：回前台自愈据此补交付被挂起丢弃的窗口（resumeRenderPipeline）。
 		if (!detail.logDeriveTimer && typeof setTimeout === "function") {
-			detail.logDeriveTimer = setTimeout(() => {
+			const flushDerive = () => {
 				detail.logDeriveTimer = null;
+				detail.logDeriveFlush = null;
 				if (disposed) return;
 				const listSnap = getSnapshot(sessions, "list");
 				const entries = Array.isArray(detail.log?.entries) ? detail.log.entries : [];
@@ -1824,7 +1856,9 @@ function apply(ctx) {
 					cwd: listSnap?.byId?.[id]?.cwd ?? cwd,
 				});
 				queueSync();
-			}, SYNC_MIN_INTERVAL_MS);
+			};
+			detail.logDeriveFlush = flushDerive;
+			detail.logDeriveTimer = setTimeout(flushDerive, SYNC_MIN_INTERVAL_MS);
 		}
 		queueSync();
 	}
@@ -4065,6 +4099,8 @@ function apply(ctx) {
 		window.removeEventListener("pageshow", onBusyPageShow);
 		document.removeEventListener("visibilitychange", onVisibilityResume);
 		window.removeEventListener("pageshow", onPageShow);
+		document.removeEventListener("visibilitychange", onSyncVisibilityResume);
+		window.removeEventListener("pageshow", onSyncPageShow);
 		completeAcksById.clear();
 		busyById.clear();
 		busyRequestedIds.clear();

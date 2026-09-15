@@ -814,20 +814,28 @@ assert.deepEqual(trackRuns([hierarchyEntries[0]]), [], "无子代理的母会话
 // ids 顺序刻意与新到旧相反且仅 sOld 在工作区首列：证明工作区顺序与 lineage 不再决定排列。
 const recencyWorkspace = [{ title: "Ops", path: "/srv/ops", sessionIds: ["sOld"] }];
 const recencyActivity = {
-	ids: ["sMiss", "sOld", "sTie1", "sTie2", "sNew"],
+	ids: ["sMiss", "sOld", "sTie1", "sTie2", "sNew", "sNew-c1"],
 	byId: {
 		sMiss: { id: "sMiss", displayTitle: "缺时刻", running: true },
 		sOld: { id: "sOld", displayTitle: "旧指令", running: true, updatedAt: 1_000 },
 		sTie1: { id: "sTie1", displayTitle: "平局一", running: true, updatedAt: 2_000 },
 		sTie2: { id: "sTie2", displayTitle: "平局二", running: true, updatedAt: 2_000 },
 		sNew: { id: "sNew", displayTitle: "新指令", running: true, updatedAt: 3_000 },
+		"sNew-c1": { id: "sNew-c1", displayTitle: "新指令子代理", running: true, parentId: "sNew", origin: "subagent" },
 	},
 	current: null,
 };
 assert.deepEqual(
-	buildEntries(recencyActivity, recencyWorkspace).map((entry) => entry.id),
-	["sNew", "sTie1", "sTie2", "sOld", "sMiss"],
-	"活动区主会话按宿主列表时间从新到旧；相同时间保持宿主列表出现顺序；缺失视为最旧（R-01-001/AC-07）",
+	buildEntries(recencyActivity, recencyWorkspace).map((entry) => [entry.id, entry.kind, entry.depth, entry.parentId ?? null]),
+	[
+		["sNew", "running", 0, null],
+		["sNew-c1", "subagent", 1, "sNew"],
+		["sTie1", "running", 0, null],
+		["sTie2", "running", 0, null],
+		["sOld", "running", 0, null],
+		["sMiss", "running", 0, null],
+	],
+	"活动区主会话按宿主列表时间从新到旧；相同时间保持宿主列表出现顺序；缺失视为最旧；子代理不参与排序、始终跟随其母会话（R-01-001/AC-07）",
 );
 assert.deepEqual(trackRuns([{ kind: "subagent", parentId: "p", depth: 1 }]), [], "无 id 条目不产生轨道");
 assert.deepEqual(

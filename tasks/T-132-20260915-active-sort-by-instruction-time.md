@@ -29,7 +29,7 @@ id: T-132
 
 | 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |
 |---|---|---|---|---|
-| DESIGN | 改写：排序不变量与 buildEntries 契约改为宿主列表时间倒序，工作区顺序退出排序 | UNIT | update | `scripts/check.mjs#R-01-001/AC-07` 新增多会话指令时间倒序与平局回落断言 |
+| DESIGN | 改写：排序不变量与 buildEntries 契约改为宿主列表时间倒序（复审补载「缺失视为最旧」防御语义），工作区顺序退出排序 | UNIT | update | `scripts/check.mjs#R-01-001/AC-07` 断言多会话指令时间倒序、平局回落、缺失最旧与子代理跟随 |
 | R-01-001/AC-07 | 新增：活动区主会话按最后一次用户指令时间倒序 | UNIT | add | `scripts/check.mjs#R-01-001/AC-07`（工作区顺序不再决定排列 + 缺失 updatedAt 视为最旧 + 平局保持 lineage） |
 
 ## 测试计划

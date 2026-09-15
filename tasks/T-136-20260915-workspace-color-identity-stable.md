@@ -6,7 +6,7 @@ id: T-136
 
 # T-136 工作区徽标颜色改为逐身份稳定分配
 
-状态: active
+状态: completed
 关联: R-01-003/AC-08、AC-09、AC-12（口径演进）→ 活动状态模型 / 窗格渲染器
 风险等级: standard
 
@@ -59,4 +59,13 @@ id: T-136
 
 ## 终态与证据
 
-（待实现完成后填写）
+- 实现: `src/core.mjs` 提取 `identityHash`（djb2 雪崩终混，原 `workspaceHue` 内联哈希移入）与命名常量 `WORKSPACE_HUE_ARC_START`/`WORKSPACE_HUE_ARC_SIZE`；`resolveWorkspaceColors` 改为逐身份纯映射——去重排序后每身份独立派生：前景取基色色相在 12 个 OKLCH 槽位中环形色相距离最近者（严格 `<` 平局取低槽位），背景变体取 `floor(hash / 弧宽) % 3`；移除集合级 `uses`/`backgroundUses` 贪心状态与 `workspaceSlotProbe`；`.dsh-plugin/client.js` 经 `node scripts/check.mjs` 从工作树重建并过 staged 一致性校验。
+- 测试: `pnpm verify` 全量通过——17 个 E2E spec；`scripts/check.mjs` 改写 AC-12 块并锚定 AC-08：真实身份就近归槽、新增/移除/乱序/重复/空白身份的复合槽位稳定性、五个可达平局身份（基色 66/111/156/246/291）锁定低槽位、调色板 hue 唯一性与避红、OKLab 距离 ≥ 0.11、背景变体三档覆盖；`scripts/acceptance.mjs` 人工验收口径同步（移除「8～12 个槽位唯一」，新增「新建工作区不改变既有颜色」步骤）；agentmap lint 157 AC 全锚定；test-impact 记录 `~R-01-003/AC-08`、`~R-01-003/AC-12`。
+- DESIGN 对照: PRD R-01-003/AC-08、AC-12 演进为逐身份纯映射稳定分配（AC-09 基色哈希取色语义不变）；DESIGN 活动状态模型「工作区颜色槽位不变量」、窗格渲染器「工作区徽标着色」与「工作区归属归一」条目同步逐身份契约；DOMAIN「工作区颜色槽位」词条同步；`scripts/acceptance.mjs` 口径同步——map 与 code 对照无差异。
+- commit: 934ba3f
+- review:
+  - 审核方: Standards reviewer `2ddd161c-61d2-4502-9c33-177fef75970c`；Spec reviewer `9b87ebd2-ea3d-4fc8-b563-64e5590251fd`（`code-review` skill 并行双轴）
+  - 目的理解: R-01-003/AC-08、AC-12 演进后，工作区徽标颜色槽位以 workspaceKey 为唯一输入确定性派生——前景取基色色相在 12 槽中环形色相距离最近者（平局取低槽位）、背景变体 `floor(hash/291)%3`，新增/移除其它工作区不漂移，碰撞经均匀哈希最小化；PRD/DESIGN/DOMAIN/task/测试同次原子级联。审核基线为工作区 diff vs HEAD 68fb133。
+  - 执行方式: `code-review` skill，Standards/Spec 双轴并行审核；修复后由同一审核方复审。
+  - 问题与修复: Standards 轴 3 项（判断性）——30/291 魔数三处散布与重复基色推导 → 提取 `WORKSPACE_HUE_ARC_START/WORKSPACE_HUE_ARC_SIZE` 并三处共用；`hueArcDistance` 与 core `hueDistance` 同公式异名及一条恒真断言 → 更名对齐 canonical term（工程原则 8）、删除恒真断言（工程原则 9）；workspaceHue JSDoc 雪崩细节附着点偏移 → 细节随实现移入 `identityHash`。Spec 轴 3 项（低）——平局取低槽位无测试锚点 → 新增 5 个可达平局身份断言（相邻槽环形中点 66/111/156/246/291，独立验证全覆盖）；「新增/移除/乱序」注释超出实际覆盖 → 补移除场景断言；PRD「按感知距离就近归槽」与实现口径漂移 → PRD 措辞对齐「环形色相距离」。各发现均由同一审核方复审确认关闭。
+  - 复审结论: 双轴通过——Standards 轴确认三处派生统一使用常量、`identityHash` 主体逐字未动、bundle 同步；Spec 轴独立复跑 `node scripts/check.mjs` 全绿并确认平局全覆盖；无遗留发现、无 scope creep；残余仅 check.mjs 本地 `hueDistance` 作为独立预言机的可接受复制（core 未导出该函数）。

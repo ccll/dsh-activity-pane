@@ -1,5 +1,10 @@
 # dsh-activity-pane
 
+[![npm version](https://img.shields.io/npm/v/dsh-activity-pane)](https://www.npmjs.com/package/dsh-activity-pane)
+[![npm downloads](https://img.shields.io/npm/dm/dsh-activity-pane)](https://www.npmjs.com/package/dsh-activity-pane)
+[![GitHub stars](https://img.shields.io/github/stars/ccll/dsh-activity-pane?style=social&label=Star)](https://github.com/ccll/dsh-activity-pane/stargazers)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 [English](README.md) | 简体中文
 
 DSH (DeepSeek Harness) 一大痛点是缺少活动会话与历史会话的管理，重度用户在同时运行跨越多个工作区的多个会话时，无法一目了然的掌控全局，尤其当 DSH 原生左边栏工作区的会话积累过多之后，活动会话的信息过于分散，无法解答以下问题：
@@ -56,6 +61,10 @@ npm 包内置预构建产物，无需本地构建步骤。安装后如窗格未�
 - [x] **加入会话导航跳转**：点击或键盘激活会话卡片可跳转到对应会话页面，当前会话保持高亮；从 DSH 原生左侧栏选择会话时，对应窗格卡片会滚动到完整可见，不强制居中。
 - [x] **增加会话元信息**：会话卡片中显示当前使用的模型名称和推理级别。
 - [x] **完善桌面与移动交互**：桌面窗格可折叠、拖拽调宽并记忆宽度；移动端使用不挤压主会话布局的固定抽屉；长列表提供独立滚动与回到顶部按钮。
+
+## 支持本项目
+
+如果这个插件让您的 DSH 会话管理更顺手，欢迎到 [GitHub](https://github.com/ccll/dsh-activity-pane) 点一个 ⭐——只需一秒，就能帮更多 DSH 用户发现它。想法与问题欢迎到 [Issues](https://github.com/ccll/dsh-activity-pane/issues) 与 [Discussions](https://github.com/ccll/dsh-activity-pane/discussions) 提交。
 
 ## 许可证
 

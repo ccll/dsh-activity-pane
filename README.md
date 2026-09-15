@@ -1,5 +1,10 @@
 # dsh-activity-pane
 
+[![npm version](https://img.shields.io/npm/v/dsh-activity-pane)](https://www.npmjs.com/package/dsh-activity-pane)
+[![npm downloads](https://img.shields.io/npm/dm/dsh-activity-pane)](https://www.npmjs.com/package/dsh-activity-pane)
+[![GitHub stars](https://img.shields.io/github/stars/ccll/dsh-activity-pane?style=social&label=Star)](https://github.com/ccll/dsh-activity-pane/stargazers)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 English | [简体中文](README.zh-CN.md)
 
 One of the pain points of DSH (DeepSeek Harness) is the lack of management for active and historical sessions. Heavy users who run multiple sessions across multiple workspaces at the same time have no way to take in the whole picture at a glance. In particular, once sessions pile up in DSH's native left-sidebar workspaces, the information about active sessions becomes so scattered that it can no longer answer questions like:
@@ -56,6 +61,10 @@ The npm package ships prebuilt, so no local build step is needed. If the pane do
 - [x] **Session navigation**: clicking or keyboard-activating a session card jumps to that session's page, the current session stays highlighted, and selecting a session from DSH's native sidebar brings its pane card fully into view without forced centering.
 - [x] **Session metadata**: session cards show the current model name and reasoning level.
 - [x] **Polished desktop & mobile interactions**: the desktop pane can collapse, be resized by dragging, and remember its width; mobile uses a fixed drawer that does not squeeze the main conversation layout; long lists get independent scrolling and a back-to-top button.
+
+## Support the Project
+
+If this plugin makes managing your DSH sessions easier, please consider giving it a ⭐ on [GitHub](https://github.com/ccll/dsh-activity-pane) — it takes a second and helps other DSH users discover it. Ideas and bug reports are welcome in [Issues](https://github.com/ccll/dsh-activity-pane/issues) and [Discussions](https://github.com/ccll/dsh-activity-pane/discussions).
 
 ## License
 

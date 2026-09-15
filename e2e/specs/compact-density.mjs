@@ -155,6 +155,14 @@ export default async function compactDensity({ page, url, assert }) {
 	assert.equal(mediumRecent?.head, true, "中间下最近卡工作区徽标行保留（R-01-021/AC-08）");
 	assert.equal(mediumRecent?.historyLine, true, "中间下最近卡消息预览行保留（R-01-021/AC-08）");
 
+	// R-01-021/AC-03（中间档）：等待类别底色保持。
+	assert.equal(mediumActive?.background, fullActive?.background, "中间下完成提醒卡面底色与完整呈现一致（R-01-021/AC-03）");
+
+	// R-01-021/AC-04（中间档）：激活卡片照常跳转。
+	await activateCardByIndex(page, RECENT_CARD, 0);
+	await until("中间下跳转生效", async () =>
+		((await mainAreaHas(page, RECENT_TITLES[0])) || (await mainAreaHas(page, RECENT_TITLES[1])) ? true : null));
+
 	// R-01-021/AC-02：紧凑档仅保留标题行。
 	await page.getByRole("button", { name: "切换为紧凑显示" }).click();
 	await untilDensity(page, "compact", "切换后进入紧凑呈现");
@@ -170,7 +178,7 @@ export default async function compactDensity({ page, url, assert }) {
 	assert.equal(compactActive?.background, fullActive?.background, "紧凑下完成提醒卡面底色与完整呈现一致（R-01-021/AC-03）");
 
 	// R-01-021/AC-04：紧凑下激活卡片照常跳转。
-	await activateCardByIndex(page, RECENT_CARD, 0);
+	await activateCardByIndex(page, RECENT_CARD, 1);
 	await until("紧凑下跳转生效", async () =>
 		((await mainAreaHas(page, RECENT_TITLES[0])) || (await mainAreaHas(page, RECENT_TITLES[1])) ? true : null));
 

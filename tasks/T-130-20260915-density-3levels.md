@@ -40,7 +40,7 @@ T-129 交付二档紧凑显示后，东家实测提出三点改进：切换时�
 
 | 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |
 |---|---|---|---|---|
-| DESIGN | 改写：三档呈现（full/medium/compact）、循环切换、滚动锚定、按钮移位右上 | UNIT/E2E | update | 产品契约与内部结构条目重写为三档口径 |
+| DESIGN | 改写：三档呈现（full/medium/compact）、循环切换、滚动锚定（含滚动边界钳制语义）、按钮移位右上 top:44px | UNIT/E2E | update | 产品契约与内部结构条目重写为三档口径，AC-01 滚动边界钳制语义与 .dap-foot 隐藏层级措辞对齐实现 |
 | R-01-021/AC-01 | 改写：二态切换 → 三档循环 + 当前卡顶部视口位置稳定 | E2E | update | `e2e/specs/compact-density.mjs#R-01-021/AC-01` |
 | R-01-021/AC-05 | 改写：按钮移至右上角标题栏正下方 | UNIT/E2E | update | `scripts/check.mjs#R-01-021/AC-05` + `e2e/specs/compact-density.mjs#R-01-021/AC-05` |
 | R-01-021/AC-06 | 改写：持久化值域扩为三档 | UNIT/E2E | update | `scripts/check.mjs#R-01-021/AC-06` + `e2e/specs/compact-density.mjs#R-01-021/AC-06` |

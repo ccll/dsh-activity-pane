@@ -3386,16 +3386,10 @@ assert.ok(
 	bundle.includes('[data-dsh-activity-pane][data-density="compact"]'),
 	"紧凑呈现经窗格根属性驱动 CSS 隐藏次要行（R-01-021/AC-02）",
 );
-assert.ok(bundle.includes('class="dap-density"'), "紧凑显示切换按钮随窗格骨架创建（R-01-021/AC-05）");
-assert.ok(
-	bundle.includes('[data-dsh-activity-pane][data-density="medium"]')
-		&& bundle.includes('[data-dsh-activity-pane][data-density="compact"]'),
-	"中间/紧凑档经窗格根属性驱动 CSS 递增隐藏次要行（R-01-021/AC-02、AC-08）",
-);
 assert.ok(bundle.includes('class="dap-density"'), "显示档位切换按钮随窗格骨架创建（R-01-021/AC-05）");
-assert.ok(bundle.includes("writeStoredDensity(densityValue)"), "显示档位切换持久化于 localStorage（R-01-021/AC-06）");
+assert.ok(bundle.includes("writeStoredDensity(densityLevel)"), "显示档位切换持久化于 localStorage（R-01-021/AC-06）");
 assert.ok(
-	bundle.includes('[data-dsh-activity-pane] .dap-density { top: 40px; }'),
+	bundle.includes('[data-dsh-activity-pane] .dap-density { top: 44px; }'),
 	"切换按钮位于窗格右上角、标题栏正下方（R-01-021/AC-05）",
 );
 // R-01-015/AC-03 折叠窄条与移动端抽屉不提供拖拽
@@ -4260,7 +4254,7 @@ assert.ok(
 assert.ok(
 	bundle.includes("[data-dsh-activity-pane] .dap-top,\n[data-dsh-activity-pane] .dap-density {")
 		&& bundle.includes("[data-dsh-activity-pane] .dap-top { bottom: 12px; }")
-		&& bundle.includes("[data-dsh-activity-pane] .dap-density { top: 40px; }"),
+		&& bundle.includes("[data-dsh-activity-pane] .dap-density { top: 44px; }"),
 	"回到顶部与紧凑切换两枚悬浮按钮共用同规格声明（右缘对齐防双处漂移），纵向锚点分列：回到顶部右下角、切换按钮右上角标题栏正下方（R-01-018/AC-01、R-01-021/AC-05）",
 );
 assert.ok(!bundle.includes(".dap-top {\n  position: absolute;\n  bottom: 12px;\n  left: 50%;"), "底部居中定位已移除");

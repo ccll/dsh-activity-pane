@@ -2773,7 +2773,7 @@ const CSS = `
 /* 「回到顶部」（R-01-018）与卡片显示档位切换（R-01-021/AC-05）两枚悬浮图标按钮共用
    同规格外观：右缘对齐、28px 圆形、不透明底色，声明合并防止双处规格漂移，仅纵向
    锚点分列（回到顶部在右下 bottom 12px；切换按钮在窗格右上角、标题栏正下方
-   top 40px 约为标题栏 32px + 8px 间距，R-01-021/AC-05）。
+   top 44px 约为标题栏 36px + 8px 间距，R-01-021/AC-05）。
    「回到顶部」默认 hidden，scrollTop 超阈值时由滚动监听揭隐；基类 display:flex 会
    压过 UA 的 [hidden] 规则，故显式补 [hidden] 隐藏。 */
 [data-dsh-activity-pane] .dap-top,
@@ -2794,7 +2794,7 @@ const CSS = `
   cursor: pointer;
 }
 [data-dsh-activity-pane] .dap-top { bottom: 12px; }
-[data-dsh-activity-pane] .dap-density { top: 40px; }
+[data-dsh-activity-pane] .dap-density { top: 44px; }
 [data-dsh-activity-pane] .dap-top[hidden] { display: none; }
 [data-dsh-activity-pane] .dap-top:hover,
 [data-dsh-activity-pane] .dap-top:focus-visible,
@@ -3777,7 +3777,7 @@ function apply(ctx) {
 	let paneWidth = readStoredPaneWidth();
 	/** 卡片显示档位（full/medium/compact）：启动时从 localStorage 恢复，切换实时更新，
 	 *  重挂载后保留（R-01-021/AC-06）。 */
-	let densityValue = readStoredDensity();
+	let densityLevel = readStoredDensity();
 	/** 用户最近一次激活的卡片 id；打开重试链被更新的激活意图取代即取消。 */
 	let lastActivatedId = null;
 	/** 最近一次已处理的当前卡片；同一卡片的运行时重绘不反复打断用户手动滚动。 */
@@ -4615,9 +4615,9 @@ function apply(ctx) {
 		// 驱动纯 CSS 呈现，持久化于 localStorage（AC-06），会话状态变化不触碰已选档位（AC-07）。
 		const densityBtn = pane.querySelector(".dap-density");
 		const applyDensity = () => {
-			pane.setAttribute("data-density", densityValue);
+			pane.setAttribute("data-density", densityLevel);
 			if (densityBtn !== null) {
-				const next = nextDensity(densityValue);
+				const next = nextDensity(densityLevel);
 				densityBtn.setAttribute("aria-label", `切换为${DENSITY_LABELS[next]}显示`);
 				densityBtn.title = `${DENSITY_LABELS[next]}显示`;
 			}
@@ -4629,8 +4629,8 @@ function apply(ctx) {
 			const currentCard = scrollEl?.querySelector(".dap-card[data-current]") ?? null;
 			const viewportTop = scrollEl?.getBoundingClientRect().top ?? 0;
 			const anchorTop = currentCard ? currentCard.getBoundingClientRect().top - viewportTop : null;
-			densityValue = nextDensity(densityValue);
-			writeStoredDensity(densityValue);
+			densityLevel = nextDensity(densityLevel);
+			writeStoredDensity(densityLevel);
 			applyDensity();
 			if (currentCard && scrollEl !== null) {
 				const shiftedTop = currentCard.getBoundingClientRect().top - viewportTop;

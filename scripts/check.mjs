@@ -3445,6 +3445,11 @@ assert.ok(
 	"紧凑呈现经窗格根属性驱动 CSS 隐藏次要行（R-01-021/AC-02）",
 );
 assert.ok(bundle.includes('class="dap-density"'), "显示档位切换按钮随窗格骨架创建（R-01-021/AC-05）");
+assert.ok(
+	bundle.includes('[data-dsh-activity-pane][data-density="medium"] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-foot') &&
+		bundle.includes('[data-dsh-activity-pane][data-density="medium"] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-note'),
+	"中间档完成提醒卡末行经 data-wait 作用域 CSS 收合为单行——胶囊居左、按钮居右、正文隐藏（R-01-021/AC-08）",
+);
 assert.ok(bundle.includes("writeStoredDensity(densityLevel)"), "显示档位切换持久化于 localStorage（R-01-021/AC-06）");
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-density { top: 44px; }'),

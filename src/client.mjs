@@ -196,7 +196,8 @@ const CSS = `
   background: #262932;
 }
 /* 卡片显示档位（R-01-021）：中间档保留标题行、工作区徽标行、等待末行与最近卡
-   消息预览行、经渲染层 lastOnly 单行渲染时间线（仅最新一行，AC-08）；紧凑档在
+   消息预览行、经渲染层 lastOnly 单行渲染时间线（仅最新一行，AC-08）；完成提醒卡
+   末行在中间档收合为单行（见下方 data-wait="done" 作用域规则）；紧凑档在
    中间档基础上再隐藏工作区徽标行、时间线末行、等待末行与消息预览行，仅保留
    标题行（AC-02）——激活跳转逻辑不感知档位，渲染签名含显示档位分量（档位切换
    经 queueSync 触发一轮重渲染）（R-01-021/AC-04）。 */
@@ -217,6 +218,25 @@ const CSS = `
     .dap-note
   ) {
   display: none;
+}
+/* 中间档完成提醒卡末行收合为单行（R-01-021/AC-08，东家反馈）：末行两行内容
+   （「已完成」胶囊行 +「继续对话，或移入历史」与「移入历史」按钮行）冗余，收合为
+   单行——「已完成」胶囊居左、按钮 margin-left:auto 居右、正文不再显示；两段包裹层
+   以 display: contents 释放为同行 flex 项。选择器以卡片根 data-wait="done" 作用域，
+   阻塞/错误提醒卡与完整呈现档的两行结构不受影响，紧凑档仍整体隐藏末行。 */
+[data-dsh-activity-pane][data-density="medium"] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-foot {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+[data-dsh-activity-pane][data-density="medium"] .dap-card[data-kind="awaiting"][data-wait="done"] :is(.dap-await-head, .dap-note-row) {
+  display: contents;
+}
+[data-dsh-activity-pane][data-density="medium"] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-note {
+  display: none;
+}
+[data-dsh-activity-pane][data-density="medium"] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-confirm {
+  margin-left: auto;
 }
 [data-dsh-activity-pane] .dap-list {
   display: flex;

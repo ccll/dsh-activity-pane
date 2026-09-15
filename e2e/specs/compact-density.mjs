@@ -69,6 +69,29 @@ function cardRowState(page, selector) {
 	}, selector);
 }
 
+/** 完成提醒卡末行几何：胶囊/正文/按钮的可见性与相对位置（中间档收合形态断言用）。 */
+function footLayout(page, selector) {
+	return page.evaluate((sel) => {
+		const card = document.querySelector(`[data-dsh-activity-pane] ${sel}`);
+		if (!card) return null;
+		const rect = (cls) => {
+			const node = card.querySelector(cls);
+			return node ? node.getBoundingClientRect() : null;
+		};
+		const capsule = rect(".dap-capsule");
+		const note = rect(".dap-note");
+		const confirm = rect(".dap-confirm");
+		const mid = (r) => (r ? r.top + r.height / 2 : null);
+		return {
+			capsuleVisible: capsule !== null && capsule.height > 0,
+			noteVisible: note !== null && note.height > 0,
+			confirmVisible: confirm !== null && confirm.height > 0,
+			sameRow: capsule && confirm ? Math.abs(mid(capsule) - mid(confirm)) <= 2 : false,
+			capsuleLeft: capsule && confirm ? capsule.left < confirm.left : false,
+		};
+	}, selector);
+}
+
 /** 激活匹配选择器的第 index 张卡片（激活 = 跳转会话并使其成为当前选中，与卡片文本无关）。 */
 function activateCardByIndex(page, selector, index) {
 	return page.evaluate(({ sel, idx }) => {
@@ -125,6 +148,10 @@ export default async function compactDensity({ page, url, assert }) {
 	const fullActive = await cardRowState(page, DONE_CARD);
 	assert.equal(fullActive?.trace, true, "完整呈现下完成提醒卡时间线可见");
 	assert.equal(fullActive?.wait, "done", "前置：完成提醒卡带等待类别标识");
+	// 完整态基线（R-01-002/AC-09）：末行维持「胶囊行 + 正文行」两行结构，正文与按钮均显示。
+	const fullFoot = await footLayout(page, DONE_CARD);
+	assert.equal(fullFoot?.noteVisible, true, "完整呈现下完成提醒卡正文行显示（R-01-002/AC-09 基线）");
+	assert.equal(fullFoot?.confirmVisible, true, "完整呈现下「移入历史」按钮显示（R-01-002/AC-09 基线）");
 
 	// R-01-021/AC-01（滚动锚定）：完整 → 中间后，当前选中卡片顶部相对视口位置不变。
 	// 先激活第三张完成卡使 data-current 落在列表中部，再把其顶部滚到与视口顶对齐：
@@ -158,6 +185,14 @@ export default async function compactDensity({ page, url, assert }) {
 		return card ? card.querySelectorAll(".dap-trace .dap-trace-item").length : -1;
 	}, DONE_CARD);
 	assert.equal(mediumTraceLines, 1, "中间档每卡时间线恰 1 行——时间线最新一行（R-01-021/AC-08）");
+	// R-01-021/AC-08（中间档收合）：完成提醒卡末行收合为单行——「已完成」胶囊居左、
+	// 「移入历史」按钮居右，「继续对话，或移入历史」正文不再显示。
+	const mediumFoot = await footLayout(page, DONE_CARD);
+	assert.equal(mediumFoot?.capsuleVisible, true, "中间档完成提醒卡「已完成」胶囊显示（R-01-021/AC-08）");
+	assert.equal(mediumFoot?.confirmVisible, true, "中间档完成提醒卡「移入历史」按钮显示（R-01-021/AC-08）");
+	assert.equal(mediumFoot?.noteVisible, false, "中间档完成提醒卡正文行不再显示（R-01-021/AC-08）");
+	assert.equal(mediumFoot?.sameRow, true, "中间档完成提醒卡胶囊与按钮同行（R-01-021/AC-08）");
+	assert.equal(mediumFoot?.capsuleLeft, true, "中间档完成提醒卡胶囊居左、按钮居右（R-01-021/AC-08）");
 	const mediumRecent = await cardRowState(page, RECENT_CARD);
 	assert.equal(mediumRecent?.head, true, "中间下最近卡工作区徽标行保留（R-01-021/AC-08）");
 	assert.equal(mediumRecent?.historyLine, true, "中间下最近卡消息预览行保留（R-01-021/AC-08）");

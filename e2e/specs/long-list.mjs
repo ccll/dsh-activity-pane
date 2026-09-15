@@ -2,7 +2,7 @@
 // 长列表：活动卡片超出窗格可视高度时窗格内可滚动查看全部卡片；
 // 窗格内滚动时主会话内容滚动位置不变（滚动隔离）；原生侧栏选中会话后当前卡片完整可见。
 
-import { cardVisibleInPane, mainAreaBox, mainAreaHas, newSessionWithMessage, openApp, paneBox, sendHeroMessage, until, wheelOver } from "../helpers.mjs";
+import { mainAreaBox, mainAreaHas, newSessionWithMessage, openApp, paneBox, sendHeroMessage, until, wheelOver } from "../helpers.mjs";
 
 const SESSION_COUNT = 7;
 const title = (n) => `e2e:fast 长列表探针${String(n).padStart(2, "0")}`;
@@ -186,11 +186,20 @@ export default async function longList({ page, url, assert }) {
 		delete el.scrollTo;
 	});
 
-	// R-01-004/AC-01：列表超高时最早卡片（排序在底部）初始不可见，窗格内滚动后可见（全部卡片可达）。
-	await until("底卡初始不可见（列表超高）", async () => {
-		const visible = await cardVisibleInPane(page, LONG_TITLE);
-		return visible ? null : true;
+	// R-01-004/AC-01：列表超高时排序在底部的卡片初始不可见，窗格内滚动后可见（全部卡片可达）。
+	// T-133 起活动区「运行中置顶、等待/完成按进入状态时刻倒序」，底卡是等待/完成组中
+	// 最早进入状态者；卡片展示标题可能同文（mock 回复相同），按 DOM 末卡位置断言。
+	const bottomCardVisible = () => page.evaluate(() => {
+		const pane = document.querySelector("[data-dsh-activity-pane]");
+		if (!pane) return false;
+		const paneRect = pane.getBoundingClientRect();
+		const cards = pane.querySelectorAll(".dap-list .dap-card");
+		const last = cards[cards.length - 1];
+		if (!last) return false;
+		const rect = last.getBoundingClientRect();
+		return rect.height > 0 && rect.top >= paneRect.top - 1 && rect.bottom <= paneRect.bottom + 1;
 	});
+	await until("底卡初始不可见（列表超高）", async () => ((await bottomCardVisible()) ? null : true));
 	const box = await paneBox(page);
 
 	// R-01-004/AC-03：调宽手柄保持在 pane 右缘，但不遮挡 native scrollbar；
@@ -272,7 +281,7 @@ export default async function longList({ page, url, assert }) {
 	}, 3_000);
 
 	await wheelOver(page, box, 400, 20);
-	await until("滚动后底卡可见", () => cardVisibleInPane(page, LONG_TITLE));
+	await until("滚动后底卡可见", bottomCardVisible);
 
 	// R-01-004/AC-02：窗格滚动不影响主会话滚动位置。
 	// 切到长文会话，把主会话向下滚动到非零位置，再在窗格内滚动。

@@ -1619,10 +1619,24 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 		meta.set(id, { row, running, pending, isSub, show, done, err, descendantActive, delegating, depth: 0 });
 	}
 
-	// 主会话按最后一次用户指令时间（宿主列表时间）从新到旧；缺失视为最旧；相同时间
-	// 保持宿主列表出现顺序。工作区顺序不参与排序，仅承载卡片徽标与名称（R-01-001/AC-07）。
+	// 主会话分两组排序（R-01-001/AC-07）：运行中主会话置顶，组内按最后一次用户指令
+	// 时间（宿主列表时间）从新到旧；等待/完成组（阻塞等待、完成提醒、错误提醒）排后，
+	// 组内按进入该状态的时刻（最近一次回合结束登记时刻，缺失回落宿主列表时间）从新到旧。
+	// 两组相同时间均回落宿主列表出现顺序。工作区顺序不参与排序，仅承载卡片徽标与名称。
+	const isRunningEntry = (id) => {
+		const m = meta.get(id);
+		return m !== undefined && !m.pending && (m.running || m.delegating);
+	};
+	const sortTime = (id) => {
+		if (isRunningEntry(id)) return instructionTime(byId[id]);
+		const record = completionFor(id, completions);
+		const end = isRecord(record) ? Number(record.lastTurnEnd) : NaN;
+		return Number.isFinite(end) ? end : instructionTime(byId[id]);
+	};
 	rootIds.sort((a, b) => {
-		const byTime = instructionTime(byId[b]) - instructionTime(byId[a]);
+		const byGroup = Number(isRunningEntry(b)) - Number(isRunningEntry(a));
+		if (byGroup !== 0) return byGroup;
+		const byTime = sortTime(b) - sortTime(a);
 		if (byTime !== 0) return byTime;
 		return ids.indexOf(a) - ids.indexOf(b);
 	});

@@ -835,7 +835,37 @@ assert.deepEqual(
 		["sOld", "running", 0, null],
 		["sMiss", "running", 0, null],
 	],
-	"活动区主会话按宿主列表时间从新到旧；相同时间保持宿主列表出现顺序；缺失视为最旧；子代理不参与排序、始终跟随其母会话（R-01-001/AC-07）",
+	"全运行中场景按宿主列表时间从新到旧；相同时间保持宿主列表出现顺序；缺失视为最旧；子代理不参与排序、始终跟随其母会话（R-01-001/AC-07）",
+);
+
+// ---- R-01-001/AC-07 运行中置顶；等待/完成组按进入状态时刻（回合结束登记）倒序 ----
+const mixedWorkspace = [{ title: "Ops", path: "/srv/ops", sessionIds: ["sRunOld"] }];
+const mixedActivity = {
+	ids: ["sDone1", "sRunOld", "sWait", "sDone2", "sWaitNoRec"],
+	byId: {
+		sDone1: { id: "sDone1", displayTitle: "完成一", running: false, updatedAt: 500 },
+		sRunOld: { id: "sRunOld", displayTitle: "运行旧指令", running: true, updatedAt: 1_000 },
+		sWait: { id: "sWait", displayTitle: "阻塞等待", running: false, pendingInteraction: "approval", updatedAt: 600 },
+		sDone2: { id: "sDone2", displayTitle: "完成二", running: false, updatedAt: 700 },
+		sWaitNoRec: { id: "sWaitNoRec", displayTitle: "无登记等待", running: false, pendingInteraction: "question", updatedAt: 2_500 },
+	},
+	current: null,
+};
+const mixedCompletions = new Map([
+	["sDone1", { lastTurnEnd: 4_000, lastTurnEndKind: "completed", ackedAt: null }],
+	["sWait", { lastTurnEnd: 6_000, lastTurnEndKind: "blocked", ackedAt: null }],
+	["sDone2", { lastTurnEnd: 3_000, lastTurnEndKind: "completed", ackedAt: null }],
+]);
+assert.deepEqual(
+	buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions).map((entry) => [entry.id, entry.kind]),
+	[
+		["sRunOld", "running"],
+		["sWait", "awaiting"],
+		["sDone1", "awaiting"],
+		["sDone2", "awaiting"],
+		["sWaitNoRec", "awaiting"],
+	],
+	"运行中置顶（即便其指令时间更旧）；等待/完成组按进入状态时刻倒序，无登记回落宿主列表时间（R-01-001/AC-07）",
 );
 assert.deepEqual(trackRuns([{ kind: "subagent", parentId: "p", depth: 1 }]), [], "无 id 条目不产生轨道");
 assert.deepEqual(

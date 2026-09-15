@@ -132,10 +132,10 @@ function clampPaneWidth(raw) {
 
 /**
  * 把任意输入（localStorage 字符串等）归一为合法卡片显示档位：
- * 仅 'compact'/'medium' 为合法档位，其余（含缺失/非法值）回退完整呈现（R-01-021/AC-06）。
+ * 仅 'full'/'medium'/'compact' 为合法档位，其余（含缺失/非法值）回退默认中间档（R-01-021/AC-06）。
  */
 function normalizeDensity(raw) {
-	return raw === "compact" || raw === "medium" ? raw : "full";
+	return raw === "compact" || raw === "medium" || raw === "full" ? raw : "medium";
 }
 
 /** 显示档位的循环次序：完整 → 中间 → 紧凑 → 完整（R-01-021/AC-01）。 */
@@ -143,7 +143,7 @@ const DENSITY_ORDER = ["full", "medium", "compact"];
 
 /**
  * 返回循环切换后的下一显示档位：完整 → 中间 → 紧凑 → 完整；
- * 输入先经 normalizeDensity 归一，非法值视作完整档（R-01-021/AC-01）。
+ * 输入先经 normalizeDensity 归一，非法值视作中间档（R-01-021/AC-01）。
  */
 function nextDensity(value) {
 	const index = DENSITY_ORDER.indexOf(normalizeDensity(value));
@@ -2660,25 +2660,27 @@ const CSS = `
 [data-dsh-activity-pane] .dap-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
-/* 标题行整体即收起控件，两端断点一致（R-01-011/AC-03、R-01-008/AC-02）：指针与悬停/聚焦反馈。 */
-[data-dsh-activity-pane] .dap-header { cursor: pointer; }
-[data-dsh-activity-pane] .dap-header:hover,
-[data-dsh-activity-pane] .dap-header:focus-visible {
+/* 标题行拆为两部分：左侧标题区（flex:1 占满剩余宽度）整体即收起控件，悬停/聚焦
+   高亮只覆盖标题区（R-01-011/AC-03、AC-07、R-01-008/AC-02）；右侧工具区独立，
+   不参与标题区的悬停高亮与折叠激活。 */
+[data-dsh-activity-pane] .dap-titlebar {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px 10px 12px;
+  cursor: pointer;
+}
+[data-dsh-activity-pane] .dap-titlebar:hover,
+[data-dsh-activity-pane] .dap-titlebar:focus-visible {
   background: color-mix(in srgb, currentColor 8%, transparent);
 }
-[data-dsh-activity-pane] .dap-header:focus-visible { outline: none; }
-/* 方向符号：标题行的一部分而非独立按钮，两端断点一致呈现（R-01-011/AC-03、R-01-008/AC-02）。 */
-[data-dsh-activity-pane] .dap-collapse-hint {
-  margin-left: auto;
-  color: color-mix(in srgb, currentColor 45%, transparent);
-  font-size: 13px;
-}
+[data-dsh-activity-pane] .dap-titlebar:focus-visible { outline: none; }
 [data-dsh-activity-pane] .dap-count {
   flex: none;
   font-size: 10px;
@@ -2749,16 +2751,13 @@ const CSS = `
     scrollbar-color: var(--dsh-scrollbar-thumb, color-mix(in srgb, currentColor 25%, transparent)) transparent;
   }
 }
-/* 「回到顶部」（R-01-018）与卡片显示档位切换（R-01-021/AC-05）两枚悬浮图标按钮共用
-   同规格外观：右缘对齐、28px 圆形、不透明底色，声明合并防止双处规格漂移，仅纵向
-   锚点分列（回到顶部在右下 bottom 12px；切换按钮在窗格右上角、标题栏正下方
-   top 44px 约为标题栏 36px + 8px 间距，R-01-021/AC-05）。
-   「回到顶部」默认 hidden，scrollTop 超阈值时由滚动监听揭隐；基类 display:flex 会
-   压过 UA 的 [hidden] 规则，故显式补 [hidden] 隐藏。 */
-[data-dsh-activity-pane] .dap-top,
-[data-dsh-activity-pane] .dap-density {
+/* 「回到顶部」（R-01-018）悬浮图标按钮：右缘对齐、28px 圆形、不透明底色。
+   默认 hidden，scrollTop 超阈值时由滚动监听揭隐；基类 display:flex 会压过 UA 的
+   [hidden] 规则，故显式补 [hidden] 隐藏。 */
+[data-dsh-activity-pane] .dap-top {
   position: absolute;
   right: 12px;
+  bottom: 12px;
   z-index: 6;
   display: flex;
   align-items: center;
@@ -2772,14 +2771,53 @@ const CSS = `
   color: inherit;
   cursor: pointer;
 }
-[data-dsh-activity-pane] .dap-top { bottom: 12px; }
-[data-dsh-activity-pane] .dap-density { top: 44px; }
 [data-dsh-activity-pane] .dap-top[hidden] { display: none; }
 [data-dsh-activity-pane] .dap-top:hover,
-[data-dsh-activity-pane] .dap-top:focus-visible,
+[data-dsh-activity-pane] .dap-top:focus-visible {
+  background: #262932;
+}
+/* 标题行右侧工具按钮区（R-01-021/AC-05）：固定于行尾、常显档位切换按钮，未来新
+   工具按钮统一加入此区；宽度不随悬停态变化，收起方向图标的显隐不挤动本区按钮；
+   左缘 padding 12px 与标题区保持充分间隔。收起方向图标（R-01-011/AC-07）是标题区
+   的行尾提示：常态宽度为 0 不占位，鼠标悬停或键盘聚焦标题区时在标题区最右端即时
+   显现（无过渡动画），离开即隐藏。 */
+[data-dsh-activity-pane] .dap-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 12px;
+}
+[data-dsh-activity-pane] .dap-density {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: #1d1f25;
+  color: inherit;
+  cursor: pointer;
+}
 [data-dsh-activity-pane] .dap-density:hover,
 [data-dsh-activity-pane] .dap-density:focus-visible {
   background: #262932;
+}
+[data-dsh-activity-pane] .dap-collapse-hint {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 0;
+  height: 22px;
+  opacity: 0;
+  overflow: hidden;
+}
+[data-dsh-activity-pane] .dap-titlebar:hover .dap-collapse-hint,
+[data-dsh-activity-pane] .dap-titlebar:focus-visible .dap-collapse-hint {
+  width: 22px;
+  opacity: 1;
 }
 /* 卡片显示档位（R-01-021）：中间档保留标题行、工作区徽标行、等待末行与最近卡
    消息预览行、经渲染层 lastOnly 单行渲染时间线（仅最新一行，AC-08）；完成提醒卡
@@ -2934,7 +2972,6 @@ const CSS = `
   [data-dsh-activity-pane][data-collapsed="true"] .dap-scroll { display: none; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-resize { display: none; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-top { display: none; }
-  [data-dsh-activity-pane][data-collapsed="true"] .dap-density { display: none; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-rail { display: flex; cursor: pointer; }
   /* 与展开态标题行对等的可点反馈（R-01-011/AC-04）：悬停/聚焦高亮。 */
   [data-dsh-activity-pane][data-collapsed="true"] .dap-rail:hover,
@@ -3617,7 +3654,8 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-track {
 body:not([data-ds-dark-theme]) .dap-toggle {
   background: var(--dsw-alias-button-floating-fill, rgba(255, 255, 255, 0.94));
 }
-/* 「回到顶部」图标按钮浅色覆盖：不透明层-2 底色与外壳描边别名（R-01-018/AC-05）。 */
+/* 「回到顶部」与标题行工具区档位按钮的浅色覆盖：不透明层-2 底色与外壳描边别名
+   （R-01-018/AC-05、R-01-021/AC-05）。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density {
   background: var(--dsw-alias-bg-layer-2, #ffffff);
@@ -3702,13 +3740,13 @@ function writeStoredPaneWidth(width) {
 	} catch {}
 }
 
-/** 读取持久化卡片显示档位：缺失/非法值经 normalizeDensity 归一为完整呈现；
- *  localStorage 不可用（隐私模式）静默回退完整（R-01-021/AC-06）。 */
+/** 读取持久化卡片显示档位：缺失/非法值经 normalizeDensity 归一为默认中间档；
+ *  localStorage 不可用（隐私模式）静默回退中间档（R-01-021/AC-06）。 */
 function readStoredDensity() {
 	try {
 		return normalizeDensity(window.localStorage.getItem(DENSITY_STORAGE_KEY));
 	} catch {
-		return "full";
+		return "medium";
 	}
 }
 /** 切换时持久化卡片显示档位；localStorage 不可用时静默跳过（R-01-021/AC-06）。 */
@@ -4544,7 +4582,7 @@ function apply(ctx) {
 		return true;
 	}
 	function bindPaneControls(pane) {
-		const header = pane.querySelector(".dap-header");
+		const header = pane.querySelector(".dap-titlebar");
 		const rail = pane.querySelector(".dap-rail");
 		const resize = pane.querySelector(".dap-resize");
 		const scroll = pane.querySelector(".dap-scroll");
@@ -4673,6 +4711,8 @@ function apply(ctx) {
 			pendingDensityAnchor = currentCard && anchorTop !== null ? anchorTop : null;
 			queueSync();
 		};
+		// 档位按钮位于标题行右侧的工具区（标题区折叠控件的兄弟节点），激活天然不会
+		// 冒泡为标题区折叠，无需额外阻断。
 		densityBtn?.addEventListener("click", onDensityClick);
 		applyDensity();
 		header?.addEventListener("click", onHeaderActivate);
@@ -4715,10 +4755,15 @@ function apply(ctx) {
 			pane.className = PANE_CLASS;
 			center.insertBefore(pane, seat);
 			pane.innerHTML = `
-				<div class="dap-header" role="button" tabindex="0" aria-expanded="true" aria-label="收起活动会话窗格" title="收起">
-					<span>活动会话</span>
-					<span class="dap-count" role="status" aria-live="polite"></span>
-					<span class="dap-collapse-hint" aria-hidden="true">«</span>
+				<div class="dap-header">
+					<span class="dap-titlebar" role="button" tabindex="0" aria-expanded="true" aria-label="收起活动会话窗格" title="收起">
+						<span>活动会话</span>
+						<span class="dap-count" role="status" aria-live="polite"></span>
+						<span class="dap-collapse-hint" aria-hidden="true"></span>
+					</span>
+					<span class="dap-tools">
+						<button class="dap-density" type="button" aria-label="切换为紧凑显示" title="紧凑显示"></button>
+					</span>
 				</div>
 				<div class="dap-scroll">
 					<div class="dap-list" tabindex="-1"><div class="dap-tracks" aria-hidden="true"></div></div>
@@ -4727,7 +4772,6 @@ function apply(ctx) {
 						<button class="dap-recent-more" type="button" hidden>加载更多...</button>
 					</div>
 				</div>
-				<button class="dap-density" type="button" aria-label="切换为中间显示" title="中间显示"></button>
 				<button class="dap-top" type="button" aria-label="回到顶部" title="回到顶部" hidden></button>
 				<button class="dap-rail" type="button" aria-label="展开活动会话窗格">
 					<span class="dap-rail-title" aria-hidden="true">活动会话</span>
@@ -4738,9 +4782,11 @@ function apply(ctx) {
 			pane.style.setProperty("--dap-width", `${paneWidth}px`);
 			// 「回到顶部」按钮为纯图标呈现（R-01-018/AC-05）：骨架无文字，图标在创建时注入。
 			pane.querySelector(".dap-top").append(createTopIcon());
-			// 紧凑显示切换按钮同为纯图标呈现（R-01-021/AC-05）；切换时以 data-density
+			// 紧凑显示切换按钮常显于标题行右侧工具区（R-01-021/AC-05）；切换时以 data-density
 			// 驱动纯 CSS 呈现，骨架重建后由 bindPaneControls 的 applyDensity 恢复形态。
 			pane.querySelector(".dap-density").append(createDensityIcon());
+			// 收起方向图标为标题行悬停/聚焦的可见性提示（R-01-011/AC-07），图标在创建时注入。
+			pane.querySelector(".dap-collapse-hint").append(createCollapseIcon());
 		}
 		if (pane !== boundPane) {
 			unbindPaneControls?.();
@@ -4914,7 +4960,7 @@ function apply(ctx) {
 	}
 
 	/** 紧凑显示切换按钮的「多行收拢为单行」密度图标：上下两个指向中线的箭头夹一条
-	 *  标题行横线，与「回到顶部」的单向箭头、窄条折叠的 « 方向符号均可区分
+	 *  标题行横线，与「回到顶部」的单向箭头、标题行的收起方向图标均可区分
 	 *  （canonical 图标集无现成字形，14 盒 stroke 风格与 createTopIcon 一致，R-01-021/AC-05）。 */
 	function createDensityIcon() {
 		return createInlineIcon({
@@ -4925,6 +4971,21 @@ function apply(ctx) {
 				{ attrs: { d: "m3.5 4.5 3.5-3.5 3.5 3.5", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
 				{ attrs: { d: "M3 7h8", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
 				{ attrs: { d: "m3.5 9.5 3.5 3.5 3.5-3.5", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
+			],
+		});
+	}
+
+	/** 标题行的「收起」方向图标（R-01-011/AC-07）：左侧竖杠 + 向左箭头指向竖杠，
+	 *  表达窗格收缩到左侧；随 .dap-collapse-hint 在标题行悬停/聚焦时显现。 */
+	function createCollapseIcon() {
+		return createInlineIcon({
+			viewBox: "0 0 14 14",
+			width: 14,
+			height: 14,
+			parts: [
+				{ attrs: { d: "M3 2.5v9", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
+				{ attrs: { d: "M11.5 7H5", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
+				{ attrs: { d: "M8.25 3.75 5 7l3.25 3.25", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
 			],
 		});
 	}
@@ -6430,7 +6491,7 @@ function apply(ctx) {
 		ensureCurrentCardVisible(pane.querySelector(".dap-scroll"), snapshot?.current ?? null);
 		if (focusAfterMigrationId !== null) cardsById.get(focusAfterMigrationId)?.el.focus();
 		// 区域已有条目但列表仍在途时，在区头部显示行内加载指示（R-01-014/AC-01）。
-		const headerEl = pane.querySelector(".dap-header");
+		const headerEl = pane.querySelector(".dap-titlebar");
 		const recentHeadEl = recentSection?.querySelector(".dap-recent-head") ?? null;
 		for (const [head, hasItems] of [[headerEl, active.length > 0], [recentHeadEl, recent.length > 0]]) {
 			if (head === null) continue;

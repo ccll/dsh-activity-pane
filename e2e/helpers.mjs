@@ -49,6 +49,17 @@ export async function paneBox(page) {
 	return box;
 }
 
+/** 将窗格切到完整呈现档：默认中间档的时间线只渲染最新一行（lastOnly），依赖用户指令
+ *  锚行等完整时间线内容的断言需先切档（默认中间档见 R-01-021/AC-06）。 */
+export async function ensureFullDensity(page) {
+	await until("窗格切换至完整呈现", async () => {
+		const density = await page.evaluate(() => document.querySelector("[data-dsh-activity-pane]")?.getAttribute("data-density"));
+		if (density === "full") return true;
+		await page.evaluate(() => document.querySelector("[data-dsh-activity-pane] .dap-density")?.click());
+		return null;
+	}, 10_000);
+}
+
 /** 首跑公告弹窗仅在首次出现，存在则关掉。 */
 export async function dismissNotice(page) {
 	// 公告按钮会先以 disabled 挂载再启用，也可能在水合时被替换；在一次 DOM 执行内查找并激活，避免 locator 自动等待竞态。

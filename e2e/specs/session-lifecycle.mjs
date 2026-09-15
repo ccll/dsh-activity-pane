@@ -2,7 +2,9 @@
 // 会话生命周期端到端：空态 → e2e:slow 剧本运行卡 → 完成提醒卡 → 确认移入历史区。
 // 只断言用户可观察的呈现（区域文字、按钮、页面 URL），不依赖内部 DOM 结构（C-045）。
 
-import { openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
+import {
+ensureFullDensity, openApp, paneRegions, sendHeroMessage, until
+} from "../helpers.mjs";
 
 const TITLE = "e2e:slow 慢速任务探针";
 // 标题行累计运行时长的人性化短格式（R-01-020/AC-01）：Ns / NmNs / NhNmNs。
@@ -10,6 +12,7 @@ const TOTAL_BUSY_RE = /^\d+(s|m\d+s|h\d+m\d+s)$/;
 
 export default async function sessionLifecycle({ page, url, mock, assert }) {
 	await openApp(page, url);
+	await ensureFullDensity(page);
 
 	// R-01-001/AC-02、R-01-010/AC-04：无活动会话时活动区显示明确空态而非空白。
 	// 宽限 30s：观测到宿主 sessions 服务偶发推送停滞（窗格滞留「加载中…」，见 TODO 缺陷线索）。
@@ -288,6 +291,7 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 	}, TITLE);
 	assert.equal(completedTotalAfterWait, completedTotal, "完成提醒标题行总耗时保持冻结，不随时间增长（R-01-020/AC-01、R-01-020/AC-07）");
 	await openApp(page, url);
+	await ensureFullDensity(page);
 	const refreshedCompletedElapsed = await until("刷新后恢复完成提醒耗时", () =>
 		page.evaluate((title) => {
 			const card = [...(document.querySelector("[data-dsh-activity-pane]")?.querySelectorAll('[role="button"]') ?? [])]
@@ -355,6 +359,7 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 	assert.match(recentTotal, TOTAL_BUSY_RE, `历史卡标题行最右侧延续显示累计运行时长（R-01-020/AC-01，实际：${recentTotal}）`);
 	assert.equal(recentStats.activityIsLast, true, "历史卡活动时间保持最后一行（R-01-013/AC-12）");
 	await openApp(page, url);
+	await ensureFullDensity(page);
 	const refreshedRecentStats = await until("刷新后恢复历史卡最近回合统计", readRecentStats);
 	assert.deepEqual(
 		{ main: refreshedRecentStats.main, elapsed: refreshedRecentStats.elapsed },

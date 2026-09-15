@@ -3399,17 +3399,17 @@ assert.equal(clampPaneWidth("abc"), 280, "非法持久化值回退默认 280px")
 assert.equal(clampPaneWidth(999), 480, "越界持久化值夹取进允许范围");
 assert.equal(clampPaneWidth(-5), 200, "负值持久化值夹取到最小 200px");
 
-// ---- R-01-021/AC-06 显示档位持久化归一（缺失/非法回退完整档）与三档循环 ----
+// ---- R-01-021/AC-06 显示档位持久化归一（缺失/非法回退默认中间档）与三档循环 ----
 assert.equal(normalizeDensity("compact"), "compact", "紧凑持久化值恢复为紧凑显示");
 assert.equal(normalizeDensity("medium"), "medium", "中间持久化值恢复为中间显示");
 assert.equal(normalizeDensity("full"), "full", "完整持久化值恢复为完整显示");
-assert.equal(normalizeDensity(null), "full", "无持久化记录回退完整显示");
-assert.equal(normalizeDensity(""), "full", "空串回退完整显示");
-assert.equal(normalizeDensity("abc"), "full", "非法持久化值回退完整显示");
+assert.equal(normalizeDensity(null), "medium", "无持久化记录回退默认中间档");
+assert.equal(normalizeDensity(""), "medium", "空串回退默认中间档");
+assert.equal(normalizeDensity("abc"), "medium", "非法持久化值回退默认中间档");
 assert.equal(nextDensity("full"), "medium", "完整档的下一档为中间（R-01-021/AC-01）");
 assert.equal(nextDensity("medium"), "compact", "中间档的下一档为紧凑（R-01-021/AC-01）");
 assert.equal(nextDensity("compact"), "full", "紧凑档的下一档回到完整（R-01-021/AC-01）");
-assert.equal(nextDensity("junk"), "medium", "非法值经归一视作完整档再循环（R-01-021/AC-01）");
+assert.equal(nextDensity("junk"), "compact", "非法值经归一视作默认中间档再循环（R-01-021/AC-01）");
 
 // ---- 重建 client bundle 并校验产物契约 ----
 await mkdir(join(root, ".dsh-plugin"), { recursive: true });
@@ -3447,15 +3447,20 @@ assert.ok(
 assert.ok(!bundle.includes("renderSlot") && !bundle.includes("dap-slot"), "指令槽位渲染无残留（C-019）");
 assert.ok(!bundle.includes("rememberLastUser") && !bundle.includes("lastUserFromEvents") && !bundle.includes("foldedTimelineWithSlot") && !bundle.includes("foldWorkGroupsWithSlot"), "槽位派生家族无残留（C-019）");
 assert.ok(!bundle.includes('document.addEventListener("click"'), "不得在 document 上拦截点击");
-// R-01-008/AC-02 移动端抽屉经标题行整体激活收起（与桌面同一控件，无独立 × 按钮）
-assert.ok(!bundle.includes("dap-close") && !bundle.includes("onCloseClick"), "不再保留独立关闭按钮：移动端与桌面同为标题行整体控件（R-01-008/AC-02）");
+// R-01-008/AC-02 移动端抽屉经标题区整体激活收起（与桌面同一控件，无独立 × 按钮）
+assert.ok(!bundle.includes("dap-close") && !bundle.includes("onCloseClick"), "不再保留独立关闭按钮：移动端与桌面同为标题区整体控件（R-01-008/AC-02）");
 assert.ok(
 	clientSource.includes("const onHeaderActivate = () => {\n\t\t\tif (window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`).matches) {\n\t\t\t\ttogglePane(false);"),
 	"移动端断点标题行激活即收起抽屉，而非折叠窄条（R-01-008/AC-02、R-01-011/AC-06）",
 );
-assert.ok(!/\.dap-collapse-hint \{\s*display: none/.test(bundle), "方向符号 « 两端断点一致呈现（R-01-008/AC-02）");
-// R-01-011/AC-03 标题行整体作为桌面收起控件（无独立按钮）
-assert.ok(bundle.includes('class="dap-header" role="button"'), "标题行整体作为可激活控件");
+// R-01-011/AC-07 收起方向图标仅在标题行悬停/聚焦时显现，常态不占位
+assert.ok(
+	bundle.includes("[data-dsh-activity-pane] .dap-titlebar:hover .dap-collapse-hint") &&
+		bundle.includes("[data-dsh-activity-pane] .dap-titlebar:focus-visible .dap-collapse-hint"),
+	"收起方向图标经标题区悬停/聚焦显隐（R-01-011/AC-07）",
+);
+// R-01-011/AC-03 标题区整体作为桌面收起控件（无独立按钮）
+assert.ok(bundle.includes('class="dap-titlebar" role="button"'), "标题区整体作为可激活控件");
 assert.ok(bundle.includes('header?.addEventListener("click", onHeaderActivate)'), "标题行绑定 click 收起");
 assert.ok(bundle.includes('header?.addEventListener("keydown", onHeaderKeydown)'), "标题行支持 Enter/Space 键盘激活");
 assert.ok(!bundle.includes("onCollapseClick") && !bundle.includes('class="dap-collapse"'), "不再保留独立收起按钮：标题行整体承担折叠");
@@ -3481,7 +3486,10 @@ assert.ok(
 	bundle.includes('[data-dsh-activity-pane][data-density="compact"]'),
 	"紧凑呈现经窗格根属性驱动 CSS 隐藏次要行（R-01-021/AC-02）",
 );
-assert.ok(bundle.includes('class="dap-density"'), "显示档位切换按钮随窗格骨架创建（R-01-021/AC-05）");
+assert.ok(
+	bundle.includes('class="dap-tools"') && bundle.includes('class="dap-density"'),
+	"显示档位切换按钮随窗格骨架创建于标题行工具区（R-01-021/AC-05）",
+);
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane][data-density="medium"] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-foot') &&
 		bundle.includes('[data-dsh-activity-pane][data-density="medium"] .dap-card[data-kind="awaiting"][data-wait="done"] :is(.dap-await-head, .dap-note-row)') &&
@@ -3491,8 +3499,9 @@ assert.ok(
 );
 assert.ok(bundle.includes("writeStoredDensity(densityLevel)"), "显示档位切换持久化于 localStorage（R-01-021/AC-06）");
 assert.ok(
-	bundle.includes('[data-dsh-activity-pane] .dap-density { top: 44px; }'),
-	"切换按钮位于窗格右上角、标题栏正下方（R-01-021/AC-05）",
+	bundle.includes('[data-dsh-activity-pane] .dap-tools {') &&
+		bundle.includes('[data-dsh-activity-pane] .dap-density {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: 22px;'),
+	"切换按钮常显于标题行右侧工具区（R-01-021/AC-05）",
 );
 // R-01-015/AC-03 折叠窄条与移动端抽屉不提供拖拽
 assert.ok(bundle.includes('[data-collapsed="true"] .dap-resize { display: none; }'), "折叠窄条不提供拖拽调宽");
@@ -4363,10 +4372,9 @@ assert.ok(
 	"按钮图标在窗格创建时经 createTopIcon 注入（向上箭头描边几何，14 盒，createInlineIcon 保证 aria-hidden）",
 );
 assert.ok(
-	bundle.includes("[data-dsh-activity-pane] .dap-top,\n[data-dsh-activity-pane] .dap-density {")
-		&& bundle.includes("[data-dsh-activity-pane] .dap-top { bottom: 12px; }")
-		&& bundle.includes("[data-dsh-activity-pane] .dap-density { top: 44px; }"),
-	"回到顶部与紧凑切换两枚悬浮按钮共用同规格声明（右缘对齐防双处漂移），纵向锚点分列：回到顶部右下角、切换按钮右上角标题栏正下方（R-01-018/AC-01、R-01-021/AC-05）",
+	bundle.includes("[data-dsh-activity-pane] .dap-top {")
+		&& bundle.includes("[data-dsh-activity-pane] .dap-titlebar {\n  flex: 1;\n  min-width: 0;\n  display: flex;\n  align-items: center;\n  gap: 8px;"),
+	"回到顶部按钮保持右下角悬浮；标题行拆为标题区（flex:1 占满剩余宽度，悬停高亮与收起激活的载体）与右侧固定工具区（预留工具按钮扩展）（R-01-018/AC-01、R-01-021/AC-05、R-01-011/AC-07）",
 );
 assert.ok(!bundle.includes(".dap-top {\n  position: absolute;\n  bottom: 12px;\n  left: 50%;"), "底部居中定位已移除");
 assert.ok(

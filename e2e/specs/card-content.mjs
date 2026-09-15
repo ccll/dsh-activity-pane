@@ -4,7 +4,9 @@
 // 结构呈现（工作区+模型 / 标题 / 用户预览 / 助手预览 / 活动时间）。
 
 import { resolveWorkspaceColors } from "../../src/core.mjs";
-import { clickCardButton, MOCK_FAST_REPLY, MOCK_MODEL, openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
+import {
+MOCK_FAST_REPLY, MOCK_MODEL, clickCardButton, ensureFullDensity, openApp, paneRegions, sendHeroMessage, until
+} from "../helpers.mjs";
 
 const TITLE = "e2e:fast 卡面内容探针";
 const CONTRAST_PROBE_VARIANTS = (() => {
@@ -23,6 +25,7 @@ const CONTRAST_PROBE_VARIANTS = (() => {
 
 export default async function cardContent({ page, url, assert }) {
 	await openApp(page, url);
+	await ensureFullDensity(page);
 	await sendHeroMessage(page, TITLE);
 
 	// R-01-003/AC-03、R-01-012/AC-01、AC-05：活动卡承载归属、模型上下文与用户标签。

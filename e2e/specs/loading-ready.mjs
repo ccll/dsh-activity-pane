@@ -1,7 +1,7 @@
 // R-01-014/AC-01、R-01-014/AC-03、R-01-014/AC-06、R-02-003/AC-01
 // 同一页面连接世代内：列表 pending→ready 落到真实空态；真实 slow 卡先呈现标题/时间线，model detail 后补齐。
 
-import { dismissNotice, MOCK_MODEL, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
+import { dismissNotice, ensureFullDensity, MOCK_MODEL, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
 
 const DETAIL_TITLE = "e2e:slow detail 渐进探针";
 
@@ -63,6 +63,7 @@ export default async function loadingReady({ page, url, assert }) {
 	assert.equal(await page.locator("[data-dsh-activity-pane] .dap-spinner").count(), 0, "ready 后窗格内加载指示移除");
 	assert.equal(await page.locator(".dap-toggle .dap-spinner").count(), 0, "ready 后移动按钮加载指示移除");
 
+	await ensureFullDensity(page);
 	await sendHeroMessage(page, DETAIL_TITLE);
 	const detailEvidence = await until("卡片先呈现可用内容再补齐 model detail", async () => {
 		const value = await page.evaluate(() => window.__dapLoadingEvidence);

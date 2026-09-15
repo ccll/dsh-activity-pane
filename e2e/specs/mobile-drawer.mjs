@@ -2,7 +2,7 @@
 // 移动端抽屉：默认隐藏、开关展开、标题/外部点击收起、开关随状态显隐，
 // 键盘激活当前卡只收起抽屉、激活其它卡仍切换会话；真触摸和精确视觉位置保留人工。
 
-import { activateCard, mainAreaHas, newSessionWithMessage, openApp, paneBox, sendHeroMessage, until } from "../helpers.mjs";
+import {activateCard, ensureFullDensity, mainAreaHas, newSessionWithMessage, openApp, paneBox, sendHeroMessage, until} from "../helpers.mjs";
 
 const MOBILE_VIEWPORT = { width: 375, height: 700 };
 const TITLE_A = "e2e:fast 移动抽屉探针甲";
@@ -34,6 +34,7 @@ async function waitDrawerClosed(page, label) {
 export default async function mobileDrawer({ page, url, assert }) {
 	await page.setViewportSize(MOBILE_VIEWPORT);
 	await openApp(page, url);
+	await ensureFullDensity(page);
 	await sendHeroMessage(page, TITLE_A);
 	await newSessionWithMessage(page, TITLE_B);
 	await until("当前为会话乙", () => mainAreaHas(page, TITLE_B));

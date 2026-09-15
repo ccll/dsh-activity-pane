@@ -2,7 +2,7 @@
 // 回到顶部：滚动超阈值出现悬浮按钮、键盘激活回顶（减弱动态时直接定位）、回顶后隐藏、
 // 移动抽屉同样提供而折叠窄条不显示、纯图标无文字且有不透明底色与可访问名称。
 
-import { cardVisibleInPane, newSessionWithMessage, openApp, paneBox, sendHeroMessage, until, wheelOver } from "../helpers.mjs";
+import { cardVisibleInPane, ensureFullDensity, newSessionWithMessage, openApp, paneBox, sendHeroMessage, until, wheelOver } from "../helpers.mjs";
 
 const SESSION_COUNT = 6;
 const TOP_TITLE = () => title(SESSION_COUNT - 1); // 最新卡位于窗格顶部
@@ -42,6 +42,7 @@ export default async function backToTop({ page, url, assert }) {
 	// 压低视口并制造 6 张卡片，让窗格一屏以上可滚。
 	await page.setViewportSize({ width: 1100, height: 500 });
 	await openApp(page, url);
+	await ensureFullDensity(page);
 	await sendHeroMessage(page, title(0));
 	for (let n = 1; n < SESSION_COUNT; n += 1) {
 		await newSessionWithMessage(page, title(n));

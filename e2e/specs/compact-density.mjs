@@ -1,11 +1,12 @@
-// R-01-021/AC-01、R-01-021/AC-02、R-01-021/AC-03、R-01-021/AC-04、R-01-021/AC-05、R-01-021/AC-06、R-01-021/AC-07、R-01-021/AC-08
-// 显示档位三档循环：右上角标题栏下方常显切换按钮，完整→中间→紧凑循环；中间档保留
-// 工作区徽标行/等待末行/最近卡预览行，紧凑档仅保留标题行；切换时当前选中卡片顶部
-// 相对滚动视口的位置稳定（滚动锚定）；档位持久化、状态变化不解除、窄条不显示。
+// R-01-021/AC-01、R-01-021/AC-02、R-01-021/AC-03、R-01-021/AC-04、R-01-021/AC-05、R-01-021/AC-06、R-01-021/AC-07、R-01-021/AC-08、R-01-011/AC-07
+// 显示档位三档循环：切换按钮常显于「活动会话」标题行右侧工具区，完整→中间→紧凑循环；
+// 无持久化档位时默认中间档；中间档保留工作区徽标行/等待末行/最近卡预览行，紧凑档仅
+// 保留标题行；切换时当前选中卡片顶部相对滚动视口的位置稳定（滚动锚定）；档位持久化、
+// 状态变化不解除、窄条不显示；悬停标题区时于其最右端显现收起方向图标，不高亮工具区。
 // 找卡一律用 data-wait/data-kind/data-current 结构选择器：宿主自动命名会用 LLM
 // 回复改写会话标题，卡片可见文本对断言不稳定。
 
-import { mainAreaHas, newSessionWithMessage, openApp, paneBox, sendHeroMessage, until, wheelOver } from "../helpers.mjs";
+import { mainAreaHas, newSessionWithMessage, openApp, paneBox, sendHeroMessage, until } from "../helpers.mjs";
 
 const DONE_CARD = '.dap-card[data-wait="done"]';
 const RECENT_CARD = '.dap-card[data-kind="recent"]';
@@ -25,7 +26,24 @@ function densityState(page) {
 			density: pane.getAttribute("data-density"),
 			label: button?.getAttribute("aria-label") ?? null,
 			buttonHidden: !button || buttonDisplay === "none" || buttonRect.width === 0 || buttonRect.height === 0,
+			inTools: !!pane.querySelector(".dap-tools .dap-density") && !pane.querySelector(".dap-titlebar .dap-density"),
 			buttonBox: buttonRect?.toJSON() ?? null,
+		};
+	});
+}
+
+/** 标题行收起方向图标状态：悬停可见性、与工具区按钮的相邻关系（R-01-011/AC-07）。 */
+function collapseHintState(page) {
+	return page.evaluate(() => {
+		const header = document.querySelector("[data-dsh-activity-pane] .dap-header");
+		const hint = header?.querySelector(".dap-titlebar .dap-collapse-hint");
+		const density = header?.querySelector(".dap-tools .dap-density");
+		if (!header || !hint || !density) return null;
+		const rect = hint.getBoundingClientRect();
+		const densityRect = density.getBoundingClientRect();
+		return {
+			visible: getComputedStyle(hint).opacity !== "0" && rect.width > 0 && rect.height > 0,
+			gapToTools: densityRect.left - rect.right,
 		};
 	});
 }
@@ -139,74 +157,40 @@ export default async function compactDensity({ page, url, assert }) {
 		return done >= ACTIVE_DONE_COUNT ? true : null;
 	}, 30_000);
 
-	// R-01-021/AC-05（完整态）：按钮常显于窗格右上角、标题栏正下方（悬浮于列表之上）。
+	// R-01-021/AC-06：无持久化档位时默认中间档；R-01-021/AC-05：按钮常显于标题行右侧工具区。
 	const box = await paneBox(page);
-	const fullState = await densityState(page);
-	assert.equal(fullState.density, "full", "默认为完整呈现");
-	assert.equal(fullState.label, "切换为中间显示", "完整档下按钮可访问名称表达目标档位（R-01-021/AC-01）");
+	const mediumState = await densityState(page);
+	assert.equal(mediumState.density, "medium", "无持久化记录默认为中间呈现（R-01-021/AC-06）");
+	assert.equal(mediumState.inTools, true, "切换按钮位于标题行右侧固定工具区内（R-01-021/AC-05）");
+	assert.equal(mediumState.label, "切换为紧凑显示", "中间档下按钮可访问名称表达目标档位（R-01-021/AC-01）");
 	assert.ok(
-		fullState.buttonBox && fullState.buttonBox.y >= box.y && fullState.buttonBox.y <= box.y + 60 && fullState.buttonBox.x + fullState.buttonBox.width >= box.x + box.width - 40,
-		`切换按钮位于窗格右上角、标题栏正下方（button y=${Math.round(fullState.buttonBox?.y ?? -1)}，pane y=${Math.round(box.y)}，R-01-021/AC-05）`,
+		mediumState.buttonBox && mediumState.buttonBox.y >= box.y && mediumState.buttonBox.y + mediumState.buttonBox.height <= box.y + 48 && mediumState.buttonBox.x + mediumState.buttonBox.width >= box.x + box.width - 40,
+		`切换按钮位于标题行右侧工具区（button y=${Math.round(mediumState.buttonBox?.y ?? -1)}，pane y=${Math.round(box.y)}，R-01-021/AC-05）`,
 	);
 
-	// 完整态基线：完成提醒卡时间线可见。
-	const fullActive = await cardRowState(page, DONE_CARD);
-	assert.equal(fullActive?.trace, true, "完整呈现下完成提醒卡时间线可见");
-	assert.equal(fullActive?.wait, "done", "前置：完成提醒卡带等待类别标识");
-	// 完整态基线（R-01-002/AC-09）：末行维持「胶囊行 + 正文行」两行结构，正文与按钮均显示。
-	const fullFoot = await footLayout(page, DONE_CARD);
-	assert.equal(fullFoot?.noteVisible, true, "完整呈现下完成提醒卡正文行显示（R-01-002/AC-09 基线）");
-	assert.equal(fullFoot?.confirmVisible, true, "完整呈现下「移入历史」按钮显示（R-01-002/AC-09 基线）");
-	assert.equal(fullFoot?.sameRow, false, "完整呈现下完成提醒卡末行维持两行结构——正文行不与按钮同行（R-01-002/AC-09 基线）");
-
-	// R-01-021/AC-01（滚动锚定）：完整 → 中间后，当前选中卡片顶部相对视口位置不变。
-	// 先激活第三张完成卡使 data-current 落在列表中部，再把其顶部滚到与视口顶对齐：
-	// 上方滚动余量（= 卡内容偏移）恒不小于上方行收缩量，锚定补偿可精确执行。
-	await activateCardByIndex(page, DONE_CARD, 2);
-	await page.evaluate(() => {
-		const pane = document.querySelector("[data-dsh-activity-pane]");
-		const scroll = pane?.querySelector(".dap-scroll");
-		const card = scroll?.querySelector(".dap-card[data-current]");
-		if (scroll && card) scroll.scrollTop = card.offsetTop;
-	});
-	const anchorBefore = await currentCardAnchor(page);
-
-	// R-01-021/AC-08：完整 → 中间，保留标题行/工作区徽标行/等待末行/消息预览行，隐藏时间线与统计。
-	await page.getByRole("button", { name: "切换为中间显示" }).click();
-	// 等渲染落地与锚定补偿执行（queueSync 经 SYNC_MIN_INTERVAL_MS 节流）。
-	await page.waitForTimeout(300);
-	await untilDensity(page, "medium", "切换后进入中间呈现");
-	const anchorAfter = await currentCardAnchor(page);
-	assert.ok(
-		anchorBefore !== null && anchorAfter !== null && Math.abs(anchorBefore.anchor - anchorAfter.anchor) <= 2,
-		`切换前后当前选中卡片顶部相对视口位置稳定（${JSON.stringify(anchorBefore)} → ${JSON.stringify(anchorAfter)}，R-01-021/AC-01）`,
-	);
-	const mediumActive = await cardRowState(page, DONE_CARD);
-	assert.equal(mediumActive?.titleRow, true, "中间下完成提醒卡标题行保留（R-01-021/AC-08）");
-	assert.equal(mediumActive?.head, true, "中间下工作区徽标行保留（R-01-021/AC-08）");
-	assert.equal(mediumActive?.foot, true, "中间下等待胶囊与正文行保留（R-01-021/AC-08）");
-	assert.equal(mediumActive?.trace, true, "中间下时间线保留（R-01-021/AC-08）");
+	// 中间档基线（默认档）：完成提醒卡时间线仅最新一行。
+	const mediumBaseline = await cardRowState(page, DONE_CARD);
+	assert.equal(mediumBaseline?.titleRow, true, "中间下完成提醒卡标题行保留（R-01-021/AC-08）");
+	assert.equal(mediumBaseline?.head, true, "中间下工作区徽标行保留（R-01-021/AC-08）");
+	assert.equal(mediumBaseline?.foot, true, "中间下等待胶囊与正文行保留（R-01-021/AC-08）");
+	assert.equal(mediumBaseline?.trace, true, "中间呈现下完成提醒卡时间线可见");
+	assert.equal(mediumBaseline?.wait, "done", "前置：完成提醒卡带等待类别标识");
+	// R-01-002/AC-09 基线：末行在中间档收合为单行（R-01-021/AC-08）。
+	const mediumFootAtDefault = await footLayout(page, DONE_CARD);
+	assert.equal(mediumFootAtDefault?.capsuleVisible, true, "中间档完成提醒卡「已完成」胶囊显示（R-01-021/AC-08）");
+	assert.equal(mediumFootAtDefault?.confirmVisible, true, "中间档完成提醒卡「移入历史」按钮显示（R-01-021/AC-08）");
+	assert.equal(mediumFootAtDefault?.noteVisible, false, "中间档完成提醒卡正文行不再显示（R-01-021/AC-08）");
+	assert.equal(mediumFootAtDefault?.sameRow, true, "中间档完成提醒卡胶囊与按钮同行（R-01-021/AC-08）");
+	assert.equal(mediumFootAtDefault?.capsuleLeft, true, "中间档完成提醒卡胶囊居左、按钮居右（R-01-021/AC-08）");
+	assert.equal(mediumFootAtDefault?.capsulePulse, "dap-pulse", "中间档完成提醒卡胶囊保持 dap-pulse 脉冲（R-01-002/AC-08）");
 	const mediumTraceLines = await page.evaluate((sel) => {
 		const card = document.querySelector(`[data-dsh-activity-pane] ${sel}`);
 		return card ? card.querySelectorAll(".dap-trace .dap-trace-item").length : -1;
 	}, DONE_CARD);
 	assert.equal(mediumTraceLines, 1, "中间档每卡时间线恰 1 行——时间线最新一行（R-01-021/AC-08）");
-	// R-01-021/AC-08（中间档收合）：完成提醒卡末行收合为单行——「已完成」胶囊居左、
-	// 「移入历史」按钮居右，「继续对话，或移入历史」正文不再显示。
-	const mediumFoot = await footLayout(page, DONE_CARD);
-	assert.equal(mediumFoot?.capsuleVisible, true, "中间档完成提醒卡「已完成」胶囊显示（R-01-021/AC-08）");
-	assert.equal(mediumFoot?.confirmVisible, true, "中间档完成提醒卡「移入历史」按钮显示（R-01-021/AC-08）");
-	assert.equal(mediumFoot?.noteVisible, false, "中间档完成提醒卡正文行不再显示（R-01-021/AC-08）");
-	assert.equal(mediumFoot?.sameRow, true, "中间档完成提醒卡胶囊与按钮同行（R-01-021/AC-08）");
-	assert.equal(mediumFoot?.capsuleLeft, true, "中间档完成提醒卡胶囊居左、按钮居右（R-01-021/AC-08）");
-	// R-01-002/AC-08（中间档）：正文行不显示的完成提醒卡由可见胶囊承载同一脉冲节奏，按钮不闪。
-	assert.equal(mediumFoot?.capsulePulse, "dap-pulse", "中间档完成提醒卡胶囊保持 dap-pulse 脉冲（R-01-002/AC-08）");
 	const mediumRecent = await cardRowState(page, RECENT_CARD);
 	assert.equal(mediumRecent?.head, true, "中间下最近卡工作区徽标行保留（R-01-021/AC-08）");
 	assert.equal(mediumRecent?.historyLine, true, "中间下最近卡消息预览行保留（R-01-021/AC-08）");
-
-	// R-01-021/AC-03（中间档）：等待类别底色保持。
-	assert.equal(mediumActive?.background, fullActive?.background, "中间下完成提醒卡面底色与完整呈现一致（R-01-021/AC-03）");
 
 	// R-01-021/AC-04（中间档）：激活卡片照常跳转。
 	await activateCardByIndex(page, RECENT_CARD, 0);
@@ -225,7 +209,7 @@ export default async function compactDensity({ page, url, assert }) {
 
 	// R-01-021/AC-03：等待类别底色在紧凑下保持。
 	assert.equal(compactActive?.wait, "done", "完成提醒卡在紧凑下保留等待类别标识");
-	assert.equal(compactActive?.background, fullActive?.background, "紧凑下完成提醒卡面底色与完整呈现一致（R-01-021/AC-03）");
+	assert.equal(compactActive?.background, mediumBaseline?.background, "紧凑下完成提醒卡面底色与中间呈现一致（R-01-021/AC-03）");
 
 	// R-01-021/AC-04：紧凑下激活卡片照常跳转。
 	await activateCardByIndex(page, RECENT_CARD, 1);
@@ -242,6 +226,55 @@ export default async function compactDensity({ page, url, assert }) {
 	await page.getByRole("button", { name: "切换为完整显示" }).click();
 	await page.reload();
 	await until("切回完整后刷新保持完整", async () => ((await densityState(page))?.density === "full" ? true : null), 30_000);
+
+	// R-01-021/AC-01（滚动锚定）：完整 → 中间后，当前选中卡片顶部相对视口位置不变。
+	// 激活第三张完成卡并等 data-current 落定（跳转异步完成），再把其顶部滚到与视口顶
+	// 对齐后切换档位。
+	await activateCardByIndex(page, DONE_CARD, 2);
+	await until("第三张完成卡成为当前选中", async () => {
+		return page.evaluate(() => {
+			const cards = [...document.querySelectorAll('[data-dsh-activity-pane] .dap-card[data-wait="done"]')];
+			const current = document.querySelector("[data-dsh-activity-pane] .dap-card[data-current]");
+			return cards.indexOf(current) === 2 ? true : null;
+		});
+	});
+	await page.evaluate(() => {
+		const pane = document.querySelector("[data-dsh-activity-pane]");
+		const scroll = pane?.querySelector(".dap-scroll");
+		const card = scroll?.querySelector(".dap-card[data-current]");
+		if (scroll && card) scroll.scrollTop = card.offsetTop;
+	});
+	const anchorBefore = await currentCardAnchor(page);
+	await page.getByRole("button", { name: "切换为中间显示" }).click();
+	// 等渲染落地与锚定补偿执行（queueSync 经 SYNC_MIN_INTERVAL_MS 节流）。
+	await page.waitForTimeout(300);
+	await untilDensity(page, "medium", "切换后进入中间呈现");
+	const anchorAfter = await currentCardAnchor(page);
+	assert.ok(
+		anchorBefore !== null && anchorAfter !== null && Math.abs(anchorBefore.anchor - anchorAfter.anchor) <= 2,
+		`切换前后当前选中卡片顶部相对视口位置稳定（${JSON.stringify(anchorBefore)} → ${JSON.stringify(anchorAfter)}，R-01-021/AC-01）`,
+	);
+
+	// R-01-011/AC-07：常态不显示收起方向图标；悬停标题区后于标题区最右端（紧邻工具区
+	// 左侧）显现——不挤动工具区按钮，悬停高亮也只落在标题区。
+	await page.mouse.move(box.x + box.width / 2, box.y + 200);
+	await until("常态收起方向图标不占位", async () => ((await collapseHintState(page))?.visible === false ? true : null));
+	const densityBefore = (await densityState(page)).buttonBox;
+	await page.hover(".dap-titlebar");
+	await until("悬停标题区后收起方向图标显现", async () => ((await collapseHintState(page))?.visible ? true : null));
+	const hint = await collapseHintState(page);
+	assert.ok(
+		hint.gapToTools >= 0 && hint.gapToTools <= 24,
+		`收起方向图标位于标题区最右端、紧邻工具区左侧（gap=${Math.round(hint.gapToTools)}px，R-01-011/AC-07）`,
+	);
+	const densityAfter = (await densityState(page)).buttonBox;
+	assert.equal(densityAfter.x, densityBefore.x, "收起方向图标显现不挤动工具区切换按钮（R-01-011/AC-07）");
+	const hoverSurface = await page.evaluate(() => ({
+		titlebar: getComputedStyle(document.querySelector("[data-dsh-activity-pane] .dap-titlebar")).backgroundColor,
+		tools: getComputedStyle(document.querySelector("[data-dsh-activity-pane] .dap-tools")).backgroundColor,
+	}));
+	assert.notEqual(hoverSurface.titlebar, "rgba(0, 0, 0, 0)", "悬停高亮落在标题区（R-01-011/AC-07）");
+	assert.equal(hoverSurface.tools, "rgba(0, 0, 0, 0)", "工具区不参与标题区悬停高亮（R-01-011/AC-07）");
 
 	// R-01-021/AC-05（窄条）：折叠后不显示切换按钮。
 	await page.getByRole("button", { name: "收起活动会话窗格" }).click();

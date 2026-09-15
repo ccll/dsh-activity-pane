@@ -126,10 +126,10 @@ export function clampPaneWidth(raw) {
 
 /**
  * 把任意输入（localStorage 字符串等）归一为合法卡片显示档位：
- * 仅 'compact'/'medium' 为合法档位，其余（含缺失/非法值）回退完整呈现（R-01-021/AC-06）。
+ * 仅 'full'/'medium'/'compact' 为合法档位，其余（含缺失/非法值）回退默认中间档（R-01-021/AC-06）。
  */
 export function normalizeDensity(raw) {
-	return raw === "compact" || raw === "medium" ? raw : "full";
+	return raw === "compact" || raw === "medium" || raw === "full" ? raw : "medium";
 }
 
 /** 显示档位的循环次序：完整 → 中间 → 紧凑 → 完整（R-01-021/AC-01）。 */
@@ -137,7 +137,7 @@ const DENSITY_ORDER = ["full", "medium", "compact"];
 
 /**
  * 返回循环切换后的下一显示档位：完整 → 中间 → 紧凑 → 完整；
- * 输入先经 normalizeDensity 归一，非法值视作完整档（R-01-021/AC-01）。
+ * 输入先经 normalizeDensity 归一，非法值视作中间档（R-01-021/AC-01）。
  */
 export function nextDensity(value) {
 	const index = DENSITY_ORDER.indexOf(normalizeDensity(value));

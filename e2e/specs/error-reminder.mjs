@@ -2,12 +2,15 @@
 // mock LLM HTTP failure → Agent error turn/end → Host completion registry → SSE → browser error card。
 // AC-05 此处覆盖打开会话不解除；切换保持由 core 契约覆盖。AC-13 此处覆盖错误成立，活动后代抑制与新回合覆盖由 core 契约覆盖。
 
-import { activateCard, activityAcks, MOCK_ERROR_MESSAGE, openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
+import {
+MOCK_ERROR_MESSAGE, activateCard, activityAcks, ensureFullDensity, openApp, paneRegions, sendHeroMessage, until
+} from "../helpers.mjs";
 
 const TITLE = "e2e:error 跨边界故障探针";
 
 export default async function errorReminder({ page, url, mock, assert }) {
 	await openApp(page, url);
+	await ensureFullDensity(page);
 	await page.evaluate(() => document.body.setAttribute("data-ds-dark-theme", ""));
 	await sendHeroMessage(page, TITLE);
 
@@ -70,6 +73,8 @@ export default async function errorReminder({ page, url, mock, assert }) {
 	});
 
 	await openApp(page, url);
+
+	await ensureFullDensity(page);
 	await until("刷新后恢复错误提醒", async () => {
 		const regions = await paneRegions(page);
 		return regions?.active.includes(TITLE) &&

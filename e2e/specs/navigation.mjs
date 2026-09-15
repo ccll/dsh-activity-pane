@@ -1,7 +1,7 @@
 // R-01-005/AC-01、R-01-006/AC-01
 // 点击与键盘跳转：Enter 激活活动卡、Space 激活最近卡并切换会话；切换后高亮当前卡。
 
-import { clickCardButton, mainAreaHas, newSessionWithMessage, openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
+import { clickCardButton, ensureFullDensity, mainAreaHas, newSessionWithMessage, openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
 
 const TITLE_A = "e2e:fast 跳转探针甲";
 const TITLE_B = "e2e:fast 跳转探针乙";
@@ -25,6 +25,7 @@ async function cardVisual(page, title) {
 
 export default async function navigation({ page, url, assert }) {
 	await openApp(page, url);
+	await ensureFullDensity(page);
 	await sendHeroMessage(page, TITLE_A);
 	await newSessionWithMessage(page, TITLE_B);
 	// 两张完成提醒卡都在活动区。

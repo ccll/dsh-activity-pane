@@ -1,7 +1,9 @@
 // R-01-010/AC-01、R-01-010/AC-03、R-01-019/AC-01～AC-04
 // 历史会话分页：创建超过两个批次的已完成主会话，验证首批、手动追加、末批与滚动隔离。
 
-import { clickCardButton, newSessionWithMessage, openApp, paneRegions, until } from "../helpers.mjs";
+import {
+clickCardButton, ensureFullDensity, newSessionWithMessage, openApp, paneRegions, until
+} from "../helpers.mjs";
 
 const CARD_SELECTOR = '[data-dsh-activity-pane] .dap-recent .dap-card';
 
@@ -38,6 +40,7 @@ async function stableMainScrollTop(page, label) {
 
 export default async function recentInfiniteScroll({ page, url, mock, assert }) {
 	await openApp(page, url);
+	await ensureFullDensity(page);
 	const titles = [];
 
 	for (let index = 1; index <= 21; index += 1) {

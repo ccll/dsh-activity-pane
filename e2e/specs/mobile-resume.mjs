@@ -9,13 +9,14 @@
 // 后 30ms（仍在 100ms 节流窗口内）再触发一次 resize，逼出一次节流窗口尾排队并被吞
 // ——渲染管线进入与真机挂起一致的滞留态。
 
-import { activityAcks, openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
+import {activityAcks, ensureFullDensity, openApp, paneRegions, sendHeroMessage, until} from "../helpers.mjs";
 
 const MOBILE_VIEWPORT = { width: 375, height: 700 };
 
 export default async function mobileResume({ page, url, assert }) {
 	await page.setViewportSize(MOBILE_VIEWPORT);
 	await openApp(page, url);
+	await ensureFullDensity(page);
 	await sendHeroMessage(page, "e2e:slow 后台恢复探针");
 
 	// 建立挂起丢弃语义并逼出一次「节流窗口尾排队被吞」。rAF 同帧回调按注册次序执行，

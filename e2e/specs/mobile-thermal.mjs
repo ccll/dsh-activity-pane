@@ -2,7 +2,9 @@
 // 移动视口下抽屉关闭即屏外休眠（content-visibility: hidden），流式回合期间渲染
 // 频率被 SYNC_MIN_INTERVAL_MS 节流硬顶；屏外休眠不冻结数据，打开抽屉即见最新呈现。
 
-import { openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
+import {
+ensureFullDensity, openApp, paneRegions, sendHeroMessage, until
+} from "../helpers.mjs";
 
 const MOBILE_VIEWPORT = { width: 375, height: 700 };
 const WINDOW_MS = 5_000;
@@ -21,6 +23,7 @@ async function paneComputedVisibility(page) {
 export default async function mobileThermal({ page, url, assert }) {
 	await page.setViewportSize(MOBILE_VIEWPORT);
 	await openApp(page, url);
+	await ensureFullDensity(page);
 	// 初始未点过开关（data-open 缺省视同关闭）：抽屉屏外且子树休眠。
 	assert.equal(
 		await paneComputedVisibility(page),

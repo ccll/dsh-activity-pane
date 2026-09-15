@@ -2,7 +2,7 @@
 // 完成确认跨客户端同步与恢复：同一服务的两个独立 browser context 同时观察提醒，
 // 一端确认后另一端自动解除；刷新/重新连接后保持已确认状态。
 
-import { activateCard, clickCardButton, mainAreaHas, openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
+import { activateCard, clickCardButton, ensureFullDensity, mainAreaHas, openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
 
 const TITLE = "e2e:fast 跨客户端确认探针";
 
@@ -13,7 +13,9 @@ export default async function completionSync({ browser, page, url, assert }) {
 		// 先让服务端完成首个 sessions 连接世代，再接入第二客户端，避免把已知宿主
 		// 冷启动竞态放大为两个并发首连；两页之后仍是独立 context 与独立 EventSource。
 		await openApp(page, url);
+		await ensureFullDensity(page);
 		await openApp(secondPage, url);
+		await ensureFullDensity(secondPage);
 		await sendHeroMessage(page, TITLE);
 
 		// 两个客户端都经宿主 SSE 收到同一未确认完成提醒。
@@ -32,6 +34,7 @@ export default async function completionSync({ browser, page, url, assert }) {
 
 		// R-01-002/AC-12：未确认提醒在刷新建立新连接后由宿主持久状态恢复。
 		await openApp(secondPage, url);
+		await ensureFullDensity(secondPage);
 		await until("未确认提醒刷新后恢复", async () => {
 			const regions = await paneRegions(secondPage);
 			return regions?.active.includes(TITLE) && regions.active.includes("已完成") ? regions : null;
@@ -52,6 +55,7 @@ export default async function completionSync({ browser, page, url, assert }) {
 
 		// R-01-002/AC-12：刷新建立新连接后从宿主持久状态恢复，不重新出现完成提醒。
 		await openApp(secondPage, url);
+		await ensureFullDensity(secondPage);
 		await until("刷新后保持已确认状态", async () => {
 			const regions = await paneRegions(secondPage);
 			if (!regions || regions.active.includes(TITLE)) return null;

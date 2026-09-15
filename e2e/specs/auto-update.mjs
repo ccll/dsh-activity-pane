@@ -3,7 +3,9 @@
 // 折叠时间线不依赖 dsh-auto-collapse（本隔离环境按构造不含该插件，全套件功能断言
 // 即「不降级」证据）、外壳重挂载恢复不重复、全程控制台无插件报错与未捕获异常。
 
-import { mainAreaHas, newSessionWithMessage, openApp, paneRegions, sendHeroMessage, sessionComposer, until } from "../helpers.mjs";
+import {
+ensureFullDensity, mainAreaHas, newSessionWithMessage, openApp, paneRegions, sendHeroMessage, sessionComposer, until
+} from "../helpers.mjs";
 
 const TITLE_A = "e2e:fast 自动更新探针甲";
 const TITLE_B = "e2e:fast 自动更新探针乙";
@@ -71,6 +73,8 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	page.on("pageerror", (error) => consoleErrors.push(String(error)));
 
 	await openApp(page, url);
+
+	await ensureFullDensity(page);
 	await page.evaluate(() => document.body.setAttribute("data-ds-dark-theme", ""));
 
 	// R-01-010/AC-04：无活动会话时活动区显示明确空态。
@@ -270,6 +274,7 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 		"阻塞等待期间 token 统计保持冻结（R-01-009/AC-13）",
 	);
 	await openApp(page, url);
+	await ensureFullDensity(page);
 	const refreshedBlockedElapsed = await until("刷新后恢复阻塞等待耗时", () =>
 		runtimeCard.locator(".dap-token-stats .dap-token-time").textContent().then((text) => (text ?? "").trim() || null),
 	);

@@ -1313,25 +1313,25 @@ function awaitBadgeStats(entries) {
 
 /** 数量标识呈现态（R-01-014/AC-06）：列表在途（loading）时不冒充计数——归一为
  *  loading 呈现（加载指示 + 加载中 aria 文案，不等待、不脉冲）；否则归一为 count
- *  呈现（n/m 文本 + 计数 aria 文案）。awaiting 表达「存在等待行动」——底色经
+ *  呈现（n/m 文本 + 计数 aria 文案 + 悬停 tips 文案）。分子为正在运行的主会话数
+ *  （running = total − waiting）——随会话逐一完成递减至 0，与等待行动数互补
+ *  （R-01-001/AC-04、AC-05）；awaiting 表达「存在等待行动」——底色经
  *  awaitBadgeTone（错误 > 阻塞 > 完成，红/金/绿）与脉冲门控同一信号：任一等待行动
  *  （阻塞等待、完成提醒或错误提醒）即脉冲（R-01-002/AC-06，C-037、C-043）。
  *  blocked 入参只用于 aria 文案的计数说明，不再驱动门控。错误轴不算在途，维持计数呈现。 */
 function countBadgeState(listState, waiting, total, blocked = 0) {
-	if (listState === "loading") return { mode: "loading", text: "", ariaText: "活动会话计数加载中", awaiting: false };
+	if (listState === "loading") return { mode: "loading", text: "", ariaText: "活动会话计数加载中", tip: "", awaiting: false };
 	const awaiting = waiting > 0;
 	const hasBlocked = blocked > 0;
 	const doneCount = waiting - (hasBlocked ? blocked : 0);
+	const running = total - waiting;
 	return {
 		mode: "count",
-		text: `${waiting}/${total}`,
-		ariaText: hasBlocked
-			? doneCount > 0
-				? `${total} 个活动会话，${blocked} 个等待你答复，${doneCount} 个已完成`
-				: `${total} 个活动会话，${blocked} 个等待你答复`
-			: awaiting
-				? `${total} 个活动会话，${waiting} 个已完成`
-				: `${total} 个活动会话`,
+		text: `${running}/${total}`,
+		ariaText: `${total} 个活动会话，${running} 个正在运行`
+			+ (hasBlocked ? `，${blocked} 个等待你答复` : "")
+			+ (doneCount > 0 ? `，${doneCount} 个已完成` : ""),
+		tip: `运行中的会话 ${running} / 总活动会话 ${total}`,
 		awaiting,
 	};
 }
@@ -5643,15 +5643,18 @@ function apply(ctx) {
 	}
 
 	/** 数量标识内容写入（R-01-014/AC-06）：加载态显示活动指示——已是指示则不重写，
-	 *  避免每轮 replaceChildren 重启动画抖动；计数态恢复文本写入，textContent 赋值自动摘除指示。 */
+	 *  避免每轮 replaceChildren 重启动画抖动；计数态恢复文本写入，textContent 赋值自动摘除指示。
+	 *  计数态同时写入悬停 tips（R-01-001/AC-08）：说明分子/分母口径；加载态无计数可解释，摘除。 */
 	function setCountBadgeContent(el, badge) {
 		if (badge.mode === "loading") {
 			const spinner = el.firstElementChild;
 			if (!(el.childNodes.length === 1 && spinner !== null && spinner.classList.contains("dap-spinner")))
 				el.replaceChildren(makeEl("span", "dap-spinner"));
-		} else if (el.textContent !== badge.text) {
+			if (el.getAttribute("title") !== null) el.removeAttribute("title");
+		} else {
 			// 值未变不写文本节点：aria-live 下相同赋值也会触发替换与重复播报。
-			el.textContent = badge.text;
+			if (el.textContent !== badge.text) el.textContent = badge.text;
+			if (el.getAttribute("title") !== badge.tip) el.setAttribute("title", badge.tip);
 		}
 	}
 
@@ -6451,11 +6454,12 @@ function apply(ctx) {
 			}
 		}
 
-		// 计数与折叠：n/m 只统计主会话——分子为等待行动数、分母为其加运行中主会话之和
+		// 计数与折叠：n/m 只统计主会话——分子为运行中数、分母为其加等待行动主会话之和
 		// （R-01-001/AC-04、AC-05）；空态同样显示 0/0（AC-06）。列表在途时不冒充计数，
-		// 三处数量标识显示加载指示（R-01-014/AC-06）。脉冲由 data-awaiting 承载：
-		// 任一等待行动（阻塞等待、完成提醒或错误提醒）即脉冲（R-01-002/AC-06，C-037）；
-		// 底色经 data-tone 跟随等待构成——错误 > 阻塞 > 完成 优先级取红/金/绿（C-040、C-043）。
+		// 三处数量标识显示加载指示（R-01-014/AC-06）。悬停 tips 说明分子/分母口径（AC-08）。
+		// 脉冲由 data-awaiting 承载：任一等待行动（阻塞等待、完成提醒或错误提醒）即脉冲
+		// （R-01-002/AC-06，C-037）；底色经 data-tone 跟随等待构成——错误 > 阻塞 > 完成
+		// 优先级取红/金/绿（C-040、C-043）。
 		const count = pane.querySelector(".dap-count");
 		const railCount = pane.querySelector(".dap-rail-count");
 		const { waiting, blocked, total } = awaitBadgeStats(active);

@@ -1307,25 +1307,25 @@ export function awaitBadgeStats(entries) {
 
 /** 数量标识呈现态（R-01-014/AC-06）：列表在途（loading）时不冒充计数——归一为
  *  loading 呈现（加载指示 + 加载中 aria 文案，不等待、不脉冲）；否则归一为 count
- *  呈现（n/m 文本 + 计数 aria 文案）。awaiting 表达「存在等待行动」——底色经
+ *  呈现（n/m 文本 + 计数 aria 文案 + 悬停 tips 文案）。分子为正在运行的主会话数
+ *  （running = total − waiting）——随会话逐一完成递减至 0，与等待行动数互补
+ *  （R-01-001/AC-04、AC-05）；awaiting 表达「存在等待行动」——底色经
  *  awaitBadgeTone（错误 > 阻塞 > 完成，红/金/绿）与脉冲门控同一信号：任一等待行动
  *  （阻塞等待、完成提醒或错误提醒）即脉冲（R-01-002/AC-06，C-037、C-043）。
  *  blocked 入参只用于 aria 文案的计数说明，不再驱动门控。错误轴不算在途，维持计数呈现。 */
 export function countBadgeState(listState, waiting, total, blocked = 0) {
-	if (listState === "loading") return { mode: "loading", text: "", ariaText: "活动会话计数加载中", awaiting: false };
+	if (listState === "loading") return { mode: "loading", text: "", ariaText: "活动会话计数加载中", tip: "", awaiting: false };
 	const awaiting = waiting > 0;
 	const hasBlocked = blocked > 0;
 	const doneCount = waiting - (hasBlocked ? blocked : 0);
+	const running = total - waiting;
 	return {
 		mode: "count",
-		text: `${waiting}/${total}`,
-		ariaText: hasBlocked
-			? doneCount > 0
-				? `${total} 个活动会话，${blocked} 个等待你答复，${doneCount} 个已完成`
-				: `${total} 个活动会话，${blocked} 个等待你答复`
-			: awaiting
-				? `${total} 个活动会话，${waiting} 个已完成`
-				: `${total} 个活动会话`,
+		text: `${running}/${total}`,
+		ariaText: `${total} 个活动会话，${running} 个正在运行`
+			+ (hasBlocked ? `，${blocked} 个等待你答复` : "")
+			+ (doneCount > 0 ? `，${doneCount} 个已完成` : ""),
+		tip: `运行中的会话 ${running} / 总活动会话 ${total}`,
 		awaiting,
 	};
 }

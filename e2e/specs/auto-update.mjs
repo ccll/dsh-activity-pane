@@ -11,6 +11,7 @@ const TITLE_RUNTIME = "e2e:runtime 自动更新运行态探针";
 const TITLE_MULTI_ASK = "e2e:multiask 多问题列表探针";
 const DESKTOP_VIEWPORT = { width: 1280, height: 720 };
 const MOBILE_VIEWPORT = { width: 375, height: 700 };
+const badgeTip = (running, total) => `运行中的会话 ${running} / 总活动会话 ${total}`;
 
 async function badgeSnapshot(page, surface) {
 	return page.evaluate((name) => {
@@ -23,6 +24,7 @@ async function badgeSnapshot(page, surface) {
 		const animation = count.getAnimations()[0];
 		return {
 			text: count.textContent.trim(),
+			title: count.getAttribute("title"),
 			awaiting: owner.hasAttribute("data-awaiting"),
 			tone: owner.getAttribute("data-tone"),
 			background: style.backgroundColor,
@@ -98,7 +100,8 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 		const value = await badgeSnapshot(page, "header");
 		return value?.tone === "done" ? value : null;
 	});
-	assert.equal(doneHeader.text, "1/1", "列头数量徽标显示等待行动数/活动主会话总数");
+	assert.equal(doneHeader.text, "0/1", "列头数量徽标显示运行中数/活动主会话总数（完成提醒不计入分子）（R-01-001/AC-04）");
+	assert.equal(doneHeader.title, badgeTip(0, 1), "列头数量徽标悬停 tips 简明说明运行中/总会话（R-01-001/AC-08）");
 	assert.equal(doneHeader.background, "rgba(32, 41, 35, 0.97)", "完成提醒列头徽标使用完成卡绿色底色");
 	assert.equal(doneHeader.animation, "dap-await-pulse", "存在等待行动时列头徽标开启脉冲");
 	assert.equal(doneHeader.duration, "1.2s", "列头数量胶囊使用与等待卡末行相同的固定 1.2s 周期（R-01-002/AC-07）");
@@ -116,9 +119,9 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 		return value?.tone === "done" ? value : null;
 	});
 	assert.deepEqual(
-		{ text: doneRail.text, background: doneRail.background, duration: doneRail.duration, animation: doneRail.animation },
-		{ text: "1/1", background: "rgba(32, 41, 35, 0.97)", duration: "1.2s", animation: "dap-await-pulse" },
-		"折叠窄条徽标与列头使用同一完成 tone、底色与固定脉冲",
+		{ text: doneRail.text, title: doneRail.title, background: doneRail.background, duration: doneRail.duration, animation: doneRail.animation },
+		{ text: "0/1", title: badgeTip(0, 1), background: "rgba(32, 41, 35, 0.97)", duration: "1.2s", animation: "dap-await-pulse" },
+		"折叠窄条徽标与列头使用同一运行中分子、完成 tone、底色与固定脉冲（R-01-001/AC-08）",
 	);
 	assert.ok(Number.isFinite(doneRail.currentTime) && doneRail.currentTime < 250, `折叠切换后窄条胶囊应从统一相位起步，实际 ${doneRail.currentTime}ms`);
 	await page.getByRole("button", { name: /活动会话/ }).last().click();
@@ -133,9 +136,9 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 		return value?.tone === "done" ? value : null;
 	});
 	assert.deepEqual(
-		{ text: doneToggle.text, background: doneToggle.background, duration: doneToggle.duration, animation: doneToggle.animation },
-		{ text: "1/1", background: "rgba(32, 41, 35, 0.97)", duration: "1.2s", animation: "dap-await-pulse" },
-		"移动开关徽标与列头使用同一完成 tone、底色与固定脉冲",
+		{ text: doneToggle.text, title: doneToggle.title, background: doneToggle.background, duration: doneToggle.duration, animation: doneToggle.animation },
+		{ text: "0/1", title: badgeTip(0, 1), background: "rgba(32, 41, 35, 0.97)", duration: "1.2s", animation: "dap-await-pulse" },
+		"移动开关徽标与列头使用同一运行中分子、完成 tone、底色与固定脉冲",
 	);
 	assert.ok(Number.isFinite(doneToggle.currentTime) && doneToggle.currentTime < 250, `切到移动端后活动按钮胶囊应从统一相位起步，实际 ${doneToggle.currentTime}ms`);
 	await page.locator(".dap-toggle").click();

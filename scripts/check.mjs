@@ -3318,33 +3318,35 @@ assert.equal(listLoadState({ phase: "ready", state: "error" }), "error", "列表
 assert.equal(listLoadState({ phase: "ready", error: { code: "x" } }), "error", "携带 error 字段归一为 error");
 
 // ---- R-01-014/AC-06 数量标识在途显示加载指示而非冒充计数 ｜ R-01-002/AC-06 脉冲门控 ----
+const badgeTip = (running, total) => `运行中的会话 ${running} / 总活动会话 ${total}`;
 assert.deepEqual(
 	countBadgeState("loading", 0, 0),
-	{ mode: "loading", text: "", ariaText: "活动会话计数加载中", awaiting: false },
+	{ mode: "loading", text: "", ariaText: "活动会话计数加载中", tip: "", awaiting: false },
 	"列表在途归一为加载指示，不冒充 0/0",
 );
 assert.equal(countBadgeState("loading", 1, 3).awaiting, false, "在途期即便有等待计数也不触发脉冲");
 assert.equal(countBadgeState("error", 0, 0).mode, "count", "错误轴不归一为加载指示");
 assert.deepEqual(
 	countBadgeState("ready", 0, 0),
-	{ mode: "count", text: "0/0", ariaText: "0 个活动会话", awaiting: false },
+	{ mode: "count", text: "0/0", ariaText: "0 个活动会话，0 个正在运行", tip: badgeTip(0, 0), awaiting: false },
 	"就绪空态仍显示 0/0（R-01-001/AC-06）",
 );
 assert.deepEqual(
 	countBadgeState("ready", 1, 3, 1),
-	{ mode: "count", text: "1/3", ariaText: "3 个活动会话，1 个等待你答复", awaiting: true },
-	"存在阻塞等待：脉冲开启，aria 表达等你答复（R-01-002/AC-06）",
+	{ mode: "count", text: "2/3", ariaText: "3 个活动会话，2 个正在运行，1 个等待你答复", tip: badgeTip(2, 3), awaiting: true },
+	"分子为运行中数（total−waiting），aria 先运行后等待（R-01-001/AC-04、AC-05）",
 );
 assert.deepEqual(
 	countBadgeState("ready", 2, 3, 1),
-	{ mode: "count", text: "2/3", ariaText: "3 个活动会话，1 个等待你答复，1 个已完成", awaiting: true },
-	"混合态 aria 同时携带阻塞与完成计数",
+	{ mode: "count", text: "1/3", ariaText: "3 个活动会话，1 个正在运行，1 个等待你答复，1 个已完成", tip: badgeTip(1, 3), awaiting: true },
+	"混合态 aria 同时携带运行、阻塞与完成计数",
 );
 assert.deepEqual(
 	countBadgeState("ready", 2, 3, 0),
-	{ mode: "count", text: "2/3", ariaText: "3 个活动会话，2 个已完成", awaiting: true },
+	{ mode: "count", text: "1/3", ariaText: "3 个活动会话，1 个正在运行，2 个已完成", tip: badgeTip(1, 3), awaiting: true },
 	"仅完成提醒同样开启脉冲：两类等待行为一致（R-01-002/AC-06，C-037 翻案 C-028）",
 );
+assert.equal(badgeTip(2, 3), "运行中的会话 2 / 总活动会话 3", "悬停 tips 简明说明运行中/总活动会话（R-01-001/AC-08）");
 
 // ---- R-01-014/AC-05 补充数据失败降级为空字段并可重试 ----
 // （dsh 0.1.5 起 per-session models RPC 移除，模型提取随日志读取统一进行：失败置空
@@ -4113,8 +4115,10 @@ assert.ok(
 		bundle.includes("rgb(252, 233, 234)"),
 	"浅色主题徽标 error 色调取淡红错误底（R-01-002/AC-06，C-043）",
 );
-// R-01-001/AC-04、AC-05、AC-06 徽标 n/m 计数；R-01-002/AC-06、AC-07 固定同步脉冲
-assert.ok(bundle.includes("text: `${waiting}/${total}`,"), "数量徽标以 n/m 分数形式呈现");
+// R-01-001/AC-04、AC-05、AC-06、AC-08 徽标 n/m 计数（分子为运行中数）与悬停 tips；R-01-002/AC-06、AC-07 固定同步脉冲
+assert.ok(bundle.includes("text: `${running}/${total}`,"), "数量徽标以 n/m 分数形式呈现（分子为运行中数）");
+assert.ok(bundle.includes('el.setAttribute("title", badge.tip)'), "三处数量徽标写入悬停 tips（R-01-001/AC-08）");
+assert.ok(bundle.includes('el.removeAttribute("title")'), "加载态摘除数量徽标悬停 tips（R-01-001/AC-08）");
 assert.ok(bundle.includes("awaitBadgeStats(active)"), "数量统计由核心纯函数单点派生");
 assert.ok(!bundle.includes("awaitPulsePeriod") && !bundle.includes("--dap-await-period"), "数量徽标不再按等待占比派生或写入脉冲周期（R-01-002/AC-07）");
 assert.ok(
@@ -4153,7 +4157,8 @@ assert.ok(
 	),
 	"浅色主题数量徽标覆盖声明体完整：仅等待卡浅色金色背景、无描边与外环（防空规则回归）",
 );
-assert.ok(bundle.includes("`${total} 个活动会话，${blocked} 个等待你答复`"), "数量徽标 aria-label 携带阻塞等待计数说明（R-01-002/AC-06）");
+assert.ok(bundle.includes("`${total} 个活动会话，${running} 个正在运行`"), "数量徽标 aria-label 以运行中计数开头（R-01-001/AC-04、AC-05）");
+assert.ok(bundle.includes("`，${blocked} 个等待你答复`"), "数量徽标 aria-label 携带阻塞等待计数说明（R-01-002/AC-06）");
 assert.ok(bundle.includes("border-radius: 999px; padding: 1px 8px 1px 3px;\n}\n/* 胶囊圆底类型图标"), "等待胶囊规则正确闭合，后续为圆底图标段（R-01-002/AC-04 结构回归防护）");
 assert.ok(
 	bundle.includes("border-radius: 999px;\n  padding: 0 7px;\n}\n[data-dsh-activity-pane] .dap-count[data-awaiting] {"),

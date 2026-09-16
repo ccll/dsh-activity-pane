@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      DSH_RUNTIME_PATH: ${{ github.workspace }}/.cache/dsh-015
+      DSH_RUNTIME_PATH: ${{ github.workspace }}/.cache/dsh-015rc1
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.cache/ms-playwright
     steps:
       - uses: actions/checkout@v4

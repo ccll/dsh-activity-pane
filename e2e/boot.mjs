@@ -159,23 +159,27 @@ export async function bootE2e() {
 		// 200，无 cookie 的裸 fetch 只会拿到 303/401；鉴权关闭的部署对 token URL 直接 200。
 		// 就绪判定走完整鉴权链，交付浏览器前证明应用真实可服务（CI 的 runtime 无本地
 		// AUTH-DISABLE 补丁，轮询必须自行完成 token 换 cookie）。
+		const fetchProbe = (target, init = {}) => fetch(target, { ...init, signal: AbortSignal.timeout(5_000) });
 		const deadline = Date.now() + BOOT_TIMEOUT_MS;
+		let lastStatus = null;
 		for (;;) {
 			try {
-				const bootstrap = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(5_000) });
+				const bootstrap = await fetchProbe(url, { redirect: "manual" });
+				lastStatus = bootstrap.status;
 				if (bootstrap.ok) break;
-				if (bootstrap.status === 303 || bootstrap.status === 302) {
+				if (bootstrap.status === 303) {
 					const setCookies = typeof bootstrap.headers.getSetCookie === "function" ? bootstrap.headers.getSetCookie() : [bootstrap.headers.get("set-cookie")].filter(Boolean);
 					const pair = setCookies[0]?.split(";")[0] ?? "";
 					if (pair.includes("=")) {
-						const index = await fetch(new URL("/", url), { headers: { cookie: pair }, signal: AbortSignal.timeout(5_000) });
+						const index = await fetchProbe(new URL("/", url), { headers: { cookie: pair } });
+						lastStatus = index.status;
 						if (index.ok) break;
 					}
 				}
 			} catch {
-				// 尚未就绪，继续轮询
+				// 尚未就绪（连接拒绝/超时），继续轮询
 			}
-			if (Date.now() > deadline) throw new Error(`dsh web 就绪轮询超时：${url}`);
+			if (Date.now() > deadline) throw new Error(`dsh web 就绪轮询超时：${url}（最后观测 status=${lastStatus ?? "无响应"}）`);
 			await sleep(250);
 		}
 		mark("webReady");

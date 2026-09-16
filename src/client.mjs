@@ -3606,7 +3606,14 @@ function apply(ctx) {
 		for (const [id, state] of progressAnchorById) {
 			if (delegationActive(state, now)) delegatingIds.add(id);
 		}
-		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById, completeAcksById, delegatingIds, archivedSessionIds);
+		// 阻塞等待会话的排序键（R-01-001/AC-07，T-141）：进入等待时刻取宿主回合记账的
+		// openWaitStart（busy SSE 快照已归一为毫秒数或 null），等待进行中会话不再用上一
+		// 回合的 lastTurnEnd 排序；无记录的会话在 buildEntries 内回落宿主列表时间。
+		const waitingStarts = new Map();
+		for (const [id, record] of busyById) {
+			if (typeof record?.openWaitStart === "number") waitingStarts.set(String(id), record.openWaitStart);
+		}
+		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById, completeAcksById, delegatingIds, archivedSessionIds, waitingStarts);
 		// 轮内订阅仅对"运行中"会话建立（主会话 + 运行中的子代理），保持在运行中的订阅
 		// 数量 == 运行中会话数量（R-02-004/AC-01）；暂停等待的子代理只显示标题。
 		const runLikeIds = new Set(

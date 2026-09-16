@@ -876,26 +876,32 @@ assert.deepEqual(
 	"全运行中场景按宿主列表时间从新到旧；相同时间保持宿主列表出现顺序；缺失视为最旧；子代理不参与排序、始终跟随其母会话（R-01-001/AC-07）",
 );
 
-// ---- R-01-001/AC-07 运行中置顶；等待/完成组按进入状态时刻（回合结束登记）倒序 ----
+// ---- R-01-001/AC-07 运行中置顶；等待/完成组按进入状态时刻倒序
+// （阻塞等待取回合内等待边界开启时刻 T-141；完成/错误提醒取回合结束登记时刻） ----
 const mixedWorkspace = [{ title: "Ops", path: "/srv/ops", sessionIds: ["sRunOld"] }];
 const mixedActivity = {
 	ids: ["sDone1", "sRunOld", "sWait", "sDone2", "sWaitNoRec"],
 	byId: {
 		sDone1: { id: "sDone1", displayTitle: "完成一", running: false, updatedAt: 500 },
 		sRunOld: { id: "sRunOld", displayTitle: "运行旧指令", running: true, updatedAt: 1_000 },
-		sWait: { id: "sWait", displayTitle: "阻塞等待", running: false, pendingInteraction: "approval", updatedAt: 600 },
+		// T-141 复现形态（docsim 实测）：等待进行中的会话 lastTurnEnd 停留在上一回合
+		// （1_500，早于全部完成提醒），进入等待时刻（9_000）晚于全部完成提醒；宿主列表
+		// 时间（3_500）介于两个完成提醒之间，用于区分「用 openWaitStart」与「回落」两条路径。
+		sWait: { id: "sWait", displayTitle: "阻塞等待", running: false, pendingInteraction: "approval", updatedAt: 3_500 },
 		sDone2: { id: "sDone2", displayTitle: "完成二", running: false, updatedAt: 700 },
+		// 无等待记账记录的阻塞等待会话：回落宿主列表时间（最后用户指令时刻）。
 		sWaitNoRec: { id: "sWaitNoRec", displayTitle: "无登记等待", running: false, pendingInteraction: "question", updatedAt: 10_000 },
 	},
 	current: null,
 };
 const mixedCompletions = new Map([
 	["sDone1", { lastTurnEnd: 4_000, lastTurnEndKind: "completed", ackedAt: null }],
-	["sWait", { lastTurnEnd: 6_000, lastTurnEndKind: "blocked", ackedAt: null }],
+	["sWait", { lastTurnEnd: 1_500, lastTurnEndKind: "blocked", ackedAt: null }],
 	["sDone2", { lastTurnEnd: 3_000, lastTurnEndKind: "completed", ackedAt: null }],
 ]);
+const mixedWaitingStarts = new Map([["sWait", 9_000]]);
 assert.deepEqual(
-	buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions).map((entry) => [entry.id, entry.kind]),
+	buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions, null, [], mixedWaitingStarts).map((entry) => [entry.id, entry.kind]),
 	[
 		["sRunOld", "running"],
 		["sWaitNoRec", "awaiting"],
@@ -903,7 +909,26 @@ assert.deepEqual(
 		["sDone1", "awaiting"],
 		["sDone2", "awaiting"],
 	],
-	"运行中置顶（即便其指令时间更旧）；等待/完成组按进入状态时刻倒序，无登记回落宿主列表时间（可新于他卡登记时刻，非视为最旧）（R-01-001/AC-07）",
+	"运行中置顶（即便其指令时间更旧）；等待/完成组按进入状态时刻倒序——阻塞等待按等待边界开启时刻排前（不被上一回合旧登记压后），无记账回落宿主列表时间，完成/错误提醒按回合结束登记倒序（R-01-001/AC-07，T-141）",
+);
+// waitingStarts 缺失（旧调用/数据在途帧）：阻塞等待会话回落宿主列表时间而非上一回合旧登记——
+// sWait 键取 updatedAt=3_500，排在 sDone1(4_000) 之后、sDone2(3_000) 之前，不按 1_500 沉底。
+assert.deepEqual(
+	buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions).map((entry) => [entry.id, entry.kind]),
+	[
+		["sRunOld", "running"],
+		["sWaitNoRec", "awaiting"],
+		["sDone1", "awaiting"],
+		["sWait", "awaiting"],
+		["sDone2", "awaiting"],
+	],
+	"waitingStarts 缺失时阻塞等待回落宿主列表时间（仍非上一回合旧登记），完成/错误提醒不受影响（R-01-001/AC-07，T-141）",
+);
+// 非 Map 入参视为无数据，与上一断言同路径。
+assert.deepEqual(
+	buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions, null, [], "not-a-map").map((entry) => [entry.id, entry.kind]),
+	buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions).map((entry) => [entry.id, entry.kind]),
+	"waitingStarts 非 Map 视为无数据（R-01-001/AC-07，T-141）",
 );
 assert.deepEqual(trackRuns([{ kind: "subagent", parentId: "p", depth: 1 }]), [], "无 id 条目不产生轨道");
 assert.deepEqual(

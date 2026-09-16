@@ -1547,8 +1547,12 @@ export function mainTitle(byId, id) {
  * 始终为当帧原始后代活性（供进度锚点记账判定耗尽），不受 delegatingIds 影响。
  * archivedIds（工作区服务的注册表全局归档集合）：归档会话及其有效子代理子树不产出活动条目，
  * 普通 fork 仅因共享来源 parentId 不受影响；避免会话服务仍保留旧行或完成提醒时在窗格中滞留。
+ * waitingStarts（进入阻塞等待的时刻，R-01-001/AC-07）：Map id → 毫秒时刻，取宿主回合记账的
+ * `openWaitStart`（approval/asked 与 ask_user_question tool/call 边界）；阻塞等待发生时本回合
+ * 尚未结束、`lastTurnEnd` 仍是上一回合的旧时刻，不能作为等待进行中会话的排序键（T-141）；
+ * 非 Map 视为无数据，缺失记录回落宿主列表时间。
  */
-export function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null, archivedIds = []) {
+export function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null, archivedIds = [], waitingStarts = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
@@ -1603,14 +1607,26 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 
 	// 主会话分两组排序（R-01-001/AC-07）：运行中主会话置顶，组内按最后一次用户指令
 	// 时间（宿主列表时间）从新到旧；等待/完成组（阻塞等待、完成提醒、错误提醒）排后，
-	// 组内按进入该状态的时刻（最近一次回合结束登记时刻，缺失回落宿主列表时间）从新到旧。
+	// 组内按进入该状态的时刻从新到旧——阻塞等待取等待边界开启时刻（openWaitStart，
+	// T-141：等待进行中时本回合未结束、lastTurnEnd 是上一回合旧时刻，不作排序键），
+	// 完成/错误提醒取最近一次回合结束登记时刻；两者缺失均回落宿主列表时间。
 	// 两组相同时间均回落宿主列表出现顺序。工作区顺序不参与排序，仅承载卡片徽标与名称。
 	const isRunningEntry = (id) => {
 		const m = meta.get(id);
 		return m !== undefined && !m.pending && (m.running || m.delegating);
 	};
+	const waitingStartTime = (id) => {
+		if (!(waitingStarts instanceof Map)) return null;
+		const time = Number(waitingStarts.get(String(id)));
+		return Number.isFinite(time) ? time : null;
+	};
 	const sortTime = (id) => {
 		if (isRunningEntry(id)) return instructionTime(byId[id]);
+		const m = meta.get(id);
+		if (m !== undefined && m.pending) {
+			const start = waitingStartTime(id);
+			return start ?? instructionTime(byId[id]);
+		}
 		const record = completionFor(id, completions);
 		const end = isRecord(record) ? Number(record.lastTurnEnd) : NaN;
 		return Number.isFinite(end) ? end : instructionTime(byId[id]);

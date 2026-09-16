@@ -31,6 +31,9 @@ id: T-142
 1. ci.yml: pin `@deepseek-ai/dsh@0.1.5-rc.1`，coherent cutoff `--before=2026-09-10T18:00:00Z`（含 dsh rc.2 内部家族、排除 zod 4.6.2），`DSH_RUNTIME_PATH` 改 `.cache/dsh-015`，cache key 换代。
 2. e2e/boot.mjs: 就绪轮询走完整鉴权链——token URL `redirect: manual`，200 直接就绪（鉴权关闭部署）；303 取 `getSetCookie()[0]` 的 `name=value` 对，带 cookie 重放 `/`，200 即就绪。
 3. DECISIONS C-079 记录 pin 迁移决策与被否方案。
+4. README.md/README.zh-CN.md 环境要求同步为 0.1.5-rc.1（审核发现：pin 升级后的文档漂移）。
+5. DECISIONS C-080 更正 C-079 影响面为「E2E 验证基建」（审核发现：R-02-003 引用系误写；DECISIONS 只追加，更正以新条目承载）。
+6. boot.mjs 打磨（审核发现）：去未观测的 302 分支、超时提 `fetchProbe` 助手、超时报错携带末次观测 status。
 
 ## 测试计划
 

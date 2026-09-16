@@ -36,7 +36,7 @@ npm 包内置预构建产物，无需本地构建步骤。安装后如窗格未�
 
 ## 环境要求
 
-- DSH (DeepSeek Harness) Web，经 `@deepseek-ai/dsh@0.1.0-rc.7` 实测验证。
+- DSH (DeepSeek Harness) Web，经 `@deepseek-ai/dsh@0.1.5-rc.1` 实测验证。
 - 无第三方插件依赖：窗格只消费 DSH 原生会话与工作区服务，卸载可逆。
 
 ## 感谢与声明

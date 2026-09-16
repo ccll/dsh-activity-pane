@@ -36,7 +36,7 @@ The npm package ships prebuilt, so no local build step is needed. If the pane do
 
 ## Requirements
 
-- DSH (DeepSeek Harness) web, tested against `@deepseek-ai/dsh@0.1.0-rc.7`.
+- DSH (DeepSeek Harness) web, tested against `@deepseek-ai/dsh@0.1.5-rc.1`.
 - No third-party plugin dependencies: the pane only consumes DSH's native session and workspace services, and uninstalling is fully reversible.
 
 ## Acknowledgments & Disclaimers

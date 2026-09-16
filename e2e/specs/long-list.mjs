@@ -188,8 +188,9 @@ export default async function longList({ page, url, assert }) {
 	});
 
 	// R-01-004/AC-01：列表超高时排序在底部的卡片初始不可见，窗格内滚动后可见（全部卡片可达）。
-	// T-133 起活动区「运行中置顶、等待/完成按进入状态时刻倒序」，底卡是等待/完成组中
-	// 最早进入状态者；卡片展示标题可能同文（mock 回复相同），按 DOM 末卡位置断言。
+	// T-133 起活动区「运行中置顶、等待/完成按进入状态时刻倒序」（阻塞等待自 T-141 起
+	// 取进入等待时刻，完成/错误提醒取回合结束登记时刻），底卡是等待/完成组中最早进入
+	// 状态者；卡片展示标题可能同文（mock 回复相同），按 DOM 末卡位置断言。
 	const bottomCardVisible = () => page.evaluate(() => {
 		const pane = document.querySelector("[data-dsh-activity-pane]");
 		if (!pane) return false;

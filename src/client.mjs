@@ -3606,9 +3606,7 @@ function apply(ctx) {
 		for (const [id, state] of progressAnchorById) {
 			if (delegationActive(state, now)) delegatingIds.add(id);
 		}
-		// 阻塞等待会话的排序键（R-01-001/AC-07，T-141）：进入等待时刻取宿主回合记账的
-		// openWaitStart（busy SSE 快照已归一为毫秒数或 null），等待进行中会话不再用上一
-		// 回合的 lastTurnEnd 排序；无记录的会话在 buildEntries 内回落宿主列表时间。
+		// 排序键注入（契约见 buildEntries JSDoc）：openWaitStart 已在 busy SSE 快照归一为毫秒数或 null。
 		const waitingStarts = new Map();
 		for (const [id, record] of busyById) {
 			if (typeof record?.openWaitStart === "number") waitingStarts.set(String(id), record.openWaitStart);

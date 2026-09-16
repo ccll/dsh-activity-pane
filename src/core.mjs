@@ -1550,7 +1550,8 @@ export function mainTitle(byId, id) {
  * waitingStarts（进入阻塞等待的时刻，R-01-001/AC-07）：Map id → 毫秒时刻，取宿主回合记账的
  * `openWaitStart`（approval/asked 与 ask_user_question tool/call 边界）；阻塞等待发生时本回合
  * 尚未结束、`lastTurnEnd` 仍是上一回合的旧时刻，不能作为等待进行中会话的排序键（T-141）；
- * 非 Map 视为无数据，缺失记录回落宿主列表时间。
+ * 非 Map、缺失记录或值非有限数字（含 null/空串等 Number 归一为 0 的形状）均视为无数据，
+ * 回落宿主列表时间。
  */
 export function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null, archivedIds = [], waitingStarts = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
@@ -1605,20 +1606,20 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 		meta.set(id, { row, running, pending, isSub, show, done, err, descendantActive, delegating, depth: 0 });
 	}
 
-	// 主会话分两组排序（R-01-001/AC-07）：运行中主会话置顶，组内按最后一次用户指令
-	// 时间（宿主列表时间）从新到旧；等待/完成组（阻塞等待、完成提醒、错误提醒）排后，
-	// 组内按进入该状态的时刻从新到旧——阻塞等待取等待边界开启时刻（openWaitStart，
-	// T-141：等待进行中时本回合未结束、lastTurnEnd 是上一回合旧时刻，不作排序键），
-	// 完成/错误提醒取最近一次回合结束登记时刻；两者缺失均回落宿主列表时间。
-	// 两组相同时间均回落宿主列表出现顺序。工作区顺序不参与排序，仅承载卡片徽标与名称。
+	// 主会话分两组排序（R-01-001/AC-07，键口径契约详见上方 JSDoc）：运行中主会话置顶、
+	// 组内按宿主列表时间从新到旧；等待/完成组排后、组内按进入状态时刻从新到旧；
+	// 两组相同时间均回落宿主列表出现顺序，工作区顺序不参与排序。
 	const isRunningEntry = (id) => {
 		const m = meta.get(id);
 		return m !== undefined && !m.pending && (m.running || m.delegating);
 	};
 	const waitingStartTime = (id) => {
 		if (!(waitingStarts instanceof Map)) return null;
-		const time = Number(waitingStarts.get(String(id)));
-		return Number.isFinite(time) ? time : null;
+		const value = waitingStarts.get(String(id));
+		// 仅接受真实数字时刻：Number(null)/Number("") 均为 0，会把「无数据」误判为
+		// epoch 最旧时刻（与 normalizeBusyMs 的空值防护同理），一律回落宿主列表时间。
+		if (typeof value !== "number") return null;
+		return Number.isFinite(value) ? value : null;
 	};
 	const sortTime = (id) => {
 		if (isRunningEntry(id)) return instructionTime(byId[id]);

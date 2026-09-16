@@ -930,6 +930,12 @@ assert.deepEqual(
 	buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions).map((entry) => [entry.id, entry.kind]),
 	"waitingStarts 非 Map 视为无数据（R-01-001/AC-07，T-141）",
 );
+// 记录值非法（null/空串经 Number 归一为 0 的形状）同样按无数据处理，回落宿主列表时间而非最旧时刻 0。
+assert.deepEqual(
+	buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions, null, [], new Map([["sWait", null], ["sWaitNoRec", ""]])).map((entry) => [entry.id, entry.kind]),
+	buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions).map((entry) => [entry.id, entry.kind]),
+	"waitingStarts 非法值（null/空串）不作数、回落宿主列表时间，不误判为最旧时刻 0（R-01-001/AC-07，T-141 复审）",
+);
 assert.deepEqual(trackRuns([{ kind: "subagent", parentId: "p", depth: 1 }]), [], "无 id 条目不产生轨道");
 assert.deepEqual(
 	trackRuns([...hierarchyEntries, { id: "X", kind: "subagent", parentId: "root", depth: 3 }]),

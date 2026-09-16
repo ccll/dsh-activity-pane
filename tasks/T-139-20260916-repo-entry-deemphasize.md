@@ -6,7 +6,7 @@ id: T-139
 
 # T-139 仓库入口弱化并移至档位切换按钮左侧
 
-状态: active
+状态: completed
 关联: R-01-022/AC-01 → 窗格渲染器
 风险等级: standard
 
@@ -57,4 +57,14 @@ id: T-139
 
 ## 终态与证据
 
-（关闭时填写）
+- 实现: `src/client.mjs` 模板内 `.dap-repo` 移至 `.dap-density` 之前（工具区左侧）、去掉 `border` 声明（无边框、保留不透明底色圆形）、`aria-label`/`title` 统一「报告问题」；浅色主题覆盖拆组——`.dap-repo` 只并入底色组，`border-color` 组仅留 `.dap-top`/`.dap-density`；`.dsh-plugin/client.js` 经 `node scripts/check.mjs` 从工作树重建并过 staged 一致性校验。
+- 测试: `pnpm verify` 全量通过——agentmap lint 161 AC 全锚定、test-impact（unit=145/e2e=96/manual=109）、check 全断言、18 个 E2E spec 全绿；`e2e/specs/repo-entry.mjs` 断言可访问名称与悬停提示「报告问题」、computed border-style 为 none、位于档位切换按钮左侧（repoX < densityX）；`e2e/specs/compact-density.mjs` 的 `gapToTools` 锚点改为 `.dap-tools` 容器左缘后全绿；`scripts/check.mjs` 新增工具区顺序/悬停提示与无边框 bundle 契约断言；`scripts/acceptance.mjs` R-01-022 人工步骤补新观感点。
+- DESIGN 对照: PRD R-01-022 三条 AC 未变，与 DESIGN 追溯索引、窗格渲染器仓库入口条目（左移、无边框弱化、悬停提示「报告问题」）对照无差异；断言锚定按「AC 承诺 vs 设计细节」拆分——可访问名称挂 R-01-022/AC-01，顺序/提示/无边框挂 T-139。
+- commit: 21904e9
+- review:
+  - 审核方: 独立 reviewer（code-review skill 双轴并行子代理：Standards、Spec）
+  - 目的理解: 代码解决的是东家对 T-138 交付的仓库入口的弱化诉求（左移、去描边、悬停提示改文案），关联约束为 PRD R-01-022 三条 AC 不变、DESIGN 同变更同步、测试锚定与 bundle 同步门禁；预期行为为工具区以档位切换为主、仓库入口为辅，且三层测试证据（check/e2e/acceptance）锚定新观感。
+  - 执行方式: `code-review` skill，Standards/Spec 双轴并行子代理评审 HEAD→工作树 diff（实现提交前），标准源为 AGENTS.md/CONVENTIONS.md/DOMAIN.md，spec 源为东家指示 + 本 task。
+  - 问题与修复: Standards 发现 2 条判断性发现——断言锚定超出 AC 承诺（设计细节挂 AC-01）、check.mjs 新断言与既有 `.dap-repo` CSS 前缀断言重复——均已修复（设计细节断言改标 T-139、重复断言合并为单条双锚点断言），同一审核方复审通过；Spec 轴无缺失、无错误实现。
+  - 复审结论: 通过（无新增发现；非阻断残留 1 条已处置——本 task 测试影响行归属随复审建议同步更正）
+- 残余风险/知悉项: aria-label 由「打开 GitHub 仓库」改为「报告问题」超出东家字面要求（仅悬停 tips），为 label/title 一致性的 a11y 连带取舍；链接目的地仍为仓库首页而非 issue 页，如需更精确的「报告问题」指向可后续单独评估 `href` 指向 issues 页（会触碰 R-01-022/AC-01 正文，需另走需求变更）。

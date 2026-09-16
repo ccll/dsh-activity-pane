@@ -6,7 +6,7 @@ id: T-141
 
 # T-141 阻塞等待会话按进入等待时刻排序：回合结束登记时刻对等待进行中的会话是旧时刻
 
-状态: active
+状态: completed
 关联: R-01-001/AC-07 → 活动状态模型
 风险等级: standard
 
@@ -57,4 +57,14 @@ id: T-141
 
 ## 终态与证据
 
-（待填）
+- 实现: `buildEntries` 新增末位入参 `waitingStarts`（Map id → 毫秒时刻；非 Map、缺失记录或值非有限数字均视为无数据）：阻塞等待会话排序键取宿主回合记账 `openWaitStart`，缺失回落宿主列表时间，不以 `lastTurnEnd` 作中间回退；完成/错误提醒维持 `lastTurnEnd`；`src/client.mjs` 渲染帧由既有 `busyById`（R-01-020 通道，零新增持久化）派生 Map 注入；PRD `R-01-001/AC-07` 与 DESIGN（排序不变量 / buildEntries 契约含补记 `archivedIds` / 活动状态模型子系统清单）注解同步，记 DECISIONS C-078。
+- 测试: `pnpm verify` 全量通过（unit/contract + 18 个 e2e spec 全绿，实现提交与收口提交各跑一轮）；`scripts/check.mjs` 改写 R-01-001/AC-07 混合排序断言为实测缺陷形态（阻塞等待进入时刻 9_000 晚于完成提醒 4_000/3_000 时排前，宿主列表时间 3_500 介于两者之间区分两条路径），新增 waitingStarts 缺失回落、非 Map 兼容、非法值（null/空串不误判为最旧时刻 0）三条断言。机制验证（一次性，真实数据）：以 HEAD 版与工作区版 `buildEntries` 分别对等待组四会话（acks 表 + 日志实测时刻）排序——修复前 docsim 会话按 15:07:44 排末位，修复后按 19:22:32 排第 2 位，与实测缺陷及预期一致。
+- DESIGN 对照: 排序不变量、buildEntries 契约、活动状态模型子系统清单三处口径与实现一致（阻塞等待=openWaitStart、完成/错误提醒=回合结束登记时刻、缺失回落宿主列表时间、两组与平局规则未动）；`e2e/specs/long-list.mjs` 注释同步口径括注；代码位置引用与实现一致。
+- commit: 4e2ded9 实现与 map 注解同步
+- commit: 1bb0884 双轴审核收口（非法值回落 + 注解收敛）
+- review:
+  - 审核方: code-review skill（Standards/Spec 双轴并行独立 reviewer 子代理，fixed point = a298a11 对 4e2ded9；复审由同一双轴审核方各自行复核修复 hunks）
+  - 目的理解: 修复阻塞等待会话排序键——等待进行中的会话本回合未结束、`lastTurnEnd` 是上一回合旧时刻（docsim 实测 19:22:32 进入提问等待按 15:07:44 排序被压到等待组末位），改取宿主回合记账 `openWaitStart`；PRD AC-07/DESIGN 括号映射同次向意图句收敛；预期行为=阻塞等待按进入等待时刻参与等待组排序、完成/错误提醒口径不变、缺失回落宿主列表时间；验证方式=check.mjs 混合排序断言 + 全量 E2E。
+  - 执行方式: code-review skill 双轴评审（Standards 轴对照 AGENTS.md 工程原则 + CONVENTIONS.md + Fowler 基线；Spec 轴对照 T-141 背景与目标/收敛方案/测试计划 + PRD AC-07 修订正文），两轴独立并行后聚合；复审仅复核修复 hunks 与文档收敛。
+  - 问题与修复: ①【Spec·低危】`waitingStartTime` 对 Map 值 null/空串经 `Number()` 归一为 0、误判为最旧时刻而非回落（验证矩阵「非法」分支只做一半）→ 收紧为 `typeof === "number" && Number.isFinite`，补非法值回归断言；②【Standards·流程】T-141 定性「缺陷修复（map 注解同步）」与入口甄别「map 本身错转需求变更」标签不清 → 定性改写为「缺陷修复为主、map 注解经东家确认同次修正」并记录东家指示；③【Standards】PRD AC-07 机制词「宿主回合记账」→「宿主登记的」；④【Standards·轻】根因注解三处重复 → core JSDoc 权威、函数内注释精简、client 缩为一行；⑤【Spec·残余】long-list E2E 注释口径漂移 → 补 T-141 括注。全部修复后 `pnpm verify:fast` 复跑通过并由双轴复审通过。
+  - 复审结论: 双轴复审通过，无未关闭阻断项。documented waiver：buildEntries 七参数不收拢 options 对象、每帧重建 waitingStarts Map、sortTime 分支不表驱动、DESIGN 长句维持现状密集条目风格（未来重写条目时按规范拆嵌套列表，维护想法级）。残余风险与测试缺口（不阻断）：同回合多次等待边界时 `openWaitStart` 取哪次由宿主既有语义决定（task 非目标，未验证假设）；「数据在途帧回落、SSE 到达自愈」的端到端时序 UNIT 无法覆盖；`client.mjs` busyById→waitingStarts 派生循环无直接单测（两端各有单测、E2E 间接覆盖）。

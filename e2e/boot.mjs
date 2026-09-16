@@ -155,12 +155,23 @@ export async function bootE2e() {
 			});
 		});
 
-		// 就绪轮询：首页返回 200 才视为可交付给浏览器。
+		// 就绪轮询：鉴权开启的 dsh web 首页经 token→303→Set-Cookie→带 cookie 的 / 才返回
+		// 200，无 cookie 的裸 fetch 只会拿到 303/401；鉴权关闭的部署对 token URL 直接 200。
+		// 就绪判定走完整鉴权链，交付浏览器前证明应用真实可服务（CI 的 runtime 无本地
+		// AUTH-DISABLE 补丁，轮询必须自行完成 token 换 cookie）。
 		const deadline = Date.now() + BOOT_TIMEOUT_MS;
 		for (;;) {
 			try {
-				const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
-				if (res.ok) break;
+				const bootstrap = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(5_000) });
+				if (bootstrap.ok) break;
+				if (bootstrap.status === 303 || bootstrap.status === 302) {
+					const setCookies = typeof bootstrap.headers.getSetCookie === "function" ? bootstrap.headers.getSetCookie() : [bootstrap.headers.get("set-cookie")].filter(Boolean);
+					const pair = setCookies[0]?.split(";")[0] ?? "";
+					if (pair.includes("=")) {
+						const index = await fetch(new URL("/", url), { headers: { cookie: pair }, signal: AbortSignal.timeout(5_000) });
+						if (index.ok) break;
+					}
+				}
 			} catch {
 				// 尚未就绪，继续轮询
 			}

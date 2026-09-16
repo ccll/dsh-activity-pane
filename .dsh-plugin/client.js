@@ -2237,6 +2237,32 @@ function reconcileTurnStats(current, records, { closeOpenTurn = false, forceFres
 }
 
 /**
+ * 会话级登记串行化（R-01-020/AC-02）：宿主存储域的 `KvTable.put` 先异步落盘、落盘完成
+ * 后才更新内存快照，因此同一会话的两个边界事件 handler 并发执行时，后到事件会在先到
+ * 事件落盘前读到旧状态，其效果被当作「无效果」永久丢弃（实测：`ask_user_question` 的
+ * `tool/call` 与 11ms 后的 `tool/result` 交错，等待区间悬挂到 `turn/end` 强制结算，
+ * 总耗时系统性缺记整段运行过程）。返回 `(id, run) => tail`：同一会话前一个 run 完成
+ * （含其 put 的内存生效）后才执行下一个 run，不同会话互不阻塞。run 内部须自行捕获
+ * 错误、不得让拒绝外泄（调用方可安全丢弃返回的 tail）；tail 供调用方等待与测试断言。
+ * 链空闲即清理，不随会话数增长。
+ */
+function createSessionEventSerializer() {
+	const tails = new Map();
+	return (id, run) => {
+		const prev = tails.get(id) ?? Promise.resolve();
+		const tail = prev.then(run, run);
+		tails.set(id, tail);
+		tail.then(
+			() => {
+				if (tails.get(id) === tail) tails.delete(id);
+			},
+			() => {},
+		);
+		return tail;
+	};
+}
+
+/**
  * 构建历史区条目：当前非活动的**主会话**，按最后活动时间从新到旧返回完整候选集合。
  * 子代理是临时工作单元，不入历史区；归档、空会话、完成/错误提醒与委托周期中的会话
  * 也不入历史区。历史区不再按时间窗口或条数截断；turnEnds（id → 已知回合结束时刻）驱动

@@ -26,7 +26,7 @@
 
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import { z } from 'zod'
-import { applyTurnEventToStats, isBusyBoundaryEvent, reconcileTurnStats, turnStatsEqual, turnStatsFrom, truncateErrorNote } from './core.mjs'
+import { applyTurnEventToStats, createSessionEventSerializer, isBusyBoundaryEvent, reconcileTurnStats, turnStatsEqual, turnStatsFrom, truncateErrorNote } from './core.mjs'
 
 export const name = 'dsh-activity-pane'
 export const inject = ['storageDomain', 'webServer', 'sessionQuery', 'connection']
@@ -266,52 +266,58 @@ export function apply(ctx) {
 	// tool/call）不落盘、不广播；主/子统一登记，过滤由客户端判定。
 	// 表内无记录的会话先懒回填存量回合再应用实时事件——否则首个实时事件会以 null 建立记录、
 	// 存量回合永远失去补齐机会。
-	ctx.on('session/event', async (session, event) => {
+	// 读-改-写经 createSessionEventSerializer 按会话串行（put 先落盘后更新内存，并发
+	// 读-改-写会丢先到事件效果，机制见 core.mjs 同名 JSDoc）；注册同步进行保持派发序，
+	// run 内 catch-all 保证链不因单事件失败中断。
+	const serializeBusyEvent = createSessionEventSerializer()
+	ctx.on('session/event', (session, event) => {
 		const type = event?.type
 		if (!isBusyBoundaryEvent(type)) return
 		const seq = Number(event.seq)
 		if (!Number.isFinite(seq)) return
 		const id = String(session?.id ?? '')
 		if (id === '') return
-		try {
-			await domainReady
-			if (!turnStats.get(id)) {
-				await ensureTurnStatsFresh(id)
-			} else {
-				// 回填在途时排队等待其写入完成，再按水位应用实时事件，避免回填快照
-				// 覆盖（回退）实时事件的效果或造成缺口丢失（R-01-020/AC-04）。
-				const inflight = backfills.get(id)
-				if (inflight) await inflight
-			}
-			let current = turnStats.get(id)
-			if (Number.isFinite(current?.watermarkSeq) && seq <= current.watermarkSeq) {
-				// 重编检测（R-01-020/AC-04）：稳定 seq 空间内低水位事件的时刻不可能比水位处
-				// 事件更新；时刻反而更新说明事件 seq 空间被重编（如 dsh 0.1.5 V3 迁移），
-				// 持久化水位已失效，增量口径不再封死后续事件。无 watermarkTime 的存量记录
-				//（本字段引入前写入，其水位未经重编检测校验）同样不可信——两者统一丢弃旧
-				// 记账强制全量重放自愈；重放若仍覆盖不到本事件（日志写入滞后），落回下方
-				// 正常增量路径应用。
+		serializeBusyEvent(id, async () => {
+			try {
+				await domainReady
+				if (!turnStats.get(id)) {
+					await ensureTurnStatsFresh(id)
+				} else {
+					// 回填在途时排队等待其写入完成，再按水位应用实时事件，避免回填快照
+					// 覆盖（回退）实时事件的效果或造成缺口丢失（R-01-020/AC-04）。
+					const inflight = backfills.get(id)
+					if (inflight) await inflight
+				}
+				let current = turnStats.get(id)
+				if (Number.isFinite(current?.watermarkSeq) && seq <= current.watermarkSeq) {
+					// 重编检测（R-01-020/AC-04）：稳定 seq 空间内低水位事件的时刻不可能比水位处
+					// 事件更新；时刻反而更新说明事件 seq 空间被重编（如 dsh 0.1.5 V3 迁移），
+					// 持久化水位已失效，增量口径不再封死后续事件。无 watermarkTime 的存量记录
+					//（本字段引入前写入，其水位未经重编检测校验）同样不可信——两者统一丢弃旧
+					// 记账强制全量重放自愈；重放若仍覆盖不到本事件（日志写入滞后），落回下方
+					// 正常增量路径应用。
+					const time = Number(event.time)
+					if (!Number.isFinite(time)) return
+					if (Number.isFinite(current.watermarkTime) && time <= current.watermarkTime) return
+					await ensureTurnStatsFresh(id, { forceFresh: true })
+					current = turnStats.get(id)
+					if (Number.isFinite(current?.watermarkSeq) && seq <= current.watermarkSeq) return
+				}
+				const next = applyTurnEventToStats(turnStatsFrom(current), event)
+				if (turnStatsEqual(next, current)) {
+					// 无效果事件（非提问工具调用、未配对的结算事件等）：不落盘不广播，
+					// 水位不前移——重放路径对同类事件同样不改变记账状态，口径一致。
+					return
+				}
 				const time = Number(event.time)
-				if (!Number.isFinite(time)) return
-				if (Number.isFinite(current.watermarkTime) && time <= current.watermarkTime) return
-				await ensureTurnStatsFresh(id, { forceFresh: true })
-				current = turnStats.get(id)
-				if (Number.isFinite(current?.watermarkSeq) && seq <= current.watermarkSeq) return
+				// 与 reconcile 同口径：时刻无效时保留既有 watermarkTime 不前推（能走到此处的
+				// 必为有效果事件、时刻有效，null 分支仅作防御）。
+				await turnStats.put(id, { ...turnStatsFrom(next), watermarkSeq: seq, watermarkTime: Number.isFinite(time) ? time : turnStatsFrom(current).watermarkTime ?? null })
+				broadcastBusy()
+			} catch (error) {
+				ctx.logger?.warn?.(`dsh-activity-pane: 回合统计登记失败（${id}）: ${String(error)}`)
 			}
-			const next = applyTurnEventToStats(turnStatsFrom(current), event)
-			if (turnStatsEqual(next, current)) {
-				// 无效果事件（非提问工具调用、未配对的结算事件等）：不落盘不广播，
-				// 水位不前移——重放路径对同类事件同样不改变记账状态，口径一致。
-				return
-			}
-			const time = Number(event.time)
-			// 与 reconcile 同口径：时刻无效时保留既有 watermarkTime 不前推（能走到此处的
-			// 必为有效果事件、时刻有效，null 分支仅作防御）。
-			await turnStats.put(id, { ...turnStatsFrom(next), watermarkSeq: seq, watermarkTime: Number.isFinite(time) ? time : turnStatsFrom(current).watermarkTime ?? null })
-			broadcastBusy()
-		} catch (error) {
-			ctx.logger?.warn?.(`dsh-activity-pane: 回合统计登记失败（${id}）: ${String(error)}`)
-		}
+		})
 	})
 
 	// HTTP API（前缀挂载，handler 内按子路径分发）。

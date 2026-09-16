@@ -63,9 +63,12 @@ import {
 	lastTurnBusyFromEvents,
 	lastTurnDuration,
 	applyTurnEventToStats,
+	createSessionEventSerializer,
 	reconcileTurnStats,
 	normalizeBusyMs,
 	totalBusyDisplayMs,
+	turnStatsEqual,
+	turnStatsFrom,
 	pendingText,
 	progressHalfLifeSec,
 	progressOf,
@@ -1230,6 +1233,39 @@ assert.equal(fmtElapsedMs(-1), "", "负时长归一为空");
 		stats = applyTurnEventToStats(stats, event);
 	}
 	assert.equal(stats.busyMs, 1_000, "R-01-020/AC-04 水位检查下重复推送不重复计数");
+}
+// R-01-020/AC-02：实时登记的会话级串行化——宿主 KvTable.put 先落盘后更新内存快照，
+// 并发到达的边界事件若各自读-改-写，后到事件会在先到事件落盘前读到旧状态，其效果被
+// 当作「无效果」永久丢弃（实测：提问 tool/call 与 11ms 后的 tool/result 结算丢失，
+// 等待区间悬挂到 turn/end 强制结算，总耗时缺记整段运行过程）。串行化后即便全部 handler
+// 同步注册、put 延迟落盘，最终记账也必须与顺序重放一致。
+{
+	const events = [
+		{ type: "turn/start", seq: 1, time: 1_000 },
+		{ type: "tool/call", seq: 2, time: 2_000, data: { callId: "c1", name: "ask_user_question" } },
+		{ type: "tool/result", seq: 3, time: 2_011, data: { message: { source: { kind: "tool", callId: "c1" } } } },
+		{ type: "turn/end", seq: 4, time: 5_000, data: { reason: { kind: "completed" } } },
+	];
+	let sequential = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, openWaitId: null, waitedMs: null };
+	for (const event of events) sequential = applyTurnEventToStats(sequential, event);
+	assert.equal(sequential.busyMs, 4_000 - 11, "R-01-020/AC-02 顺序重放基线：回合 4s 扣提问等待 11ms");
+	// 全部事件同步注册（与 session/event 同步观察者的派发序一致）；模拟宿主 KvTable：
+	// put 落盘（异步延迟）完成后才更新内存快照。
+	const serialize = createSessionEventSerializer();
+	const memory = new Map();
+	await Promise.all(
+		events.map((event) =>
+			serialize("session-under-test", async () => {
+				const current = turnStatsFrom(memory.get("session-under-test") ?? null);
+				const next = applyTurnEventToStats(current, event);
+				if (turnStatsEqual(next, current)) return;
+				await new Promise((resolve) => setTimeout(resolve, 5));
+				memory.set("session-under-test", next);
+			}),
+		),
+	);
+	assert.equal(memory.get("session-under-test")?.busyMs, 4_000 - 11, "R-01-020/AC-02 会话级串行化下并发登记与顺序重放一致");
+	assert.equal(memory.get("session-under-test")?.openTurnStart, null, "R-01-020/AC-02 串行化登记后回合闭合无残留起点");
 }
 // R-01-020/AC-01
 // R-01-020/AC-03：开放回合实时增量与起点不可得降级。

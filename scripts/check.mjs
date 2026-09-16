@@ -3509,8 +3509,14 @@ assert.ok(
 	"仓库入口随窗格骨架创建于标题行工具区，指向 GitHub 仓库页并以 target=_blank 与 noreferrer noopener 在新标签页打开（R-01-022/AC-01）",
 );
 assert.ok(
-	bundle.includes('[data-dsh-activity-pane] .dap-repo {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: 22px;'),
-	"仓库入口与工具区按钮同视觉语言（22px 圆形纯图标，R-01-022/AC-01）",
+	bundle.includes('[data-dsh-activity-pane] .dap-repo {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: 22px;\n  height: 22px;\n  border-radius: 999px;\n  background: #1d1f25;'),
+	"仓库入口与工具区按钮同视觉语言且无边框（22px 圆形纯图标、视觉强度弱于带描边的档位切换按钮，R-01-022/AC-01、T-139）",
+);
+// T-139：仓库入口弱化——位于档位切换按钮左侧（模板顺序）、悬停提示「报告问题」。
+assert.ok(
+	bundle.includes('aria-label="报告问题" title="报告问题"')
+		&& bundle.indexOf('<a class="dap-repo"') < bundle.indexOf('<button class="dap-density"'),
+	"仓库入口位于档位切换按钮左侧且悬停提示为「报告问题」（T-139）",
 );
 // R-01-015/AC-03 折叠窄条与移动端抽屉不提供拖拽
 assert.ok(bundle.includes('[data-collapsed="true"] .dap-resize { display: none; }'), "折叠窄条不提供拖拽调宽");
@@ -4392,8 +4398,9 @@ assert.ok(
 	"按钮底色为不透明纯色（非 color-mix 半透明，R-01-018/AC-05）",
 );
 assert.ok(
-	bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top,\nbody:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density,\nbody:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-repo {\n  background: var(--dsw-alias-bg-layer-2, #ffffff);\n  border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));"),
-	"浅色主题底色取外壳 layer-2 别名（同样不透明；仓库入口并入同组覆盖，R-01-018/AC-05、R-01-022/AC-01）",
+	bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top,\nbody:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density,\nbody:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-repo {\n  background: var(--dsw-alias-bg-layer-2, #ffffff);")
+		&& bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top,\nbody:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density {\n  border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));"),
+	"浅色主题底色取外壳 layer-2 别名（同样不透明；仓库入口无描边只并入底色组，描边别名仅留带边框按钮，R-01-018/AC-05、R-01-022/AC-01）",
 );
 assert.ok(
 	bundle.includes("[data-dsh-activity-pane] .dap-top[hidden] { display: none; }"),

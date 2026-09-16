@@ -1,5 +1,6 @@
 // R-01-022/AC-01、R-01-022/AC-02、R-01-022/AC-03
-// 仓库入口：标题行右侧工具区常显纯图标 GitHub 链接（可访问名称、新标签页打开仓库页）；
+// 仓库入口：标题行右侧工具区常显纯图标 GitHub 链接（可访问名称、新标签页打开仓库页），
+// 位于档位切换按钮左侧且无边框（T-139，悬停提示「报告问题」）；
 // 激活不进入标题区收起激活路径——不折叠窗格、不改变呈现档位与当前选中会话；折叠窄条不显示。
 
 import { newSessionWithMessage, openApp, until } from "../helpers.mjs";
@@ -17,6 +18,10 @@ function repoState(page) {
 			target: link?.getAttribute("target") ?? null,
 			rel: link?.getAttribute("rel") ?? null,
 			label: link?.getAttribute("aria-label") ?? null,
+			title: link?.getAttribute("title") ?? null,
+			borderStyle: link ? getComputedStyle(link).borderTopStyle : null,
+			repoX: rect?.x ?? null,
+			densityX: pane.querySelector(".dap-tools .dap-density")?.getBoundingClientRect().x ?? null,
 			collapsed: pane.getAttribute("data-collapsed") === "true",
 			density: pane.getAttribute("data-density"),
 			currentSessionId: pane.querySelector(".dap-card[data-current]")?.getAttribute("data-session-id") ?? null,
@@ -30,12 +35,16 @@ export default async function repoEntry({ page, url, assert }) {
 	await openApp(page, url);
 
 	// R-01-022/AC-01：仓库入口常显于标题行右侧工具区，指向 GitHub 仓库页、新标签页打开。
+	// T-139：位于档位切换按钮左侧、无边框，悬停提示「报告问题」。
 	const state = await repoState(page);
 	assert.equal(state.inTools, true, "仓库入口位于标题行右侧工具区（R-01-022/AC-01）");
 	assert.equal(state.href, "https://github.com/ccll/dsh-activity-pane", "仓库入口指向 GitHub 仓库页（R-01-022/AC-01）");
 	assert.equal(state.target, "_blank", "仓库入口在新标签页打开（R-01-022/AC-01）");
 	assert.equal(state.rel, "noreferrer noopener", "仓库入口以 noreferrer noopener 断开引用（R-01-022/AC-01）");
-	assert.equal(state.label, "打开 GitHub 仓库", "仓库入口提供可访问名称（R-01-022/AC-01）");
+	assert.equal(state.label, "报告问题", "仓库入口提供可访问名称（R-01-022/AC-01）");
+	assert.equal(state.title, "报告问题", "仓库入口悬停提示为「报告问题」（T-139）");
+	assert.equal(state.borderStyle, "none", "仓库入口无边框、弱化视觉强度（T-139）");
+	assert.ok(state.repoX < state.densityX, "仓库入口位于档位切换按钮左侧（T-139）");
 
 	// 建一个会话使「当前选中会话」非平凡，AC-02 的不变量才有断言对象。
 	await newSessionWithMessage(page, "e2e:fast 仓库入口探针");

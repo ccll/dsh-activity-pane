@@ -2804,13 +2804,13 @@ const CSS = `
 [data-dsh-activity-pane] .dap-density:focus-visible {
   background: #262932;
 }
+/* 仓库入口无描边（T-139）：视觉强度弱于带描边的档位切换按钮，仅以不透明底色圆形呈现。 */
 [data-dsh-activity-pane] .dap-repo {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 22px;
   height: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
   background: #1d1f25;
   color: inherit;
@@ -3672,11 +3672,14 @@ body:not([data-ds-dark-theme]) .dap-toggle {
   background: var(--dsw-alias-button-floating-fill, rgba(255, 255, 255, 0.94));
 }
 /* 「回到顶部」与标题行工具区档位/仓库入口按钮的浅色覆盖：不透明层-2 底色与外壳描边别名
-   （R-01-018/AC-05、R-01-021/AC-05、R-01-022/AC-01）。 */
+   （R-01-018/AC-05、R-01-021/AC-05、R-01-022/AC-01）；仓库入口无描边（T-139），只并入底色组。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-repo {
   background: var(--dsw-alias-bg-layer-2, #ffffff);
+}
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top,
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density {
   border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top:hover,
@@ -4782,8 +4785,8 @@ function apply(ctx) {
 						<span class="dap-collapse-hint" aria-hidden="true"></span>
 					</span>
 					<span class="dap-tools">
+						<a class="dap-repo" href="https://github.com/ccll/dsh-activity-pane" target="_blank" rel="noreferrer noopener" aria-label="报告问题" title="报告问题"></a>
 						<button class="dap-density" type="button" aria-label="切换为紧凑显示" title="紧凑显示"></button>
-						<a class="dap-repo" href="https://github.com/ccll/dsh-activity-pane" target="_blank" rel="noreferrer noopener" aria-label="打开 GitHub 仓库" title="打开 GitHub 仓库"></a>
 					</span>
 				</div>
 				<div class="dap-scroll">

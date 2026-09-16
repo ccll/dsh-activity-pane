@@ -37,13 +37,14 @@ function collapseHintState(page) {
 	return page.evaluate(() => {
 		const header = document.querySelector("[data-dsh-activity-pane] .dap-header");
 		const hint = header?.querySelector(".dap-titlebar .dap-collapse-hint");
-		const density = header?.querySelector(".dap-tools .dap-density");
-		if (!header || !hint || !density) return null;
+		const tools = header?.querySelector(".dap-tools");
+		if (!header || !hint || !tools) return null;
 		const rect = hint.getBoundingClientRect();
-		const densityRect = density.getBoundingClientRect();
+		// T-139：工具区第一颗按钮可能是仓库入口，锚点用工具区容器左缘（不感知按钮顺序）。
+		const toolsRect = tools.getBoundingClientRect();
 		return {
 			visible: getComputedStyle(hint).opacity !== "0" && rect.width > 0 && rect.height > 0,
-			gapToTools: densityRect.left - rect.right,
+			gapToTools: toolsRect.left - rect.right,
 		};
 	});
 }

@@ -363,8 +363,8 @@ flowchart LR
   - 每张 card 在创建时注册自身的 `click` / `keydown` handler，直接读取当前 card 的 `data-session-id`；外部菜单与 pane 空白不进入卡片处理，配列表就绪重试。
   - 回到顶部悬浮按钮：`.dap-top` 为窗格内 `position:absolute` 的圆形图标按钮（右下角 `bottom:12px; right:12px`，纯向上箭头图标无文字、`aria-label` 提供可访问名称，不透明底色——深色纯色 `#1d1f25`、浅色经外壳 layer-2 别名覆盖），随窗格骨架创建、默认 `hidden`；滚动监听在 `scrollTop` 超过阈值 `TOP_THRESHOLD`（200px）时显示、回到阈值内隐藏；激活时 `scrollTo({ top: 0 })`，`prefersReducedMotion()` 命中用 `auto` 直接定位、否则 `smooth` 平滑滚动，滚动回顶经同一滚动监听自然收口隐藏；桌面折叠窄条态经 CSS 隐藏，移动端抽屉形态同样适用（抽屉即同一窗格）；监听随 `bindPaneControls` 的 unbind 清理，按钮随窗格骨架移除（R-01-018、R-02-003）。
   - 卡片紧凑呈现切换：`.dap-density` 为标题行右侧工具区（`.dap-tools`）内的常显纯图标按钮（22px 圆形、不透明底色、hover/focus-visible 高亮、可访问名称），工具区预留后续工具按钮扩展；激活时按完整→中间→紧凑循环翻转窗格根 `data-density` 属性并执行滚动锚定（补偿 `scrollTop` 使当前选中卡片顶部相对视口位置不变，当前卡不可得时不补偿，补偿目标超出滚动边界时钳制在滚动边界内），可访问名称表达将切换到的目标档位；中间档经渲染层以 `lastOnly` 单行渲染时间线（末行为当前执行或最近完成的工作项，含 running 实时更新）并隐藏进度行与统计行，完成提醒卡末行经 CSS 收合为单行（「已完成」胶囊居左、「移入历史」按钮居右、正文隐藏，选择器以卡片 `data-wait="done"` 作用域），紧凑档再经 CSS 隐藏 `.dap-card-head`、等待末行（`.dap-foot`）与最近卡消息预览行，仅保留标题行——激活跳转逻辑不感知档位，渲染签名含显示档位分量（档位切换经 queueSync 触发一轮重渲染，R-02-003 的签名去重语义不变）（R-01-021/AC-01、AC-02、AC-04、AC-08）；档位经 `normalizeDensity` 归一（缺失/非法回退默认中间档）后存 localStorage，启动恢复，会话状态变化不翻转已选档位；桌面折叠窄条态随标题行隐藏，移动端抽屉形态同样适用；按钮随窗格骨架创建与移除（R-01-021、R-02-003）。
-  - 仓库入口：`.dap-repo` 为标题行右侧工具区（`.dap-tools`）内的常显纯图标链接，与档位切换按钮同视觉语言（R-01-022/AC-01）：
-    - 呈现：22px 圆形、不透明底色、hover/focus-visible 高亮、可访问名称；图标为 MIT 许可的 GitHub Octicon `mark-github` 字形，与工具区既有图标同用 14px 字形盒。
+  - 仓库入口：`.dap-repo` 为标题行右侧工具区（`.dap-tools`）内的常显纯图标链接，位于档位切换按钮左侧，视觉强度弱于带描边的档位切换按钮（主次分明，R-01-022/AC-01）：
+    - 呈现：22px 圆形、无边框、不透明底色、hover/focus-visible 高亮、可访问名称，悬停提示「报告问题」；图标为 MIT 许可的 GitHub Octicon `mark-github` 字形，与工具区既有图标同用 14px 字形盒。
     - 行为：`href` 指向 https://github.com/ccll/dsh-activity-pane，以 `target="_blank"` + `rel="noreferrer noopener"` 在新标签页打开；激活不进入标题区收起激活路径，也不改变当前选中会话与呈现档位（R-01-022/AC-02）。
     - 隐藏：桌面折叠窄条态随 `.dap-header` 整体隐藏，移动端抽屉形态同样适用（R-01-022/AC-03）。
     - 生命周期：链接随窗格骨架创建与移除，无新增监听与状态耦合。

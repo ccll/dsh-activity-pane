@@ -6,7 +6,7 @@ id: T-140
 
 # T-140 busy 实时登记会话级串行化：并发读-改-写丢失边界事件效果导致总耗时缺记
 
-状态: active
+状态: completed
 关联: R-01-020 → 回合统计宿主侧
 风险等级: standard
 
@@ -57,4 +57,13 @@ id: T-140
 
 ## 终态与证据
 
-（active 期间待填）
+- 实现: core.mjs 新增 `createSessionEventSerializer()`（per-id Promise 链：前一 run 完成含其 put 内存生效后才执行下一 run，不同会话互不阻塞，`prev.then(run, run)` 保证单 run 失败不中断链，链空闲清理且容忍新 run 抢占）；host.mjs 实时登记 handler 改同步注册进串行链、读-改-写整体入链，水位幂等/重编检测/回填排队逻辑逐行保留；DESIGN.md「get+put 无竞态」证伪措辞改为会话级串行化契约（拆嵌套列表）。
+- 测试: `pnpm verify` 全量通过（exit 0，15 个 e2e spec 全绿；首轮 compact-density 时序偶发单跑复跑通过、全量复跑通过）；`scripts/check.mjs` 新增 R-01-020/AC-02 会话级串行化断言（同步注册 4 边界事件、put 延迟 5ms 更新内存，最终 busyMs=3989 与顺序重放一致、回合闭合无残留起点）。机制验证（一次性，task 外内联脚本）：无串行化同构并发登记输出 busyMs=null（正确值 3989），实证修复非空转。
+- DESIGN 对照: 回合统计运行时条目拆为实时登记串行化/口径收敛/懒回填/SSE 推送四子项，串行化契约与 core 引用一致；「按会话序写入」「实时登记与回填共用同一转移」等既有描述与实现对照无差异；代码位置引用（core.mjs::createSessionEventSerializer、host.mjs::serializeBusyEvent）与实现一致。
+- commit: 088e9c7
+- review:
+  - 审核方: code-review skill（Standards/Spec 双轴并行独立 reviewer 子代理，fixed point = HEAD 018d227 对工作树全 diff；复审同章程另行发起）
+  - 目的理解: 修复 busy 实时登记并发读-改-写竞态——KvTable.put 先落盘后更新内存，后到事件读到旧状态、先到事件效果被永久丢弃（提问 tool/call 与 11ms 后的 tool/result 结算丢失，等待悬挂到 turn/end 强制结算，总耗时系统性缺记）；同次收敛 DESIGN「get+put 无竞态」证伪措辞与 R-01-020/AC-02 回归断言；非目标为不追溯存量 busyMs、不动 acks 通道。
+  - 执行方式: code-review skill 双轴评审（Standards 轴对照 AGENTS.md 工程原则 + CONVENTIONS.md + Fowler 基线；Spec 轴对照 T-140 背景与目标/收敛方案/测试计划），两轴独立并行后聚合；复审仅复核修复 hunks 与文档收敛。
+  - 问题与修复: ① DESIGN.md 超长单句违反写作风格规范 → 拆为父条目 + 4 嵌套子项；② 根因叙述三处全量重复 → core JSDoc 权威、host 缩一行引用（check.mjs 测试注释保留完整叙述，独立可读性权衡，非阻断残余）；③ core JSDoc「tail 可能 reject」与 host 丢弃 tail 的契约矛盾 → 改为「run 内部须自行捕获错误、不得让拒绝外泄（调用方可安全丢弃 tail）」；④ `applySerializedBusyEvent` 命名与形状错位 → 更名 `serializeBusyEvent`；⑤ 一次性机制验证证据未留痕 → 实证结果（无串行化 busyMs=null vs 正确值 3989）记入本终态。全部修复后 `pnpm verify:fast` 复跑通过。
+  - 复审结论: 双轴复审通过——Standards 轴 4 条全部关闭（1 条非阻断残余：check.mjs 测试注释保留根因叙述）；Spec 轴无新 finding，关闭前条件（终态证据落实）已在本次填定。

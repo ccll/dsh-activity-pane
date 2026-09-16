@@ -6,7 +6,7 @@ id: T-142
 
 # T-142 CI runtime pin 升 0.1.5-rc.1 coherent 窗口 + e2e 就绪轮询兼容宿主鉴权链
 
-状态: active
+状态: completed
 关联: CONVENTIONS 验证门禁（过程层，无 PRD 需求锚点）· DECISIONS C-079
 风险等级: standard
 
@@ -33,7 +33,7 @@ id: T-142
 3. DECISIONS C-079 记录 pin 迁移决策与被否方案。
 4. README.md/README.zh-CN.md 环境要求同步为 0.1.5-rc.1（执行自查与 Spec 轴审核共同发现：pin 升级后的文档漂移）。
 5. DECISIONS C-080 更正 C-079 影响面为「E2E 验证基建」（双轴审核发现：R-02-003 引用系误写；DECISIONS 只追加，更正以新条目承载）。
-6. boot.mjs 打磨（Standards 轴审核发现）：去未观测的 302 分支、超时提 `fetchProbe` 助手、超时报错携带末次观测 status。
+6. boot.mjs 打磨（双轴审核发现）：去未观测的 302 分支、超时提 `fetchProbe` 助手、超时报错携带末次观测 status。
 7. 残余风险（记录在案）：就绪轮询按 spec 口径仅取 `getSetCookie()[0]` 的首对 name=value——若宿主 303 一次下发多个 Set-Cookie 且鉴权 cookie 非首个，轮询将超时；hosted run 35097179529 已验证现网单 cookie 场景，风险仅在宿主鉴权行为变化时显形。
 
 ## 测试计划
@@ -60,4 +60,13 @@ id: T-142
 
 ## 终态与证据
 
-（active 期间待填）
+- 实现: ci.yml runtime pin 升 `@deepseek-ai/dsh@0.1.5-rc.1`，coherent cutoff `--before=2026-09-10T18:00:00Z`（含 dsh rc.2 内部家族、排除 zod 4.6.2），cache key 换代、`DSH_RUNTIME_PATH` 保持 hosted 已验证的 `.cache/dsh-015`；boot.mjs 就绪轮询走完整鉴权链（token URL `redirect: manual`，直接 200 即就绪，303 取 `getSetCookie()[0]` 首对 name=value 带 cookie 重放 `/`，`fetchProbe` 统一 5s 超时，超时报错携带末次观测 status）；README 双语环境要求同步 0.1.5-rc.1；DECISIONS 追加 C-079（pin 迁移决策）与 C-080（更正 C-079 影响面为「E2E 验证基建」）。
+- 测试: 本机对照实验锁定鉴权链差异（同一探针：全局 auth-disabled 200 / 原版安装 401）；`--before` 三组 cutoff 实测确定 18:00:00Z 窗口（全 rc.1 组合 web 不可服务、过晚混入 zod 4.6.2）；`card-content` 双 runtime（原版权限安装与 auth-disabled 全局）单 spec 通过；`PATH=.cache/dsh-015rc1/bin pnpm test:e2e` 全量 18 spec 通过（403362ms）；hosted 裁决 workflow_dispatch run 35097179529（head ca484de，两文件修复子集，18 步全 success）——同一此前连挂 5 次的树转绿；终态 ci.yml 与该 run 验证配置逐字节一致（Spec 轴三审核验 blob 448e841）。
+- DESIGN 对照: PRD/DESIGN 零改动；「E2E 验证基建」为 DESIGN 既有子系统规范名（DESIGN.md:378），C-079/C-080 影响面引用与其一致，无追溯索引变化；非目标（不回退 0.1.5 适配、不动运维 AUTH-DISABLE 补丁）未越界。
+- commit: 30f54e4
+- review:
+  - 审核方: code-review skill（Standards/Spec 双轴并行独立 reviewer 子代理，fixed point = 9909024 对 f2cf062；复审 f2cf062..31383c3，三审 f2cf062..30f54e4）
+  - 目的理解: main CI 自 2026-09-11 起 5 次全红的根因修复——①CI pin 的 rc7 缺少插件 0.1.5 适配后声明的 `uiSession`/`remote.session` 服务致插件 pending、窗格不挂载；②原版 dsh 0.1.5 首页鉴权链使 boot.mjs 无 cookie 轮询不可达（本地依赖运维 AUTH-DISABLE 补丁的隐式假设）；约束为不回退 0.1.5 适配、不动运维补丁、PRD/DESIGN 零改动、runtime pin 的 coherent 口径（C-051 先例）。
+  - 执行方式: code-review skill 双轴评审（Standards 对照 AGENTS.md 工程原则 + CONVENTIONS + Fowler 基线；Spec 对照 T-142 背景与目标/收敛方案/测试计划），独立并行后聚合；复审与三审逐项核验修复 hunks、task/实现一致性与证据链。
+  - 问题与修复: ① C-079 影响面误引 R-02-003（双轴同报，硬违规）→ 追加 C-080 更正为「E2E 验证基建」（只追加纪律下不改原文）；② boot.mjs 兼收未观测的 302（Spec）→ 删除，与注释/C-079 口径一致；③ README 双语 rc.7 漂移（Spec）→ 同步 0.1.5-rc.1；④ 探针超时魔法数两现（Standards）→ `fetchProbe` 助手；⑤ 超时报错缺末次观测（Standards）→ `lastStatus` 入报错；⑥ 目录名与 cache key 粒度不一（Standards）→ 先改名 `.cache/dsh-015rc1`，Spec 复审指出同名 key 换恢复路径未经 hosted 验证且回归已知取舍 → 按其推荐方案 A 回退 `.cache/dsh-015` 并将粒度不一致记为已知取舍；⑦ 提交承诺的多 Set-Cookie 残余风险未记（Spec 复审）→ 补记收敛方案 7（失败条件/hosted 单 cookie 验证依据/触发条件三要素）。
+  - 复审结论: 双轴三审通过——Standards 轴 5 findings 全闭环（1 经 C-080 更正、3 代码修复、1 转已知取舍）；Spec 轴 3+2 findings 全闭环；唯一遗留为收敛方案 7 记录在案的已知接受风险（宿主多 Set-Cookie 行为变化时需复核），非违规、无新增测试缺口。

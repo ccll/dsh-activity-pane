@@ -2851,7 +2851,8 @@ const CSS = `
 /* 仓库入口移至标题行最左独立区（T-144，R-01-022/AC-01）：与右侧工具区的档位切换按钮
    分处标题行两端以消除触屏误触；无描边（T-139），视觉强度弱于带描边的档位切换按钮，仅以不透明
    底色圆形呈现。原依赖 .dap-tools 的 padding 由自身 margin 承担（圆形底色盒不可用
-   padding 扩容）。 */
+   padding 扩容）；左右 margin 各 12px——右缘与标题区的接缝间距对齐工具区的接缝间距
+   （tools padding-left 12px），标题区悬停高亮两侧留白对称（T-146）。 */
 [data-dsh-activity-pane] .dap-repo {
   display: flex;
   align-items: center;
@@ -2863,7 +2864,7 @@ const CSS = `
   color: inherit;
   cursor: pointer;
   text-decoration: none;
-  margin: 0 0 0 12px;
+  margin: 0 12px;
 }
 [data-dsh-activity-pane] .dap-repo:hover,
 [data-dsh-activity-pane] .dap-repo:focus-visible {

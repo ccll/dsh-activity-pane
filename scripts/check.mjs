@@ -3473,10 +3473,10 @@ assert.equal(normalizeDensity("full"), "full", "完整持久化值恢复为完�
 assert.equal(normalizeDensity(null), "medium", "无持久化记录回退默认中间档");
 assert.equal(normalizeDensity(""), "medium", "空串回退默认中间档");
 assert.equal(normalizeDensity("abc"), "medium", "非法持久化值回退默认中间档");
-assert.equal(nextDensity("full"), "medium", "完整档的下一档为中间（R-01-021/AC-01）");
-assert.equal(nextDensity("medium"), "compact", "中间档的下一档为紧凑（R-01-021/AC-01）");
-assert.equal(nextDensity("compact"), "full", "紧凑档的下一档回到完整（R-01-021/AC-01）");
-assert.equal(nextDensity("junk"), "compact", "非法值经归一视作默认中间档再循环（R-01-021/AC-01）");
+assert.equal(nextDensity("full"), "compact", "完整档的下一档为紧凑——循环自小到大（R-01-021/AC-01）");
+assert.equal(nextDensity("medium"), "full", "中间档的下一档为完整（R-01-021/AC-01）");
+assert.equal(nextDensity("compact"), "medium", "紧凑档的下一档为中间（R-01-021/AC-01）");
+assert.equal(nextDensity("junk"), "full", "非法值经归一视作默认中间档再循环（R-01-021/AC-01）");
 
 // ---- 重建 client bundle 并校验产物契约 ----
 await mkdir(join(root, ".dsh-plugin"), { recursive: true });

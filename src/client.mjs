@@ -2121,7 +2121,7 @@ function apply(ctx) {
 		const onTopClick = () => {
 			scroll?.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
 		};
-		// 显示档位循环切换（R-01-021/AC-01）：完整→中间→紧凑→完整，形态写窗格根属性
+		// 显示档位循环切换（R-01-021/AC-01）：紧凑→中间→完整→紧凑，形态写窗格根属性
 		// 驱动纯 CSS 呈现，持久化于 localStorage（AC-06），会话状态变化不触碰已选档位（AC-07）。
 		const densityBtn = pane.querySelector(".dap-density");
 		const applyDensity = () => {
@@ -2200,7 +2200,7 @@ function apply(ctx) {
 					</span>
 					<span class="dap-tools">
 						<a class="dap-repo" href="https://github.com/ccll/dsh-activity-pane" target="_blank" rel="noreferrer noopener" aria-label="报告问题" title="报告问题"></a>
-						<button class="dap-density" type="button" aria-label="切换为紧凑显示" title="紧凑显示"></button>
+						<button class="dap-density" type="button" aria-label="切换为完整显示" title="完整显示"></button>
 					</span>
 				</div>
 				<div class="dap-scroll">

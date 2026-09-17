@@ -1,4 +1,4 @@
-// R-01-002/AC-05、R-01-002/AC-06、R-01-002/AC-09、R-01-002/AC-10、R-01-002/AC-12、R-01-002/AC-13、R-01-009/AC-12、R-01-009/AC-13
+// R-01-002/AC-05、R-01-002/AC-06、R-01-002/AC-09、R-01-002/AC-10、R-01-002/AC-12、R-01-002/AC-13、R-01-002/AC-14、R-01-009/AC-12、R-01-009/AC-13
 // mock LLM HTTP failure → Agent error turn/end → Host completion registry → SSE → browser error card。
 // AC-05 此处覆盖打开会话不解除；切换保持由 core 契约覆盖。AC-13 此处覆盖错误成立，活动后代抑制与新回合覆盖由 core 契约覆盖。
 
@@ -7,6 +7,8 @@ MOCK_ERROR_MESSAGE, activateCard, activityAcks, ensureFullDensity, openApp, pane
 } from "../helpers.mjs";
 
 const TITLE = "e2e:error 跨边界故障探针";
+// R-01-002/AC-14：状态年龄沿用历史卡相对时间的分级文案。
+const AGE_PATTERN = /^(?:刚刚|\d+分钟前|\d+小时前|\d+天前|\d+周前|\d+个月前|\d+年前)$/;
 
 export default async function errorReminder({ page, url, mock, assert }) {
 	await openApp(page, url);
@@ -65,6 +67,11 @@ export default async function errorReminder({ page, url, mock, assert }) {
 	assert.match(errorStats.main, /输出/, "错误提醒统计行保留输出 token（R-01-009/AC-13）");
 	assert.equal(errorStats.time, errorElapsed, "错误提醒耗时与 token 统计字段位于同一行（R-01-009/AC-12、AC-13）");
 	assert.equal(await errorCard.locator(".dap-await-head .dap-token-time").count(), 0, "错误提醒胶囊同行不重复显示耗时（R-01-009/AC-12）");
+	// R-01-002/AC-14：错误提醒胶囊右侧显示进入错误状态的相对时间。
+	const errorAge = await until("错误提醒显示进入状态相对时间", () =>
+		errorCard.locator(".dap-await-age").textContent().then((text) => (text ?? "").trim() || null),
+	);
+	assert.match(errorAge, AGE_PATTERN, "错误提醒胶囊右侧显示相对时间分级文案（R-01-002/AC-14）");
 
 	await activateCard(page, TITLE);
 	await until("打开会话不解除错误提醒", async () => {
@@ -99,4 +106,9 @@ export default async function errorReminder({ page, url, mock, assert }) {
 	assert.match(refreshedErrorStats.main, /输出/, "错误提醒刷新后恢复输出 token（R-01-009/AC-13）");
 	assert.equal(refreshedErrorStats.time, refreshedErrorElapsed, "错误提醒刷新后耗时仍位于 token 统计行（R-01-009/AC-12、AC-13）");
 	assert.equal(await errorCard.locator(".dap-await-head .dap-token-time").count(), 0, "错误提醒刷新后胶囊同行不重复显示耗时（R-01-009/AC-12）");
+	// R-01-002/AC-14：刷新后状态年龄由宿主持久登记恢复，仍显示相对时间。
+	const refreshedErrorAge = await until("刷新后恢复进入状态相对时间", () =>
+		errorCard.locator(".dap-await-age").textContent().then((text) => (text ?? "").trim() || null),
+	);
+	assert.match(refreshedErrorAge, AGE_PATTERN, "错误提醒刷新后仍显示状态年龄（R-01-002/AC-14）");
 }

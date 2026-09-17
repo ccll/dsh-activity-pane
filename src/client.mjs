@@ -45,7 +45,7 @@ const CLOCK_MS = 1000;
  *  10Hz——事件率随宿主流式 chunk 数增长，显示粒度（秒级时长、块级时间线）无感，
  *  而渲染与 O(日志窗口) 派生不再随刷新率（移动端 120Hz）与事件率线性放大（T-127）。 */
 const SYNC_MIN_INTERVAL_MS = 100;
-/** 历史卡相对时间刷新周期；无需每秒重绘整列。 */
+/** 历史卡相对时间与等待卡状态年龄的刷新周期；无需每秒重绘整列。 */
 const RECENT_TIME_REFRESH_MS = 60_000;
 /** 冷数据读取并发池上限：慢网下避免几十张卡片的 models/history 一次性挤占通道。 */
 const LOAD_CONCURRENCY = 3;
@@ -672,6 +672,13 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 [data-dsh-activity-pane] .dap-await-head {
   display: flex; align-items: center; gap: 8px; align-self: stretch; min-width: 0;
 }
+/* 进入状态相对年龄（R-01-002/AC-14）：胶囊右侧裸相对时间，弱化色调不与胶囊争抢，
+   不参与等待脉冲；进入状态时刻不可得时隐藏节点，不以虚假时刻冒充。 */
+[data-dsh-activity-pane] .dap-await-age {
+  flex: none; font-size: 10px; line-height: 14px; white-space: nowrap;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+}
+[data-dsh-activity-pane] .dap-await-age[hidden] { display: none; }
 [data-dsh-activity-pane] .dap-note-row {
   display: flex; align-items: center; gap: 6px; min-width: 0; align-self: stretch;
 }
@@ -2291,9 +2298,12 @@ function apply(ctx) {
 		noteRow.querySelector(".dap-badge")?.remove();
 		const capsule = makeEl("div", "dap-capsule");
 		capsule.append(makeEl("span", "dap-capsule-icon"), makeEl("span", "dap-capsule-text"));
+		// 与新版骨架同形：胶囊行含类型胶囊与状态年龄段（R-01-002/AC-14）。
+		const awaitHead = makeEl("div", "dap-await-head");
+		awaitHead.append(capsule, makeEl("span", "dap-await-age"));
 		const foot = makeEl("div", "dap-foot");
 		noteRow.replaceWith(foot);
-		foot.append(capsule, noteRow);
+		foot.append(awaitHead, noteRow);
 	}
 
 	/** 进度行骨架（运行卡与子代理卡共用，R-01-009/AC-06、AC-14）：可伸缩轨道 + 固定宽百分比。 */
@@ -2364,7 +2374,8 @@ function apply(ctx) {
 			const noteRow = makeEl("div", "dap-note-row");
 			noteRow.append(makeEl("div", "dap-note"), makeConfirmButton());
 			const awaitHead = makeEl("div", "dap-await-head");
-			awaitHead.append(capsule);
+			// 状态年龄（R-01-002/AC-14）：进入状态时刻的裸相对时间，胶囊右侧静态显示。
+			awaitHead.append(capsule, makeEl("span", "dap-await-age"));
 			const foot = makeEl("div", "dap-foot");
 			foot.append(awaitHead, noteRow);
 			return [head, row, makeEl("div", "dap-trace"), makeStatsRow(), foot];
@@ -2946,6 +2957,21 @@ function apply(ctx) {
 				iconHolder.dataset.kind = iconKind;
 				iconHolder.replaceChildren(...(iconKind === "" ? [] : [createCapsuleIcon(iconKind)]));
 			}
+			// 状态年龄（R-01-002/AC-14）：进入状态时刻的裸相对时间，紧随胶囊之后；时刻
+			// 不可得（busy/acks 数据在途）或差值为负（时钟偏差）时隐藏节点，不以虚假
+			// 时刻冒充。陈旧骨架就地补建年龄节点（C-043 热装兼容同惯例）。
+			const capsuleEl = el.querySelector(".dap-capsule");
+			if (capsuleEl !== null) {
+				let ageEl = capsuleEl.nextElementSibling;
+				if (ageEl === null || !ageEl.classList.contains("dap-await-age")) {
+					ageEl = makeEl("span", "dap-await-age");
+					capsuleEl.insertAdjacentElement("afterend", ageEl);
+				}
+				const ageText = Number.isFinite(entry.stateAt) ? fmtRelativeAge(Date.now() - entry.stateAt) : "";
+				if (ageEl.textContent !== ageText) ageEl.textContent = ageText;
+				const ageHidden = ageText === "";
+				if (ageEl.hidden !== ageHidden) ageEl.hidden = ageHidden;
+			}
 		}
 
 		if (entry.kind === "running") {
@@ -3110,7 +3136,7 @@ function apply(ctx) {
 		}
 	}
 
-	/** 历史卡相对时间只需分钟级刷新；无历史卡时停止定时器，避免空窗格常驻唤醒。 */
+	/** 历史卡相对时间与等待卡状态年龄只需分钟级刷新；两者皆无时停止定时器，避免空窗格常驻唤醒。 */
 	function syncRecentTimeClock(wanted) {
 		if (wanted && recentTimeTimer === null) {
 			recentTimeTimer = setInterval(() => queueSync(), RECENT_TIME_REFRESH_MS);
@@ -3810,7 +3836,8 @@ function apply(ctx) {
 			} : null);
 			if (elapsedMs === null) recentDurationFallbackIds.add(entry.id);
 		}
-		syncRecentTimeClock(recent.length > 0);
+		// 状态年龄（R-01-002/AC-14）与历史卡相对时间同为分钟级：任一存在即保持定时器。
+		syncRecentTimeClock(recent.length > 0 || active.some((entry) => entry.kind === "awaiting" && Number.isFinite(entry.stateAt)));
 		// 预览只对当前显示的 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
 		// 完成瞬间的窗口快照可能先有用户消息、后到 agent reply；缺任一预览时补读一次 history。
 		const previewFallbackIds = new Set();
@@ -3873,9 +3900,12 @@ function apply(ctx) {
 		// listState 参与签名：空列表从 pending/error → ready 时卡集合不变，若只比较卡片
 		// 会被提前返回冻结在「加载中」/「列表加载失败」；数量胶囊可见面变化同样需要
 		// 进入渲染，以便与当前可见等待卡末行重新对相（R-01-002/AC-07）。
-		// 历史卡的相对活动时间随分钟级时钟变化，纳入签名后只在文案实际变化时重绘。
+		// 历史卡的相对活动时间与等待卡状态年龄随分钟级时钟变化，纳入签名后只在文案实际变化时重绘。
 		const recentTimeSignature = recent.map((entry) => fmtRecentTime(entry.activityAt));
-		const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature, densityLevel]);
+		const awaitAgeSignature = active
+			.filter((entry) => entry.kind === "awaiting")
+			.map((entry) => (Number.isFinite(entry.stateAt) ? fmtRelativeAge(now - entry.stateAt) : ""));
+		const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature, awaitAgeSignature, densityLevel]);
 		if (sig === lastSig) return;
 		const colorByWorkspace = resolveWorkspaceColors(visibleEntries.map((entry) => entry.workspaceKey));
 		// 跨区迁移（双向，R-01-010/AC-07）：DOM 写入前量取旧卡矩形并克隆 ghost。

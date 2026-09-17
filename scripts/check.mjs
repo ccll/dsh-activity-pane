@@ -936,6 +936,32 @@ assert.deepEqual(
 	buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions).map((entry) => [entry.id, entry.kind]),
 	"waitingStarts 非法值（null/空串）不作数、回落宿主列表时间，不误判为最旧时刻 0（R-01-001/AC-07，T-141 复审）",
 );
+// ---- R-01-002/AC-14 等待卡状态年龄：awaiting 条目携带进入状态时刻 stateAt ----
+// 与排序键同源同值：阻塞等待取 waitingStarts（openWaitStart），完成/错误提醒取
+// completions.lastTurnEnd；显示口径不回落宿主列表时间，缺失/非法为 null（节点隐藏）。
+{
+	const stateEntries = buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions, null, [], mixedWaitingStarts);
+	const stateById = new Map(stateEntries.map((entry) => [entry.id, entry]));
+	assert.equal(stateById.get("sWait").stateAt, 9_000, "阻塞等待条目 stateAt 取等待边界开启时刻，与排序键同源（R-01-002/AC-14）");
+	assert.equal(stateById.get("sWaitNoRec").stateAt, null, "waitingStarts 缺失的阻塞等待条目 stateAt 为 null，不回落宿主列表时间（R-01-002/AC-14）");
+	assert.equal(stateById.get("sDone1").stateAt, 4_000, "完成提醒条目 stateAt 取回合结束登记时刻（R-01-002/AC-14）");
+	assert.equal(stateById.get("sRunOld").stateAt, undefined, "运行中条目不携带 stateAt（R-01-002/AC-14）");
+}
+assert.equal(
+	buildEntries(
+		{ ids: ["sErr"], byId: { sErr: { id: "sErr", displayTitle: "错误提醒", running: false, updatedAt: 500 } }, current: null },
+		[],
+		{},
+		new Map([["sErr", { lastTurnEnd: 12_345, lastTurnEndKind: "error", lastTurnEndError: "boom", ackedAt: null }]]),
+	)[0].stateAt,
+	12_345,
+	"错误提醒条目 stateAt 取回合结束登记时刻（R-01-002/AC-14）",
+);
+assert.notEqual(
+	cardSignature(buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions, null, [], mixedWaitingStarts)),
+	cardSignature(buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions, null, [], null)),
+	"stateAt 到达/更替驱动渲染签名（R-01-002/AC-14）",
+);
 assert.deepEqual(trackRuns([{ kind: "subagent", parentId: "p", depth: 1 }]), [], "无 id 条目不产生轨道");
 assert.deepEqual(
 	trackRuns([...hierarchyEntries, { id: "X", kind: "subagent", parentId: "root", depth: 3 }]),
@@ -3597,8 +3623,8 @@ assert.ok(bundle.includes("notifyLayoutChange"), "布局变化通知 sibling ove
 assert.ok(bundle.includes('window.dispatchEvent(new Event("resize"))'), "布局变化派发标准 resize 通知");
 assert.ok(bundle.includes("pane !== renderedPane"), "新窗格实例必须重置渲染签名");
 assert.ok(
-	clientSource.includes("const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature, densityLevel]);"),
-	"列表 phase、历史时间文案与显示档位必须参与结构化渲染签名，空列表不得冻结在加载/失败状态（T-087），档位切换触发时间线按新档位重建（R-01-021/AC-08）",
+	clientSource.includes("const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature, awaitAgeSignature, densityLevel]);"),
+	"列表 phase、历史时间文案、等待卡状态年龄与显示档位必须参与结构化渲染签名，空列表不得冻结在加载/失败状态（T-087），档位切换触发时间线按新档位重建（R-01-021/AC-08），状态年龄随分钟级时钟重绘（R-01-002/AC-14）",
 );
 assert.ok(
 	clientSource.includes("scroll?.querySelector?.(`.${LIST_CLASS} .${CARD_CLASS}[data-current]`)") &&
@@ -3680,8 +3706,8 @@ assert.ok(
 	"等待卡复用统计行并清理胶囊同行的旧耗时节点（R-01-009/AC-12、AC-13）",
 );
 assert.ok(
-	bundle.includes("function removeAwaitingHeadDuration") && bundle.includes("awaitHead.append(capsule);"),
-	"等待类型胶囊独立成行，固定耗时回到统计行（R-01-009/AC-12）",
+	bundle.includes("function removeAwaitingHeadDuration") && bundle.includes('awaitHead.append(capsule, makeEl("span", "dap-await-age"));'),
+	"等待类型胶囊独立成行且右侧携带状态年龄（R-01-002/AC-14），固定耗时回到统计行（R-01-009/AC-12）",
 );
 assert.ok(bundle.includes("lastTurnDuration({"), "等待卡耗时由最近完整回合边界派生（R-01-009/AC-12）");
 assert.ok(bundle.includes("`输入 ${fmtTokens("), "统计行含输入/输出中文短标签（R-01-009/AC-05）");
@@ -3768,9 +3794,9 @@ assert.ok(
 assert.ok(bundle.includes("function activeSessionIds(byId = {})"), "活动子代理沿 parentId 链补齐活动祖先");
 // ---- R-01-016/AC-01 等待卡保留最近工作项时间线 ----
 assert.ok(
-	bundle.includes("awaitHead.append(capsule);") &&
+	bundle.includes('awaitHead.append(capsule, makeEl("span", "dap-await-age"));') &&
 		bundle.includes('return [head, row, makeEl("div", "dap-trace"), makeStatsRow(), foot];'),
-	"awaiting 骨架在标题行与统计行、末行两段（胶囊+正文）之间含时间线，固定耗时由统计行承载（R-01-016/AC-01、R-01-009/AC-12，C-043）",
+	"awaiting 骨架在标题行与统计行、末行两段（胶囊+正文）之间含时间线，末行首行胶囊右侧携带状态年龄（R-01-002/AC-14），固定耗时由统计行承载（R-01-016/AC-01、R-01-009/AC-12，C-043）",
 );
 // ---- R-01-002/AC-10 完成提醒卡「移入历史」按钮 ----
 assert.ok(

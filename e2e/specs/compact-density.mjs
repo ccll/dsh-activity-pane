@@ -1,4 +1,4 @@
-// R-01-021/AC-01、R-01-021/AC-02、R-01-021/AC-03、R-01-021/AC-04、R-01-021/AC-05、R-01-021/AC-06、R-01-021/AC-07、R-01-021/AC-08、R-01-011/AC-07
+// R-01-021/AC-01、R-01-021/AC-02、R-01-021/AC-03、R-01-021/AC-04、R-01-021/AC-05、R-01-021/AC-06、R-01-021/AC-07、R-01-021/AC-08、R-01-011/AC-07、R-01-002/AC-14
 // 显示档位三档循环：切换按钮常显于「活动会话」标题行右侧工具区，紧凑→中间→完整循环；
 // 无持久化档位时默认中间档；中间档保留工作区徽标行/等待末行/最近卡预览行，紧凑档仅
 // 保留标题行；切换时当前选中卡片顶部相对滚动视口的位置稳定（滚动锚定）；档位持久化、
@@ -83,6 +83,7 @@ function cardRowState(page, selector) {
 			subtrace: visible(".dap-subtrace"),
 			historyLine: visible(".dap-history-line"),
 			foot: visible(".dap-foot"),
+			awaitAge: visible(".dap-await-age"),
 			background: getComputedStyle(card).backgroundColor,
 		};
 	}, selector);
@@ -103,12 +104,15 @@ function footLayout(page, selector) {
 		const capsule = rect(".dap-capsule");
 		const note = rect(".dap-note");
 		const confirm = rect(".dap-confirm");
+		const age = rect(".dap-await-age");
 		const mid = (r) => (r ? r.top + r.height / 2 : null);
 		const capsuleEl = card.querySelector(".dap-capsule");
 		return {
 			capsuleVisible: capsule !== null && capsule.height > 0,
 			noteVisible: note !== null && note.height > 0,
 			confirmVisible: confirm !== null && confirm.height > 0,
+			ageVisible: age !== null && age.height > 0,
+			ageBetween: capsule && age && confirm ? capsule.left < age.left && age.right <= confirm.left : false,
 			capsulePulse: capsuleEl ? getComputedStyle(capsuleEl).animationName : "",
 			sameRow: capsule && confirm ? Math.abs(mid(capsule) - mid(confirm)) <= rowTolerancePx : false,
 			capsuleLeft: capsule && confirm ? capsule.left < confirm.left : false,
@@ -190,6 +194,9 @@ export default async function compactDensity({ page, url, assert }) {
 	assert.equal(mediumFootAtDefault?.sameRow, true, "中间档完成提醒卡胶囊与按钮同行（R-01-021/AC-08）");
 	assert.equal(mediumFootAtDefault?.capsuleLeft, true, "中间档完成提醒卡胶囊居左、按钮居右（R-01-021/AC-08）");
 	assert.equal(mediumFootAtDefault?.capsulePulse, "dap-pulse", "中间档完成提醒卡胶囊保持 dap-pulse 脉冲（R-01-002/AC-08）");
+	// R-01-002/AC-14：中间档收合单行下状态年龄随胶囊保留，位于胶囊与按钮之间。
+	assert.equal(mediumFootAtDefault?.ageVisible, true, "中间档完成提醒卡状态年龄显示（R-01-002/AC-14）");
+	assert.equal(mediumFootAtDefault?.ageBetween, true, "中间档状态年龄位于胶囊与按钮之间（R-01-002/AC-14）");
 	const mediumTraceLines = await page.evaluate((sel) => {
 		const card = document.querySelector(`[data-dsh-activity-pane] ${sel}`);
 		return card ? card.querySelectorAll(".dap-trace .dap-trace-item").length : -1;
@@ -211,6 +218,7 @@ export default async function compactDensity({ page, url, assert }) {
 	assert.equal(compactActive?.titleRow, true, "紧凑下完成提醒卡标题行保留（R-01-021/AC-02）");
 	assert.equal(compactActive?.head, false, "紧凑下工作区徽标行隐藏（R-01-021/AC-02）");
 	assert.equal(compactActive?.foot, false, "紧凑下等待胶囊与正文行隐藏（R-01-021/AC-02）");
+	assert.equal(compactActive?.awaitAge, false, "紧凑下状态年龄随末行隐藏（R-01-002/AC-14）");
 	const compactRecent = await cardRowState(page, RECENT_CARD);
 	assert.equal(compactRecent?.historyLine, false, "紧凑下最近卡消息预览行隐藏（R-01-021/AC-02）");
 

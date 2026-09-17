@@ -1532,7 +1532,7 @@ export function mainTitle(byId, id) {
  * 把 sessions/workspaces 快照构建成窗格条目列表（有序、已含层级与显示过滤）。
  * 返回数组的每一项：
  *   { id, parentId?, depth, kind: 'running'|'awaiting'|'subagent', title, workspaceTitle, workspaceKey,
- *     isCurrent, pendingText?, descendantActive? }
+ *     isCurrent, pendingText?, descendantActive?, stateAt? }
  * kind 规则：
  *   - 主会话 running（且无 pending）或处于委托周期（含后代耗尽空窗）→ 'running'
  *   - 主会话 pendingInteraction / completed / errorReminder → 'awaiting'（等待用户行动）
@@ -1552,6 +1552,10 @@ export function mainTitle(byId, id) {
  * 尚未结束、`lastTurnEnd` 仍是上一回合的旧时刻，不能作为等待进行中会话的排序键（T-141）；
  * 非 Map、缺失记录或值非有限数字（含 null/空串等 Number 归一为 0 的形状）均视为无数据，
  * 回落宿主列表时间。
+ * stateAt（进入当前等待行动状态的时刻，R-01-002/AC-14）：仅 awaiting 条目携带——pending
+ * 取 waitingStarts（同排序键），完成/错误提醒取 completions.lastTurnEnd（同排序键），
+ * 与排序键同源同值；但显示侧不回落宿主列表时间——排序键缺失时的回落仅用于排序，
+ * 显示以 null（不显示）承载，避免把回退值冒充真实进入时刻。
  */
 export function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null, archivedIds = [], waitingStarts = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
@@ -1664,6 +1668,13 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 			const doneWait = !m.pending && m.done && !m.running && !m.delegating;
 			const errWait = !m.pending && m.err && !m.running && !m.delegating;
 			const errorNote = entryErrorNote(completionFor(id, completions));
+			const waitRecord = completionFor(id, completions);
+			const endMs = typeof waitRecord?.lastTurnEnd === "number" && Number.isFinite(waitRecord.lastTurnEnd)
+				? waitRecord.lastTurnEnd
+				: null;
+			// 进入状态时刻（R-01-002/AC-14）：仅 awaiting 条目携带，与排序键同源同值；
+			// 显示侧不回落宿主列表时间，不可得即为 null（节点隐藏），避免把回退值冒充真实进入时刻。
+			const stateAt = m.pending ? waitingStartTime(id) : doneWait || errWait ? endMs : undefined;
 			const questionPreview =
 				m.pending && m.row.pendingInteraction === "question" ? timelineQuestionPreview(timeline) : undefined;
 			entries.push({
@@ -1708,6 +1719,7 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 						: doneWait
 							? ROUND_DONE_NOTE
 							: undefined,
+				stateAt,
 				questionPreview: m.pending && m.row.pendingInteraction === "question" ? (questionPreview ?? null) : undefined,
 			});
 		}
@@ -1802,6 +1814,8 @@ export function cardSignature(entries) {
 			entry.waitClass ?? null,
 			entry.noteText ?? null,
 			entry.questionPreview ?? null,
+			// 进入状态时刻参与签名（R-01-002/AC-14）：数据到达/更替（回填、SSE）驱动重绘。
+			entry.stateAt ?? null,
 			entry.activityAt ?? null,
 			entry.progress ?? null,
 			entry.loadingModel ?? null,

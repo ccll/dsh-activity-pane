@@ -3570,20 +3570,20 @@ assert.ok(
 		bundle.includes('[data-dsh-activity-pane] .dap-density {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: 22px;'),
 	"切换按钮常显于标题行右侧工具区（R-01-021/AC-05）",
 );
-// R-01-022/AC-01 标题行工具区仓库入口（GitHub 链接、新标签页打开）
+// R-01-022/AC-01 标题行左侧独立区仓库入口（GitHub 链接、新标签页打开）
 assert.ok(
 	bundle.includes('<a class="dap-repo" href="https://github.com/ccll/dsh-activity-pane" target="_blank" rel="noreferrer noopener"'),
-	"仓库入口随窗格骨架创建于标题行工具区，指向 GitHub 仓库页并以 target=_blank 与 noreferrer noopener 在新标签页打开（R-01-022/AC-01）",
+	"仓库入口随窗格骨架创建于标题行左侧独立区，指向 GitHub 仓库页并以 target=_blank 与 noreferrer noopener 在新标签页打开（R-01-022/AC-01）",
 );
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-repo {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: 22px;\n  height: 22px;\n  border-radius: 999px;\n  background: #1d1f25;'),
-	"仓库入口与工具区按钮同视觉语言且无边框（22px 圆形纯图标、视觉强度弱于带描边的档位切换按钮，R-01-022/AC-01、T-139）",
+	"仓库入口与档位切换按钮同视觉语言且无边框（22px 圆形纯图标、视觉强度弱于带描边的档位切换按钮，R-01-022/AC-01、T-139）",
 );
-// T-139：仓库入口弱化——位于档位切换按钮左侧（模板顺序）、悬停提示「报告问题」。
+// T-144：仓库入口移至标题行最左独立区、与档位切换按钮分处标题行两端——模板顺序上仓库入口最先出现。
 assert.ok(
 	bundle.includes('aria-label="报告问题" title="报告问题"')
 		&& bundle.indexOf('<a class="dap-repo"') < bundle.indexOf('<button class="dap-density"'),
-	"仓库入口位于档位切换按钮左侧且悬停提示为「报告问题」（T-139）",
+	"仓库入口位于标题行最左独立区、与档位切换按钮分处标题行两端且悬停提示为「报告问题」（T-139、T-144）",
 );
 // R-01-015/AC-03 折叠窄条与移动端抽屉不提供拖拽
 assert.ok(bundle.includes('[data-collapsed="true"] .dap-resize { display: none; }'), "折叠窄条不提供拖拽调宽");

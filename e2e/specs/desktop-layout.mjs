@@ -25,7 +25,7 @@ export default async function desktopLayout({ page, url, assert }) {
 	await composer.pressSequentially("主会话可正常输入");
 	assert.equal((await composer.textContent())?.trim(), "主会话可正常输入", "主会话 composer 可正常输入");
 
-	// R-01-011/AC-03、AC-05：Space 激活标题行收起，控件保持在窗格顶部同一屏幕位置。
+	// R-01-011/AC-03、AC-05（T-144 顶缘同位语义）：Space 激活标题区收起，控件顶缘保持在窗格顶部同一屏幕位置。
 	const header = page.getByRole("button", { name: "收起活动会话窗格" });
 	const headerBox = await header.boundingBox();
 	assert.ok(headerBox, "展开态标题行控件存在");
@@ -40,9 +40,13 @@ export default async function desktopLayout({ page, url, assert }) {
 		return b && b.width < STRIP_MAX_WIDTH_PX && b.height > STRIP_MIN_HEIGHT_PX ? candidate : null;
 	});
 	const stripBox = await strip.boundingBox();
+	// R-01-011/AC-05（T-144 措辞演进）：仓库入口独立区占标题行最左后，收起控件（标题区）
+	// 与展开控件（窄条）的横向起点必然不同——同位语义收敛为顶缘同位：窄条顶缘与标题行
+	// 顶缘同位，且窄条贴窗格左缘通高。
+	const pane = await paneBox(page);
 	assert.ok(
-		Math.abs(stripBox.x - headerBox.x) <= POSITION_TOLERANCE_PX && Math.abs(stripBox.y - headerBox.y) <= POSITION_TOLERANCE_PX,
-		`窄条顶端与标题行同位（${stripBox.x},${stripBox.y} vs ${headerBox.x},${headerBox.y}）`,
+		Math.abs(stripBox.y - headerBox.y) <= POSITION_TOLERANCE_PX && Math.abs(stripBox.x - pane.x) <= POSITION_TOLERANCE_PX,
+		`窄条顶缘与标题行同位且贴窗格左缘（strip ${stripBox.x},${stripBox.y} vs header ${headerBox.x},${headerBox.y}、pane x=${pane.x}）`,
 	);
 	// R-01-011/AC-04：窄条整体为原生按钮，Enter 激活后展开恢复。
 	await strip.focus();

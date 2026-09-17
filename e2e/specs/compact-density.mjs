@@ -40,7 +40,7 @@ function collapseHintState(page) {
 		const tools = header?.querySelector(".dap-tools");
 		if (!header || !hint || !tools) return null;
 		const rect = hint.getBoundingClientRect();
-		// T-139：工具区第一颗按钮可能是仓库入口，锚点用工具区容器左缘（不感知按钮顺序）。
+		// T-144：仓库入口已移至标题行最左独立区，工具区仅承载档位按钮，锚点即工具区容器左缘。
 		const toolsRect = tools.getBoundingClientRect();
 		return {
 			visible: getComputedStyle(hint).opacity !== "0" && rect.width > 0 && rect.height > 0,
@@ -172,7 +172,7 @@ export default async function compactDensity({ page, url, assert }) {
 	assert.equal(mediumState.label, "切换为完整显示", "中间档下按钮可访问名称表达目标档位（R-01-021/AC-01）");
 	assert.ok(
 		mediumState.buttonBox && mediumState.buttonBox.y >= box.y && mediumState.buttonBox.y + mediumState.buttonBox.height <= box.y + 48 && mediumState.buttonBox.x + mediumState.buttonBox.width >= box.x + box.width - 72,
-		`切换按钮位于标题行右侧工具区（右侧可再并排仓库入口按钮，button y=${Math.round(mediumState.buttonBox?.y ?? -1)}，pane y=${Math.round(box.y)}，R-01-021/AC-05、R-01-022/AC-01）`,
+		`切换按钮位于标题行右侧工具区（仓库入口已移至标题行最左独立区，button y=${Math.round(mediumState.buttonBox?.y ?? -1)}，pane y=${Math.round(box.y)}，R-01-021/AC-05、R-01-022/AC-01、T-144）`,
 	);
 
 	// 中间档基线（默认档）：完成提醒卡时间线仅最新一行。

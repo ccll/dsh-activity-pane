@@ -3583,7 +3583,7 @@ assert.ok(
 assert.ok(
 	bundle.includes('aria-label="报告问题" title="报告问题，点赞收藏"')
 		&& bundle.indexOf('<a class="dap-repo"') < bundle.indexOf('<button class="dap-density"'),
-	"仓库入口位于标题行最左独立区、与档位切换按钮分处标题行两端且悬停提示为「报告问题，点赞收藏」（T-139、T-144）",
+	"仓库入口位于标题行最左独立区、与档位切换按钮分处标题行两端且悬停提示为「报告问题，点赞收藏」（T-139、T-144、T-145）",
 );
 // R-01-015/AC-03 折叠窄条与移动端抽屉不提供拖拽
 assert.ok(bundle.includes('[data-collapsed="true"] .dap-resize { display: none; }'), "折叠窄条不提供拖拽调宽");

@@ -1,6 +1,6 @@
 // R-01-022/AC-01、R-01-022/AC-02、R-01-022/AC-03
 // 仓库入口：标题行最左独立区常显纯图标 GitHub 链接（可访问名称、新标签页打开仓库页），
-// 与右侧工具区的档位切换按钮分处标题行两端、无边框（T-139、T-144，悬停提示「报告问题，点赞收藏」）；
+// 与右侧工具区的档位切换按钮分处标题行两端、无边框（T-139、T-144，悬停提示「报告问题，点赞收藏」，T-145）；
 // 激活不进入标题区收起激活路径——不折叠窗格、不改变呈现档位与当前选中会话；折叠窄条不显示。
 
 import { newSessionWithMessage, openApp, until } from "../helpers.mjs";
@@ -39,14 +39,14 @@ export default async function repoEntry({ page, url, assert }) {
 	await openApp(page, url);
 
 	// R-01-022/AC-01：仓库入口常显于标题行最左独立区，指向 GitHub 仓库页、新标签页打开。
-	// T-139/T-144：与档位切换按钮分处标题行两端、无边框，悬停提示「报告问题，点赞收藏」。
+	// T-139/T-144/T-145：与档位切换按钮分处标题行两端、无边框，悬停提示「报告问题，点赞收藏」。
 	const state = await repoState(page);
 	assert.equal(state.inHeader, true, "仓库入口位于标题行左侧独立区（R-01-022/AC-01）");
 	assert.equal(state.href, "https://github.com/ccll/dsh-activity-pane", "仓库入口指向 GitHub 仓库页（R-01-022/AC-01）");
 	assert.equal(state.target, "_blank", "仓库入口在新标签页打开（R-01-022/AC-01）");
 	assert.equal(state.rel, "noreferrer noopener", "仓库入口以 noreferrer noopener 断开引用（R-01-022/AC-01）");
 	assert.equal(state.label, "报告问题", "仓库入口提供可访问名称（R-01-022/AC-01）");
-	assert.equal(state.title, "报告问题，点赞收藏", "仓库入口悬停提示为「报告问题，点赞收藏」（T-139、东家 2026-09-17 文案演进）");
+	assert.equal(state.title, "报告问题，点赞收藏", "仓库入口悬停提示为「报告问题，点赞收藏」（T-139、T-145）");
 	assert.equal(state.borderStyle, "none", "仓库入口无边框、弱化视觉强度（T-139）");
 	// T-144「分处标题行两端」量化：仓库入口右缘不越过标题区左缘，档位按钮起点在标题区右缘之外——
 	// 两按钮之间隔着整个标题区，触屏点按档位按钮不落仓库入口命中区。

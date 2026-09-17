@@ -6,7 +6,7 @@ id: T-144
 
 # T-144 仓库入口移至标题行左侧独立区
 
-状态: active
+状态: completed
 关联: R-01-022/AC-01 → 窗格渲染器
 风险等级: standard
 
@@ -63,8 +63,14 @@ id: T-144
 
 ## 终态与证据
 
-- 实现: （进行中）
-- 测试: （进行中）
-- DESIGN 对照: （进行中）
-- commit: （待实现提交）
-- review: （待独立审核）
+- 实现: `src/client.mjs` 骨架模板中 `<a class="dap-repo">` 移出 `.dap-tools` 为 `.dap-header` 首子节点（与 `.dap-titlebar` 兄弟隔离，「不参与标题区收起激活」由结构保证）；`.dap-repo` 样式新增 `margin: 0 0 0 12px` 承担原 `.dap-tools` padding 的左缘间距（圆形底色盒不可用 padding 扩容，垂直居中由 `.dap-header` 的 `align-items: center` 保证）；`.dap-header`/`.dap-titlebar`/浅色覆盖/`createRepoIcon` 注释同步为「标题行三部分结构」「分处标题行两端」；顺带修正抽屉遮罩注释的既有失实描述（原注释称「关闭由抽屉头部 × 与遮罩承担」，实现与 DESIGN 为无独立 × 关闭按钮、标题行激活收起——本会话先前已向东家报告的漂移，纯注释无行为变化，保留记此）。`PRD.md` R-01-022/AC-01 与 R-01-011 陈述/AC-03/AC-05 同次演进；`DESIGN.md` 追溯索引与产品契约同步；`.dsh-plugin/client.js` 已随实现提交重建。
+- 测试: `pnpm verify` 全量通过（agentmap lint 161 AC 全锚定 + test-impact + check 全断言 + 18 个 E2E spec，其中 repo-entry 实测新位置两条几何断言、desktop-layout 实测顶缘同位与贴窗格左缘、compact-density 工具区锚点回归）；修复轮后三个受影响 spec（repo-entry/desktop-layout/compact-density）单跑通过；两轴复审后 `pnpm verify:fast` 由 Standards 审核方独立复跑全绿。桌面 1100px 展开态与 <=767px 移动抽屉态各截取标题行实测：仓库入口位于标题行最左、档位按钮居右，两端隔离观感正确（截图核对后临时产物已清理）。
+- DESIGN 对照: 需求追溯索引恰一行 R-01-022（主责子系统「窗格渲染器」，设计落点改述「标题行左侧仓库入口」）；产品契约「标题行三部分结构」与「仓库入口」条目、窗格渲染器模块条目与实现一致（header 首子节点独立区、两按钮分处标题行两端、`margin-left` 承担间距、窄条/抽屉隐藏语义不变）；PRD R-01-011 陈述/AC-03/AC-05 的级联改写与 DESIGN 一致；DOMAIN 无仓库入口词条、无需改动。
+- commit: 2001f24
+- review:
+  - 审核方: Standards reviewer `51ce9ba0-0daa-49ca-8433-bf204873c11e`；Spec reviewer `2bc152c6-2391-4ddc-986a-44f63997a4aa`（code-review skill 并行双轴）
+  - 目的理解: 将 `.dap-repo` 从 `.dap-tools` 移至 `.dap-header` 首子节点的独立区，消除移动端触屏点按档位按钮对 GitHub 仓库入口的误触；关联约束为 R-01-022（AC-01 位置、AC-02 激活隔离、AC-03 窄条隐藏）与 R-01-011（标题区界定与同位语义随独立区设立级联收敛），预期行为为仓库入口与档位按钮分处标题行两端、激活隔离与窄条隐藏语义不变，验证方式为 check 契约断言 + 双 spec 几何断言 + 全量 verify。
+  - 执行方式: `code-review` skill，Standards/Spec 双轴并行审核，基线 `HEAD(5fe72c0)` 与工作树未提交 diff（本 task 即 spec 来源，含 PRD 演进）；修复后由同一审核方逐项复审。
+  - 问题与修复: Standards 轴 3 项——(1) 测试影响表缺 R-01-011 行且 task 正文与改动集漂移：补 R-01-011/AC-05（update）与 AC-03（none+豁免理由）两行、差距评估/收敛方案补登 desktop-layout.mjs 与 compact-density.mjs；(2) AC-01「远离」不可判定：PRD 措辞收敛为「分处标题行两端」，e2e 断言量化为 `repoRight <= titlebarX` 与 `densityX > titlebarRight` 两条几何断言；(3) desktop-layout.mjs:28 注释漂移：同步「顶缘同位」。Spec 轴 (a) 与 Standards (1) 同项；(b) scope creep 仅 src/client.mjs:945 遮罩注释 T-137 表述——保留，理由为修正本会话先前已向东家报告的注释失实（注释称有 × 关闭按钮而实现与 DESIGN 为无 ×），纯注释无行为变化；(c1) 与 Standards (2) 同项；(c2) 后代选择器 `.dap-header .dap-repo` 不敏感：保留，`repoRight <= titlebarX` 几何断言已排除 repo 残留工具区的一切可能；(c3) check.mjs 断言本体不校验位置：维持已声明残余（bundle 契约只校结构子串/顺序，位置语义由 e2e 承载）。
+  - 复审结论: 两轴均复审通过——Standards 3/3 硬违规修复确认（test-impact lint changed=3 全闭合）；Spec 4 项全部解决、(b)/(c2)/(c3) 处置接受。复审后残留「远离」措辞已在实现提交前于 check.mjs、repo-entry.mjs 文件头、acceptance.mjs R-01-022 步骤与 client.mjs 注释统一为「分处标题行两端」（canonical term）；两轴提示的「task 终态须实际写入」由本终态兑现。
+  - 残余风险与测试缺口: check.mjs 仓库入口断言本体（子串+模板顺序）仍不校验几何位置，位置语义由 e2e 几何断言承载（已声明残余）；可选加固（两轴建议，未采纳、留作后续触碰时顺手）：check.mjs 模板顺序断言可补 titlebar 锚（repo < titlebar < density）结构性钉死「header 首子节点」；e2e 对「分处两端」的断言依赖 1100px 桌面视口，极窄展开宽度下的几何未单独覆盖（布局由 flex 语义与 200–480px 夹取约束承载）。

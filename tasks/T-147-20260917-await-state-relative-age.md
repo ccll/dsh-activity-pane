@@ -40,7 +40,7 @@ id: T-147
 ## 测试计划
 
 - `scripts/check.mjs`（UNIT，锚定 R-01-002/AC-14）: 阻塞等待条目 `stateAt` 取 `waitingStarts` 值；完成提醒条目取 `lastTurnEnd`；错误提醒条目取 `lastTurnEnd`；`waitingStarts`/`lastTurnEnd` 缺失或非法时 `stateAt` 为 null；running/subagent 条目无 `stateAt`；两份仅 `stateAt` 不同的条目序列签名不同。
-- e2e（browser，锚定 R-01-002/AC-14）: 完成提醒卡（completion-sync）与错误提醒卡（error-reminder）的 `.dap-await-head` 内出现非空 `.dap-await-age` 且文案匹配相对时间分级（刚刚/分钟前/小时前/天前）。
+- e2e（browser，锚定 R-01-002/AC-14）: 完成提醒卡（completion-sync）、错误提醒卡（error-reminder）与阻塞等待卡（auto-update）的 `.dap-await-head` 内出现非空 `.dap-await-age` 且文案匹配相对时间分级（刚刚/分钟前/小时前/天前）；compact-density 验证中间档收合单行下年龄随胶囊保留、紧凑档随末行隐藏。
 - `pnpm verify:fast` 编辑循环；`pnpm verify` 全量回归（unit/contract + 18 spec）。
 - `.dsh-plugin/client.js` 随实现重建（`pnpm check` 校验工作树一致，pre-commit 校验 staged 一致）。
 - 浏览器实测（黄金路径）：热更环境中核对等待卡胶囊右侧相对时间随分钟级更新与不可得时隐藏。
@@ -49,14 +49,14 @@ id: T-147
 
 | 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |
 |---|---|---|---|---|
-| R-01-002/AC-14 | 新增（状态年龄相对时间呈现） | UNIT + browser E2E | add | `scripts/check.mjs#R-01-002/AC-14`、`e2e/specs/completion-sync.mjs#R-01-002/AC-14`、`e2e/specs/error-reminder.mjs#R-01-002/AC-14` |
+| R-01-002/AC-14 | 新增（状态年龄相对时间呈现） | UNIT + browser E2E | add | `scripts/check.mjs#R-01-002/AC-14`、`e2e/specs/completion-sync.mjs#R-01-002/AC-14`、`e2e/specs/error-reminder.mjs#R-01-002/AC-14`、`e2e/specs/auto-update.mjs#R-01-002/AC-14` |
 | DESIGN | 条目契约/`buildEntries` 契约/末行结构/`.dap-await-head` 职责/中间档收合/`fmtRelativeAge` 时钟/稳定签名七处同步 | UNIT | update | 同次变化由本 task 记录：DESIGN.md 与实现同步 |
 
 ## 验证矩阵
 
 | 维度 | 适用性/理由 | 可执行证据 |
 |---|---|---|
-| 成功 | 适用：三类等待卡胶囊右侧显示进入状态相对时间，分钟级更新 | `scripts/check.mjs#R-01-002/AC-14`、`e2e/specs/completion-sync.mjs#R-01-002/AC-14`、`src/core.mjs::stateAt` |
+| 成功 | 适用：三类等待卡胶囊右侧显示进入状态相对时间，分钟级更新 | `scripts/check.mjs#R-01-002/AC-14`、`e2e/specs/completion-sync.mjs#R-01-002/AC-14`、`e2e/specs/auto-update.mjs#R-01-002/AC-14`、`src/core.mjs::enterStateAt` |
 | 异常 | 适用：`waitingStarts`/`lastTurnEnd` 缺失或非法时 `stateAt` 为 null、节点隐藏，不显示虚假时刻 | `scripts/check.mjs#R-01-002/AC-14`、`e2e/specs/error-reminder.mjs#R-01-002/AC-14`、`src/core.mjs::stateAt` |
 | 边界配置 | 适用：负差值（时钟偏差）回落为空不显示；中间档完成提醒卡收合单行时年龄随胶囊保留、紧凑档随末行隐藏 | `src/client.mjs::dap-await-age`、`e2e/specs/compact-density.mjs#R-01-002/AC-14` |
 | 副作用 | 适用：`cardSignature` 新增分量仅影响等待卡重绘判定；脉冲队列签名与对相机制不变；排序行为不变（R-01-001/AC-07 断言回归） | `scripts/check.mjs#R-01-001/AC-07`、`package.json::verify` |

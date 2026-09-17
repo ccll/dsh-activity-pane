@@ -144,6 +144,8 @@ export const MOCK_FAST_REPLY = "E2E 快速回合已完成。";
 export const MOCK_ERROR_MESSAGE = "E2E 模型故障探针";
 /** 隔离环境卡面显示的模型名（boot.mjs 种子为小写 id，显示名经宿主模型目录映射）。 */
 export const MOCK_MODEL = "DeepSeek-V4-Flash";
+/** 等待卡状态年龄的相对时间分级文案（R-01-002/AC-14）：与历史卡 fmtRelativeAge 分级一致。 */
+export const RELATIVE_AGE_PATTERN = /^(?:刚刚|\d+分钟前|\d+小时前|\d+天前|\d+周前|\d+个月前|\d+年前)$/;
 
 /** 在 hero 首页 composer 填入消息并发送；
  *  宿主偶发在启动时直接恢复进会话视图（无 hero）——先点 New session 回 hero。

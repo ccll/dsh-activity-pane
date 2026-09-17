@@ -937,8 +937,9 @@ assert.deepEqual(
 	"waitingStarts 非法值（null/空串）不作数、回落宿主列表时间，不误判为最旧时刻 0（R-01-001/AC-07，T-141 复审）",
 );
 // ---- R-01-002/AC-14 等待卡状态年龄：awaiting 条目携带进入状态时刻 stateAt ----
-// 与排序键同源同值：阻塞等待取 waitingStarts（openWaitStart），完成/错误提醒取
-// completions.lastTurnEnd；显示口径不回落宿主列表时间，缺失/非法为 null（节点隐藏）。
+// 与排序键共用 enterStateAt 单点口径：阻塞等待取 waitingStarts（openWaitStart），
+// 完成/错误提醒取 completions.lastTurnEnd；显示口径不回落宿主列表时间，
+// 缺失/非法为 null（节点隐藏）。
 {
 	const stateEntries = buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions, null, [], mixedWaitingStarts);
 	const stateById = new Map(stateEntries.map((entry) => [entry.id, entry]));
@@ -957,6 +958,20 @@ assert.equal(
 	12_345,
 	"错误提醒条目 stateAt 取回合结束登记时刻（R-01-002/AC-14）",
 );
+// 子代理条目不携带 stateAt（R-01-002/AC-14）：状态年龄仅主会话等待卡承载。
+{
+	const subStateActivity = {
+		ids: ["sParent", "sSub"],
+		byId: {
+			sParent: { id: "sParent", displayTitle: "母会话", running: false, updatedAt: 500 },
+			sSub: { id: "sSub", parentId: "sParent", origin: "subagent", running: true, updatedAt: 600 },
+		},
+		current: null,
+	};
+	const subEntry = buildEntries(subStateActivity, [], {}, null).find((entry) => entry.id === "sSub");
+	assert.equal(subEntry?.kind, "subagent", "前置：运行中子代理为 subagent 条目");
+	assert.equal(subEntry?.stateAt, undefined, "子代理条目不携带 stateAt（R-01-002/AC-14）");
+}
 assert.notEqual(
 	cardSignature(buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions, null, [], mixedWaitingStarts)),
 	cardSignature(buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions, null, [], null)),

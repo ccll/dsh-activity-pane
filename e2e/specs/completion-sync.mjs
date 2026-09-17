@@ -2,11 +2,9 @@
 // 完成确认跨客户端同步与恢复：同一服务的两个独立 browser context 同时观察提醒，
 // 一端确认后另一端自动解除；刷新/重新连接后保持已确认状态。
 
-import { activateCard, clickCardButton, ensureFullDensity, mainAreaHas, openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
+import { RELATIVE_AGE_PATTERN, activateCard, clickCardButton, ensureFullDensity, mainAreaHas, openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
 
 const TITLE = "e2e:fast 跨客户端确认探针";
-// R-01-002/AC-14：状态年龄沿用历史卡相对时间的分级文案。
-const AGE_PATTERN = /^(?:刚刚|\d+分钟前|\d+小时前|\d+天前|\d+周前|\d+个月前|\d+年前)$/;
 
 export default async function completionSync({ browser, page, url, assert }) {
 	const secondContext = await browser.newContext();
@@ -33,7 +31,7 @@ export default async function completionSync({ browser, page, url, assert }) {
 			page.locator('[data-dsh-activity-pane] .dap-card[data-wait="done"] .dap-await-age')
 				.first().textContent().then((text) => (text ?? "").trim() || null),
 		);
-		assert.match(doneAge, AGE_PATTERN, "完成提醒胶囊右侧显示相对时间分级文案（R-01-002/AC-14）");
+		assert.match(doneAge, RELATIVE_AGE_PATTERN, "完成提醒胶囊右侧显示相对时间分级文案（R-01-002/AC-14）");
 
 		// R-01-002/AC-05：B 打开提醒卡后提醒仍保持，不能以浏览动作隐式解除。
 		await activateCard(secondPage, TITLE);

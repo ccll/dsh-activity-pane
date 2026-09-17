@@ -1,10 +1,10 @@
-// R-01-001/AC-03～AC-06、R-01-002/AC-02、AC-06～AC-09、R-01-009/AC-02、R-01-009/AC-03、R-01-009/AC-12、R-01-009/AC-13、R-01-010/AC-04、R-01-017/AC-01、R-02-002/AC-01、R-02-002/AC-02
+// R-01-001/AC-03～AC-06、R-01-002/AC-02、AC-06～AC-09、AC-14、R-01-009/AC-02、R-01-009/AC-03、R-01-009/AC-12、R-01-009/AC-13、R-01-010/AC-04、R-01-017/AC-01、R-02-002/AC-01、R-02-002/AC-02
 // 状态自动更新（出现/完成/等待出现/等待解除四类变化，无需手动刷新）、活动区空态、
 // 折叠时间线不依赖 dsh-auto-collapse（本隔离环境按构造不含该插件，全套件功能断言
 // 即「不降级」证据）、外壳重挂载恢复不重复、全程控制台无插件报错与未捕获异常。
 
 import {
-ensureFullDensity, mainAreaHas, newSessionWithMessage, openApp, paneRegions, sendHeroMessage, sessionComposer, until
+RELATIVE_AGE_PATTERN, ensureFullDensity, mainAreaHas, newSessionWithMessage, openApp, paneRegions, sendHeroMessage, sessionComposer, until
 } from "../helpers.mjs";
 
 const TITLE_A = "e2e:fast 自动更新探针甲";
@@ -204,6 +204,11 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 		{ capsule: "提问中", tag: "UL", items: ["E2E 探针问题：是否继续？"] },
 		"单问题待回复卡使用「提问中」胶囊与 ul/li bullet list（R-01-002/AC-02、R-01-002/AC-09）",
 	);
+	// R-01-002/AC-14：阻塞等待卡胶囊右侧显示进入等待的相对时间（openWaitStart 起算）。
+	const blockedAge = await until("阻塞等待卡显示进入等待相对时间", () =>
+		runtimeCard.locator(".dap-await-age").textContent().then((text) => (text ?? "").trim() || null),
+	);
+	assert.match(blockedAge, RELATIVE_AGE_PATTERN, "阻塞等待胶囊右侧显示相对时间分级文案（R-01-002/AC-14）");
 	const blockedBadge = await until("阻塞等待徽标就绪", async () => {
 		const value = await badgeSnapshot(page, "header");
 		return value?.tone === "blocked" ? value : null;

@@ -1558,10 +1558,9 @@ function mainTitle(byId, id) {
  * 尚未结束、`lastTurnEnd` 仍是上一回合的旧时刻，不能作为等待进行中会话的排序键（T-141）；
  * 非 Map、缺失记录或值非有限数字（含 null/空串等 Number 归一为 0 的形状）均视为无数据，
  * 回落宿主列表时间。
- * stateAt（进入当前等待行动状态的时刻，R-01-002/AC-14）：仅 awaiting 条目携带——pending
- * 取 waitingStarts（同排序键），完成/错误提醒取 completions.lastTurnEnd（同排序键），
- * 与排序键同源同值；但显示侧不回落宿主列表时间——排序键缺失时的回落仅用于排序，
- * 显示以 null（不显示）承载，避免把回退值冒充真实进入时刻。
+ * stateAt（进入当前等待行动状态的时刻，R-01-002/AC-14）：仅 awaiting 条目携带，与排序键
+ * 共用 enterStateAt 单点口径——pending 取 waitingStarts，完成/错误提醒取 completions.lastTurnEnd；
+ * 显示侧不回落宿主列表时间——排序键缺失时的回落仅用于排序，显示以 null（不显示）承载。
  */
 function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null, archivedIds = [], waitingStarts = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
@@ -1631,16 +1630,20 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 		if (typeof value !== "number") return null;
 		return Number.isFinite(value) ? value : null;
 	};
+	// 进入状态时刻单点（R-01-002/AC-14，排序键 R-01-001/AC-07 同源）：阻塞等待取
+	// waitingStarts，完成/错误提醒取最近一次回合结束登记时刻；有效性口径单点收紧——
+	// 仅真实数字作数，Number(null)/Number("") 归一的 0 陷阱两侧同样不作数。
+	const enterStateAt = (id, pending) => {
+		if (pending) return waitingStartTime(id);
+		const end = completionFor(id, completions)?.lastTurnEnd;
+		return typeof end === "number" && Number.isFinite(end) ? end : null;
+	};
 	const sortTime = (id) => {
 		if (isRunningEntry(id)) return instructionTime(byId[id]);
 		const m = meta.get(id);
-		if (m !== undefined && m.pending) {
-			const start = waitingStartTime(id);
-			return start ?? instructionTime(byId[id]);
-		}
-		const record = completionFor(id, completions);
-		const end = isRecord(record) ? Number(record.lastTurnEnd) : NaN;
-		return Number.isFinite(end) ? end : instructionTime(byId[id]);
+		const entered = m !== undefined ? enterStateAt(id, m.pending) : null;
+		// 排序键缺失回落宿主列表时间；回落仅用于排序，显示侧以 null 承载（见 stateAt）。
+		return entered ?? instructionTime(byId[id]);
 	};
 	rootIds.sort((a, b) => {
 		const byGroup = Number(isRunningEntry(b)) - Number(isRunningEntry(a));
@@ -1674,13 +1677,10 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 			const doneWait = !m.pending && m.done && !m.running && !m.delegating;
 			const errWait = !m.pending && m.err && !m.running && !m.delegating;
 			const errorNote = entryErrorNote(completionFor(id, completions));
-			const waitRecord = completionFor(id, completions);
-			const endMs = typeof waitRecord?.lastTurnEnd === "number" && Number.isFinite(waitRecord.lastTurnEnd)
-				? waitRecord.lastTurnEnd
-				: null;
-			// 进入状态时刻（R-01-002/AC-14）：仅 awaiting 条目携带，与排序键同源同值；
-			// 显示侧不回落宿主列表时间，不可得即为 null（节点隐藏），避免把回退值冒充真实进入时刻。
-			const stateAt = m.pending ? waitingStartTime(id) : doneWait || errWait ? endMs : undefined;
+			// 进入状态时刻（R-01-002/AC-14）：仅 awaiting 条目携带，与排序键共用 enterStateAt
+			// 单点口径；显示侧不回落宿主列表时间，不可得即为 null（节点隐藏），避免把
+			// 回退值冒充真实进入时刻。
+			const stateAt = m.pending || doneWait || errWait ? enterStateAt(id, m.pending) : undefined;
 			const questionPreview =
 				m.pending && m.row.pendingInteraction === "question" ? timelineQuestionPreview(timeline) : undefined;
 			entries.push({
@@ -3818,6 +3818,12 @@ function fmtRecentTime(ts, now = Date.now()) {
 	}
 }
 
+/** 等待卡状态年龄文案（R-01-002/AC-14）：进入状态时刻的裸相对时间，单点派生；
+ *  时刻不可得或差值为负（时钟偏差）返回空串（节点隐藏）。 */
+function awaitAgeText(entry, now = Date.now()) {
+	return Number.isFinite(entry?.stateAt) ? fmtRelativeAge(now - entry.stateAt) : "";
+}
+
 /** 读取持久化列宽：缺失/非法/越界值经 clampPaneWidth 归一；localStorage 不可用（隐私模式）静默回退默认（R-01-015/AC-04）。 */
 function readStoredPaneWidth() {
 	try {
@@ -5600,9 +5606,9 @@ function apply(ctx) {
 				iconHolder.dataset.kind = iconKind;
 				iconHolder.replaceChildren(...(iconKind === "" ? [] : [createCapsuleIcon(iconKind)]));
 			}
-			// 状态年龄（R-01-002/AC-14）：进入状态时刻的裸相对时间，紧随胶囊之后；时刻
-			// 不可得（busy/acks 数据在途）或差值为负（时钟偏差）时隐藏节点，不以虚假
-			// 时刻冒充。陈旧骨架就地补建年龄节点（C-043 热装兼容同惯例）。
+			// 状态年龄（R-01-002/AC-14）：进入状态时刻的裸相对时间，紧随胶囊之后；文案由
+			// 帧内 enrichment 单点派生（entry.awaitAge，与签名同时钟源）。陈旧骨架就地
+			// 补建年龄节点（C-043 热装兼容同惯例）。
 			const capsuleEl = el.querySelector(".dap-capsule");
 			if (capsuleEl !== null) {
 				let ageEl = capsuleEl.nextElementSibling;
@@ -5610,7 +5616,7 @@ function apply(ctx) {
 					ageEl = makeEl("span", "dap-await-age");
 					capsuleEl.insertAdjacentElement("afterend", ageEl);
 				}
-				const ageText = Number.isFinite(entry.stateAt) ? fmtRelativeAge(Date.now() - entry.stateAt) : "";
+				const ageText = entry.awaitAge ?? "";
 				if (ageEl.textContent !== ageText) ageEl.textContent = ageText;
 				const ageHidden = ageText === "";
 				if (ageEl.hidden !== ageHidden) ageEl.hidden = ageHidden;
@@ -6367,6 +6373,8 @@ function apply(ctx) {
 			if (entry.kind === "awaiting" && detail) {
 				entry.elapsedMs = memoTurnDuration(detail);
 			}
+			// 状态年龄（R-01-002/AC-14）：帧内单点派生一次，渲染与签名共用同一文案与时钟源。
+			if (entry.kind === "awaiting") entry.awaitAge = awaitAgeText(entry, now);
 			if (detail?.model) {
 				entry.model = detail.model.model;
 				entry.reasoning = detail.model.reasoning;
@@ -6480,7 +6488,7 @@ function apply(ctx) {
 			if (elapsedMs === null) recentDurationFallbackIds.add(entry.id);
 		}
 		// 状态年龄（R-01-002/AC-14）与历史卡相对时间同为分钟级：任一存在即保持定时器。
-		syncRecentTimeClock(recent.length > 0 || active.some((entry) => entry.kind === "awaiting" && Number.isFinite(entry.stateAt)));
+		syncRecentTimeClock(recent.length > 0 || active.some((entry) => entry.kind === "awaiting" && entry.awaitAge));
 		// 预览只对当前显示的 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
 		// 完成瞬间的窗口快照可能先有用户消息、后到 agent reply；缺任一预览时补读一次 history。
 		const previewFallbackIds = new Set();
@@ -6547,7 +6555,7 @@ function apply(ctx) {
 		const recentTimeSignature = recent.map((entry) => fmtRecentTime(entry.activityAt));
 		const awaitAgeSignature = active
 			.filter((entry) => entry.kind === "awaiting")
-			.map((entry) => (Number.isFinite(entry.stateAt) ? fmtRelativeAge(now - entry.stateAt) : ""));
+			.map((entry) => entry.awaitAge ?? "");
 		const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature, awaitAgeSignature, densityLevel]);
 		if (sig === lastSig) return;
 		const colorByWorkspace = resolveWorkspaceColors(visibleEntries.map((entry) => entry.workspaceKey));

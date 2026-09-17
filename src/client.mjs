@@ -2198,7 +2198,7 @@ function apply(ctx) {
 			center.insertBefore(pane, seat);
 			pane.innerHTML = `
 				<div class="dap-header">
-					<a class="dap-repo" href="https://github.com/ccll/dsh-activity-pane" target="_blank" rel="noreferrer noopener" aria-label="报告问题" title="报告问题"></a>
+					<a class="dap-repo" href="https://github.com/ccll/dsh-activity-pane" target="_blank" rel="noreferrer noopener" aria-label="报告问题" title="报告问题，点赞收藏"></a>
 					<span class="dap-titlebar" role="button" tabindex="0" aria-expanded="true" aria-label="收起活动会话窗格" title="收起">
 						<span>活动会话</span>
 						<span class="dap-count" role="status" aria-live="polite"></span>

@@ -2707,8 +2707,9 @@ const CSS = `
   font-weight: 700;
   letter-spacing: 0.02em;
 }
-/* 标题行拆为两部分：左侧标题区（flex:1 占满剩余宽度）整体即收起控件，悬停/聚焦
-   高亮只覆盖标题区（R-01-011/AC-03、AC-07、R-01-008/AC-02）；右侧工具区独立，
+/* 标题行拆为三部分：最左仓库入口独立区（T-144，与工具区按钮分处标题行两端）、左侧标题区
+   （flex:1 占满剩余宽度）整体即收起控件，悬停/聚焦高亮只覆盖标题区
+   （R-01-011/AC-03、AC-07、R-01-008/AC-02）；右侧工具区独立，
    不参与标题区的悬停高亮与折叠激活。 */
 [data-dsh-activity-pane] .dap-titlebar {
   flex: 1;
@@ -2847,7 +2848,10 @@ const CSS = `
 [data-dsh-activity-pane] .dap-density:focus-visible {
   background: #262932;
 }
-/* 仓库入口无描边（T-139）：视觉强度弱于带描边的档位切换按钮，仅以不透明底色圆形呈现。 */
+/* 仓库入口移至标题行最左独立区（T-144，R-01-022/AC-01）：与右侧工具区的档位切换按钮
+   分处标题行两端以消除触屏误触；无描边（T-139），视觉强度弱于带描边的档位切换按钮，仅以不透明
+   底色圆形呈现。原依赖 .dap-tools 的 padding 由自身 margin 承担（圆形底色盒不可用
+   padding 扩容）。 */
 [data-dsh-activity-pane] .dap-repo {
   display: flex;
   align-items: center;
@@ -2859,6 +2863,7 @@ const CSS = `
   color: inherit;
   cursor: pointer;
   text-decoration: none;
+  margin: 0 0 0 12px;
 }
 [data-dsh-activity-pane] .dap-repo:hover,
 [data-dsh-activity-pane] .dap-repo:focus-visible {
@@ -3566,8 +3571,8 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 /* 移动端抽屉透明遮罩：抽屉打开时铺满视口、点击收起抽屉（R-01-008/AC-03）。
    完全透明不占布局；z-index 介于主会话与抽屉（2147482990）之间；抽屉打开期间
-   浮动开关隐藏（见 .dap-toggle[data-drawer-open]，R-01-008/AC-05），关闭由抽屉
-   头部 × 与遮罩承担；桌面断点外由媒体查询保持隐藏。 */
+   浮动开关隐藏（见 .dap-toggle[data-drawer-open]，R-01-008/AC-05），关闭由
+   标题行激活（无独立 × 关闭按钮，T-137）与遮罩承担；桌面断点外由媒体查询保持隐藏。 */
 .dap-backdrop {
   position: fixed; inset: 0;
   z-index: 2147482989;
@@ -3714,7 +3719,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-track {
 body:not([data-ds-dark-theme]) .dap-toggle {
   background: var(--dsw-alias-button-floating-fill, rgba(255, 255, 255, 0.94));
 }
-/* 「回到顶部」与标题行工具区档位/仓库入口按钮的浅色覆盖：不透明层-2 底色与外壳描边别名
+/* 「回到顶部」与标题行档位按钮及左侧仓库入口的浅色覆盖：不透明层-2 底色与外壳描边别名
    （R-01-018/AC-05、R-01-021/AC-05、R-01-022/AC-01）；仓库入口无描边（T-139），只并入底色组。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density,
@@ -4822,13 +4827,13 @@ function apply(ctx) {
 			center.insertBefore(pane, seat);
 			pane.innerHTML = `
 				<div class="dap-header">
+					<a class="dap-repo" href="https://github.com/ccll/dsh-activity-pane" target="_blank" rel="noreferrer noopener" aria-label="报告问题" title="报告问题"></a>
 					<span class="dap-titlebar" role="button" tabindex="0" aria-expanded="true" aria-label="收起活动会话窗格" title="收起">
 						<span>活动会话</span>
 						<span class="dap-count" role="status" aria-live="polite"></span>
 						<span class="dap-collapse-hint" aria-hidden="true"></span>
 					</span>
 					<span class="dap-tools">
-						<a class="dap-repo" href="https://github.com/ccll/dsh-activity-pane" target="_blank" rel="noreferrer noopener" aria-label="报告问题" title="报告问题"></a>
 						<button class="dap-density" type="button" aria-label="切换为完整显示" title="完整显示"></button>
 					</span>
 				</div>
@@ -4852,7 +4857,7 @@ function apply(ctx) {
 			// 紧凑显示切换按钮常显于标题行右侧工具区（R-01-021/AC-05）；切换时以 data-density
 			// 驱动纯 CSS 呈现，骨架重建后由 bindPaneControls 的 applyDensity 恢复形态。
 			pane.querySelector(".dap-density").append(createDensityIcon());
-			// 仓库入口常显于标题行右侧工具区（R-01-022/AC-01）；图标在创建时注入。
+			// 仓库入口常显于标题行最左独立区（R-01-022/AC-01，T-144）；图标在创建时注入。
 			pane.querySelector(".dap-repo").append(createRepoIcon());
 			// 收起方向图标为标题行悬停/聚焦的可见性提示（R-01-011/AC-07），图标在创建时注入。
 			pane.querySelector(".dap-collapse-hint").append(createCollapseIcon());
@@ -5059,7 +5064,7 @@ function apply(ctx) {
 		});
 	}
 
-	/** 标题行工具区的仓库入口图标（R-01-022/AC-01）：GitHub Octicon `mark-github` 字形
+	/** 标题行左侧独立区的仓库入口图标（R-01-022/AC-01，T-144）：GitHub Octicon `mark-github` 字形
 	 *  （MIT 许可，Primer Octicons），与工具区既有图标同用 14px 字形盒。 */
 	function createRepoIcon() {
 		return createInlineIcon({

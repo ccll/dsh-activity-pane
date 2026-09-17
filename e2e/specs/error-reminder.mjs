@@ -3,12 +3,10 @@
 // AC-05 此处覆盖打开会话不解除；切换保持由 core 契约覆盖。AC-13 此处覆盖错误成立，活动后代抑制与新回合覆盖由 core 契约覆盖。
 
 import {
-MOCK_ERROR_MESSAGE, activateCard, activityAcks, ensureFullDensity, openApp, paneRegions, sendHeroMessage, until
+MOCK_ERROR_MESSAGE, RELATIVE_AGE_PATTERN, activateCard, activityAcks, ensureFullDensity, openApp, paneRegions, sendHeroMessage, until
 } from "../helpers.mjs";
 
 const TITLE = "e2e:error 跨边界故障探针";
-// R-01-002/AC-14：状态年龄沿用历史卡相对时间的分级文案。
-const AGE_PATTERN = /^(?:刚刚|\d+分钟前|\d+小时前|\d+天前|\d+周前|\d+个月前|\d+年前)$/;
 
 export default async function errorReminder({ page, url, mock, assert }) {
 	await openApp(page, url);
@@ -71,7 +69,7 @@ export default async function errorReminder({ page, url, mock, assert }) {
 	const errorAge = await until("错误提醒显示进入状态相对时间", () =>
 		errorCard.locator(".dap-await-age").textContent().then((text) => (text ?? "").trim() || null),
 	);
-	assert.match(errorAge, AGE_PATTERN, "错误提醒胶囊右侧显示相对时间分级文案（R-01-002/AC-14）");
+	assert.match(errorAge, RELATIVE_AGE_PATTERN, "错误提醒胶囊右侧显示相对时间分级文案（R-01-002/AC-14）");
 
 	await activateCard(page, TITLE);
 	await until("打开会话不解除错误提醒", async () => {
@@ -110,5 +108,5 @@ export default async function errorReminder({ page, url, mock, assert }) {
 	const refreshedErrorAge = await until("刷新后恢复进入状态相对时间", () =>
 		errorCard.locator(".dap-await-age").textContent().then((text) => (text ?? "").trim() || null),
 	);
-	assert.match(refreshedErrorAge, AGE_PATTERN, "错误提醒刷新后仍显示状态年龄（R-01-002/AC-14）");
+	assert.match(refreshedErrorAge, RELATIVE_AGE_PATTERN, "错误提醒刷新后仍显示状态年龄（R-01-002/AC-14）");
 }

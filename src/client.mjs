@@ -1175,6 +1175,12 @@ function fmtRecentTime(ts, now = Date.now()) {
 	}
 }
 
+/** 等待卡状态年龄文案（R-01-002/AC-14）：进入状态时刻的裸相对时间，单点派生；
+ *  时刻不可得或差值为负（时钟偏差）返回空串（节点隐藏）。 */
+function awaitAgeText(entry, now = Date.now()) {
+	return Number.isFinite(entry?.stateAt) ? fmtRelativeAge(now - entry.stateAt) : "";
+}
+
 /** 读取持久化列宽：缺失/非法/越界值经 clampPaneWidth 归一；localStorage 不可用（隐私模式）静默回退默认（R-01-015/AC-04）。 */
 function readStoredPaneWidth() {
 	try {
@@ -2957,9 +2963,9 @@ function apply(ctx) {
 				iconHolder.dataset.kind = iconKind;
 				iconHolder.replaceChildren(...(iconKind === "" ? [] : [createCapsuleIcon(iconKind)]));
 			}
-			// 状态年龄（R-01-002/AC-14）：进入状态时刻的裸相对时间，紧随胶囊之后；时刻
-			// 不可得（busy/acks 数据在途）或差值为负（时钟偏差）时隐藏节点，不以虚假
-			// 时刻冒充。陈旧骨架就地补建年龄节点（C-043 热装兼容同惯例）。
+			// 状态年龄（R-01-002/AC-14）：进入状态时刻的裸相对时间，紧随胶囊之后；文案由
+			// 帧内 enrichment 单点派生（entry.awaitAge，与签名同时钟源）。陈旧骨架就地
+			// 补建年龄节点（C-043 热装兼容同惯例）。
 			const capsuleEl = el.querySelector(".dap-capsule");
 			if (capsuleEl !== null) {
 				let ageEl = capsuleEl.nextElementSibling;
@@ -2967,7 +2973,7 @@ function apply(ctx) {
 					ageEl = makeEl("span", "dap-await-age");
 					capsuleEl.insertAdjacentElement("afterend", ageEl);
 				}
-				const ageText = Number.isFinite(entry.stateAt) ? fmtRelativeAge(Date.now() - entry.stateAt) : "";
+				const ageText = entry.awaitAge ?? "";
 				if (ageEl.textContent !== ageText) ageEl.textContent = ageText;
 				const ageHidden = ageText === "";
 				if (ageEl.hidden !== ageHidden) ageEl.hidden = ageHidden;
@@ -3724,6 +3730,8 @@ function apply(ctx) {
 			if (entry.kind === "awaiting" && detail) {
 				entry.elapsedMs = memoTurnDuration(detail);
 			}
+			// 状态年龄（R-01-002/AC-14）：帧内单点派生一次，渲染与签名共用同一文案与时钟源。
+			if (entry.kind === "awaiting") entry.awaitAge = awaitAgeText(entry, now);
 			if (detail?.model) {
 				entry.model = detail.model.model;
 				entry.reasoning = detail.model.reasoning;
@@ -3837,7 +3845,7 @@ function apply(ctx) {
 			if (elapsedMs === null) recentDurationFallbackIds.add(entry.id);
 		}
 		// 状态年龄（R-01-002/AC-14）与历史卡相对时间同为分钟级：任一存在即保持定时器。
-		syncRecentTimeClock(recent.length > 0 || active.some((entry) => entry.kind === "awaiting" && Number.isFinite(entry.stateAt)));
+		syncRecentTimeClock(recent.length > 0 || active.some((entry) => entry.kind === "awaiting" && entry.awaitAge));
 		// 预览只对当前显示的 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
 		// 完成瞬间的窗口快照可能先有用户消息、后到 agent reply；缺任一预览时补读一次 history。
 		const previewFallbackIds = new Set();
@@ -3904,7 +3912,7 @@ function apply(ctx) {
 		const recentTimeSignature = recent.map((entry) => fmtRecentTime(entry.activityAt));
 		const awaitAgeSignature = active
 			.filter((entry) => entry.kind === "awaiting")
-			.map((entry) => (Number.isFinite(entry.stateAt) ? fmtRelativeAge(now - entry.stateAt) : ""));
+			.map((entry) => entry.awaitAge ?? "");
 		const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature, awaitAgeSignature, densityLevel]);
 		if (sig === lastSig) return;
 		const colorByWorkspace = resolveWorkspaceColors(visibleEntries.map((entry) => entry.workspaceKey));

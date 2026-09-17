@@ -1552,10 +1552,9 @@ export function mainTitle(byId, id) {
  * 尚未结束、`lastTurnEnd` 仍是上一回合的旧时刻，不能作为等待进行中会话的排序键（T-141）；
  * 非 Map、缺失记录或值非有限数字（含 null/空串等 Number 归一为 0 的形状）均视为无数据，
  * 回落宿主列表时间。
- * stateAt（进入当前等待行动状态的时刻，R-01-002/AC-14）：仅 awaiting 条目携带——pending
- * 取 waitingStarts（同排序键），完成/错误提醒取 completions.lastTurnEnd（同排序键），
- * 与排序键同源同值；但显示侧不回落宿主列表时间——排序键缺失时的回落仅用于排序，
- * 显示以 null（不显示）承载，避免把回退值冒充真实进入时刻。
+ * stateAt（进入当前等待行动状态的时刻，R-01-002/AC-14）：仅 awaiting 条目携带，与排序键
+ * 共用 enterStateAt 单点口径——pending 取 waitingStarts，完成/错误提醒取 completions.lastTurnEnd；
+ * 显示侧不回落宿主列表时间——排序键缺失时的回落仅用于排序，显示以 null（不显示）承载。
  */
 export function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null, archivedIds = [], waitingStarts = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
@@ -1625,16 +1624,20 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 		if (typeof value !== "number") return null;
 		return Number.isFinite(value) ? value : null;
 	};
+	// 进入状态时刻单点（R-01-002/AC-14，排序键 R-01-001/AC-07 同源）：阻塞等待取
+	// waitingStarts，完成/错误提醒取最近一次回合结束登记时刻；有效性口径单点收紧——
+	// 仅真实数字作数，Number(null)/Number("") 归一的 0 陷阱两侧同样不作数。
+	const enterStateAt = (id, pending) => {
+		if (pending) return waitingStartTime(id);
+		const end = completionFor(id, completions)?.lastTurnEnd;
+		return typeof end === "number" && Number.isFinite(end) ? end : null;
+	};
 	const sortTime = (id) => {
 		if (isRunningEntry(id)) return instructionTime(byId[id]);
 		const m = meta.get(id);
-		if (m !== undefined && m.pending) {
-			const start = waitingStartTime(id);
-			return start ?? instructionTime(byId[id]);
-		}
-		const record = completionFor(id, completions);
-		const end = isRecord(record) ? Number(record.lastTurnEnd) : NaN;
-		return Number.isFinite(end) ? end : instructionTime(byId[id]);
+		const entered = m !== undefined ? enterStateAt(id, m.pending) : null;
+		// 排序键缺失回落宿主列表时间；回落仅用于排序，显示侧以 null 承载（见 stateAt）。
+		return entered ?? instructionTime(byId[id]);
 	};
 	rootIds.sort((a, b) => {
 		const byGroup = Number(isRunningEntry(b)) - Number(isRunningEntry(a));
@@ -1668,13 +1671,10 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 			const doneWait = !m.pending && m.done && !m.running && !m.delegating;
 			const errWait = !m.pending && m.err && !m.running && !m.delegating;
 			const errorNote = entryErrorNote(completionFor(id, completions));
-			const waitRecord = completionFor(id, completions);
-			const endMs = typeof waitRecord?.lastTurnEnd === "number" && Number.isFinite(waitRecord.lastTurnEnd)
-				? waitRecord.lastTurnEnd
-				: null;
-			// 进入状态时刻（R-01-002/AC-14）：仅 awaiting 条目携带，与排序键同源同值；
-			// 显示侧不回落宿主列表时间，不可得即为 null（节点隐藏），避免把回退值冒充真实进入时刻。
-			const stateAt = m.pending ? waitingStartTime(id) : doneWait || errWait ? endMs : undefined;
+			// 进入状态时刻（R-01-002/AC-14）：仅 awaiting 条目携带，与排序键共用 enterStateAt
+			// 单点口径；显示侧不回落宿主列表时间，不可得即为 null（节点隐藏），避免把
+			// 回退值冒充真实进入时刻。
+			const stateAt = m.pending || doneWait || errWait ? enterStateAt(id, m.pending) : undefined;
 			const questionPreview =
 				m.pending && m.row.pendingInteraction === "question" ? timelineQuestionPreview(timeline) : undefined;
 			entries.push({

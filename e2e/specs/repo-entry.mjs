@@ -52,6 +52,12 @@ export default async function repoEntry({ page, url, assert }) {
 	// 两按钮之间隔着整个标题区，触屏点按档位按钮不落仓库入口命中区。
 	assert.ok(state.repoRight <= state.titlebarX, "仓库入口位于标题区左侧独立区、不与标题区重叠（T-144）");
 	assert.ok(state.densityX > state.titlebarRight, "档位切换按钮在标题区右缘之后、与仓库入口分处两端（T-144）");
+	// T-146 接缝对称：仓库入口↔标题区的间隔与标题区↔档位按钮的间隔相等（±2px 抗亚像素抖动），
+	// 标题区悬停高亮两侧留白对称、不贴任一按钮。
+	assert.ok(
+		Math.abs((state.titlebarX - state.repoRight) - (state.densityX - state.titlebarRight)) <= 2,
+		"仓库入口与标题区的接缝间距对称于标题区与档位按钮的接缝间距（T-146）",
+	);
 
 	// 建一个会话使「当前选中会话」非平凡，AC-02 的不变量才有断言对象。
 	await newSessionWithMessage(page, "e2e:fast 仓库入口探针");

@@ -163,7 +163,7 @@ export default async function compactDensity({ page, url, assert }) {
 	const mediumState = await densityState(page);
 	assert.equal(mediumState.density, "medium", "无持久化记录默认为中间呈现（R-01-021/AC-06）");
 	assert.equal(mediumState.inTools, true, "切换按钮位于标题行右侧固定工具区内（R-01-021/AC-05）");
-	assert.equal(mediumState.label, "切换为紧凑显示", "中间档下按钮可访问名称表达目标档位（R-01-021/AC-01）");
+	assert.equal(mediumState.label, "切换为完整显示", "中间档下按钮可访问名称表达目标档位（R-01-021/AC-01）");
 	assert.ok(
 		mediumState.buttonBox && mediumState.buttonBox.y >= box.y && mediumState.buttonBox.y + mediumState.buttonBox.height <= box.y + 48 && mediumState.buttonBox.x + mediumState.buttonBox.width >= box.x + box.width - 72,
 		`切换按钮位于标题行右侧工具区（右侧可再并排仓库入口按钮，button y=${Math.round(mediumState.buttonBox?.y ?? -1)}，pane y=${Math.round(box.y)}，R-01-021/AC-05、R-01-022/AC-01）`,
@@ -198,7 +198,9 @@ export default async function compactDensity({ page, url, assert }) {
 	await until("中间下跳转生效", async () =>
 		((await mainAreaHas(page, RECENT_TITLES[0])) || (await mainAreaHas(page, RECENT_TITLES[1])) ? true : null));
 
-	// R-01-021/AC-02：紧凑档仅保留标题行。
+	// R-01-021/AC-02：紧凑档仅保留标题行（升序循环：中间 → 完整 → 紧凑两步推进）。
+	await page.getByRole("button", { name: "切换为完整显示" }).click();
+	await untilDensity(page, "full", "第一步切换进入完整呈现");
 	await page.getByRole("button", { name: "切换为紧凑显示" }).click();
 	await untilDensity(page, "compact", "切换后进入紧凑呈现");
 	const compactActive = await cardRowState(page, DONE_CARD);
@@ -221,16 +223,22 @@ export default async function compactDensity({ page, url, assert }) {
 	await newSessionWithMessage(page, "e2e:fast 紧凑后续会话");
 	assert.equal((await densityState(page)).density, "compact", "新会话出现后仍保持紧凑档（R-01-021/AC-07）");
 
-	// R-01-021/AC-06：刷新后恢复已选档位（紧凑），切回完整后刷新保持完整。
+	// R-01-021/AC-06：刷新后恢复已选档位（紧凑），切回完整后刷新保持完整（升序循环：
+	// 紧凑 → 中间 → 完整两步推进，切换同步写 localStorage，reload 读到的即完整档）。
 	await page.reload();
 	await until("刷新后恢复紧凑档", async () => ((await densityState(page))?.density === "compact" ? true : null), 30_000);
+	await page.getByRole("button", { name: "切换为中间显示" }).click();
 	await page.getByRole("button", { name: "切换为完整显示" }).click();
 	await page.reload();
 	await until("切回完整后刷新保持完整", async () => ((await densityState(page))?.density === "full" ? true : null), 30_000);
 
-	// R-01-021/AC-01（滚动锚定）：完整 → 中间后，当前选中卡片顶部相对视口位置不变。
-	// 激活第三张完成卡并等 data-current 落定（跳转异步完成），再把其顶部滚到与视口顶
-	// 对齐后切换档位。
+	// R-01-021/AC-01（滚动锚定）：中间 → 完整（升序方向一步切换）后，当前选中卡片顶部
+	// 相对视口位置不变。先把档位从完整档两步带到中间档，再激活第三张完成卡并等
+	// data-current 落定（跳转异步完成），把其顶部滚到与视口顶对齐后切换档位。
+	await page.getByRole("button", { name: "切换为紧凑显示" }).click();
+	await untilDensity(page, "compact", "完整后第一步进入紧凑呈现");
+	await page.getByRole("button", { name: "切换为中间显示" }).click();
+	await untilDensity(page, "medium", "第二步回到中间呈现");
 	await activateCardByIndex(page, DONE_CARD, 2);
 	await until("第三张完成卡成为当前选中", async () => {
 		return page.evaluate(() => {
@@ -246,10 +254,10 @@ export default async function compactDensity({ page, url, assert }) {
 		if (scroll && card) scroll.scrollTop = card.offsetTop;
 	});
 	const anchorBefore = await currentCardAnchor(page);
-	await page.getByRole("button", { name: "切换为中间显示" }).click();
+	await page.getByRole("button", { name: "切换为完整显示" }).click();
 	// 等渲染落地与锚定补偿执行（queueSync 经 SYNC_MIN_INTERVAL_MS 节流）。
 	await page.waitForTimeout(300);
-	await untilDensity(page, "medium", "切换后进入中间呈现");
+	await untilDensity(page, "full", "切换后进入完整呈现");
 	const anchorAfter = await currentCardAnchor(page);
 	assert.ok(
 		anchorBefore !== null && anchorAfter !== null && Math.abs(anchorBefore.anchor - anchorAfter.anchor) <= 2,

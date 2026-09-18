@@ -636,11 +636,11 @@ function buildFoldRow(run) {
 		kind = "context";
 		icon = "context";
 	} else if (runningTool !== null) {
-label = "正在运行";
+		label = "运行";
 		kind = "tool";
-icon = "bash";
+		icon = "bash";
 	} else if (runningThink !== null) {
-		label = "正在思考";
+		label = "思考";
 		kind = "assistant";
 		icon = "assistant";
 	} else if (tools.length > 0) {
@@ -834,7 +834,7 @@ export function foldedConversationTimeline(snapshot, limit = 4, cwd = "", descen
 	const max = Math.max(0, limit);
 	if (max === 0) return [];
 	// 非执行呈现（渲染层 idle 判定或快照 pending）且非委托周期：落定在分组之前——
-	// 组标题/状态由已定案成员派生（避免 done 圆点配「正在思考」标题），尾部提升同时跳过。
+	// 组标题/状态由已定案成员派生（避免 done 圆点配「思考」标题），尾部提升同时跳过。
 	const settle = (idle === true || snapshotIdle(snapshot)) && descendantActive !== true;
 	for (const want of [max * 3, max * 8, Number.MAX_SAFE_INTEGER]) {
 		const items = rawTailItems(snapshot, want, cwd, true);
@@ -1045,7 +1045,7 @@ export function conversationTimelineFromHistory(history, limit = 4, cwd = "") {
 /** 冷 history 折叠分组时间线（R-01-017、R-01-012/AC-12～AC-15）：页内全部事件映射折叠后
  *  套用与快照路径同一窗口/锚行选择（selectTimelineRows），最近用户消息滚动触顶后停留为
  *  首行锚行。settleIdle：阻塞等待呈现（pendingText 存在）下折叠前把残留 running 行落定，
- *  组标题/状态由已定案成员派生（「运行了命令」而非「正在运行」蓝闪），与快照路径的
+ *  组标题/状态由已定案成员派生（「运行了命令」而非「运行」蓝闪），与快照路径的
  *  settleWhenIdle 前置语义一致。 */
 export function foldedHistoryTimeline(history, limit = 4, cwd = "", settleIdle = false) {
 	const max = Math.max(0, limit);

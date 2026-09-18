@@ -626,8 +626,8 @@ assert.equal(askQuestionsPreview(undefined), null);
 const timelineQuestions = { items: [{ index: 1, text: "要合并回 main 吗？" }, { index: 2, text: "需要先跑测试吗？" }], omitted: false };
 assert.deepEqual(
 	timelineQuestionPreview([
-		{ fold: true, label: "正在运行", question: null },
-		{ fold: true, label: "正在运行", question: timelineQuestions },
+		{ fold: true, label: "运行", question: null },
+		{ fold: true, label: "运行", question: timelineQuestions },
 	]),
 	timelineQuestions,
 	"结构化提问预览穿透折叠分组上浮组行",
@@ -1165,7 +1165,7 @@ const questionPreview = {
 	omitted: false,
 };
 const questionEntries = buildEntries(questionSnap, [], {
-	sQ: { timeline: [{ fold: true, label: "正在运行", summary: "等待回答", question: questionPreview }] },
+	sQ: { timeline: [{ fold: true, label: "运行", summary: "等待回答", question: questionPreview }] },
 });
 assert.equal(questionEntries[0].pendingText, "提问中");
 assert.equal(questionEntries[0].pendingKind, "question");
@@ -1788,7 +1788,7 @@ const runTool = foldedConversationTimeline({
 		["r2", { key: "r2", kind: "tool-call", data: { root: { kind: "tool-call", callId: "r2", call: { name: "grep", argsRaw: '{"pattern":"x"}' } } } }],
 	]).get(key) } },
 });
-assert.equal(runTool[0].label, "正在运行", "运行中工具组标题为正在运行");
+assert.equal(runTool[0].label, "运行", "运行中工具组标题为运行（R-01-017/AC-03）");
 assert.equal(runTool[0].status, "running", "运行中状态聚合");
 assert.equal(runTool[0].icon, "bash", "运行中 tool 组行图标同为命令图标");
 // R-01-017/AC-03 双运行成员的优先序：running tool 标题/摘要优先于 running think（评审对齐 vendor updateChip）。
@@ -1798,12 +1798,12 @@ const bothRunning = foldedConversationTimeline({
 		["br2", { key: "br2", kind: "assistant-step", data: { status: "running", turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "思考中\n最新想法" }] } }],
 	]).get(key) } },
 });
-assert.equal(bothRunning[0].label, "正在运行", "tool 与 think 同时运行时标题取正在运行");
+assert.equal(bothRunning[0].label, "运行", "tool 与 think 同时运行时标题取运行");
 assert.equal(bothRunning[0].summary, "make", "同时运行时的组摘要取执行中工具摘要（AC-04 限定于无执行中工具的分组）");
 const runThink = foldedConversationTimeline({
 	chat: { order: ["rt"], nodes: { get: () => ({ kind: "assistant-step", data: { status: "running", turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "第一行\n最新行" }] } }) } },
 });
-assert.equal(runThink[0].label, "正在思考", "运行中思考组标题为正在思考（R-01-017/AC-03）");
+assert.equal(runThink[0].label, "思考", "运行中思考组标题为思考（R-01-017/AC-03）");
 assert.equal(runThink[0].summary, "最新行", "流式思考摘要取最新行（R-01-017/AC-04）");
 // R-01-017/AC-03 编辑了文件 / 上下文注入 标题判定
 const editGroup = foldedConversationTimeline({
@@ -2075,10 +2075,10 @@ assert.ok(settledStream.every((row) => row.status !== "running"), "回合落定�
 // 阻塞等待呈现（settleIdle）：折叠前落定残留 running 行，组标题/状态由已定案成员派生
 // （快照路径 settleWhenIdle 前置语义对齐，R-01-009/AC-09「仅执行中行闪烁」）。
 const blockedAskRunning = foldedHistoryTimeline([hUser(1, "指令"), hToolCall(2, "ha")], 10);
-assert.equal(blockedAskRunning.at(-1).label, "正在运行", "未落定呈现保留「正在运行」组标题");
+assert.equal(blockedAskRunning.at(-1).label, "运行", "未落定呈现保留「运行」组标题");
 const blockedAskSettled = foldedHistoryTimeline([hUser(1, "指令"), hToolCall(2, "ha")], 10, "", true);
 assert.equal(blockedAskSettled.at(-1).status, "done", "阻塞等待呈现下折叠前落定残留 running 行");
-assert.equal(blockedAskSettled.at(-1).label, "运行了命令", "落定后组标题由已定案成员派生（非「正在运行」）");
+assert.equal(blockedAskSettled.at(-1).label, "运行了命令", "落定后组标题由已定案成员派生（非「运行」）");
 // historyInstructionAnchor：尾扫最近一条非空文本真实用户消息（R-01-012/AC-12 快照窗口外兜底）
 assert.equal(historyInstructionAnchor([hUser(1, "旧指令"), hAgent(2, "回复"), hUser(3, "新指令")])?.text, "新指令", "锚行取最近一条用户消息");
 assert.equal(historyInstructionAnchor([hUser(1, "  "), hAgent(2, "回复")]), null, "空文本用户消息不作锚");
@@ -2498,8 +2498,8 @@ assert.equal(delegatingFold[0].status, "running", "委托周期中尾部已定�
 // pending + 活动后代：快照级 idle 落定让位于委托语义（R-01-016 例外、R-01-009/AC-10）。
 const pendingDescendant = foldedConversationTimeline({ ...frozenSnap, pending: [{ kind: "approval" }] }, 4, "", true);
 assert.ok(pendingDescendant.some((row) => row.status === "running"), "pending 且后代活跃时快照 idle 落定不生效（保留在飞呈现）");
-// 落定在分组之前：组标题由已定案成员派生，不出现 done 圆点配「正在思考」（R-01-017/AC-03）。
-assert.equal(frozenIdle.at(-1)?.label, "已思考", "idle 落定后组标题随成员落定（不再显示「正在思考」）");
+// 落定在分组之前：组标题由已定案成员派生，不出现 done 圆点配「思考」（R-01-017/AC-03）。
+assert.equal(frozenIdle.at(-1)?.label, "已思考", "idle 落定后组标题随成员落定（不再显示「思考」）");
 const nonDelegatingFold = foldedConversationTimeline({ ...idleGapSnapshot, running: false }, 4);
 assert.equal(nonDelegatingFold[0].status, "done", "非运行且非委托周期尾部不提升");
 const errorTail = conversationWorkItems({

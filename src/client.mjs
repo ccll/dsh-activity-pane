@@ -3679,7 +3679,7 @@ function apply(ctx) {
 			const entryCwd = snapshot?.byId?.[entry.id]?.cwd ?? "";
 			// log 派生 memo：history 引用 / idle / cwd 变化才重算。落定在折叠前生效
 			// （foldedHistoryTimeline 的 settleIdle），组标题由已定案成员派生——阻塞等待卡
-			// 呈现「运行了命令」+「等待回答」摘要，而非「正在运行」蓝闪（R-01-009/AC-09）。
+			// 呈现「运行了命令」+「等待回答」摘要，而非「运行」蓝闪（R-01-009/AC-09）。
 			const historyRef = detail?.history ?? null;
 			const logReady = Array.isArray(historyRef) && historyRef.length > 0;
 			if (detail && logReady && (detail.memoLogTimelineOf !== historyRef || detail.memoLogTimelineIdle !== entryIdle || detail.memoLogTimelineCwd !== entryCwd)) {

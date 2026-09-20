@@ -12,6 +12,8 @@
 //
 // 展示规则：
 //   主会话（非有效子代理行）：running || completed || pendingInteraction 都显示；
+//   存活在跑后台任务（jobsBySession 中 status ∈ {running, stopping}，R-01-023）的主会话
+//   同样按运行态显示并抑制完成/错误提醒；
 //   子代理（origin === 'subagent' 且 parentId 有效）：仅 running || pendingInteraction 时显示（结束后即消失）；
 //   pendingInteraction 总是优先视为"等待用户行动"（即使在 running 中）。
 
@@ -1555,8 +1557,12 @@ export function mainTitle(byId, id) {
  * stateAt（进入当前等待行动状态的时刻，R-01-002/AC-14）：仅 awaiting 条目携带，与排序键
  * 共用 enterStateAt 单点口径——pending 取 waitingStarts，完成/错误提醒取 completions.lastTurnEnd；
  * 显示侧不回落宿主列表时间——排序键缺失时的回落仅用于排序，显示以 null（不显示）承载。
+ * jobsBySession（R-01-023）：快照携带的 `jobsBySession` 任务视图映射——存在在跑后台任务
+ * （status ∈ {running, stopping}）的主会话获得第三种自身活动来源：保留在活动区归入运行组、
+ * 完成提醒与错误提醒被抑制（AC-01、AC-02）；条目携带 liveJobs（startedAt 升序）供渲染层
+ * 标注数量与构建任务行（R-01-024）。子代理行不派生 liveJobs（后台任务当前仅主会话呈现）。
  */
-export function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null, archivedIds = [], waitingStarts = null) {
+export function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null, archivedIds = [], waitingStarts = null, jobsBySession = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
@@ -1597,16 +1603,20 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 		const running = row.running === true;
 		const pending = row.pendingInteraction !== undefined;
 		const isSub = hasParent;
+		// 在跑后台任务（R-01-023）：主会话的第三种自身活动来源——liveJobs 非空期间
+		// 完成/错误提醒被抑制（AC-02）、会话保持运行态呈现（AC-01）。
+		const liveJobs = isSub ? [] : liveJobsOf(jobsBySession, id);
+		const hasLive = liveJobs.length > 0;
 		// 完成确认（R-01-002/AC-03、AC-05、R-01-010/AC-06）：未确认的完成提醒按自身活动计入。
-		const done = completionReminder(row, completionFor(id, completions), isSub);
+		const done = !hasLive && completionReminder(row, completionFor(id, completions), isSub);
 		// 错误提醒（R-01-002/AC-13，C-043）：最近回合以错误结束的按自身活动计入。
-		const err = errorReminder(row, completionFor(id, completions), isSub);
+		const err = !hasLive && errorReminder(row, completionFor(id, completions), isSub);
 		// 子代理完成且没有活动后代时消失；主会话完成后保留为"等待打开"；母会话在委托周期保持运行呈现（R-01-003/AC-05）。
-		const selfActive = isOwnActiveRow(row, byId);
+		const selfActive = isOwnActiveRow(row, byId) || hasLive;
 		const descendantActive = descendantIds.has(String(id));
 		const delegating = descendantActive || (delegatingIds instanceof Set && delegatingIds.has(String(id)));
 		const show = selfActive || delegating || done || err;
-		meta.set(id, { row, running, pending, isSub, show, done, err, descendantActive, delegating, depth: 0 });
+		meta.set(id, { row, running, pending, isSub, show, done, err, descendantActive, delegating, hasLive, liveJobs, depth: 0 });
 	}
 
 	// 主会话分两组排序（R-01-001/AC-07，键口径契约详见上方 JSDoc）：运行中主会话置顶、
@@ -1614,7 +1624,8 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 	// 两组相同时间均回落宿主列表出现顺序，工作区顺序不参与排序。
 	const isRunningEntry = (id) => {
 		const m = meta.get(id);
-		return m !== undefined && !m.pending && (m.running || m.delegating);
+		// 在跑后台任务视同运行组（R-01-023/AC-01）：排序键沿用宿主列表时间。
+		return m !== undefined && !m.pending && (m.running || m.delegating || m.hasLive);
 	};
 	const waitingStartTime = (id) => {
 		if (!(waitingStarts instanceof Map)) return null;
@@ -1685,7 +1696,7 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 					? "subagent"
 					: m.pending
 						? "awaiting"
-						: m.running || m.delegating
+						: m.running || m.delegating || m.hasLive
 							? "running"
 							: "awaiting",
 				descendantActive: m.descendantActive,
@@ -1719,9 +1730,38 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 						: doneWait
 							? ROUND_DONE_NOTE
 							: undefined,
+				// 在跑后台任务（R-01-023/AC-01）：仅 liveJobs 非空时携带（startedAt 升序），
+				// 渲染层据此在标题行标注数量；任务本体以下一线条目呈现（kind: "job"）。
+				liveJobs: m.hasLive ? m.liveJobs : undefined,
+				selfRunning: m.row.running === true,
 				stateAt,
 				questionPreview: m.pending && m.row.pendingInteraction === "question" ? (questionPreview ?? null) : undefined,
 			});
+			// 后台任务子条目（R-01-024）：与子代理同形的缩进子卡，跟随母会话在其全部
+			// 子代理之前（即母亲条目的直接后继）；结束即随 liveJobs 清空而消失（R-01-023/AC-03）。
+			// 复合 id 在去重视野（entries/visited/cardsById）中唯一，且携 jobs 前缀与子代理
+			// 会话 id 空间天然隔离；不参与 trackRuns（kind 过滤）与徽标（kind 过滤）。
+			if (m.hasLive && !m.isSub) {
+				for (const job of m.liveJobs) {
+					entries.push({
+						id: `job:${id}:${job.id}`,
+						parentId: id,
+						depth: depth + 1,
+						kind: "job",
+						title: job.label,
+						workspaceTitle: "",
+						workspaceKey: "",
+						model: "",
+						reasoning: "",
+						timeline: [],
+						userPreview: "",
+						agentPreview: "",
+						isCurrent: false,
+						jobStatus: job.status,
+						jobStartedAt: job.startedAt,
+					});
+				}
+			}
 		}
 		for (const child of childIds.get(id) ?? []) visit(child, depth + 1);
 	};
@@ -1824,6 +1864,11 @@ export function cardSignature(entries) {
 			entry.tokenStats ?? [entry.outputTokens ?? null, entry.inputTokens ?? null, entry.cacheHitPct ?? null, entry.rateTokS ?? null, entry.elapsedMs ?? null],
 			// 累计运行时长参与签名（R-01-020）：回填/SSE 推送与逐秒推进都要驱动重绘。
 			entry.totalBusyMs ?? null,
+			// 在跑后台任务（R-01-023）：任务视图随快照推送帧刷新，进入/退出在跑态驱动重绘；
+			// job 子卡状态翻转与秒桶（渲染期注入的任务行时长推进）同入签名。
+			entry.liveJobs ?? null,
+			entry.jobStatus ?? null,
+			entry.jobsAgeSec ?? null,
 		]),
 	);
 }
@@ -1944,6 +1989,134 @@ function entryErrorNote(completion) {
 	const record = isRecord(completion) ? completion : null;
 	const message = record?.lastTurnEndError;
 	return typeof message === "string" && message !== "" ? message : ERROR_NOTE_FALLBACK;
+}
+
+// ---- 后台任务（R-01-023、R-01-024）：在跑活性归一与 job_output 读取回放 ----
+
+/** 后台任务输出回放的字符上限（R-01-024/AC-04）：模型每次 job_output 读取的
+ *  已定案文本拼接后超出即截断并置 truncated；与单条错误信息截断同量级考虑。 */
+export const JOB_OUTPUT_MAX_CHARS = 20000;
+
+/** 在跑后台任务的活性状态全集（R-01-023）：stopping 视同在跑——停止请求已发出但
+ *  任务尚未结束，呈现与提醒抑制口径与 running 一致。 */
+const LIVE_JOB_STATUSES = new Set(["running", "stopping"]);
+
+/**
+ * 归一会话的在跑后台任务列表（R-01-023/AC-01）：取快照 `jobsBySession[id]` 中
+ * status ∈ {running, stopping} 的任务视图，按 startedAt 升序（最早在前）。
+ * jobsBySession 缺失、非记录、条目非记录或字段非法均按无任务/剔除处理，不抛错。
+ * 返回 `{ id, label, status, startedAt }` 的新数组（不泄漏宿主对象引用）。
+ */
+export function liveJobsOf(jobsBySession, id) {
+	if (!isRecord(jobsBySession)) return [];
+	const list = jobsBySession[String(id)];
+	if (!Array.isArray(list)) return [];
+	const live = [];
+	for (const job of list) {
+		if (!isRecord(job)) continue;
+		if (!LIVE_JOB_STATUSES.has(job.status)) continue;
+		live.push({
+			id: typeof job.id === "string" ? job.id : "",
+			label: typeof job.label === "string" ? job.label : "",
+			status: job.status,
+			startedAt: Number.isFinite(Number(job.startedAt)) ? Number(job.startedAt) : 0,
+		});
+	}
+	live.sort((a, b) => a.startedAt - b.startedAt);
+	return live;
+}
+
+/** 从 tool-result 消息提取纯文本：tool-result 内容块内的 text 片段按换行拼接；
+ *  非数组内容或无文本块返回 undefined（错误结果是否纳入由调用方按 isError 判定）。 */
+function jobResultText(message) {
+	if (!Array.isArray(message.content)) return undefined;
+	const parts = [];
+	for (const block of message.content) {
+		if (!isRecord(block) || block.type !== "tool-result") continue;
+		if (!Array.isArray(block.content)) continue;
+		for (const item of block.content) {
+			if (isRecord(item) && item.type === "text" && typeof item.text === "string") parts.push(item.text);
+		}
+	}
+	return parts.length > 0 ? parts.join("\n") : undefined;
+}
+
+/** tool-result 是否为错误结果（内层 tool-result 块的 isError 标志）。 */
+function jobResultIsError(message) {
+	if (!Array.isArray(message.content)) return false;
+	return message.content.some((block) => isRecord(block) && block.type === "tool-result" && block.isError === true);
+}
+
+/**
+ * 从事件记录列表提取 job_output 读写轨迹（R-01-024）：`tool/call` 名为 `job_output`
+ * 的行经 `arguments.job_id`（JSON 字符串或已解析对象）登记 callId → jobId 映射，
+ * `tool/result` 行按 `message.source.callId` 配对并携带模型收到的定案文本与错误标志。
+ * 兼容包装记录 `{ seq, event }` 与平面事件两种形状（seq 取事件或记录顶层）；seq 非法的
+ * 事件跳过。返回按 seq 升序的去重轨迹数组（同 seq 后到者胜——实时镜像与日志重放合并
+ * 时的自然口径）。
+ */
+export function jobOutputTraces(records) {
+	const bySeq = new Map();
+	for (const record of Array.isArray(records) ? records : []) {
+		const event = eventOf(record);
+		if (!isRecord(event) || (event.type !== "tool/call" && event.type !== "tool/result")) continue;
+		const seq = Number(event.seq ?? (isRecord(record) ? record.seq : undefined));
+		if (!Number.isFinite(seq)) continue;
+		const data = isRecord(event.data) ? event.data : {};
+		if (event.type === "tool/call") {
+			if (data.name !== "job_output" || typeof data.callId !== "string") continue;
+			let jobId = null;
+			if (typeof data.arguments === "string") {
+				try {
+					const parsed = JSON.parse(data.arguments);
+					if (isRecord(parsed) && typeof parsed.job_id === "string") jobId = parsed.job_id;
+				} catch {
+					// 参数不可解析：不构成有效的 job_output 调用轨迹。
+				}
+			} else if (isRecord(data.arguments) && typeof data.arguments.job_id === "string") {
+				jobId = data.arguments.job_id;
+			}
+			if (jobId === null) continue;
+			bySeq.set(seq, { seq, kind: "call", callId: data.callId, jobId });
+		} else {
+			const message = isRecord(data.message) ? data.message : null;
+			const callId = typeof message?.source?.callId === "string" ? message.source.callId : null;
+			if (callId === null) continue;
+			bySeq.set(seq, { seq, kind: "result", callId, text: jobResultText(message), isError: jobResultIsError(message) });
+		}
+	}
+	return [...bySeq.values()].sort((a, b) => a.seq - b.seq);
+}
+
+/**
+ * 从轨迹回放指定后台任务的模型已读输出（R-01-024/AC-01）：按 seq 序配对 call → result，
+ * 拼接归属 jobId 的全部读取文本；剔除错误结果与 `(no new output)` 占位（模型视角的
+ * 「无新内容」对人无展示价值）。返回 `{ text, truncated, read }`——read = 存在已配对
+ * 读取（无配对时 text 为空，客户端以「尚未被读取」承接，R-01-024/AC-02）；超出
+ * limit 按字符截断并置 truncated（R-01-024/AC-04）。同 seq 轨迹去重（后到者胜），
+ * 供日志重放与实时镜像两源合并。jobId 非法返回未读取空结果。
+ */
+export function jobOutputFromTraces(traces, jobId, limit = JOB_OUTPUT_MAX_CHARS) {
+	if (typeof jobId !== "string" || jobId === "") return { text: "", truncated: false, read: false };
+	const bySeq = new Map();
+	for (const trace of Array.isArray(traces) ? traces : []) {
+		if (isRecord(trace) && Number.isFinite(Number(trace?.seq))) bySeq.set(Number(trace.seq), trace);
+	}
+	const jobOf = new Map();
+	const parts = [];
+	let read = false;
+	for (const trace of [...bySeq.values()].sort((a, b) => a.seq - b.seq)) {
+		if (trace?.kind === "call") {
+			if (typeof trace.jobId === "string") jobOf.set(trace.callId, trace.jobId);
+		} else if (jobOf.get(trace.callId) === jobId) {
+			read = true;
+			if (trace.isError !== true && typeof trace.text === "string" && !trace.text.startsWith("(no new output)")) {
+				parts.push(trace.text);
+			}
+		}
+	}
+	const text = parts.join("\n");
+	return { text: text.length > limit ? text.slice(0, limit) : text, truncated: text.length > limit, read };
 }
 
 /**
@@ -2293,7 +2466,7 @@ export function createSessionEventSerializer() {
  * 也不入历史区。历史区不再按时间窗口或条数截断；turnEnds（id → 已知回合结束时刻）驱动
  * activityAt 精化（R-01-010、R-01-019）。
  */
-export function buildRecent(snapshot, workspaceItems, now, detailsById = {}, archivedIds = [], completions = null, delegatingIds = null, turnEnds = null) {
+export function buildRecent(snapshot, workspaceItems, now, detailsById = {}, archivedIds = [], completions = null, delegatingIds = null, turnEnds = null, jobsBySession = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = snapshot?.current ?? null;
@@ -2311,6 +2484,8 @@ export function buildRecent(snapshot, workspaceItems, now, detailsById = {}, arc
 		if (completionReminder(row, completionFor(id, completions), false)) continue; // 完成确认中，留在活动区
 		if (errorReminder(row, completionFor(id, completions), false)) continue; // 错误提醒中，留在活动区
 		if (delegatingIds instanceof Set && delegatingIds.has(String(id))) continue; // 委托周期中（含耗尽空窗），留在活动区
+		// 在跑后台任务（R-01-023/AC-01、AC-03）：留在活动区，不落入最近历史。
+		if (liveJobsOf(jobsBySession, id).length > 0) continue;
 		if (isActiveRow(row, byId, activeIds)) continue;
 		const updatedAt = Number(row.updatedAt);
 		if (!Number.isFinite(updatedAt)) continue;

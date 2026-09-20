@@ -6,7 +6,7 @@ id: T-149
 
 # T-149 后台任务活动呈现与卡内输出查看
 
-状态: active
+状态: completed
 关联: R-01-023（新增）、R-01-024（新增）→ 活动状态模型
 风险等级: standard
 
@@ -74,7 +74,7 @@ id: T-149
 - 实现: `src/core.mjs`——新增 `liveJobsOf`（在跑任务归一：status ∈ {running, stopping}、startedAt 升序、畸形容错）、`jobOutputTraces`/`jobOutputFromTraces`（job_output call/result 配对回放纯函数，seq 去重、error 与 `(no new output)` 剔除、限额截断）；`buildEntries` 接受 `jobsBySession`——liveJobs 非空的主会话归运行组（条目 kind=running、携带 `liveJobs` 与 `selfRunning`）、在调用点抑制完成/错误提醒（Reminder 纯函数签名不变）、`buildRecent` 同步排除在跑会话；`cardSignature` 并入 liveJobs 与 jobsAgeSec。`src/host.mjs`——既有 `session/event` 订阅增设 `job_output` 轨迹镜像（每会话 FIFO 环形 200 条，callId 随驱逐同步注销，双源合并按 seq 去重）、`GET /api/jobs-output`（`sessionQuery.listEvents` 日志重放 + 镜像合并 → `{text,truncated,read}`，失败 5xx 诚实降级）、`GET /api/jobs/stream` SSE 轨迹通知；广播循环收敛为 `broadcastState` 单点。`src/client.mjs`——jobs SSE 通道与前台恢复自愈（`resumePushChannels` 更名覆盖双通道）、运行卡骨架增设 `.dap-jobs` 区（`后台 ×N` 标注、任务行含状态点/标签/状态词/随时钟时长、卡内单一输出区带「尚未被读取」/「输出过长，已截断」/「输出读取失败」提示）；回读以 loadedFor+脏标记门控（仅选中变化、显式点击或轨迹通知时发出，渲染帧直达 return，无轮询）；jobs-only 条目经 `jobsAgeSec` 秒桶随 1 秒时钟推进任务行时长；卸载关闭 jobs SSE。PRD/DESIGN/DOMAIN 与 `scripts/check.mjs` 锚点、`.dsh-plugin/client.js` 同次演进。
 - 测试: `pnpm verify` 全量一轮通过——AgentMap lint（28 需求/170 AC 全锚定）、test impact lint（新增 8 个 AC-ID 记账）、`scripts/check.mjs` 全部断言（含 R-01-023/AC-01～AC-04、R-01-024/AC-01、AC-02 判定、AC-04 锚点与归一边界、截断、seq 去重断言）、18/18 浏览器 E2E spec 通过（399606ms，修复后最终工作树）。UNiT 锚点 `scripts/check.mjs#R-01-023/AC-01`（活动区保留/运行组呈现/liveJobs 视图）、`#R-01-023/AC-02`（提醒抑制+对照组）、`#R-01-023/AC-03`（恢复判定）、`#R-01-023/AC-04`（徽标分子）、`#R-01-024/AC-01`（配对回放）、`#R-01-024/AC-02`（read=false 分支）、`#R-01-024/AC-04`（截断）全部通过。未实测项：新任务行/输出区的浏览器黄金路径人工操作验证待宿主重启加载新 host 侧代码后进行（本会话寄生于该 `dsh web` 进程，agent 不得擅启重启；API 探针确认现行宿主对新路由返回 404 属预期——进程尚持旧代码），东家重启后如遇问题按缺陷路径回归。
 - DESIGN 对照: PRD R-01-023/R-01-024 各 AC 与实现一一对应；DESIGN 显示过滤/等待优先/分区不变量、产品契约（liveJobs/selfRunning/jobsAgeSec、任务输出通道契约）、完成确认宿主侧模块（任务输出镜像）与追溯索引同次演进无差异；DOMAIN 登记「后台任务」「在跑后台任务」。
-- commit: （提交后填写）
+- commit: 6bb73f0 实现与 map 演进（PRD R-01-023/024、DESIGN、DOMAIN、core/host/client、check 锚点、bundle、TODO 维护想法）
 - review:
   - 审核方: code-review skill（Standards/Spec 双轴并行独立 reviewer 子代理，fixed point = 工作树 vs HEAD 6c0d70c；复审由两轴原审核方分别复核修复 hunks）
   - 目的理解: 把快照 `jobsBySession` 中在跑后台任务升格为主会话第三活动来源并在卡内提供模型已读输出回放，解决「回合结束即显示已完成、后台任务不可见」的迷惑；约束——零新增轮询（fetch 2→3、EventSource 2→3 断言演进）、输出回放不消费模型游标、呈现不冒充回合运行；验证方式 = check.mjs 新锚点 + 全量 E2E + staged bundle 字节一致。

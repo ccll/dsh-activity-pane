@@ -34,13 +34,29 @@ export function shouldDismissDrawerOnActivation({ targetId, currentId, mobile, d
 }
 
 /**
- * 调用 DSH 原生会话导航；由调用方决定失败后的 refresh/retry 策略。
+ * 选择会话切换的导航入口。dsh 0.1.6 起 `sessions` 只保留 retain 引用模型，
+ * 切换当前会话归 `uiWorkspace` 业务视图所有者（ISessions 契约：
+ * "navigation belongs to view owners"）；0.1.5 及更早仍由 `sessions.open`
+ * 承担。返回 null 表示当前宿主没有可用的切换入口。
  * 不读取 sessions.list，避免用另一份可能已过期的快照拦截跳转。
  */
-export function openSession(sessions, sessionId) {
-	if (typeof sessions?.open !== "function") return false;
+export function sessionNavigator({ uiWorkspace, sessions } = {}) {
+	if (typeof uiWorkspace?.openSession === "function") return uiWorkspace;
+	if (typeof sessions?.open === "function") return sessions;
+	return null;
+}
+
+/**
+ * 调用宿主原生会话导航；由调用方决定失败后的 refresh/retry 策略。
+ * 入口必须是服务本身：以服务为接收者调用（uiWorkspace.openSession 依赖
+ * this 完成 retain 与主视图选择）。
+ */
+export function openSession(navigator, sessionId) {
+	if (navigator === null || navigator === undefined || sessionId === undefined || sessionId === "") return false;
+	const method = typeof navigator.openSession === "function" ? navigator.openSession : navigator.open;
+	if (typeof method !== "function") return false;
 	try {
-		sessions.open(sessionId);
+		method.call(navigator, sessionId);
 		return true;
 	} catch {
 		return false;

@@ -4215,6 +4215,8 @@ function apply(ctx) {
 		return promise;
 	}
 	const sessionOpenLoads = new Map();
+	/** 子代理目录按需拉取记账（T-151）：parentId → 已触发；失败不热重试（行为有界）。 */
+	const subagentCatalogRequests = new Set();
 
 	const style = document.createElement("style");
 	style.id = STYLE_ID;
@@ -4599,18 +4601,26 @@ function apply(ctx) {
 
 	/** 会话日志分页地址（R-01-012）：主会话 `{kind:"session", sessionId}`；子代理
 	 *  `{kind:"subagent", parentSessionId, childSessionId, mode}`——母会话 id 兼容
-	 *  `parentSessionId` / `parentId` 两种条目键名，mode 无条目标注时按一次性子代理
-	 *  处理、读取失败由 pagedHistoryEvents 以 null 收敛为空白详情（R-01-013）。 */
-	function sessionPageAddress(id, byId) {
+	 *  `parentSessionId` / `parentId` 两种条目键名。mode 必须与子代理描述符一致，
+	 *  不一致被宿主以 subagent/unauthorized 拒绝（T-151）：优先取母会话目录条目的
+	 *  mode，目录未加载时回退行 `continuable` 启发（读取失败由 pagedHistoryEvents
+	 *  以 null 收敛为空白详情，R-01-013）。 */
+	function sessionPageAddress(id, byId, subagentsByParent = null) {
 		const row = byId[id] ?? {};
 		if (row?.origin === "subagent") {
 			const parentId = row.parentSessionId ?? row.parentId;
 			if (parentId !== undefined && parentId !== null) {
+				const entries = subagentsByParent?.[String(parentId)]?.entries;
+				const entry = Array.isArray(entries)
+					? entries.find((candidate) => String(candidate?.id) === String(id))
+					: undefined;
 				return {
 					kind: "subagent",
 					parentSessionId: String(parentId),
 					childSessionId: String(id),
-					mode: row.continuable === true ? "continuable" : "one-shot",
+					mode: typeof entry?.mode === "string" && entry.mode !== ""
+						? entry.mode
+						: row.continuable === true ? "continuable" : "one-shot",
 				};
 			}
 		}
@@ -4706,7 +4716,8 @@ function apply(ctx) {
 		const sessionRemote = ctx.get("remote.session") ?? null;
 		if (!sessionRemote) return;
 		ensureCatalogGroups(sessionRemote);
-		const byId = getSnapshot(sessions, "list")?.byId ?? {};
+		const listSnap = getSnapshot(sessions, "list");
+		const byId = listSnap?.byId ?? {};
 		const historyPromises = [];
 		for (const id of ids) {
 			const detail = sessionDetailsById.get(id) ?? {};
@@ -4746,7 +4757,7 @@ function apply(ctx) {
 			if (deepReadNeeded && !historyLoads.has(id)) {
 				detail.previewFallbackLoaded = true;
 				detail.durationFallbackLoaded = true;
-				const address = sessionPageAddress(id, byId);
+				const address = sessionPageAddress(id, byId, listSnap?.subagentsByParent ?? null);
 				const promise = enqueueDetailLoad(() => Promise.resolve()
 					.then(async () => {
 						const { events, error } = await pagedHistoryEvents({
@@ -4881,24 +4892,50 @@ function apply(ctx) {
 		queueSync();
 	}
 
+	/** 触发母会话子代理目录单发读取（T-151）：目录条目是地址 mode 的唯一可靠来源，
+	 *  未加载时先拉取，目录随下一轮快照到达；每次拉取经原生 sessions.refreshSubagents
+	 *  走既有 remote 通道，单父会话单飞、不重试，不构成轮询（R-02-004）。 */
+	function requestSubagentCatalog(parentId) {
+		if (subagentCatalogRequests.has(parentId)) return;
+		subagentCatalogRequests.add(parentId);
+		try {
+			Promise.resolve(sessions?.refreshSubagents?.(parentId))
+				.catch(() => {})
+				.finally(() => {
+					if (!disposed) queueSync();
+				});
+		} catch {
+			subagentCatalogRequests.delete(parentId);
+		}
+	}
+
 	/** 子代理会话事件流打开前置（T-151 缺陷修复）：dsh 0.1.5 起宿主按地址校验会话事件
-	 *  流路由，子代理会话经普通地址 `{kind:"session"}` 的 page/follow 一律被拒
-	 *  （agent-busy：subagent Sessions require their durable parent address），持久
-	 *  地址仅经原生导航（selectSubagent）留存——自动加载路径须在 open 前经
-	 *  configureSubagent 安装从列表行派生的地址，否则未点选的子代理卡 eventSource
-	 *  窗口永不水合、时间线恒空（点选卡片后原生 select 留存地址才恢复）。地址派生与
-	 *  日志深翻分页同源（sessionPageAddress）；非子代理行或会话对象缺 configureSubagent
-	 *  时为无操作。 */
+	 *  流路由——子代理会话仅接受持久父地址，且地址 mode 必须与其描述符一致（不一致被
+	 *  subagent/unauthorized 拒绝），持久地址仅经原生导航留存。mode 唯一可靠来源是母
+	 *  会话的子代理目录条目：在册即经 configureSubagent 安装（与原生 selectSubagent
+	 *  同构，但不切换当前会话）；目录未加载时先单发拉取并跳过本轮安装，避免装入必被
+	 *  拒绝的错误 mode 地址；目录拉取失败沿用既有空白详情路径（深翻以 null 收敛），
+	 *  不阻断其余卡片。非子代理行或会话对象缺 configureSubagent 时为无操作。 */
 	function ensureSubagentAddress(id, session) {
-		const byId = getSnapshot(sessions, "list")?.byId ?? {};
+		const listSnap = getSnapshot(sessions, "list");
+		const byId = listSnap?.byId ?? {};
 		if (!isSubagentRow(byId[id], byId)) return;
 		if (typeof session?.configureSubagent !== "function") return;
+		const parentId = String(byId[id].parentSessionId ?? byId[id].parentId);
+		const catalog = isRecord(listSnap?.subagentsByParent) ? listSnap.subagentsByParent[parentId] : null;
+		const entries = Array.isArray(catalog?.entries) ? catalog.entries : [];
+		const entry = entries.find((candidate) => String(candidate?.id) === String(id));
+		if (!isRecord(entry) || typeof entry.mode !== "string" || entry.mode === "") {
+			requestSubagentCatalog(parentId);
+			return;
+		}
 		try {
-			const address = sessionPageAddress(id, byId);
-			if (address.kind !== "subagent") return;
-			session.configureSubagent(address);
+			session.configureSubagent(
+				{ kind: "subagent", parentSessionId: parentId, childSessionId: String(id), mode: entry.mode },
+				typeof catalog?.parentAvailable === "boolean" ? catalog.parentAvailable : undefined,
+			);
 		} catch {
-			// 安装失败沿用既有空白详情路径（深翻以 null 收敛），不阻断其余卡片。
+			// 安装失败沿用既有空白详情路径，不阻断其余卡片。
 		}
 	}
 

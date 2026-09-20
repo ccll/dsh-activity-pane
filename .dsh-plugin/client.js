@@ -4599,21 +4599,27 @@ function apply(ctx) {
 		throw response?.error ?? new Error("remote request failed");
 	}
 
+	/** 母会话子代理目录条目查找（T-151 单源）：open 地址与深翻分页地址共用同一取法，
+	 *  防条目形状或键名演化时两处漂移。 */
+	function subagentCatalogEntry(subagentsByParent, parentId, id) {
+		const entries = subagentsByParent?.[String(parentId)]?.entries;
+		return Array.isArray(entries)
+			? entries.find((candidate) => String(candidate?.id) === String(id))
+			: undefined;
+	}
+
 	/** 会话日志分页地址（R-01-012）：主会话 `{kind:"session", sessionId}`；子代理
 	 *  `{kind:"subagent", parentSessionId, childSessionId, mode}`——母会话 id 兼容
 	 *  `parentSessionId` / `parentId` 两种条目键名。mode 必须与子代理描述符一致，
 	 *  不一致被宿主以 subagent/unauthorized 拒绝（T-151）：优先取母会话目录条目的
-	 *  mode，目录未加载时回退行 `continuable` 启发（读取失败由 pagedHistoryEvents
-	 *  以 null 收敛为空白详情，R-01-013）。 */
+	 *  mode，目录条目缺失（未加载、在途空窗或无该子条目）时回退行 `continuable`
+	 *  启发（读取失败由 pagedHistoryEvents 以 null 收敛为空白详情，R-01-013）。 */
 	function sessionPageAddress(id, byId, subagentsByParent = null) {
 		const row = byId[id] ?? {};
 		if (row?.origin === "subagent") {
 			const parentId = row.parentSessionId ?? row.parentId;
 			if (parentId !== undefined && parentId !== null) {
-				const entries = subagentsByParent?.[String(parentId)]?.entries;
-				const entry = Array.isArray(entries)
-					? entries.find((candidate) => String(candidate?.id) === String(id))
-					: undefined;
+				const entry = subagentCatalogEntry(subagentsByParent, String(parentId), id);
 				return {
 					kind: "subagent",
 					parentSessionId: String(parentId),
@@ -4896,6 +4902,7 @@ function apply(ctx) {
 	 *  未加载时先拉取，目录随下一轮快照到达；每次拉取经原生 sessions.refreshSubagents
 	 *  走既有 remote 通道，单父会话单飞、不重试，不构成轮询（R-02-004）。 */
 	function requestSubagentCatalog(parentId) {
+		if (typeof sessions?.refreshSubagents !== "function") return;
 		if (subagentCatalogRequests.has(parentId)) return;
 		subagentCatalogRequests.add(parentId);
 		try {
@@ -4923,8 +4930,7 @@ function apply(ctx) {
 		if (typeof session?.configureSubagent !== "function") return;
 		const parentId = String(byId[id].parentSessionId ?? byId[id].parentId);
 		const catalog = isRecord(listSnap?.subagentsByParent) ? listSnap.subagentsByParent[parentId] : null;
-		const entries = Array.isArray(catalog?.entries) ? catalog.entries : [];
-		const entry = entries.find((candidate) => String(candidate?.id) === String(id));
+		const entry = subagentCatalogEntry(listSnap?.subagentsByParent ?? null, parentId, id);
 		if (!isRecord(entry) || typeof entry.mode !== "string" || entry.mode === "") {
 			requestSubagentCatalog(parentId);
 			return;

@@ -4156,6 +4156,10 @@ assert.ok(
 		&& bundle.includes("${PANE_API_BASE}/jobs/stream"),
 	"SSE 订阅仅 acks、busy 与任务轨迹通知三条通道（C-030、C-074、R-01-024/AC-03）",
 );
+assert.ok(
+	bundle.includes("el.title = titleText"),
+	"job 子卡悬停以原生 tooltip 显示完整任务描述（R-01-024 呈现细化）",
+);
 
 // ---- R-02-003/AC-02 卸载时清理注入元素、样式与监听 ----
 assert.ok(bundle.includes("style.remove()"), "卸载移除注入样式");
@@ -4754,6 +4758,10 @@ assert.ok(hostSource.includes("const API_PATH = '/dsh-activity-pane/api'") && ho
 assert.ok(hostSource.includes("'/acks/stream'") && hostSource.includes("text/event-stream"), "SSE 推送通道（AC-11、AC-12）");
 assert.ok(hostSource.includes("'/ack'") && hostSource.includes("ackedAt: Date.now()"), "ack 写回路由（AC-10～AC-12）");
 assert.ok(hostSource.includes("streamClients") && hostSource.includes("for (const res of streamClients)"), "SSE 连接集合随卸载全数关闭");
+assert.ok(
+	hostSource.includes("observeSession(sessionId)") && !hostSource.includes("listEvents(sessionId)"),
+	"任务输出重放以 observeSession 完整事件为持久种子（listEvents 仅元数据无 data，T-150 缺陷修复，R-01-024/AC-01）",
+);
 assert.ok(
 	hostSource.includes("ctx.connection?.requestRejection?.(req)") && hostSource.includes("res.end('unauthorized')"),
 	"自定义 webServer 路由经 connection.requestRejection 鉴权门（A1-08：不继承宿主鉴权，acks/busy 读写通道不得裸奔）",

@@ -3067,6 +3067,10 @@ function apply(ctx) {
 	function renderJobCardInto(el, entry) {
 		const dot = el.querySelector(".dap-job-dot");
 		if (dot !== null && dot.dataset.status !== entry.jobStatus) dot.dataset.status = entry.jobStatus;
+		// 完整命令悬停提示（R-01-024 呈现细化）：任务行单行省略号截断，而 label 即调用方
+		// 命令原文——悬停以原生 tooltip 显示完整命令行（含换行），不另造浮层。
+		const titleText = String(entry.title ?? "");
+		if (el.title !== titleText) el.title = titleText;
 		const elapsed = el.querySelector(".dap-job-elapsed");
 		if (elapsed !== null) {
 			const elapsedText =

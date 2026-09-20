@@ -500,11 +500,22 @@ export function apply(ctx) {
 				ctx.inject(['sessionQuery'], (injected) => {
 					Promise.resolve()
 						.then(async () => {
-							const records = await injected.sessionQuery.listEvents(sessionId).catch(() => [])
-							const storeTraces = jobOutputTraces(Array.isArray(records) ? records : [])
-							const mirror = jobMirrorTraces.get(sessionId)
-							const merged = mirror !== undefined && mirror.size > 0 ? storeTraces.concat([...mirror.values()]) : storeTraces
-							return jobOutputFromTraces(merged, jobId)
+							// 持久种子：observeSession 返回 live-preferred 完整事件（SessionObservation.events
+							// 带 data 负载）。listEvents 只回元数据记录（sessionId/seq/type/time/surface，
+							// 无 data 负载）——job_output 配对需要 arguments/content，必须走完整事件观察。
+							const observation = await injected.sessionQuery.observeSession(sessionId)
+							try {
+								const events = Array.isArray(observation?.events) ? observation.events : []
+								const storeTraces = jobOutputTraces(events)
+								const mirror = jobMirrorTraces.get(sessionId)
+								const merged = mirror !== undefined && mirror.size > 0 ? storeTraces.concat([...mirror.values()]) : storeTraces
+								return jobOutputFromTraces(merged, jobId)
+							} finally {
+								// SessionObservation 是 Disposable：读取完即释放（Symbol.dispose / dispose 兼容）。
+								try {
+									observation[Symbol.dispose]?.()
+								} catch {}
+							}
 						})
 						.then((payload) => {
 							res.writeHead(200, { 'Content-Type': 'application/json' })

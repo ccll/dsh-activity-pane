@@ -55,4 +55,13 @@ id: T-151
 
 ## 终态与证据
 
-（active 期间未填写）
+- 实现: `ensureSubagentAddress` 目录驱动前置（母会话子代理目录条目承载 mode/parentAvailable；目录未加载经 `sessions.refreshSubagents` 单发拉取并跳过本轮安装）；`captureSessionLog` open 守卫与 `syncLiveness` 运行中订阅 open 两处接入；`sessionPageAddress` 增目录参数使深翻分页地址与 open 地址同源同 mode；`syncLiveness` 的 `opening` 无声明赋值收敛为显式 `let`；`subagentCatalogEntry` 单源目录查找。
+- 测试: `pnpm verify:fast` 全绿（AgentMap lint、test impact、`scripts/check.mjs` 全部断言含 T-151 顺序钉与 bundle 断言）；`pnpm verify` 17/18 浏览器 E2E 通过，唯一失败 `background-jobs.mjs` 属并行会话新落的后台任务链路 spec——在其提交 a247f11 工作树（不含本修复）同 spec 同样失败（复跑实证），与本修复无因果；宿主侧 mode 校验（`validateAddress` 的 `identity.mode !== address.mode → subagent/unauthorized`）与 `configureSubagent`/`refreshSubagents`/`subagentsByParent` 契约经复审对照宿主 bundle 核实。未实测项：真实子代理会话的浏览器黄金路径（自动加载 + 随工作推进实时滚动）待东家实测回填——staging mock LLM 无委托能力造不出子代理场景；客户端 bundle 变更经 dsh-client-hmr 热载即生效，无需重启 dsh web。
+- DESIGN 对照: 轮内状态数据链句补宿主地址/mode 校验约束、持久地址仅经原生导航留存语义、插件前置处置（目录 mode 优先 + 目录未加载先单发拉取再安装、与 selectSubagent 同构不切换会话），与实现对照无差异；DESIGN 同步经东家批准立项时确认（2026-09-20「批准」）。
+- commit: dfffc0d、219165c、b500ffb
+- review:
+  - 审核方: code-review skill（Standards/Spec 双轴并行独立 reviewer 子代理，fixed point = HEAD~1 a247f11 对工作树全 diff；修正轮 219165c 同轴复跑）
+  - 目的理解: 在 dsh 0.1.5 宿主按地址校验子代理事件流路由（普通地址被 agent-busy 拒绝、地址 mode 须与描述符一致）的约束下，恢复未点选子代理卡时间线的自动水合与实时更新；插件在 open 前安装与原生导航同构的持久父地址，不切换当前会话、不新增订阅/轮询/定时器；PRD 不变，DESIGN 数据链句同步宿主约束。
+  - 执行方式: code-review skill 双轴评审（Standards 轴对照 AGENTS.md/CONVENTIONS.md + Fowler 基线；Spec 轴对照本 task 收敛方案与 DESIGN 契约句），两轴独立并行后聚合；修复后同轴复审一轮。
+  - 问题与修复: ① 首版地址 mode 走行启发（列表行不携带 `continuable`，恒得 one-shot），continuable 子代理仍被宿主拒绝 → 改目录条目驱动，目录未加载先单发拉取并跳过安装；② `configureSubagent` 漏传 parentAvailable → 补传目录值；③ check 断言未锁定调用顺序 → 升级为「ensure 恰两处且先于对应 open」顺序钉 + bundle 断言；④ 目录条目查找两处重复 → 抽 `subagentCatalogEntry` 单源；⑤ 注释「目录未加载时回退」未覆盖在途空窗 → 措辞对齐实际回退面；⑥ `syncLiveness` 的 `opening` 无声明赋值（bundle 经典脚本下靠隐式全局侥幸工作）→ 显式 `let`；⑦ `refreshSubagents` 方法缺失时记账残留 → 前置方法存在性检查。全部修复经同轴复审确认收敛。
+  - 复审结论: 通过。残余风险与测试缺口：宿主 mode 拒绝路径无运行时自动化回归（e2e 零子代理场景，mock LLM 无委托能力），行为证据依赖东家实测；`refreshSubagents` 拉取失败时该父会话的子代理保持空白详情降级且无诊断信号（与深翻失败的有界哲学一致，未观测到实际失败形态）；后台任务链路 spec 失败为并行会话在途工作，不在本 task 范围。

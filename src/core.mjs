@@ -1757,6 +1757,7 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 						userPreview: "",
 						agentPreview: "",
 						isCurrent: false,
+						jobId: job.id,
 						jobStatus: job.status,
 						jobStartedAt: job.startedAt,
 					});

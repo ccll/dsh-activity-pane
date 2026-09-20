@@ -7,6 +7,8 @@
 //   e2e:multiask —— 多问题 ask_user_question 工具调用，回合转入待回复
 //   e2e:runtime  —— 较慢的 ask_user_question 工具调用；回答后转入 slow 流式输出
 //   e2e:error   —— 返回非重试型 HTTP 400，回合以稳定错误结束
+//   e2e:job     —— bash 工具 run_in_background 启动真后台任务，随后 job_output 读取一次，
+//                  任务输出文本到达后 fast 收口（引擎真实执行，验证后台任务全链路）
 //   e2e:fast    —— 立即完成（默认剧本，关键词缺省时同样走这里）
 // 普通 tool 结果后续请求以短文本 stop 收口；runtime 的 tool 结果进入 slow。
 //
@@ -37,12 +39,14 @@ function messageText(msg) {
  *  上下文注入可能排在用户正文之后，不能只看末条用户消息。 */
 function pickScenario(body) {
 	const messages = body.messages ?? [];
-	const hasToolResult = messages.some((m) => m?.role === "tool");
+	const toolTexts = messages.filter((m) => m?.role === "tool").map(messageText);
+	if (toolTexts.some((text) => text.includes("e2e-job-tick"))) return "fast";
+	if (toolTexts.some((text) => text.includes("background job"))) return "jobread";
 	const userTexts = messages.filter((m) => m?.role === "user").map(messageText);
 	const runtime = userTexts.some((text) => text.includes("e2e:runtime"));
-	if (hasToolResult) return runtime ? "slow" : "fast";
+	if (messages.some((m) => m?.role === "tool")) return runtime ? "slow" : "fast";
 	for (let i = userTexts.length - 1; i >= 0; i -= 1) {
-		const match = userTexts[i].match(/e2e:(slow|multiask|ask|runtime|error|fast)/);
+		const match = userTexts[i].match(/e2e:(slow|multiask|ask|runtime|error|fast|job)/);
 		if (match) return match[1];
 	}
 	return "fast";
@@ -146,6 +150,51 @@ async function playFast(res, model) {
 	res.end();
 }
 
+/** 后台任务剧本首轮：bash 工具 run_in_background 启动真后台任务（先 echo 探针行再长睡，
+ *  保证 job_output 首次读取即有输出）。 */
+async function playJobStart(res, model) {
+	send(res, chunk(model, { role: "assistant", content: "启动后台探针任务。\n" }));
+	const args = JSON.stringify({
+		command: "echo e2e-job-tick-start; for i in $(seq 1 60); do echo e2e-job-tick $i; sleep 1; done",
+		description: "E2E 后台任务探针",
+		run_in_background: true,
+	});
+	const deltas = [
+		{ index: 0, id: "call_e2e_job", type: "function", function: { name: "bash", arguments: args.slice(0, 80) } },
+		{ index: 0, function: { arguments: args.slice(80) } },
+	];
+	for (const delta of deltas) {
+		send(res, chunk(model, { tool_calls: [delta] }));
+		await sleep(20);
+	}
+	send(res, chunk(model, {}, "tool_calls"));
+	send(res, usageChunk(model, 24));
+	res.write("data: [DONE]\n\n");
+	res.end();
+}
+
+/** 后台任务剧本读轮：从最近 tool 结果文本提取动态 job id，发起 job_output 读取。 */
+async function playJobRead(res, model, messages) {
+	let jobId = null;
+	for (let i = messages.length - 1; i >= 0 && jobId === null; i -= 1) {
+		if (messages[i]?.role !== "tool") continue;
+		const match = messageText(messages[i]).match(/background job (bash-\d+)/);
+		if (match) jobId = match[1];
+	}
+	send(res, chunk(model, { role: "assistant", content: "读取后台任务输出。\n" }));
+	const deltas = [
+		{ index: 0, id: "call_e2e_jobout", type: "function", function: { name: "job_output", arguments: JSON.stringify({ job_id: jobId ?? "bash-0" }) } },
+	];
+	for (const delta of deltas) {
+		send(res, chunk(model, { tool_calls: [delta] }));
+		await sleep(20);
+	}
+	send(res, chunk(model, {}, "tool_calls"));
+	send(res, usageChunk(model, 16));
+	res.write("data: [DONE]\n\n");
+	res.end();
+}
+
 const SCENARIOS = {
 	slow: playSlow,
 	ask: playAsk,
@@ -153,6 +202,8 @@ const SCENARIOS = {
 	runtime: playAsk,
 	error: playError,
 	fast: playFast,
+	job: playJobStart,
+	jobread: (res, model, messages) => playJobRead(res, model, messages),
 };
 
 /**
@@ -188,7 +239,7 @@ export async function startMockLlm() {
 			}
 			try {
 				const model = body.model ?? "e2e-mock";
-				await (scenario === "slow" ? playSlow(res, model, streamLog) : SCENARIOS[scenario](res, model));
+				await (scenario === "slow" ? playSlow(res, model, streamLog) : scenario === "jobread" ? SCENARIOS.jobread(res, model, body.messages ?? []) : SCENARIOS[scenario](res, model));
 			} catch {
 				res.end();
 			}

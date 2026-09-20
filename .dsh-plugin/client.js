@@ -1763,6 +1763,7 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 						userPreview: "",
 						agentPreview: "",
 						isCurrent: false,
+						jobId: job.id,
 						jobStatus: job.status,
 						jobStartedAt: job.startedAt,
 					});

@@ -42,8 +42,11 @@ id: T-150
 | 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |
 |---|---|---|---|---|
 | R-01-024/AC-01、AC-02 | 修复：重放数据源 listEvents（元数据，无 data）→ observeSession（完整事件），消除恒 read:false | UNIT | update | `scripts/check.mjs#R-01-024/AC-02`（数据层语义不变）、host 源码断言（observeSession 进入重放链路） |
-| R-01-024/AC-01 | 呈现细化：悬停原生 tooltip 显示完整命令 | UNIT | add | `scripts/check.mjs` bundle 断言（el.title 设置进 bundle） |
-| DESIGN | 产品契约 job 子条目句补悬停说明 | UNIT | update | 同次变化由本 task 记录：DESIGN.md 与实现同步 |
+| R-01-024/AC-01、AC-02 | 修复：core job 子条目补 `jobId` 字段（此前缺失使 dataset.jobId="undefined"，回读恒 read:false——「尚未被读取」根因的另一半） | browser E2E | add | `e2e/specs/background-jobs.mjs#R-01-024/AC-01`（e2e:job 剧本真实后台任务，点开子卡断言输出回放含 e2e-job-tick） |
+| R-01-024/AC-03 | 新增 | browser E2E | add | `e2e/specs/background-jobs.mjs`（jobs/stream 通道 + 展开态存活断言） |
+| R-01-023/AC-01、AC-02 | 新增 | browser E2E | add | `e2e/specs/background-jobs.mjs#R-01-023/AC-01`、`#R-01-023/AC-02`（子卡呈现、数量注、提醒抑制实景） |
+| R-01-024/AC-02 | 呈现细化：悬停原生 tooltip 显示完整命令 | UNIT | add | `scripts/check.mjs` bundle 断言（el.title 设置进 bundle） |
+| DESIGN | 产品契约 job 子条目句补悬停说明；R-01-024 落点随子卡形态演进 | UNIT | update | 同次变化由本 task 记录：DESIGN.md 与实现同步 |
 
 ## 验证矩阵
 

@@ -3659,6 +3659,16 @@ assert.ok(
 	bundle.includes("historyInstructionAnchor") && bundle.includes("memoTimelineAnchor") && bundle.includes("foldedHistoryTimeline") && !bundle.includes("withInstructionAnchor"),
 	"history 锚行作为核心时间线输入且 client 不再二次裁剪（R-01-009/AC-11、R-01-012/AC-12、C-035）",
 );
+// 子代理事件流打开前置：自动加载路径在 open 前经 configureSubagent 安装持久父地址
+// （dsh 0.1.5 起宿主拒绝普通地址路由子代理事件流，地址缺失时未点选的子代理卡
+// eventSource 窗口永不水合、时间线恒空——R-01-012/AC-03，T-151 缺陷修复）。
+assert.ok(
+	clientSource.includes("function ensureSubagentAddress") &&
+		clientSource.includes('address.kind !== "subagent"') &&
+		(clientSource.match(/ensureSubagentAddress\(id, session\);/g) ?? []).length === 2,
+	"子代理自动加载先安装持久父地址再打开事件流（R-01-012/AC-03，T-151）",
+);
+assert.ok(bundle.includes("configureSubagent"), "子代理地址安装进入 bundle（R-01-012/AC-03，T-151）");
 assert.ok(!bundle.includes("renderSlot") && !bundle.includes("dap-slot"), "指令槽位渲染无残留（C-019）");
 assert.ok(!bundle.includes("rememberLastUser") && !bundle.includes("lastUserFromEvents") && !bundle.includes("foldedTimelineWithSlot") && !bundle.includes("foldWorkGroupsWithSlot"), "槽位派生家族无残留（C-019）");
 assert.ok(!bundle.includes('document.addEventListener("click"'), "不得在 document 上拦截点击");

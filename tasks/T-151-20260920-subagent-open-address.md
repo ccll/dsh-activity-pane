@@ -1,0 +1,57 @@
+---
+doc-type: task
+mutation: lifecycle
+id: T-151
+---
+
+# T-151 子代理会话事件流打开前置持久父地址（自动加载修复）
+
+状态: active
+关联: R-01-009/AC-01～AC-03、R-01-012/AC-02、AC-03（缺陷修复）→ 活动状态模型
+风险等级: standard
+
+## 背景与目标
+
+- 背景: 东家实测（2026-09-20）——活动区子/孙会话卡片的工作项时间线不再自动加载与实时滚动，必须手动点选该子代理卡后才加载并恢复实时更新；主会话卡不受影响。
+- 根因: dsh 0.1.5 起宿主按地址校验会话事件流路由——子代理会话（`header.origin === "subagent"`）经普通地址 `{kind:"session", sessionId}` 的 page/follow 一律被拒（`session/agent-busy`，"subagent Sessions require their durable parent address"，宿主 `api-session-controller/lib/types/history.js::validateAddress`）；持久子代理地址仅经原生导航（`SessionManager.select/selectSubagent`）留存，惰性 `get()` 建出的未点选子代理 Session 无地址并回落普通地址。T-123 迁移后活动卡时间线以 `session.eventSource` 窗口为主源，插件自动路径两处 open（`captureSessionLog` 守卫 open、`syncLiveness` 运行中无条件 open）均未先安装地址 → follow 被拒、`openState='error'`，两处 `.catch` 静默吞错并逐渲染重试 → `detail.history` 恒空、时间线走空分支。0.1.4 时代经 `api.history({sessionId})` 直读不依赖打开，故「以前可以」；e2e 与 mock LLM 均无子代理场景，回归未被抓到。
+- 目标: 自动加载路径对子代理行在 open 前经 `session.configureSubagent` 安装从列表行派生的持久父地址，使未点选的子代理卡片时间线自动加载并随原生推送实时更新；已开失败的会话经地址变更 resync 自愈。
+
+## 差距评估
+
+- src/client.mjs `captureSessionLog`（open 守卫）与 `syncLiveness`（运行中订阅 open）open 前无地址安装。
+- src/client.mjs `syncLiveness` 的 `opening = session.open?.()` 为无声明赋值（bundle 经典脚本非严格下靠隐式全局侥幸工作，严格化即抛 ReferenceError 中断整个 sync），同函数顺手收敛为显式声明。
+- DESIGN 轮内状态/数据链句未承载「子代理事件流仅接受持久父地址」的宿主约束与插件处置，map≠code 需同次收敛。
+
+## 收敛方案
+
+1. `src/client.mjs` 新增 `ensureSubagentAddress(id, session)`：行 `origin === "subagent"` 且父会话有效时，经 `sessionPageAddress` 派生地址（mode 优先取快照目录条目 `mode`，回退行 `continuable` 启发），调用 `session.configureSubagent(address, parentAvailable)`；非子代理或方法缺失为无操作，全程防御式 try/catch。
+2. `captureSessionLog` 的 open 守卫块内、`syncLiveness` 的 open 前各调用一次，使首次 open 即携带合法地址；已存在 error 态窗口的会话经 `configureSubagent` 的 changed-address resync 自愈。
+3. `DESIGN.md` 轮内状态数据链句补宿主约束与插件处置一句（map 同步，PRD 不变）。
+4. `scripts/check.mjs` 增源码断言（两处 open 前均有 ensure 调用）与 bundle 断言（`configureSubagent` 进入 bundle）。
+5. `.dsh-plugin/client.js` 随实现重建并同次暂存。
+
+## 测试计划
+
+- `scripts/check.mjs`：新增 T-151 源码/bundle 断言（`ensureSubagentAddress` 先于两处 open、`configureSubagent` 进 bundle），锚定 R-01-012/AC-03（卡片随原生推送同步更新——地址缺失时 eventSource 窗口对子代理永不水合，该 AC 不可满足）。
+- `pnpm verify:fast` 编辑循环；全量 `pnpm verify` 收尾回归。
+- 东家实测: 重启宿主后未点选的子代理卡时间线自动加载并随工作推进实时滚动（R-01-009/AC-01、R-01-012/AC-03 实景）。
+
+## 测试影响
+
+| 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |
+|---|---|---|---|---|
+| R-01-012/AC-03 | 修复：子代理卡 eventSource 窗口经持久父地址水合，原生推送驱动的时间线更新恢复可达 | UNIT | add | `scripts/check.mjs` 源码/bundle 断言（configureSubagent 先于 open 进 bundle） |
+| DESIGN | 轮内状态数据链句补宿主子代理地址校验约束与插件前置处置 | UNIT | update | 同次变化由本 task 记录：DESIGN.md 与实现同步 |
+
+## 验证矩阵
+
+| 维度 | 适用性/理由 | 可执行证据 |
+|---|---|---|
+| 成功 | 适用：未点选的子代理卡时间线自动加载并随推送更新 | `scripts/check.mjs#R-01-012/AC-03` T-151 断言、`src/client.mjs::ensureSubagentAddress`、东家实测（终态记录） |
+| 异常 | 适用：configureSubagent 缺失/抛错静默回落既有空白详情路径，不阻断主会话链路 | `src/client.mjs::ensureSubagentAddress` 防御式实现 |
+| 边界配置 | 适用：非子代理行 no-op；父会话行缺失时沿用 pagedHistoryEvents 空白收敛 | `src/client.mjs::sessionPageAddress` 既有回退语义 |
+| 副作用 | 适用：不新增订阅、轮询或定时器；地址安装复用原生导航同构路径 | `scripts/check.mjs#R-01-024/AC-03` 既有 fetch/EventSource 面断言不变化、`src/client.mjs::ensureSubagentAddress` 无新增网络面 |
+
+## 终态与证据
+
+（active 期间未填写）

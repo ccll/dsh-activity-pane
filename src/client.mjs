@@ -2021,6 +2021,8 @@ function apply(ctx) {
 			// 不可知，只以 openState 把关会对已水合会话逐帧重发 open，settle→delete→重发
 			// 的在途翻转同样驱动加载指示抖动（docsim 卡闪烁根因之一）。
 			if (!detail.log && detail.snapshot?.openState !== "open" && !sessionOpenLoads.has(id) && typeof session.open === "function") {
+				// 子代理事件流仅接受持久父地址：open 前先安装（T-151），否则宿主拒绝、窗口永不水合。
+				ensureSubagentAddress(id, session);
 				const opening = Promise.resolve(session.open()).catch(() => {});
 				sessionOpenLoads.set(id, opening);
 				opening.finally(() => {
@@ -2058,6 +2060,27 @@ function apply(ctx) {
 			detail.logDeriveTimer = setTimeout(flushDerive, SYNC_MIN_INTERVAL_MS);
 		}
 		queueSync();
+	}
+
+	/** 子代理会话事件流打开前置（T-151 缺陷修复）：dsh 0.1.5 起宿主按地址校验会话事件
+	 *  流路由，子代理会话经普通地址 `{kind:"session"}` 的 page/follow 一律被拒
+	 *  （agent-busy：subagent Sessions require their durable parent address），持久
+	 *  地址仅经原生导航（selectSubagent）留存——自动加载路径须在 open 前经
+	 *  configureSubagent 安装从列表行派生的地址，否则未点选的子代理卡 eventSource
+	 *  窗口永不水合、时间线恒空（点选卡片后原生 select 留存地址才恢复）。地址派生与
+	 *  日志深翻分页同源（sessionPageAddress）；非子代理行或会话对象缺 configureSubagent
+	 *  时为无操作。 */
+	function ensureSubagentAddress(id, session) {
+		const byId = getSnapshot(sessions, "list")?.byId ?? {};
+		if (!isSubagentRow(byId[id], byId)) return;
+		if (typeof session?.configureSubagent !== "function") return;
+		try {
+			const address = sessionPageAddress(id, byId);
+			if (address.kind !== "subagent") return;
+			session.configureSubagent(address);
+		} catch {
+			// 安装失败沿用既有空白详情路径（深翻以 null 收敛），不阻断其余卡片。
+		}
 	}
 
 	/** 部署级模型目录一次性读取（R-01-012/AC-01）：dsh 0.1.5 起 per-session models
@@ -3331,6 +3354,9 @@ function apply(ctx) {
 			} catch {
 				continue; // 订阅失败：本次跳过，下次渲染重试
 			}
+			// 子代理事件流仅接受持久父地址：open 前先安装（T-151），否则宿主拒绝、窗口永不水合。
+			ensureSubagentAddress(id, session);
+			let opening = null;
 			try {
 				opening = session.open?.();
 			} catch {

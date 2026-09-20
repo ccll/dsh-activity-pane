@@ -24,11 +24,12 @@ id: T-151
 
 ## 收敛方案
 
-1. `src/client.mjs` 新增 `ensureSubagentAddress(id, session)`：行 `origin === "subagent"` 且父会话有效时，经 `sessionPageAddress` 派生地址（mode 优先取快照目录条目 `mode`，回退行 `continuable` 启发），调用 `session.configureSubagent(address, parentAvailable)`；非子代理或方法缺失为无操作，全程防御式 try/catch。
+1. `src/client.mjs` 新增 `ensureSubagentAddress(id, session)`：行 `origin === "subagent"` 且父会话有效时，经母会话子代理目录条目取地址 mode（mode 必须与子代理描述符一致，不符被宿主 subagent/unauthorized 拒绝——目录条目是唯一可靠 mode 来源，行 `continuable` 启发仅为深翻分页回退），调用 `session.configureSubagent(address, parentAvailable)`（与原生 selectSubagent 同构，不切换当前会话）；目录未加载时经 `sessions.refreshSubagents(parentId)` 单发拉取（每父会话至多一次、失败不热重试）并跳过本轮安装；非子代理或方法缺失为无操作，全程防御式 try/catch。
 2. `captureSessionLog` 的 open 守卫块内、`syncLiveness` 的 open 前各调用一次，使首次 open 即携带合法地址；已存在 error 态窗口的会话经 `configureSubagent` 的 changed-address resync 自愈。
-3. `DESIGN.md` 轮内状态数据链句补宿主约束与插件处置一句（map 同步，PRD 不变）。
-4. `scripts/check.mjs` 增源码断言（两处 open 前均有 ensure 调用）与 bundle 断言（`configureSubagent` 进入 bundle）。
-5. `.dsh-plugin/client.js` 随实现重建并同次暂存。
+3. `sessionPageAddress` 增母会话目录参数：mode 目录条目优先、行启发回退，深翻分页地址与 open 地址同源同 mode。
+4. `DESIGN.md` 轮内状态数据链句补宿主地址/mode 校验约束与插件前置处置（map 同步，PRD 不变；DESIGN 演进经东家批准立项时确认）。
+5. `scripts/check.mjs` 增源码断言（`ensureSubagentAddress` 恰两处调用且均先于对应 open、目录拉取接线在位）与 bundle 断言（`configureSubagent`/`refreshSubagents` 进 bundle）。
+6. `.dsh-plugin/client.js` 随实现重建并同次暂存。
 
 ## 测试计划
 

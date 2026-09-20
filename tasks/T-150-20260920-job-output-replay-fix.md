@@ -6,7 +6,7 @@ id: T-150
 
 # T-150 任务输出回放数据源缺陷修复与悬停完整命令
 
-状态: active
+状态: completed
 关联: R-01-024/AC-02（缺陷修复）、R-01-024 呈现细化 → 活动状态模型
 风险等级: standard
 
@@ -59,4 +59,14 @@ id: T-150
 
 ## 终态与证据
 
-（active 期间未填写）
+- 实现: `src/host.mjs` 任务输出重放数据源 listEvents（元数据，无 data 负载）→ `sessionQuery.observeSession`（live-preferred 完整事件，读毕即释放）；`src/core.mjs` job 子条目补 `jobId` 字段（此前 dataset.jobId="undefined" 使回读恒 read:false）；`src/client.mjs` job 子卡悬停原生 tooltip 承载完整命令（el.title）；e2e 新增 mock 剧本 `e2e:job`（bash run_in_background 真实启动 + 从回执动态提取 job id 读 job_output + 收口）与 spec `background-jobs.mjs`。
+- 测试: `pnpm verify` 全量一轮 19/19 浏览器 E2E spec 通过（415471ms，含新增 background-jobs spec）；UNIT 锚点 `scripts/check.mjs#R-01-024/AC-02`（数据层）、host 源码断言（observeSession）、bundle 断言（悬停 tooltip）全部通过。浏览器黄金路径 agent 实测（staging 隔离环境，Playwright 实操）五项断言全过：子卡呈现/数量注「后台 ×1」/点开输出区回放 e2e-job-tick 文本/悬停完整命令原文/完成提醒抑制（截图 /tmp/job-verify/01～03）；另以 75s 生命周期时间线观测确认 AC-02（0～60s 在跑期间持续抑制）与 AC-03（任务结束瞬间子卡消失、完成提醒恢复）时序精确。
+- DESIGN 对照: 产品契约 job 子条目补 jobId 字段与悬停说明；R-01-024 落点为「后台任务子卡与卡内输出展开」；与实现一致。
+- commit: c1ed1e5 数据源修复与悬停细化、a247f11 jobId 字段补齐与 E2E 覆盖（本关闭提交随后者之后）。
+- review:
+  - 审核方: 本 task 为 T-149 交付后的实测缺陷修复（短路类，map 仅 DESIGN 呈现细节补记），修复经东家 staging 环境浏览器实操复核；代码审核由 T-149 双轴审核机制同一流程承载（发现-修复-复审闭环见其证据），本 task 增量（jobId 字段、observeSession 数据源、E2E 剧本与 spec）经 e2e 全量 19/19 spec 与 verify:fast 门禁验证。
+  - 目的理解: 让「后台任务输出查看」在真实环境可用（AC-01/AC-02 不被数据层缺陷架空）并补浏览器覆盖；约束——零新增轮询、失败语义不冒充、呈现不冒充回合运行。
+  - 执行方式: 根因定位（listEvents 类型契约核查 + e2e [api] probe 取证 dataset.jobId="undefined"）→ 修复 → E2E spec 实证 → agent 浏览器黄金路径实操五项断言 + 生命周期时间线观测。
+  - 问题与修复: ①observeSession 替换 listEvents；②core job 子条目补 jobId；③悬停 tooltip；④mock 剧本 messages 作用域 ReferenceError（catch 静默吞响应）→ 显式传 body.messages。
+  - 复审结论: 单测/合同/E2E/浏览器实操四层全绿；无未关闭发现。残余风险：主环境（真实 DSH）需重启后获得同等修复（staging 已证）。
+

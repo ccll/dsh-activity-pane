@@ -93,6 +93,7 @@ import {
 	bindCardActivation,
 	openSession,
 	scrollCardIntoView,
+	sessionNavigator,
 	shouldDismissDrawerOnActivation,
 	suppressComposerAutofocus,
 } from "../src/navigation.mjs";
@@ -100,6 +101,28 @@ import {
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
 // ---- R-01-005/AC-01 点击跳转回归：卡片快照变化不能拦截原生导航 ----
+// dsh 0.1.6 起 sessions 不再提供 open(id)，切换入口是 uiWorkspace.openSession；
+// 入口选择优先 uiWorkspace，缺失才回落旧版 sessions.open。
+const uiWorkspaceEntry = {
+	list: { getSnapshot: () => ({ ids: [] }) },
+	openSession(id) {
+		this.calledWith = id;
+	},
+	open: () => {
+		throw new Error("uiWorkspace 上有 openSession 时不得走 sessions.open");
+	},
+};
+assert.equal(sessionNavigator({ uiWorkspace: uiWorkspaceEntry, sessions: { open: () => {} } }), uiWorkspaceEntry, "0.1.6 宿主选择 uiWorkspace 作为切换入口");
+const legacySessions = { open: () => {} };
+assert.equal(sessionNavigator({ uiWorkspace: {}, sessions: legacySessions }), legacySessions, "0.1.5 及更早回落 sessions.open");
+assert.equal(sessionNavigator({ uiWorkspace: {}, sessions: {} }), null, "两侧都没有切换入口时判定为不可导航");
+assert.equal(
+	openSession(sessionNavigator({ uiWorkspace: uiWorkspaceEntry }), "stale-card"),
+	true,
+	"即使另一份 list 快照不含目标，点击仍直接调用导航入口",
+);
+assert.equal(uiWorkspaceEntry.calledWith, "stale-card", "导航入口以服务为接收者调用（uiWorkspace.openSession 依赖 this）");
+
 let openedSession = null;
 assert.equal(
 	openSession(
@@ -112,7 +135,7 @@ assert.equal(
 		"stale-card",
 	),
 	true,
-	"即使另一份 list 快照不含目标，点击仍直接调用 sessions.open",
+	"回落入口同样直接调用 open",
 );
 assert.equal(openedSession, "stale-card");
 assert.equal(
@@ -123,8 +146,9 @@ assert.equal(
 		"not-ready",
 	),
 	false,
-	"sessions.open 失败时交给调用方进入 refresh/retry",
+	"导航失败时交给调用方进入 refresh/retry",
 );
+assert.equal(openSession(null, "not-ready"), false, "没有导航入口时不发起切换");
 
 // ---- R-01-006/AC-02 当前卡片最小滚动：只调整越界方向，不居中 ----
 const viewport = { top: 10, bottom: 110 };
@@ -3905,8 +3929,12 @@ assert.ok(!bundle.includes('"Think"') && !bundle.includes('"Assistant"'), "bundl
 assert.ok(bundle.includes('"思考"') && bundle.includes('"助手"'), "bundle 含中文「思考」「助手」标签（R-01-012/AC-09、AC-10）");
 assert.ok(bundle.includes("session.subscribe"), "运行卡通过 native session subscribe 接收实时推送");
 assert.ok(
-	clientSource.includes('const inject = ["sessions", "workspaces", "uiSession", "remote.session"];'),
-	"sessions/workspaces/uiSession/remote.session 通过 client inject 注入，不依赖服务发现定时器",
+	clientSource.includes('const inject = ["sessions", "uiWorkspace", "workspaces", "uiSession", "remote.session"];'),
+	"sessions/uiWorkspace/workspaces/uiSession/remote.session 通过 client inject 注入，不依赖服务发现定时器",
+);
+assert.ok(
+	bundle.includes('ctx.get("uiWorkspace")') && bundle.includes("sessionNavigator({ uiWorkspace, sessions })"),
+	"会话切换经 uiWorkspace 视图所有者（0.1.6 起 sessions 不再提供 open(id)），缺失时才回落 sessions.open",
 );
 assert.ok(
 	bundle.includes("uiSession?.pendingInteractions") && bundle.includes("pendingInteraction: interaction.kind"),

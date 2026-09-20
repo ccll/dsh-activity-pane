@@ -2547,13 +2547,29 @@ function shouldDismissDrawerOnActivation({ targetId, currentId, mobile, drawerOp
 }
 
 /**
- * 调用 DSH 原生会话导航；由调用方决定失败后的 refresh/retry 策略。
+ * 选择会话切换的导航入口。dsh 0.1.6 起 `sessions` 只保留 retain 引用模型，
+ * 切换当前会话归 `uiWorkspace` 业务视图所有者（ISessions 契约：
+ * "navigation belongs to view owners"）；0.1.5 及更早仍由 `sessions.open`
+ * 承担。返回 null 表示当前宿主没有可用的切换入口。
  * 不读取 sessions.list，避免用另一份可能已过期的快照拦截跳转。
  */
-function openSession(sessions, sessionId) {
-	if (typeof sessions?.open !== "function") return false;
+function sessionNavigator({ uiWorkspace, sessions } = {}) {
+	if (typeof uiWorkspace?.openSession === "function") return uiWorkspace;
+	if (typeof sessions?.open === "function") return sessions;
+	return null;
+}
+
+/**
+ * 调用宿主原生会话导航；由调用方决定失败后的 refresh/retry 策略。
+ * 入口必须是服务本身：以服务为接收者调用（uiWorkspace.openSession 依赖
+ * this 完成 retain 与主视图选择）。
+ */
+function openSession(navigator, sessionId) {
+	if (navigator === null || navigator === undefined || sessionId === undefined || sessionId === "") return false;
+	const method = typeof navigator.openSession === "function" ? navigator.openSession : navigator.open;
+	if (typeof method !== "function") return false;
 	try {
-		sessions.open(sessionId);
+		method.call(navigator, sessionId);
 		return true;
 	} catch {
 		return false;
@@ -2658,7 +2674,10 @@ const name = "dsh-activity-pane";
 // remote.session：dsh 0.1.5 起会话 RPC（目录/日志分页）经 api-remotes 的点分命名空间
 // 注入（cordis 代理对未注入属性直接抛错，父服务声明不代表子命名空间可用；仅声明
 // 子命名空间即可解析，无需再注入父面）。
-const inject = ["sessions", "workspaces", "uiSession", "remote.session"];
+// uiWorkspace：dsh 0.1.6 起 `sessions` 不再提供 open(id)，切换当前会话的唯一公开
+// 入口是 ui-workspace 业务视图所有者（ISessions 契约 navigation belongs to view
+// owners）；0.1.5 及更早由 sessionNavigator 回落 sessions.open。
+const inject = ["sessions", "uiWorkspace", "workspaces", "uiSession", "remote.session"];
 
 const CONVERSATION_SELECTOR = "#root [data-slot=\"main\"]";
 const PANE_ATTR = "data-dsh-activity-pane";
@@ -3864,6 +3883,7 @@ function apply(ctx) {
 		node.remove();
 	let disposed = false;
 	let sessions = null;
+	let uiWorkspace = null;
 	let workspaces = null;
 	let uiSession = null;
 	let sessionUnsubscribe = null;
@@ -4624,14 +4644,22 @@ function apply(ctx) {
 
 	function installServiceSubscriptions() {
 		const nextSessions = ctx.get("sessions");
+		const nextUiWorkspace = ctx.get("uiWorkspace");
 		const nextWorkspaces = ctx.get("workspaces");
 		const nextUiSession = ctx.get("uiSession");
-		if (nextSessions === sessions && nextWorkspaces === workspaces && nextUiSession === uiSession) return;
+		if (
+			nextSessions === sessions &&
+			nextUiWorkspace === uiWorkspace &&
+			nextWorkspaces === workspaces &&
+			nextUiSession === uiSession
+		)
+			return;
 
 		sessionUnsubscribe?.();
 		workspaceUnsubscribe?.();
 		pendingUnsubscribe?.();
 		sessions = nextSessions ?? null;
+		uiWorkspace = nextUiWorkspace ?? null;
 		workspaces = nextWorkspaces ?? null;
 		uiSession = nextUiSession ?? null;
 		try {
@@ -5964,7 +5992,7 @@ function apply(ctx) {
 			const el = document.createElement("div");
 			el.className = CARD_CLASS;
 			const unbind = bindCardActivation(el, (sessionId) => {
-				if (typeof sessions?.open !== "function") return;
+				if (currentSessionNavigator() === null) return;
 				lastActivatedId = sessionId;
 				// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标；
 				// 收起抽屉的分支同样是最新意图，必须先取消挂起链条再 return。
@@ -6721,8 +6749,12 @@ function apply(ctx) {
 		}
 	}
 
-	// ---- 打开会话（让 sessions.open 自己校验列表，失败时 refresh + 重试） ----
+	// ---- 打开会话（交给导航入口自己校验目标，失败时 refresh + 重试） ----
 	const MAX_OPEN_ATTEMPTS = 60;
+	/** 当前宿主可用的会话切换入口；null 表示两侧都没有（导航不发起，也不进重试链）。 */
+	function currentSessionNavigator() {
+		return sessionNavigator({ uiWorkspace, sessions });
+	}
 	function cardElFor(sessionId) {
 		return document.querySelector(`[${PANE_ATTR}] [data-session-id="${escapeCssString(sessionId)}"]`);
 	}
@@ -6779,7 +6811,7 @@ function apply(ctx) {
 		const el = cardElFor(sessionId);
 		if (el !== null) el.setAttribute("data-opening", "");
 
-		if (openSession(sessions, sessionId)) {
+		if (openSession(currentSessionNavigator(), sessionId)) {
 			// 移动视口下抑制原生 composer 在 sessionId 变化后的自动聚焦，
 			// 避免切换会话弹出软键盘（桌面保持原生自动聚焦）。
 			if (!desktopQuery.matches) suppressComposerAutofocus(document);

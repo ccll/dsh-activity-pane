@@ -15,7 +15,10 @@ const name = "dsh-activity-pane";
 // remote.session：dsh 0.1.5 起会话 RPC（目录/日志分页）经 api-remotes 的点分命名空间
 // 注入（cordis 代理对未注入属性直接抛错，父服务声明不代表子命名空间可用；仅声明
 // 子命名空间即可解析，无需再注入父面）。
-const inject = ["sessions", "workspaces", "uiSession", "remote.session"];
+// uiWorkspace：dsh 0.1.6 起 `sessions` 不再提供 open(id)，切换当前会话的唯一公开
+// 入口是 ui-workspace 业务视图所有者（ISessions 契约 navigation belongs to view
+// owners）；0.1.5 及更早由 sessionNavigator 回落 sessions.open。
+const inject = ["sessions", "uiWorkspace", "workspaces", "uiSession", "remote.session"];
 
 const CONVERSATION_SELECTOR = "#root [data-slot=\"main\"]";
 const PANE_ATTR = "data-dsh-activity-pane";
@@ -1221,6 +1224,7 @@ function apply(ctx) {
 		node.remove();
 	let disposed = false;
 	let sessions = null;
+	let uiWorkspace = null;
 	let workspaces = null;
 	let uiSession = null;
 	let sessionUnsubscribe = null;
@@ -1981,14 +1985,22 @@ function apply(ctx) {
 
 	function installServiceSubscriptions() {
 		const nextSessions = ctx.get("sessions");
+		const nextUiWorkspace = ctx.get("uiWorkspace");
 		const nextWorkspaces = ctx.get("workspaces");
 		const nextUiSession = ctx.get("uiSession");
-		if (nextSessions === sessions && nextWorkspaces === workspaces && nextUiSession === uiSession) return;
+		if (
+			nextSessions === sessions &&
+			nextUiWorkspace === uiWorkspace &&
+			nextWorkspaces === workspaces &&
+			nextUiSession === uiSession
+		)
+			return;
 
 		sessionUnsubscribe?.();
 		workspaceUnsubscribe?.();
 		pendingUnsubscribe?.();
 		sessions = nextSessions ?? null;
+		uiWorkspace = nextUiWorkspace ?? null;
 		workspaces = nextWorkspaces ?? null;
 		uiSession = nextUiSession ?? null;
 		try {
@@ -3321,7 +3333,7 @@ function apply(ctx) {
 			const el = document.createElement("div");
 			el.className = CARD_CLASS;
 			const unbind = bindCardActivation(el, (sessionId) => {
-				if (typeof sessions?.open !== "function") return;
+				if (currentSessionNavigator() === null) return;
 				lastActivatedId = sessionId;
 				// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标；
 				// 收起抽屉的分支同样是最新意图，必须先取消挂起链条再 return。
@@ -4078,8 +4090,12 @@ function apply(ctx) {
 		}
 	}
 
-	// ---- 打开会话（让 sessions.open 自己校验列表，失败时 refresh + 重试） ----
+	// ---- 打开会话（交给导航入口自己校验目标，失败时 refresh + 重试） ----
 	const MAX_OPEN_ATTEMPTS = 60;
+	/** 当前宿主可用的会话切换入口；null 表示两侧都没有（导航不发起，也不进重试链）。 */
+	function currentSessionNavigator() {
+		return sessionNavigator({ uiWorkspace, sessions });
+	}
 	function cardElFor(sessionId) {
 		return document.querySelector(`[${PANE_ATTR}] [data-session-id="${escapeCssString(sessionId)}"]`);
 	}
@@ -4136,7 +4152,7 @@ function apply(ctx) {
 		const el = cardElFor(sessionId);
 		if (el !== null) el.setAttribute("data-opening", "");
 
-		if (openSession(sessions, sessionId)) {
+		if (openSession(currentSessionNavigator(), sessionId)) {
 			// 移动视口下抑制原生 composer 在 sessionId 变化后的自动聚焦，
 			// 避免切换会话弹出软键盘（桌面保持原生自动聚焦）。
 			if (!desktopQuery.matches) suppressComposerAutofocus(document);

@@ -40,6 +40,9 @@ import {
 	fmtTokens,
 	isActiveRow,
 	shouldSubscribeToSession,
+	liveJobsOf,
+	jobOutputTraces,
+	jobOutputFromTraces,
 	activeSessionIds,
 	completionReminder,
 	errorReminder,
@@ -3519,6 +3522,110 @@ assert.equal(nextDensity("medium"), "full", "中间档的下一档为完整（R-
 assert.equal(nextDensity("compact"), "medium", "紧凑档的下一档为中间（R-01-021/AC-01）");
 assert.equal(nextDensity("junk"), "full", "非法值经归一视作默认中间档再循环（R-01-021/AC-01）");
 
+// ---- R-01-023 在跑后台任务的活性派生、提醒抑制与徽标 ｜ R-01-024 任务输出回放 ----
+// R-01-023/AC-01：liveJobs 非空的主会话保留活动区、归运行组并携带任务视图（startedAt 升序）。
+const jobbedSnapshot = {
+	ids: ["jA", "jB", "jC"],
+	byId: {
+		jA: { id: "jA", displayTitle: "跟进度", running: false, completed: true, updatedAt: 9000 },
+		jB: { id: "jB", displayTitle: "真在跑", running: true, updatedAt: 8000 },
+		jC: { id: "jC", displayTitle: "无任务", running: false, completed: true, updatedAt: 7000 },
+	},
+};
+const jobViews = {
+	jA: [
+		{ id: "job-0", kind: "bash", label: "done task", status: "completed", startedAt: 500, finishedAt: 900 },
+		{ id: "job-2", kind: "bash", label: "watch tail.log", status: "running", startedAt: 2000 },
+		{ id: "job-1", kind: "bash", label: "sync data", status: "stopping", startedAt: 1000 },
+	],
+};
+const jobbedEntries = buildEntries(jobbedSnapshot, [], {}, null, null, [], null, jobViews);
+const jobbedA = jobbedEntries.find((entry) => entry.id === "jA");
+assert.ok(jobbedA !== undefined, "R-01-023/AC-01 回合已结束但在跑后台任务的主会话保留在活动区");
+assert.equal(jobbedA.kind, "running", "R-01-023/AC-01 在跑后台任务的主会话按运行态呈现（非 awaiting）");
+assert.deepEqual(
+	jobbedA.liveJobs,
+	[
+		{ id: "job-1", label: "sync data", status: "stopping", startedAt: 1000 },
+		{ id: "job-2", label: "watch tail.log", status: "running", startedAt: 2000 },
+	],
+	"R-01-023/AC-01 条目携带在跑任务视图：仅 live 状态、startedAt 升序、已结束任务剔除",
+);
+// R-01-024 任务子卡条目：与子代理同形的缩进子卡，跟随母会话直接后继、结束即消失。
+assert.deepEqual(
+	jobbedEntries.filter((entry) => entry.kind === "job").map((entry) => [entry.id, entry.parentId, entry.depth, entry.title, entry.jobStatus]),
+	[
+		["job:jA:job-1", "jA", 1, "sync data", "stopping"],
+		["job:jA:job-2", "jA", 1, "watch tail.log", "running"],
+	],
+	"R-01-024/AC-01 每个在跑后台任务产出一张 job 子卡（复合 id、缩进 depth+1、携带任务字段）",
+);
+assert.ok(jobbedEntries[1].kind === "job" && jobbedEntries[0].id === "jA", "job 子卡紧随母会话条目之后（preorder 位置）");
+assert.ok(jobbedEntries.some((entry) => entry.id === "jB"), "真实运行中会话不受任务视图影响照常显示");
+assert.deepEqual(buildEntries(jobbedSnapshot, [], {}).find((entry) => entry.id === "jA"), undefined, "无任务视图时回合结束且非活动的会话不显示（既有口径不变）");
+// R-01-023 归一边界：快照缺失/形状非法均容错为无任务。
+assert.deepEqual(liveJobsOf(null, "jA"), [], "jobsBySession 缺失归一为无任务");
+assert.deepEqual(liveJobsOf({}, "jA"), [], "无该会话条目归一为无任务");
+assert.deepEqual(liveJobsOf({ jA: "nope" }, "jA"), [], "非数组任务视图归一为无任务");
+assert.deepEqual(liveJobsOf({ jA: [null, "x", { id: "job-ok", label: "ok", status: "running", startedAt: 1 }] }, "jA"), [{ id: "job-ok", label: "ok", status: "running", startedAt: 1 }], "畸形任务条目剔除、合法条目保留");
+// R-01-023/AC-04：仅有在跑后台任务的主会话计入运行中分子（此处 jA+jB 均呈 running）。
+assert.deepEqual(
+	awaitBadgeStats(jobbedEntries),
+	{ waiting: 0, blocked: 0, total: 2 },
+	"R-01-023/AC-04 徽标分子将仅在跑后台任务的主会话计入运行中",
+);
+// R-01-023/AC-02：liveJobs 非空期间完成提醒与错误提醒被抑制。
+const jobCompletions = new Map([
+	["jA", { lastTurnEnd: 1000, lastTurnEndKind: "completed", lastTurnEndError: null, ackedAt: null }],
+	["jC", { lastTurnEnd: 1000, lastTurnEndKind: "error", lastTurnEndError: null, ackedAt: null }],
+]);
+const suppressedEntries = buildEntries(jobbedSnapshot, [], {}, jobCompletions, null, [], null, jobViews);
+assert.equal(suppressedEntries.find((entry) => entry.id === "jA").waitClass, undefined, "R-01-023/AC-02 在跑后台任务期间完成提醒被抑制（回合已结束）");
+assert.equal(suppressedEntries.find((entry) => entry.id === "jC").waitClass, "error", "R-01-023/AC-02 无在跑任务的会话错误提醒不受影响（对照组）");
+// R-01-023/AC-03：任务全部结束后提醒与历史候选恢复既有判定。
+const settledViews = { jA: [{ id: "job-2", kind: "bash", label: "watch tail.log", status: "completed", startedAt: 2000, finishedAt: 3000 }] };
+const settledEntries = buildEntries(jobbedSnapshot, [], {}, jobCompletions, null, [], null, settledViews);
+assert.equal(settledEntries.find((entry) => entry.id === "jA")?.waitClass, "done", "R-01-023/AC-03 在跑任务全部结束后完成提醒恢复成立");
+assert.ok(!buildRecent(jobbedSnapshot, [], 999_999, {}, [], null, null, null, jobViews).some((entry) => entry.id === "jA"), "R-01-023/AC-01 在跑后台任务的主会话不入最近历史");
+assert.ok(buildRecent(jobbedSnapshot, [], 999_999, {}, [], null, null, null, settledViews).some((entry) => entry.id === "jA"), "R-01-023/AC-03 任务结束后恢复最近历史候选");
+// R-01-024/AC-01：job_output 轨迹提取与配对回放（JSON 字符串与已解析参数、错误结果剔除）。
+const jobEventRecords = [
+	{ seq: 10, event: { type: "tool/call", seq: 10, data: { name: "job_output", callId: "call-1", arguments: JSON.stringify({ job_id: "job-A" }) } } },
+	{ seq: 11, event: { type: "tool/call", seq: 11, data: { name: "bash", callId: "call-2", arguments: "{}" } } },
+	{ seq: 12, event: { type: "tool/result", seq: 12, data: { message: { source: { callId: "call-2" }, content: [{ type: "tool-result", content: [{ type: "text", text: "unrelated" }] }] } } } },
+	{ seq: 13, event: { type: "tool/result", seq: 13, data: { message: { source: { callId: "call-1" }, content: [{ type: "tool-result", content: [{ type: "text", text: "line-1\nline-2" }] }] } } } },
+	{ seq: 14, event: { type: "tool/call", seq: 14, data: { name: "job_output", callId: "call-3", arguments: { job_id: "job-B" } } } },
+	{ seq: 15, event: { type: "tool/result", seq: 15, data: { message: { source: { callId: "call-3" }, content: [{ type: "tool-result", isError: true, content: [{ type: "text", text: "boom" }] }] } } } },
+];
+const jobTraces = jobOutputTraces(jobEventRecords);
+assert.equal(jobTraces.length, 5, "R-01-024 轨迹提取：非任务调用之外的 job_output 对与其它 result 均入轨迹（配对在回放侧收口）");
+assert.equal(jobOutputFromTraces(jobTraces, "job-A").text, "line-1\nline-2", "R-01-024/AC-01 配对回放：仅拼接归属任务的已读文本");
+assert.equal(jobOutputFromTraces(jobTraces, "job-A").read, true, "R-01-024/AC-01 已配对读取置 read=true");
+assert.equal(jobOutputFromTraces(jobTraces, "job-B").text, "", "R-01-024 错误结果文本不进人读回放");
+assert.equal(jobOutputFromTraces(jobTraces, "job-C").read, false, "R-01-024/AC-02 无配对读取 → read=false（客户端承接「尚未被读取」）");
+assert.deepEqual(
+	jobOutputFromTraces([...jobTraces, ...jobTraces], "job-A"),
+	{ text: "line-1\nline-2", truncated: false, read: true },
+	"R-01-024 日志重放与实时镜像同 seq 去重：合并不重复拼接",
+);
+const clipped = jobOutputFromTraces(
+	[
+		{ seq: 1, kind: "call", callId: "c", jobId: "j" },
+		{ seq: 2, kind: "result", callId: "c", text: "x".repeat(50), isError: false },
+	],
+	"j",
+	10,
+);
+assert.deepEqual(clipped, { text: "x".repeat(10), truncated: true, read: true }, "R-01-024/AC-04 超限截断并置 truncated 标志");
+assert.deepEqual(
+	jobOutputFromTraces([
+		{ seq: 1, kind: "call", callId: "c", jobId: "j" },
+		{ seq: 2, kind: "result", callId: "c", text: "(no new output)", isError: false },
+	], "j"),
+	{ text: "", truncated: false, read: true },
+	"R-01-024 模型侧『无新输出』占位不进人读回放",
+);
+
 // ---- 重建 client bundle 并校验产物契约 ----
 await mkdir(join(root, ".dsh-plugin"), { recursive: true });
 execFileSync(process.execPath, [join(root, "scripts/build-client.mjs")], {
@@ -3832,8 +3939,8 @@ assert.ok(
 	"回到前台/bfcache 还原触发 ack 通道自愈（R-01-002/AC-12）",
 );
 assert.ok(
-	bundle.includes("function resumeAcksChannel()") && bundle.includes("function connectAcksStream()") && bundle.includes("acksSource?.close()"),
-	"ack 通道自愈经无条件重建 SSE 连接收敛（连接即收全量快照，R-01-002/AC-12）",
+	bundle.includes("function resumePushChannels()") && bundle.includes("function connectAcksStream()") && bundle.includes("acksSource?.close()"),
+	"ack 通道自愈经无条件重建 SSE 连接收敛（连接即收全量快照，R-01-002/AC-12；T-149 起同名自愈覆盖 jobs 通道）",
 );
 assert.ok(
 	bundle.includes('document.removeEventListener("visibilitychange", onVisibilityResume)') && bundle.includes('window.removeEventListener("pageshow", onPageShow)'),
@@ -4004,8 +4111,9 @@ assert.ok(bundle.includes("pruneSubscriptions(modelDirectorySubs, new Set())"), 
 assert.ok(bundle.includes("detail.modelLive"), "目录订阅已产值时晚到的一次性 RPC 不回写旧值");
 assert.ok(!bundle.includes("events.mux"), "不常驻全局 mux，当前会话使用原生 session subscribe");
 assert.ok(
-	bundle.includes('return [head, row, makeEl("div", "dap-trace"), progressRow, makeStatsRow()];'),
-	"running 卡 token 统计骨架位于进度条骨架之后",
+	bundle.includes('return [head, row, makeEl("div", "dap-trace"), progressRow, makeStatsRow()];')
+		&& bundle.includes('row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-jobs-chip"), makeEl("span", "dap-total-time"));'),
+	"running 卡 token 统计骨架位于进度条骨架之后、标题行承载后台数量注（R-01-023）",
 );
 assert.ok(
 	bundle.indexOf('statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"))') > -1,
@@ -4029,21 +4137,24 @@ assert.ok(
 	!bundle.includes("ctx.get(\"dsh-answer-pet\")"),
 	"不得以服务方式依赖第三方宠物插件",
 );
-// R-02-004/AC-02（演进，C-030、C-074）：HTTP 请求仅两处——完成确认写回（用户操作触发的
-// 一次性 POST）与累计运行时长懒回填触发（每会话至多一次的一次性 GET，随可见会话触发），
-// 均非状态轮询；轮内状态与回合统计仍只来自原生订阅推送与 SSE 推送。
+// R-02-004/AC-02（演进，C-030、C-074、T-149）：HTTP 请求仅三处——完成确认写回（用户操作
+// 触发的一次性 POST）、累计运行时长懒回填触发（每会话至多一次的一次性 GET）与后台任务
+// 输出回读（选中任务或轨迹通知时的一次性 GET），均非状态轮询；轮内状态与回合统计仍只来自
+// 原生订阅推送与 SSE 推送。
 // fetch/EventSource 数量由下两条断言钉住：轮询需要重复请求，受限的调用面即排除轮询形态。
 assert.ok(
-	(bundle.match(/fetch\(/g) ?? []).length === 2
+	(bundle.match(/fetch\(/g) ?? []).length === 3
 		&& bundle.includes("fetch(`${PANE_API_BASE}/ack`")
-		&& bundle.includes("fetch(`${PANE_API_BASE}/busy?ids="),
-	"HTTP 请求仅完成确认写回与 busy 懒回填触发两处，指向宿主侧自家路由（R-01-002/AC-10、R-01-020、C-030、C-074）",
+		&& bundle.includes("fetch(`${PANE_API_BASE}/busy?ids=")
+		&& bundle.includes("fetch(`${PANE_API_BASE}/jobs-output?"),
+	"HTTP 请求仅确认写回、busy 懒回填与任务输出回读三处，指向宿主侧自家路由（R-01-002/AC-10、R-01-020、R-01-024/AC-01、C-030、C-074）",
 );
 assert.ok(
-	(bundle.match(/new window\.EventSource\(/g) ?? []).length === 2
+	(bundle.match(/new window\.EventSource\(/g) ?? []).length === 3
 		&& bundle.includes("${PANE_API_BASE}/acks/stream")
-		&& bundle.includes("${PANE_API_BASE}/busy/stream"),
-	"SSE 订阅仅 acks 与 busy 两条通道，均连接即收全量快照（C-030、C-074）",
+		&& bundle.includes("${PANE_API_BASE}/busy/stream")
+		&& bundle.includes("${PANE_API_BASE}/jobs/stream"),
+	"SSE 订阅仅 acks、busy 与任务轨迹通知三条通道（C-030、C-074、R-01-024/AC-03）",
 );
 
 // ---- R-02-003/AC-02 卸载时清理注入元素、样式与监听 ----
@@ -4172,7 +4283,7 @@ assert.ok(
 // R-01-010/AC-08、AC-09（bundle 契约）
 // 历史区时间精化链路进入 bundle：turn/end 提取、turnEnds 注入 buildRecent、渲染读 activityAt。
 assert.ok(bundle.includes("lastTurnEndFromEvents") && bundle.includes("lastTurnEndFromTimings"), "回合结束时刻提取进入 bundle（R-01-010/AC-08）");
-assert.ok(bundle.includes("delegatingIds, turnEnds)"), "turnEnds 注入 buildRecent（R-01-010/AC-09）");
+assert.ok(bundle.includes("delegatingIds, turnEnds, jobsBySession)"), "turnEnds 与 jobsBySession 注入 buildRecent（R-01-010/AC-09、R-01-023/AC-01）");
 assert.ok(bundle.includes("fmtRecentTime(entry.activityAt)"), "最近卡渲染读取精化后的 activityAt（R-01-010/AC-08）");
 assert.ok(bundle.includes("fmtRelativeAge") && bundle.includes("最后活动 ·"), "最近卡同时显示绝对日期时间与相对活动时间（R-01-013/AC-05）");
 

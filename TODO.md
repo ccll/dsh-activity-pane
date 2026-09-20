@@ -16,3 +16,4 @@ owner: 双方
 - [维护想法] 推送 pre-push 全量 verify 期间 GitHub SSH 连接因空闲被远端断开，hook 结束后传输触发 SIGPIPE 静默失败（v0.11.0 发布时实测三次；`GIT_SSH_COMMAND="ssh -o ServerAliveInterval=30"` 单次保活解决）——可选收敛：推送前设置 keepalive 或在 CONVENTIONS 记录该推送惯例
 - [维护想法] README 增加 FAQ/故障排查章节（待积累真实 issue 样本后再写，避免臆测）
 - [维护想法] README 增加 Changelog/版本徽章（Release 为手工流程，待出现第二个发布版本再评估）
+- [维护想法] buildEntries/buildRecent 位置参数（8/9 个）收敛为 options 对象（T-149 Standards 评审 Data Clumps 判断项：jobsBySession 续位参数膨胀；改造波及全部既有调用与断言，宜与签名重构同期进行）

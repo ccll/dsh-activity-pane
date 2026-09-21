@@ -1746,7 +1746,8 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 			// 后台任务子条目（R-01-024）：与子代理同形的缩进子卡，跟随母会话在其全部
 			// 子代理之前（即母亲条目的直接后继）；结束即随 liveJobs 清空而消失（R-01-023/AC-03）。
 			// 复合 id 在去重视野（entries/visited/cardsById）中唯一，且携 jobs 前缀与子代理
-			// 会话 id 空间天然隔离；不参与 trackRuns（kind 过滤）与徽标（kind 过滤）。
+			// 会话 id 空间天然隔离；层级连接线与子代理同规则参与 trackRuns（R-01-003/AC-04），
+			// 仍不参与徽标计数（kind 过滤，R-01-023/AC-04）。
 			if (m.hasLive && !m.isSub) {
 				for (const job of m.liveJobs) {
 					entries.push({
@@ -1755,6 +1756,7 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 						depth: depth + 1,
 						kind: "job",
 						title: job.label,
+						jobKind: job.kind,
 						workspaceTitle: "",
 						workspaceKey: "",
 						model: "",
@@ -1778,10 +1780,10 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 	return entries;
 }
 /**
- * 把活动条目压成母会话轨道运行（R-01-003/AC-04）：每个拥有可见直属子代理的
- * 母会话一条，记录全部可见直属子代理 id（有序，末位即末级）与子级深度，供
- * 渲染层测量后绘制整条连续轨道与接入横线。条目按 preorder 排列，同一直属
- * 子代理组天然连续。直属性按「条目深度 = 母会话条目深度 + 1」判定（与条目
+ * 把活动条目压成母会话轨道运行（R-01-003/AC-04）：每个拥有可见直属子代理或后台
+ * 任务子卡的母会话一条，记录全部可见直属子级 id（有序，末位即末级）与子级深度，
+ * 供渲染层测量后绘制整条连续轨道与接入横线。条目按 preorder 排列，同一直属
+ * 子级组天然连续。直属性按「条目深度 = 母会话条目深度 + 1」判定（与条目
  * 顺序无关）；无 id、无母会话条目或非直属的条目一律跳过。
  */
 function trackRuns(entries) {
@@ -1793,7 +1795,8 @@ function trackRuns(entries) {
 	const runs = new Map();
 	for (const entry of list) {
 		if (entry?.id == null || entry?.parentId == null || (entry.depth ?? 0) < 1) continue;
-		if (entry.kind !== "subagent") continue;
+		// 子代理与后台任务子卡一视同仁（R-01-003/AC-04）：两类直属子级同规则上轨。
+		if (entry.kind !== "subagent" && entry.kind !== "job") continue;
 		const pid = String(entry.parentId);
 		const parentDepth = depthById.get(pid);
 		if (parentDepth === undefined || entry.depth !== parentDepth + 1) continue;
@@ -1875,6 +1878,8 @@ function cardSignature(entries) {
 			// job 子卡状态翻转与秒桶（渲染期注入的任务行时长推进）同入签名。
 			entry.liveJobs ?? null,
 			entry.jobStatus ?? null,
+			// 后台任务工具名（R-01-023/AC-05）：快照推送更替驱动任务卡工具名行重绘。
+			entry.jobKind ?? null,
 			entry.jobsAgeSec ?? null,
 		]),
 	);
@@ -2012,7 +2017,8 @@ const LIVE_JOB_STATUSES = new Set(["running", "stopping"]);
  * 归一会话的在跑后台任务列表（R-01-023/AC-01）：取快照 `jobsBySession[id]` 中
  * status ∈ {running, stopping} 的任务视图，按 startedAt 升序（最早在前）。
  * jobsBySession 缺失、非记录、条目非记录或字段非法均按无任务/剔除处理，不抛错。
- * 返回 `{ id, label, status, startedAt }` 的新数组（不泄漏宿主对象引用）。
+ * 返回 `{ id, kind, label, status, startedAt }` 的新数组（不泄漏宿主对象引用；
+ * `kind` 为任务发起工具的类型原文，供任务卡工具名行消费，R-01-023/AC-05）。
  */
 function liveJobsOf(jobsBySession, id) {
 	if (!isRecord(jobsBySession)) return [];
@@ -2024,6 +2030,7 @@ function liveJobsOf(jobsBySession, id) {
 		if (!LIVE_JOB_STATUSES.has(job.status)) continue;
 		live.push({
 			id: typeof job.id === "string" ? job.id : "",
+			kind: typeof job.kind === "string" ? job.kind : "",
 			label: typeof job.label === "string" ? job.label : "",
 			status: job.status,
 			startedAt: Number.isFinite(Number(job.startedAt)) ? Number(job.startedAt) : 0,
@@ -2031,6 +2038,15 @@ function liveJobsOf(jobsBySession, id) {
 	}
 	live.sort((a, b) => a.startedAt - b.startedAt);
 	return live;
+}
+
+/** 后台任务工具名的友好显示映射（R-01-023/AC-05）：bash→Bash、pwsh→PowerShell、
+ *  subagent→子代理；未知 kind 原样显示，非字符串或空串视为不可得（返回空串）。 */
+const JOB_KIND_LABELS = { bash: "Bash", pwsh: "PowerShell", subagent: "子代理" };
+
+function jobKindLabel(kind) {
+	if (typeof kind !== "string" || kind === "") return "";
+	return JOB_KIND_LABELS[kind] ?? kind;
 }
 
 /** 从 tool-result 消息提取纯文本：tool-result 内容块内的 text 片段按换行拼接；
@@ -3095,7 +3111,8 @@ const CSS = `
     .dap-token-stats,
     .dap-foot,
     .dap-history-line,
-    .dap-note
+    .dap-note,
+    .dap-job-content
   ) {
   display: none;
 }
@@ -3253,7 +3270,7 @@ const CSS = `
   gap: 4px;
   cursor: pointer;
 }
-/* 子代理层级连接线（R-01-003/AC-04）：竖轨与横线全部由轨道层整体绘制——
+/* 子代理与后台任务子卡层级连接线（R-01-003/AC-04）：竖轨与横线全部由轨道层整体绘制——
    syncTracks 测量各卡片浮点矩形，trackBoxes 统一取整到 CSS 像素后写入：
    每个母会话一条连续竖轨 .dap-conn-track（母会话底缘 → 末级子卡中心，
    含收口行），每个子卡一条横线 .dap-conn-stub（竖轨右缘 → 子卡左缘）。
@@ -3544,16 +3561,19 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   font-variant-numeric: tabular-nums;
 }
 [data-dsh-activity-pane] .dap-jobs-chip[hidden] { display: none; }
-/* 后台任务子卡（R-01-024）：与子代理卡同形的紧凑卡面；状态点色随任务状态翻转。 */
+/* 后台任务子卡（R-01-023/AC-05、AC-07）：与子代理卡同构的两行卡面，底色在子代理卡
+   底色上轻染任务状态点同族的蓝以相互可辨；状态点色随任务状态翻转。 */
 [data-dsh-activity-pane] .dap-card[data-kind="job"] {
   padding: 6px 10px;
   border-radius: 12px;
-  background: rgba(25, 27, 32, 0.95);
+  background: color-mix(in srgb, #65a0ff 8%, rgba(25, 27, 32, 0.95));
   cursor: pointer;
 }
-[data-dsh-activity-pane] .dap-card[data-kind="job"] .dap-title {
+/* 任务卡行 1（R-01-023/AC-05）：状态点 + 工具名称 + 右缘随时钟时长；工具名不可得时
+   文本段隐藏，仅保留状态点与时长。 */
+[data-dsh-activity-pane] .dap-card[data-kind="job"] .dap-job-kind {
   flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-family: var(--dsh-font-mono, monospace); font-size: 11px; line-height: 15px;
+  font-size: 11px; line-height: 15px;
 }
 [data-dsh-activity-pane] .dap-job-dot {
   flex: none; width: 6px; height: 6px; border-radius: 50%;
@@ -3561,8 +3581,19 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 [data-dsh-activity-pane] .dap-job-dot[data-status="stopping"] { background: #f5a524; }
 [data-dsh-activity-pane] .dap-job-elapsed {
-  flex: none; font-size: 10px; line-height: 15px;
+  flex: none; margin-left: auto; font-size: 10px; line-height: 15px;
   color: color-mix(in srgb, currentColor 55%, transparent); font-variant-numeric: tabular-nums;
+}
+/* 任务内容行（R-01-023/AC-05、AC-06）：mono 原文单行省略，原生 tooltip 承载完整原文；
+   内容不可得时整行 hidden（[hidden] 显式覆盖 display:flex），紧凑档经密度规则隐藏。 */
+[data-dsh-activity-pane] .dap-job-content {
+  display: flex; align-items: baseline; min-width: 0;
+  margin-top: 1px;
+}
+[data-dsh-activity-pane] .dap-job-content[hidden] { display: none; }
+[data-dsh-activity-pane] .dap-card[data-kind="job"] .dap-job-label {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--dsh-font-mono, monospace); font-size: 11px; line-height: 15px;
 }
 /* 子卡输出区（R-01-024/AC-01）：展开时追加于卡内底部，终端风回放。 */
 [data-dsh-activity-pane] .dap-jobout {
@@ -3890,9 +3921,9 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card:hover {
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="subagent"] {
   background: var(--dsw-specific-sidebar-fill, rgb(249, 250, 251));
 }
-/* 后台任务子卡浅色主题与子代理卡同源（R-01-024）：淡侧栏填充底。 */
+/* 后台任务子卡浅色主题与子代理卡同源（R-01-024）：淡侧栏填充底，轻染同族蓝与子代理卡区分（R-01-023/AC-07）。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="job"] {
-  background: var(--dsw-specific-sidebar-fill, rgb(249, 250, 251));
+  background: color-mix(in srgb, #65a0ff 8%, var(--dsw-specific-sidebar-fill, rgb(249, 250, 251)));
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="recent"] {
   /* 暗于活动卡的 --dsw-alias-bg-layer-2 纯白、深于窗格底色（R-01-013/AC-10、AC-11）。 */
@@ -5369,10 +5400,13 @@ function apply(ctx) {
 			return [head, row, makeEl("div", "dap-trace"), makeStatsRow(), foot];
 		}
 		if (kind === "job") {
-			// 后台任务子卡（R-01-024）：状态点 + 标签 + 随时钟时长；输出区在展开时追加。
+			// 后台任务子卡（R-01-023/AC-05、R-01-024）：行 1 = 状态点 + 工具名称 + 随时钟
+			// 时长；行 2 = 任务内容原文（mono 省略 + tooltip）；输出区在展开时追加。
 			const row = makeEl("div", "dap-row");
-			row.append(makeEl("span", "dap-job-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-job-elapsed"));
-			return [row];
+			row.append(makeEl("span", "dap-job-dot"), makeEl("span", "dap-job-kind"), makeEl("span", "dap-job-elapsed"));
+			const content = makeEl("div", "dap-job-content");
+			content.append(makeEl("span", "dap-job-label"));
+			return [row, content];
 		}
 		const row = makeEl("div", "dap-row");
 		row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-jobs-chip"), makeEl("span", "dap-total-time"));
@@ -5952,10 +5986,30 @@ function apply(ctx) {
 	function renderJobCardInto(el, entry) {
 		const dot = el.querySelector(".dap-job-dot");
 		if (dot !== null && dot.dataset.status !== entry.jobStatus) dot.dataset.status = entry.jobStatus;
-		// 完整命令悬停提示（R-01-024 呈现细化）：任务行单行省略号截断，而 label 即调用方
-		// 命令原文——悬停以原生 tooltip 显示完整命令行（含换行），不另造浮层。
-		const titleText = String(entry.title ?? "");
-		if (el.title !== titleText) el.title = titleText;
+		// 工具名称（R-01-023/AC-05）：核心友好映射；不可得时隐藏文本段，仅保留状态点与时长。
+		const kindEl = el.querySelector(".dap-job-kind");
+		if (kindEl !== null) {
+			const kindText = jobKindLabel(entry.jobKind);
+			if (kindEl.textContent !== kindText) kindEl.textContent = kindText;
+			const kindHidden = kindText === "";
+			if (kindEl.hidden !== kindHidden) kindEl.hidden = kindHidden;
+		}
+		// 任务内容行（R-01-023/AC-05、AC-06）：mono 原文单行省略，完整原文以原生 tooltip
+		// 显示（沿用 R-01-024 呈现细化语义，tooltip 归内容行）；内容不可得时整行隐藏，
+		// 不补空白或占位。
+		const contentRow = el.querySelector(".dap-job-content");
+		const labelText = String(entry.title ?? "");
+		if (contentRow !== null) {
+			const contentHidden = labelText === "";
+			if (contentRow.hidden !== contentHidden) contentRow.hidden = contentHidden;
+			if (!contentHidden) {
+				const label = contentRow.querySelector(".dap-job-label");
+				if (label !== null) {
+					if (label.textContent !== labelText) label.textContent = labelText;
+					if (label.title !== labelText) label.title = labelText;
+				}
+			}
+		}
 		const elapsed = el.querySelector(".dap-job-elapsed");
 		if (elapsed !== null) {
 			const elapsedText =
@@ -6492,9 +6546,10 @@ function apply(ctx) {
 		else rec.el.removeAttribute("data-wait");
 		const recentTimeText = entry.kind === "recent" ? fmtRecentTime(entry.activityAt) : "";
 		const jobStatusText = entry.kind === "job" ? JOB_STATUS_LABELS[entry.jobStatus] ?? "" : "";
+		const jobKindText = entry.kind === "job" ? jobKindLabel(entry.jobKind) : "";
 		rec.el.setAttribute(
 			"aria-label",
-			`${entry.workspaceTitle ? entry.workspaceTitle + " - " : ""}${entry.title}${
+			`${entry.workspaceTitle ? entry.workspaceTitle + " - " : ""}${jobKindText ? jobKindText + "，" : ""}${entry.title}${
 				jobStatusText ? "，" + jobStatusText : ""
 			}${entry.pendingText ? "，" + entry.pendingText : ""
 			}${(entry.waitClass === "done" || entry.waitClass === "error") && entry.noteText ? "，" + entry.noteText : ""}${

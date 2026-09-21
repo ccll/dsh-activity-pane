@@ -64,9 +64,10 @@ id: T-152
 |---|---|---|---|---|
 | R-01-003/AC-04 | 正文修改 | UNIT | update | `scripts/check.mjs` R-01-003/AC-04 trackRuns 断言同次更新（job 纳入轨道拓扑） |
 | R-01-023/AC-05 | 新增 | UNIT | add | `scripts/check.mjs` kind 归一/映射/条目字段断言 + bundle 两行骨架契约 |
-| R-01-023/AC-06 | 新增 | UNIT/browser/manual | add | `scripts/check.mjs` 内容不可得条目断言；隐藏行为由 bundle 契约与人工步骤承载 |
-| R-01-023/AC-07 | 新增 | UNIT/browser/manual | add | `scripts/check.mjs` 底色区分 CSS 契约断言；`scripts/acceptance.mjs` 人工步骤 |
-| DESIGN | 显示过滤 bullet、buildEntries 条目字段、层级结构与轨道层、job 卡呈现落点演进 | UNIT | update | 同次变化由本 task 记录：DESIGN.md 与实现同步 |
+| R-01-023/AC-02 | 既有测试修正 | browser | update | `e2e/specs/background-jobs.mjs` 完成提醒抑制断言由「已完成」文本子串匹配修正为 `data-wait="done"` 结构判定（子串会误命中时间线末行 agent 回复「E2E 快速回合已完成。」，HEAD 代码同断言已复现失败；对照实验确认非本次回归、属既有断言缺陷）；新增回合回复前置等待与 3s 登记竞态复核（固定观察窗沿 mobile-resume.mjs 先例） |
+| R-01-023/AC-06 | 新增 | UNIT/browser/manual | add | `scripts/check.mjs` 内容不可得断言（空 label 条目 + 纯空白 label 归一，修复轮补空白边界）；隐藏行为由 bundle 契约与人工步骤承载 |
+| R-01-023/AC-07 | 新增 | UNIT/browser/manual | add | `scripts/check.mjs` 底色区分 CSS 契约断言（修复轮补浅色主题轻染断言）；`scripts/acceptance.mjs` 人工步骤 |
+| DESIGN | 显示过滤 bullet、buildEntries 条目字段、层级结构与轨道层、job 卡呈现落点演进；修复轮 label 纯空白不可得归一与 jobKind 签名说明修正 | UNIT | update | 同次变化由本 task 记录：DESIGN.md 与实现同步 |
 
 ## 验证矩阵
 

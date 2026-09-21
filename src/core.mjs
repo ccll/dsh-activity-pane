@@ -1740,7 +1740,8 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 			// 后台任务子条目（R-01-024）：与子代理同形的缩进子卡，跟随母会话在其全部
 			// 子代理之前（即母亲条目的直接后继）；结束即随 liveJobs 清空而消失（R-01-023/AC-03）。
 			// 复合 id 在去重视野（entries/visited/cardsById）中唯一，且携 jobs 前缀与子代理
-			// 会话 id 空间天然隔离；不参与 trackRuns（kind 过滤）与徽标（kind 过滤）。
+			// 会话 id 空间天然隔离；层级连接线与子代理同规则参与 trackRuns（R-01-003/AC-04），
+			// 仍不参与徽标计数（kind 过滤，R-01-023/AC-04）。
 			if (m.hasLive && !m.isSub) {
 				for (const job of m.liveJobs) {
 					entries.push({
@@ -1749,6 +1750,7 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 						depth: depth + 1,
 						kind: "job",
 						title: job.label,
+						jobKind: job.kind,
 						workspaceTitle: "",
 						workspaceKey: "",
 						model: "",
@@ -1772,10 +1774,10 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 	return entries;
 }
 /**
- * 把活动条目压成母会话轨道运行（R-01-003/AC-04）：每个拥有可见直属子代理的
- * 母会话一条，记录全部可见直属子代理 id（有序，末位即末级）与子级深度，供
- * 渲染层测量后绘制整条连续轨道与接入横线。条目按 preorder 排列，同一直属
- * 子代理组天然连续。直属性按「条目深度 = 母会话条目深度 + 1」判定（与条目
+ * 把活动条目压成母会话轨道运行（R-01-003/AC-04）：每个拥有可见直属子代理或后台
+ * 任务子卡的母会话一条，记录全部可见直属子级 id（有序，末位即末级）与子级深度，
+ * 供渲染层测量后绘制整条连续轨道与接入横线。条目按 preorder 排列，同一直属
+ * 子级组天然连续。直属性按「条目深度 = 母会话条目深度 + 1」判定（与条目
  * 顺序无关）；无 id、无母会话条目或非直属的条目一律跳过。
  */
 export function trackRuns(entries) {
@@ -1787,7 +1789,8 @@ export function trackRuns(entries) {
 	const runs = new Map();
 	for (const entry of list) {
 		if (entry?.id == null || entry?.parentId == null || (entry.depth ?? 0) < 1) continue;
-		if (entry.kind !== "subagent") continue;
+		// 子代理与后台任务子卡一视同仁（R-01-003/AC-04）：两类直属子级同规则上轨。
+		if (entry.kind !== "subagent" && entry.kind !== "job") continue;
 		const pid = String(entry.parentId);
 		const parentDepth = depthById.get(pid);
 		if (parentDepth === undefined || entry.depth !== parentDepth + 1) continue;
@@ -1869,6 +1872,8 @@ export function cardSignature(entries) {
 			// job 子卡状态翻转与秒桶（渲染期注入的任务行时长推进）同入签名。
 			entry.liveJobs ?? null,
 			entry.jobStatus ?? null,
+			// 后台任务工具名（R-01-023/AC-05）：快照推送更替驱动任务卡工具名行重绘。
+			entry.jobKind ?? null,
 			entry.jobsAgeSec ?? null,
 		]),
 	);
@@ -2006,7 +2011,8 @@ const LIVE_JOB_STATUSES = new Set(["running", "stopping"]);
  * 归一会话的在跑后台任务列表（R-01-023/AC-01）：取快照 `jobsBySession[id]` 中
  * status ∈ {running, stopping} 的任务视图，按 startedAt 升序（最早在前）。
  * jobsBySession 缺失、非记录、条目非记录或字段非法均按无任务/剔除处理，不抛错。
- * 返回 `{ id, label, status, startedAt }` 的新数组（不泄漏宿主对象引用）。
+ * 返回 `{ id, kind, label, status, startedAt }` 的新数组（不泄漏宿主对象引用；
+ * `kind` 为任务发起工具的类型原文，供任务卡工具名行消费，R-01-023/AC-05）。
  */
 export function liveJobsOf(jobsBySession, id) {
 	if (!isRecord(jobsBySession)) return [];
@@ -2018,6 +2024,7 @@ export function liveJobsOf(jobsBySession, id) {
 		if (!LIVE_JOB_STATUSES.has(job.status)) continue;
 		live.push({
 			id: typeof job.id === "string" ? job.id : "",
+			kind: typeof job.kind === "string" ? job.kind : "",
 			label: typeof job.label === "string" ? job.label : "",
 			status: job.status,
 			startedAt: Number.isFinite(Number(job.startedAt)) ? Number(job.startedAt) : 0,
@@ -2025,6 +2032,15 @@ export function liveJobsOf(jobsBySession, id) {
 	}
 	live.sort((a, b) => a.startedAt - b.startedAt);
 	return live;
+}
+
+/** 后台任务工具名的友好显示映射（R-01-023/AC-05）：bash→Bash、pwsh→PowerShell、
+ *  subagent→子代理；未知 kind 原样显示，非字符串或空串视为不可得（返回空串）。 */
+const JOB_KIND_LABELS = { bash: "Bash", pwsh: "PowerShell", subagent: "子代理" };
+
+export function jobKindLabel(kind) {
+	if (typeof kind !== "string" || kind === "") return "";
+	return JOB_KIND_LABELS[kind] ?? kind;
 }
 
 /** 从 tool-result 消息提取纯文本：tool-result 内容块内的 text 片段按换行拼接；

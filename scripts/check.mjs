@@ -41,6 +41,7 @@ import {
 	isActiveRow,
 	shouldSubscribeToSession,
 	liveJobsOf,
+	jobKindLabel,
 	jobOutputTraces,
 	jobOutputFromTraces,
 	activeSessionIds,
@@ -997,6 +998,33 @@ assert.deepEqual(
 	]),
 	[{ parentId: "root", depth: 1, childIds: ["A"] }],
 	"异常深度条目先来也不污染轨道：直属性按母会话条目深度+1 判定，与顺序无关",
+);
+// R-01-003/AC-04（T-152）：后台任务子卡与子代理一视同仁——job 子条目同规则上轨。
+assert.deepEqual(
+	trackRuns([
+		{ id: "root", kind: "running", depth: 0 },
+		{ id: "job:root:job-1", kind: "job", parentId: "root", depth: 1 },
+	]),
+	[{ parentId: "root", depth: 1, childIds: ["job:root:job-1"] }],
+	"唯一后台任务子卡产生母会话轨道（R-01-003/AC-04）",
+);
+assert.deepEqual(
+	trackRuns([
+		{ id: "root", kind: "running", depth: 0 },
+		{ id: "job:root:job-1", kind: "job", parentId: "root", depth: 1 },
+		{ id: "A", kind: "subagent", parentId: "root", depth: 1 },
+		{ id: "B", kind: "subagent", parentId: "root", depth: 1 },
+	]),
+	[{ parentId: "root", depth: 1, childIds: ["job:root:job-1", "A", "B"] }],
+	"job 与子代理混合直属序列按 preorder 保序入轨、末级为最后子级（R-01-003/AC-04）",
+);
+assert.deepEqual(
+	trackRuns([
+		{ id: "root", kind: "running", depth: 0 },
+		{ id: "job:root:job-1", kind: "job", parentId: "root", depth: 2 },
+	]),
+	[],
+	"深度不符的 job 条目不上轨（直属性判定与子代理一致，R-01-003/AC-04）",
 );
 const hierarchyRuns = trackRuns(hierarchyEntries);
 const hierarchyRects = {
@@ -3546,19 +3574,19 @@ assert.equal(jobbedA.kind, "running", "R-01-023/AC-01 在跑后台任务的主�
 assert.deepEqual(
 	jobbedA.liveJobs,
 	[
-		{ id: "job-1", label: "sync data", status: "stopping", startedAt: 1000 },
-		{ id: "job-2", label: "watch tail.log", status: "running", startedAt: 2000 },
+		{ id: "job-1", kind: "bash", label: "sync data", status: "stopping", startedAt: 1000 },
+		{ id: "job-2", kind: "bash", label: "watch tail.log", status: "running", startedAt: 2000 },
 	],
 	"R-01-023/AC-01 条目携带在跑任务视图：仅 live 状态、startedAt 升序、已结束任务剔除",
 );
 // R-01-024 任务子卡条目：与子代理同形的缩进子卡，跟随母会话直接后继、结束即消失。
 assert.deepEqual(
-	jobbedEntries.filter((entry) => entry.kind === "job").map((entry) => [entry.id, entry.parentId, entry.depth, entry.title, entry.jobStatus]),
+	jobbedEntries.filter((entry) => entry.kind === "job").map((entry) => [entry.id, entry.parentId, entry.depth, entry.title, entry.jobKind, entry.jobStatus]),
 	[
-		["job:jA:job-1", "jA", 1, "sync data", "stopping"],
-		["job:jA:job-2", "jA", 1, "watch tail.log", "running"],
+		["job:jA:job-1", "jA", 1, "sync data", "bash", "stopping"],
+		["job:jA:job-2", "jA", 1, "watch tail.log", "bash", "running"],
 	],
-	"R-01-024/AC-01 每个在跑后台任务产出一张 job 子卡（复合 id、缩进 depth+1、携带任务字段）",
+	"R-01-024/AC-01 每个在跑后台任务产出一张 job 子卡（复合 id、缩进 depth+1、携带任务字段与工具类型）",
 );
 assert.ok(jobbedEntries[1].kind === "job" && jobbedEntries[0].id === "jA", "job 子卡紧随母会话条目之后（preorder 位置）");
 assert.ok(jobbedEntries.some((entry) => entry.id === "jB"), "真实运行中会话不受任务视图影响照常显示");
@@ -3567,7 +3595,7 @@ assert.deepEqual(buildEntries(jobbedSnapshot, [], {}).find((entry) => entry.id =
 assert.deepEqual(liveJobsOf(null, "jA"), [], "jobsBySession 缺失归一为无任务");
 assert.deepEqual(liveJobsOf({}, "jA"), [], "无该会话条目归一为无任务");
 assert.deepEqual(liveJobsOf({ jA: "nope" }, "jA"), [], "非数组任务视图归一为无任务");
-assert.deepEqual(liveJobsOf({ jA: [null, "x", { id: "job-ok", label: "ok", status: "running", startedAt: 1 }] }, "jA"), [{ id: "job-ok", label: "ok", status: "running", startedAt: 1 }], "畸形任务条目剔除、合法条目保留");
+assert.deepEqual(liveJobsOf({ jA: [null, "x", { id: "job-ok", label: "ok", status: "running", startedAt: 1 }] }, "jA"), [{ id: "job-ok", kind: "", label: "ok", status: "running", startedAt: 1 }], "畸形任务条目剔除、合法条目保留（kind 缺失归一空串）");
 // R-01-023/AC-04：仅有在跑后台任务的主会话计入运行中分子（此处 jA+jB 均呈 running）。
 assert.deepEqual(
 	awaitBadgeStats(jobbedEntries),
@@ -3588,6 +3616,19 @@ const settledEntries = buildEntries(jobbedSnapshot, [], {}, jobCompletions, null
 assert.equal(settledEntries.find((entry) => entry.id === "jA")?.waitClass, "done", "R-01-023/AC-03 在跑任务全部结束后完成提醒恢复成立");
 assert.ok(!buildRecent(jobbedSnapshot, [], 999_999, {}, [], null, null, null, jobViews).some((entry) => entry.id === "jA"), "R-01-023/AC-01 在跑后台任务的主会话不入最近历史");
 assert.ok(buildRecent(jobbedSnapshot, [], 999_999, {}, [], null, null, null, settledViews).some((entry) => entry.id === "jA"), "R-01-023/AC-03 任务结束后恢复最近历史候选");
+// R-01-023/AC-05：任务卡工具名行——视图与条目携带工具类型，友好映射已知值、未知原样、不可得为空。
+assert.equal(jobbedA.liveJobs[0].kind, "bash", "R-01-023/AC-05 在跑任务视图携带工具类型");
+assert.equal(jobbedEntries.find((entry) => entry.kind === "job")?.jobKind, "bash", "R-01-023/AC-05 job 子条目携带工具类型");
+assert.deepEqual(
+	["bash", "pwsh", "subagent", "workflow", "", 42, null, undefined].map(jobKindLabel),
+	["Bash", "PowerShell", "子代理", "workflow", "", "", "", ""],
+	"R-01-023/AC-05 工具名友好映射：已知映射、未知原样、不可得为空串",
+);
+// R-01-023/AC-06：任务内容不可得——条目内容为空，渲染层整行隐藏（bundle 契约与人工验收承载 DOM 行为）。
+const emptyLabelViews = { jA: [{ id: "job-9", kind: "bash", label: "", status: "running", startedAt: 100 }] };
+const emptyLabelEntry = buildEntries(jobbedSnapshot, [], {}, null, null, [], null, emptyLabelViews).find((entry) => entry.kind === "job");
+assert.ok(emptyLabelEntry !== undefined, "R-01-023/AC-06 前置：内容不可得的在跑任务仍产出子卡");
+assert.equal(emptyLabelEntry.title, "", "R-01-023/AC-06 任务内容不可得时条目内容为空串");
 // R-01-024/AC-01：job_output 轨迹提取与配对回放（JSON 字符串与已解析参数、错误结果剔除）。
 const jobEventRecords = [
 	{ seq: 10, event: { type: "tool/call", seq: 10, data: { name: "job_output", callId: "call-1", arguments: JSON.stringify({ job_id: "job-A" }) } } },
@@ -3885,6 +3926,34 @@ assert.ok(
 	bundle.includes("function trackBoxes(run, rectOf, indentPx)") && bundle.includes("trackBoxes(run, rectOf, INDENT_PX)"),
 	"竖轨与横线几何（母会话底缘 → 末级子卡中心、逐子卡横线、统一取整）在纯函数 trackBoxes 中推导并被可执行断言钉住，渲染层只做测量与写入",
 );
+// R-01-003/AC-04（T-152）：后台任务子卡与子代理同规则上轨——kind 过滤放宽在 bundle 内可见。
+assert.ok(
+	bundle.includes('entry.kind !== "subagent" && entry.kind !== "job"'),
+	"trackRuns 的 kind 过滤同时放行子代理与后台任务子卡（R-01-003/AC-04）",
+);
+// R-01-023/AC-05：任务卡两行骨架与内容行紧凑隐藏；R-01-023/AC-07：job 卡底色与子代理卡可辨区分。
+assert.ok(
+	bundle.includes('makeEl("span", "dap-job-kind")') && bundle.includes('makeEl("div", "dap-job-content")') && bundle.includes('makeEl("span", "dap-job-label")'),
+	"任务子卡两行骨架：工具名行 + 内容行（R-01-023/AC-05）",
+);
+assert.ok(
+	bundle.includes(".dap-job-content[hidden] { display: none; }"),
+	"任务内容不可得时整行隐藏且显式覆盖 display:flex（R-01-023/AC-06）",
+);
+assert.ok(
+	bundle.includes('[data-dsh-activity-pane][data-density="compact"] .dap-card :is(') && bundle.includes(".dap-job-content"),
+	"任务内容行随紧凑档隐藏、中间档保留（R-01-023/AC-05 呈现）",
+);
+{
+	const jobBg = bundle.indexOf('[data-dsh-activity-pane] .dap-card[data-kind="job"] {');
+	const jobBgBlock = bundle.slice(jobBg, bundle.indexOf("}", jobBg));
+	const subBg = bundle.indexOf('[data-dsh-activity-pane] .dap-card[data-kind="subagent"] {');
+	const subBgBlock = bundle.slice(subBg, bundle.indexOf("}", subBg));
+	assert.ok(
+		jobBgBlock.includes("color-mix(in srgb, #65a0ff") && !subBgBlock.includes("color-mix(in srgb, #65a0ff"),
+		"任务子卡底色在子代理卡底色上轻染任务蓝、两者 CSS 值可辨区分（R-01-023/AC-07）",
+	);
+}
 assert.ok(
 	bundle.includes("rec.el.getBoundingClientRect()") && !bundle.includes("rec.el.offsetTop"),
 	"轨道测量必须用浮点矩形：offsetTop/offsetHeight 是整数舍入值，与 CSS 全精度定位的横线会随机差 1~2px",
@@ -4175,8 +4244,8 @@ assert.ok(
 	"SSE 订阅仅 acks、busy 与任务轨迹通知三条通道（C-030、C-074、R-01-024/AC-03）",
 );
 assert.ok(
-	bundle.includes("el.title = titleText"),
-	"job 子卡悬停以原生 tooltip 显示完整任务描述（R-01-024 呈现细化）",
+	bundle.includes("label.title = labelText"),
+	"job 子卡内容行悬停以原生 tooltip 显示完整任务原文（R-01-024 呈现细化、R-01-023/AC-05）",
 );
 
 // ---- R-02-003/AC-02 卸载时清理注入元素、样式与监听 ----

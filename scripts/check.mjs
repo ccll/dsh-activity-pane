@@ -3596,6 +3596,11 @@ assert.deepEqual(liveJobsOf(null, "jA"), [], "jobsBySession 缺失归一为无�
 assert.deepEqual(liveJobsOf({}, "jA"), [], "无该会话条目归一为无任务");
 assert.deepEqual(liveJobsOf({ jA: "nope" }, "jA"), [], "非数组任务视图归一为无任务");
 assert.deepEqual(liveJobsOf({ jA: [null, "x", { id: "job-ok", label: "ok", status: "running", startedAt: 1 }] }, "jA"), [{ id: "job-ok", kind: "", label: "ok", status: "running", startedAt: 1 }], "畸形任务条目剔除、合法条目保留（kind 缺失归一空串）");
+assert.deepEqual(
+	liveJobsOf({ jA: [{ id: "job-ws", kind: "bash", label: "   ", status: "running", startedAt: 1 }] }, "jA"),
+	[{ id: "job-ws", kind: "bash", label: "", status: "running", startedAt: 1 }],
+	"纯空白 label 视为任务内容不可得（R-01-023/AC-06 数据源头）",
+);
 // R-01-023/AC-04：仅有在跑后台任务的主会话计入运行中分子（此处 jA+jB 均呈 running）。
 assert.deepEqual(
 	awaitBadgeStats(jobbedEntries),
@@ -3952,6 +3957,14 @@ assert.ok(
 	assert.ok(
 		jobBgBlock.includes("color-mix(in srgb, #65a0ff") && !subBgBlock.includes("color-mix(in srgb, #65a0ff"),
 		"任务子卡底色在子代理卡底色上轻染任务蓝、两者 CSS 值可辨区分（R-01-023/AC-07）",
+	);
+	const lightJobBg = bundle.indexOf('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="job"] {');
+	const lightJobBgBlock = bundle.slice(lightJobBg, bundle.indexOf("}", lightJobBg));
+	const lightSubBg = bundle.indexOf('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="subagent"] {');
+	const lightSubBgBlock = bundle.slice(lightSubBg, bundle.indexOf("}", lightSubBg));
+	assert.ok(
+		lightJobBg !== -1 && lightJobBgBlock.includes("color-mix(in srgb, #65a0ff") && !lightSubBgBlock.includes("color-mix(in srgb, #65a0ff"),
+		"浅色主题任务子卡底色同样轻染任务蓝、与子代理卡可辨区分（R-01-023/AC-07）",
 	);
 }
 assert.ok(

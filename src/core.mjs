@@ -1872,8 +1872,8 @@ export function cardSignature(entries) {
 			// job 子卡状态翻转与秒桶（渲染期注入的任务行时长推进）同入签名。
 			entry.liveJobs ?? null,
 			entry.jobStatus ?? null,
-			// 后台任务工具名（R-01-023/AC-05）：快照推送更替驱动任务卡工具名行重绘。
-			entry.jobKind ?? null,
+			// jobKind 不入签名（R-01-023/AC-05）：同一 jobId 的工具类型由发起方定死恒定，
+			// 签名分量永不变化；任务视图整体（liveJobs，含 kind）已随推送帧入签名。
 			entry.jobsAgeSec ?? null,
 		]),
 	);
@@ -2025,7 +2025,9 @@ export function liveJobsOf(jobsBySession, id) {
 		live.push({
 			id: typeof job.id === "string" ? job.id : "",
 			kind: typeof job.kind === "string" ? job.kind : "",
-			label: typeof job.label === "string" ? job.label : "",
+			// label 纯空白视为任务内容不可得（R-01-023/AC-06 的数据源头）：不渲染空白行，
+			// 不以占位文本补位；非空白保留原文（不额外 trim，显示层忠实原文）。
+			label: typeof job.label === "string" && job.label.trim() !== "" ? job.label : "",
 			status: job.status,
 			startedAt: Number.isFinite(Number(job.startedAt)) ? Number(job.startedAt) : 0,
 		});
@@ -2035,7 +2037,9 @@ export function liveJobsOf(jobsBySession, id) {
 }
 
 /** 后台任务工具名的友好显示映射（R-01-023/AC-05）：bash→Bash、pwsh→PowerShell、
- *  subagent→子代理；未知 kind 原样显示，非字符串或空串视为不可得（返回空串）。 */
+ *  subagent→子代理；未知 kind 原样显示，非字符串或空串视为不可得（返回空串）。
+ *  与 client 渲染层 JOB_STATUS_LABELS（状态词文案）分层：本表居 core 因核心与
+ *  渲染两层共用且需 Node 单测钉住映射，状态词仅渲染层消费。 */
 const JOB_KIND_LABELS = { bash: "Bash", pwsh: "PowerShell", subagent: "子代理" };
 
 export function jobKindLabel(kind) {

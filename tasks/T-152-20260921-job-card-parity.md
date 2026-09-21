@@ -6,7 +6,7 @@ id: T-152
 
 # T-152 后台任务子卡与子代理一视同仁（连接线、两行呈现、底色区分）
 
-状态: active
+状态: completed
 关联: R-01-003（AC-04 正文修订）、R-01-023（AC-05～AC-07 新增）→ 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -80,4 +80,13 @@ id: T-152
 
 ## 终态与证据
 
-（进行中）
+- 实现: `src/core.mjs`——`liveJobsOf` 归一携带 `kind` 并把纯空白 `label` 视为任务内容不可得（空串；非空白保留原文不 trim）；新增 `jobKindLabel` 友好映射导出（bash→Bash、pwsh→PowerShell、subagent→子代理，未知原样、不可得空串）并注明与渲染层状态词表的分层理由；`buildEntries` job 子条目携带 `jobKind`；`trackRuns` kind 过滤放宽为 `subagent | job`（连接线一视同仁，JSDoc 与注释同步）。`src/client.mjs`——job 卡两行骨架（行 1 = `.dap-job-dot` + `.dap-job-kind` + `.dap-job-elapsed` 右缘；行 2 = `.dap-job-content`/`.dap-job-label` mono 省略 + 原生 tooltip）；`renderJobCardInto` 工具名映射填充、内容不可得整行隐藏、卡片级 tooltip 移除；aria-label 并入工具名；CSS 两行布局、明暗两主题底色以子代理卡底色为基 `color-mix #65a0ff 8%` 轻染、紧凑档隐藏内容行、轨道层注释同步。PRD/DESIGN/DOMAIN 同次演进（R-01-003 陈述与 AC-04 扩展、R-01-023/AC-05～07 新增、DESIGN 条目字段/trackRuns/渲染器落点/追溯索引、DOMAIN 层级连接线与后台任务术语及跟随不变量）。`scripts/check.mjs` 新增 R-01-023/AC-05～07 与 R-01-003/AC-04 断言（trackRuns job 拓扑与混合序列、kind 归一、映射、空白 label、两行骨架、紧凑隐藏、明暗轻染契约）；`scripts/acceptance.mjs` 新增 AC-05～07 人工步骤；`e2e/specs/background-jobs.mjs` 随新呈现更新并修正既有 AC-02 断言缺陷（详见测试影响表）。`.dsh-plugin/client.js` 同次重建。
+- 测试: `pnpm verify` 全量两轮通过（实现 6e4efe6 工作树与修复 9e6d394 工作树各一轮）——AgentMap lint（28 需求/173 AC 全锚定）、test impact（+AC-05/06/07、~AC-04、AC-02 update 记账）、`scripts/check.mjs` 全部断言、19/19 浏览器 E2E（415s / 411s）。单 spec background-jobs 黄金路径通过：任务子卡两行呈现、Bash 工具名映射、母会话到任务子卡连接线、「后台 ×1」数量注、输出区展开回放、完成提醒抑制、紧凑档内容行隐藏。浏览器观感项（底色区分协调性、连接线端点观感）已登记 `scripts/acceptance.mjs` 人工步骤，待东家验收；断言修正前的失败截图留存了新呈现的真实浏览器现场（蓝调卡面、两行结构、输出回放均正确）。
+- DESIGN 对照: PRD R-01-003/AC-04 与 R-01-023/AC-05～07 逐条对应实现与测试锚点；DESIGN 条目字段（`liveJobs` 携带 kind、job 子条目 jobKind）、trackRuns 放宽、两行呈现与底色轻染、密度档位、「jobKind 不入签名」说明与实现无差异；DOMAIN 层级连接线/后台任务术语与跟随不变量同步；无残留差异。
+- commit: 6e4efe6 实现与 map 演进；9e6d394 双轴审核修复（签名冗余、label 边界、浅色契约与 task 补记）
+- review:
+  - 审核方: code-review skill（Standards/Spec 双轴并行独立 reviewer 子代理，fixed point = 6e4efe6 vs a11b7c0；修复复审由两轴原审核方分别复核修复 hunks）
+  - 目的理解: 把后台任务子卡升格为与子代理同等的直属子级——连接线同规则绘制、两行呈现工具名与任务内容原文、卡面底色可辨区分；约束——零 host 侧改动（数据已在快照 `SessionJob`）、不重排既有 job 子卡位置语义、不冒充回合运行、bundle 契约与全量回归证明行为；验证方式 = check.mjs 新锚点 + background-jobs E2E 更新 + 全量 verify。
+  - 执行方式: code-review skill 双轴评审（Standards 轴对照 AGENTS 工程原则 + CONVENTIONS + Fowler 基线；Spec 轴对照 T-152 收敛方案 + PRD R-01-003/R-01-023 相关 AC + DESIGN 落点），两轴独立并行后各自复审修复 hunks。
+  - 问题与修复: ①【Standards·判断】cardSignature jobKind 分量属投机泛化（kind 恒定、注释理由不成立）→ 删除分量，注释与 DESIGN 同步；②【Standards·苗头】job 文案映射 core/client 分裂 → JSDoc 注明分层理由 + TODO 聚拢评估；③【Standards·判断】DESIGN「活动卡片集合」bullet 超长平铺 → 豁免记 TODO（沿 T-149 先例、聚焦修改）；④【Standards·判断】E2E 3s 固定观察窗 → 豁免保留（「等待不发生」无正条件可轮询，沿 mobile-resume 先例，task 注明）；⑤【Spec·低】E2E AC-02 断言重写未记 task → 测试影响表补记（含对照实验：HEAD 同断言失败，属既有「已完成」子串误报缺陷、非本次回归）；⑥【Spec·低】AC-07 浅色主题无 bundle 断言 → 补浅色块轻染断言（含 `lightJobBg !== -1` 防御）；⑦【Spec·低】纯空白 label 渲染空行 → `liveJobsOf` 归一空串 + 断言 + DESIGN 同步。
+  - 复审结论: 两轴复审均通过，确认处置到位、无新阻断问题。残余风险与测试缺口：jobKind 恒定假设依赖宿主快照携带 kind——极端时序下 kind 由缺失转出现时 job 子卡不因工具名单独重绘（概率低，任务视图整体签名随下次推送帧兜底刷新）；`lightSubBg` 反向断言无 `!== -1` 防护（与暗色侧同弱法，正向断言已钉主面）；底色与连接线端点观感待东家按 acceptance 步骤验收；E2E 暂未覆盖「job 与子代理并存」的双子级场景（拓扑由 check.mjs 纯函数断言钉住）。

@@ -33,6 +33,7 @@ owner: agent 主笔，项目属主审批
 - 每次 agent 工作完成运行 `pnpm verify`；编辑循环可先运行约 5 秒的 `pnpm verify:fast`。`pnpm check` 会从工作树重建 `.dsh-plugin/client.js`，提交时必须一并暂存；pre-commit 另以 Git index 内容校验 staged source/build script/bundle 完全一致。
 - PRD 的 AC 新增或正文修改必须在同次变更中触碰含该 exact AC-ID 的自动测试或人工验收证据；仅措辞澄清可由同次修改的 active task 在「测试影响」表以 `none` 动作和具体理由豁免。SOLUTION（方案层）变化必须由同次修改的 active task 记录 `DESIGN` 或 `SOLUTION` 测试影响行。门禁只强制重新审视证据，不自动生成、改写或删除测试（C-059）。
 - 测试证据按路径分类报告：`scripts/check.mjs` 为 unit/contract，`e2e/specs/*.mjs` 为 browser E2E，`scripts/acceptance.mjs` 为 manual；`test-anchored` 只表示 AC-ID 锚点闭合，不等同于浏览器覆盖率。
+- 达标类性能收敛（不改变可观察行为、消除已确认重绘/耗电源）按 map 不变短路处理，不增设机制类 PRD 承诺；量化守恒由移动端热静默 E2E 的 rAF 请求次数阈值断言承载，task 终态须记录与该门禁的对照关系（C-082）。
 - `.d/` hook 统一使用 `NN-name.sh`，两位编号在同一目录内唯一；dispatcher 以 `LC_ALL=C` 按文件名顺序执行并在首个失败处停止。
 - `.githooks/pre-push`：先对 outgoing commits 重放 `.githooks/commit-msg`，再执行 `pre-push.d/`。
 - 快速验证入口: `pnpm verify:fast`（AgentMap lint + 测试影响检查器 self-test/report + core 单测与 client bundle 契约）。

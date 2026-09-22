@@ -96,7 +96,6 @@ import {
 	openSession,
 	scrollCardIntoView,
 	shouldDismissDrawerOnActivation,
-	activationTarget,
 	suppressComposerAutofocus,
 } from "../src/navigation.mjs";
 
@@ -128,29 +127,6 @@ assert.equal(
 	false,
 	"sessions.open 失败时交给调用方进入 refresh/retry",
 );
-
-// ---- R-01-005/AC-03 job 子卡激活目标解析：job 复合 id 以归属会话 id 发起跳转 ----
-assert.equal(
-	activationTarget({ kind: "job", sessionId: "job:s1:job-1", jobOwner: "s1" }),
-	"s1",
-	"job 子卡激活目标解析为归属主会话 id（job 复合 id 非会话 id，R-01-005/AC-03）",
-);
-assert.equal(
-	activationTarget({ kind: "job", sessionId: "job:s1:job-1", jobOwner: "" }),
-	null,
-	"job 子卡归属缺失时返回 null（R-01-005/AC-03）——不把复合 id 误当会话发起跳转",
-);
-assert.equal(
-	activationTarget({ kind: "job", sessionId: "job:s1:job-1" }),
-	null,
-	"jobOwner 字段缺失同样返回 null（R-01-005/AC-03）",
-);
-assert.equal(
-	activationTarget({ kind: "subagent", sessionId: "s9", jobOwner: "s1" }),
-	"s9",
-	"非 job 卡片激活目标原样返回，不吞 jobOwner",
-);
-assert.equal(activationTarget({}), null, "无 sessionId 时返回 null（调用方空值判定不发起跳转）");
 
 // ---- R-01-006/AC-02 当前卡片最小滚动：只调整越界方向，不居中 ----
 const viewport = { top: 10, bottom: 110 };
@@ -4243,8 +4219,8 @@ assert.ok(
 	"job 子卡内容行悬停以原生 tooltip 显示完整任务原文（R-01-023/AC-05）",
 );
 assert.ok(
-	bundle.includes("activationTarget({ kind: el.dataset.kind, sessionId, jobOwner: el.dataset.jobOwner })"),
-	"job 子卡激活以卡上归属会话 id 发起跳转（R-01-005/AC-03）",
+	bundle.includes("后台任务子卡为纯展示（R-01-023/AC-08）") && !bundle.includes("activationTarget"),
+	"job 子卡为纯展示：不绑激活监听，激活目标解析已随跳转语义删除（R-01-023/AC-08）",
 );
 
 // ---- R-02-003/AC-02 卸载时清理注入元素、样式与监听 ----

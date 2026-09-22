@@ -2635,17 +2635,6 @@ function bindCardActivation(card, open) {
 }
 
 /**
- * 解析卡片激活的跳转目标（R-01-005/AC-03）：后台任务子卡以 job 复合 id 呈现，
- * 非会话 id——激活以卡上归属主会话 id（data-job-owner）为目标；归属缺失/为空返回
- * null（调用方空值判定兜住，不把复合 id 误当会话目标发起跳转）。其它卡片原样返回，
- * 无 sessionId 时同样返回 null。纯函数，无 DOM 假设。
- */
-function activationTarget({ kind, sessionId, jobOwner } = {}) {
-	if (kind === "job") return typeof jobOwner === "string" && jobOwner !== "" ? jobOwner : null;
-	return typeof sessionId === "string" ? sessionId : null;
-}
-
-/**
  * 判定卡片激活是否转为收起移动端抽屉（R-01-008/AC-06）：移动断点内抽屉打开、
  * 且激活目标已是当前会话时，激活不再发起切换（避免无意义 open 与重试链），
  * 改为收起抽屉直达会话。纯函数，无 DOM 假设。
@@ -3479,12 +3468,17 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 [data-dsh-activity-pane] .dap-jobs-chip[hidden] { display: none; }
 /* 后台任务子卡（R-01-023/AC-05、AC-07）：与子代理卡同构的两行卡面，底色在子代理卡
-   底色上轻染任务状态点同族的蓝以相互可辨；状态点色随任务状态翻转。 */
+   底色上轻染任务状态点同族的蓝以相互可辨；状态点色随任务状态翻转。
+   子卡为纯展示（R-01-023/AC-08）：默认光标，悬停不提供可点反馈。 */
 [data-dsh-activity-pane] .dap-card[data-kind="job"] {
   padding: 6px 10px;
   border-radius: 12px;
   background: color-mix(in srgb, #65a0ff 8%, rgba(25, 27, 32, 0.95));
-  cursor: pointer;
+  cursor: default;
+}
+[data-dsh-activity-pane] .dap-card[data-kind="job"]:hover {
+  border-color: rgba(255, 255, 255, 0.13);
+  filter: none;
 }
 /* 任务卡行 1（R-01-023/AC-05）：状态点 + 工具名称 + 右缘随时钟时长；工具名不可得时
    文本段隐藏，仅保留状态点与时长。 */
@@ -3824,6 +3818,11 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="sub
 /* 后台任务子卡浅色主题与子代理卡同源（R-01-023）：淡侧栏填充底，轻染同族蓝与子代理卡区分（R-01-023/AC-07）。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="job"] {
   background: color-mix(in srgb, #65a0ff 8%, var(--dsw-specific-sidebar-fill, rgb(249, 250, 251)));
+}
+/* 纯展示子卡（R-01-023/AC-08）：浅色主题同样不提供悬停反馈（回归基态描边）。 */
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="job"]:hover {
+  border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
+  filter: none;
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="recent"] {
   /* 暗于活动卡的 --dsw-alias-bg-layer-2 纯白、深于窗格底色（R-01-013/AC-10、AC-11）。 */
@@ -5759,8 +5758,8 @@ function apply(ctx) {
 	}
 
 	/** 后台任务子卡渲染（R-01-023/AC-01、AC-05）：状态点着色、标题与随时钟推进的
-	 *  已运行时长；卡上归属会话 id 供激活跳转消费。任务消失由条目派生侧收卡（随
-	 *  liveJobs 清空整个条目消失），此处只呈现当帧状态。 */
+	 *  已运行时长。任务消失由条目派生侧收卡（随 liveJobs 清空整个条目消失），
+	 *  此处只呈现当帧状态。 */
 	function renderJobCardInto(el, entry) {
 		const dot = el.querySelector(".dap-job-dot");
 		if (dot !== null && dot.dataset.status !== entry.jobStatus) dot.dataset.status = entry.jobStatus;
@@ -5795,7 +5794,6 @@ function apply(ctx) {
 					: "";
 			if (elapsed.textContent !== elapsedText) elapsed.textContent = elapsedText;
 		}
-		if (el.dataset.jobOwner !== String(entry.parentId)) el.dataset.jobOwner = String(entry.parentId);
 	}
 
 	function renderCardInto(el, entry, colorByWorkspace) {
@@ -6270,32 +6268,33 @@ function apply(ctx) {
 		if (rec === undefined) {
 			const el = document.createElement("div");
 			el.className = CARD_CLASS;
-			const unbind = bindCardActivation(el, (sessionId) => {
-				// job 复合 id 非会话 id：后台任务子卡激活解析为归属主会话后走通用跳转链
-				//（R-01-005/AC-03）；归属缺失时不发起跳转。
-				const target = activationTarget({ kind: el.dataset.kind, sessionId, jobOwner: el.dataset.jobOwner });
-				if (target === null) return;
-				if (typeof sessions?.open !== "function") return;
-				lastActivatedId = target;
-				// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标；
-				// 收起抽屉的分支同样是最新意图，必须先取消挂起链条再 return。
-				cancelStaleOpenRetries({ activatedId: target });
-				// 二次激活当前会话卡片：移动断点抽屉打开时收起抽屉直达会话
-				//（R-01-008/AC-06），不发起会话切换。
-				if (
-					shouldDismissDrawerOnActivation({
-						targetId: target,
-						currentId: getSnapshot(sessions, "list")?.current ?? null,
-						mobile: window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`).matches,
-						drawerOpen:
-							document.querySelector(`[${PANE_ATTR}]`)?.getAttribute("data-open") === "true",
-					})
-				) {
-					togglePane(false);
-					return;
-				}
-				attemptOpen(target, 0);
-			});
+			// 后台任务子卡为纯展示（R-01-023/AC-08）：不绑激活监听，job 复合 id 亦非会话
+			// id，不存在可跳转目标。
+			const unbind =
+				entry.kind === "job"
+					? null
+					: bindCardActivation(el, (sessionId) => {
+							if (typeof sessions?.open !== "function") return;
+							lastActivatedId = sessionId;
+							// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标；
+							// 收起抽屉的分支同样是最新意图，必须先取消挂起链条再 return。
+							cancelStaleOpenRetries({ activatedId: sessionId });
+							// 二次激活当前会话卡片：移动断点抽屉打开时收起抽屉直达会话
+							//（R-01-008/AC-06），不发起会话切换。
+							if (
+								shouldDismissDrawerOnActivation({
+									targetId: sessionId,
+									currentId: getSnapshot(sessions, "list")?.current ?? null,
+									mobile: window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`).matches,
+									drawerOpen:
+										document.querySelector(`[${PANE_ATTR}]`)?.getAttribute("data-open") === "true",
+								})
+							) {
+								togglePane(false);
+								return;
+							}
+							attemptOpen(sessionId, 0);
+						});
 			rec = { el, kind: null, unbind };
 			reuseMap.set(entry.id, rec);
 		}
@@ -6303,8 +6302,14 @@ function apply(ctx) {
 			rec.el.dataset.kind = entry.kind;
 			rec.el.dataset.sessionId = entry.id;
 			rec.el.dataset.depth = String(entry.depth ?? 0);
-			rec.el.setAttribute("role", "button");
-			rec.el.tabIndex = 0;
+			// 纯展示子卡（R-01-023/AC-08）不进入按钮语义与 tab 序。
+			if (entry.kind === "job") {
+				rec.el.removeAttribute("role");
+				rec.el.removeAttribute("tabindex");
+			} else {
+				rec.el.setAttribute("role", "button");
+				rec.el.tabIndex = 0;
+			}
 			rec.el.replaceChildren(...cardChildren(entry.kind));
 			rec.kind = entry.kind;
 		}

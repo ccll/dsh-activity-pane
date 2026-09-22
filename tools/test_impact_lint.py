@@ -192,8 +192,10 @@ def evaluate(root, base, target, report=False):
     prd_changed = "PRD.md" in changed
     if prd_changed and not (added or modified or deleted) and not row_covers(rows, "PRD"):
         errors.append("PRD.md changed without AC diff; changed active task must explain PRD test impact")
-    if "DESIGN.md" in changed and not row_covers(rows, "DESIGN"):
-        errors.append("DESIGN.md changed without a DESIGN row in a changed active task 测试影响 table")
+    if ("SOLUTION.md" in changed or "DESIGN.md" in changed) and not (
+        row_covers(rows, "SOLUTION") or row_covers(rows, "DESIGN")
+    ):
+        errors.append("DESIGN.md/SOLUTION.md changed without a DESIGN row in a changed active task 测试影响 table")
 
     if report:
         print(
@@ -323,6 +325,19 @@ def self_test():
         task.write_text(
             "状态: active\n\n## 测试影响\n\n| 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |\n"
             "|---|---|---|---|---|\n| DESIGN | docs | UNIT | none | behavior unchanged |\n",
+            encoding="utf-8",
+        )
+        assert not evaluate(root, "HEAD", "working")
+        reset()
+
+        solution = root / "SOLUTION.md"
+        solution.write_text("# SOLUTION\nchanged\n", encoding="utf-8")
+        assert any("SOLUTION.md" in error for error in evaluate(root, "HEAD", "working"))
+        (root / "tasks").mkdir(exist_ok=True)
+        task = root / "tasks/T-001-test.md"
+        task.write_text(
+            "状态: active\n\n## 测试影响\n\n| 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |\n"
+            "|---|---|---|---|---|\n| SOLUTION | docs | UNIT | none | behavior unchanged |\n",
             encoding="utf-8",
         )
         assert not evaluate(root, "HEAD", "working")

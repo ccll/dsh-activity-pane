@@ -42,7 +42,7 @@ owner: agent 主笔，项目属主审批
 |---|---|---|
 | 边界与契约已明确 | 通过 | SOLUTION.md#边界与对外契约 |
 | 关键不变量已明确 | 通过 | SOLUTION.md#核心数据与不变量 |
-| 重大设计选择已收敛 | 通过 | C-028、C-030 等已记入 DECISIONS.md |
+| 重大方案选择已收敛 | 通过 | C-028、C-030 等已记入 RATIONALE.md |
 | 目标实现归属已明确 | 通过 | SOLUTION.md#子系统与模块 |
 | 现状差距已有 task 承接 | 通过 | 运行卡向 answer-pet 富化（摘要/token/速率/进度/流程节点）由 T-002 承接（见 tasks/），已授权的目标差距 |
 | 可派生验证 | 通过 | CONVENTIONS.md#验证门禁 |
@@ -391,7 +391,7 @@ flowchart LR
   - 可控加载接缝：仅当页面 URL fragment 显式携带参数时启用且单项上限 1s；`dap-e2e-list-delay` 把首次非错误列表快照在渲染边界内短暂投影为 pending，到期只触发同一 `queueSync`；`dap-e2e-model-delay` 仅跳过 model directory 的抢先初值并延迟正式 native models RPC，不伪造 response。默认 URL 为零分支，不修改宿主 sessions、真实快照或页面连接世代。`loading-ready.mjs` 以 MutationObserver 证明列表 loading 帧实际提交及真实 slow 卡标题/时间线先呈现、model detail 后补齐。
   - 驱动：Playwright 经真实 composer UI 发起会话，断言窗格可观察行为；不断言内部 DOM 结构，结构断言仅限宿主槽座、可访问角色与列表状态等显式契约边界。
   - 失败语义：每个 spec 只建立一个 Chromium context、一个页面连接世代并观察 6s；普通断言、列表超时与明确列表失败均立即计为回归，不 reload、不换环境重试。列表 `pending/error → ready` 参与卡片渲染签名，空卡集合也会提交状态转换，避免签名短路把 DOM 冻结在「加载中」/「列表加载失败」；失败保存 screenshot 与服务端 stderr 尾部（C-058，废弃 C-053/C-055 的 sessions 专用恢复）。
-  - 测试影响门禁：项目级 `tools/test_impact_lint.py` 比较 Git 基线与 working tree、index 或 outgoing commit 的 PRD AC 正文与 DESIGN 变化；AC 新增/修改必须触碰含 exact AC-ID 的 unit/E2E/manual 证据，或由同次变化的 active task 记录 `none` 理由；DESIGN 变化必须有同次 active task 的 `DESIGN` 测试影响行。检查器分别报告 unit、E2E 与 manual 锚定数，只证明证据被重新审视，不替代断言充分性审核，也不自动生成测试（C-059）。
+  - 测试影响门禁：项目级 `tools/test_impact_lint.py` 比较 Git 基线与 working tree、index 或 outgoing commit 的 PRD AC 正文与 SOLUTION 变化；AC 新增/修改必须触碰含 exact AC-ID 的 unit/E2E/manual 证据，或由同次变化的 active task 记录 `none` 理由；SOLUTION（方案层，兼容旧名 DESIGN.md）变化必须有同次 active task 的 `DESIGN` 或 `SOLUTION` 测试影响行。检查器分别报告 unit、E2E 与 manual 锚定数，只证明证据被重新审视，不替代断言充分性审核，也不自动生成测试（C-059）。
   - staged 产物门禁：`scripts/check-staged-client.mjs` 把 Git index 中的 staged builder、core、navigation 与 client source 写入临时目录，执行 staged builder 生成期望 bundle，再与 staged `.dsh-plugin/client.js` 按字节比较；未暂存工作树不参与判定，hook 不改 index。日常 `pnpm check` 仍从工作树重建 bundle，服务开发与 HMR。
   - 门禁归属：`pnpm verify:fast` 为快速入口（AgentMap + 测试影响 self-test/report + core/bundle），`pnpm verify` 为完整入口；agent 任务结束与 `.githooks/pre-push.d/` 重放完整入口，pre-commit 依次验证 AgentMap、staged 测试影响、工作树单测与 staged bundle。本地 pre-push 负责推送前权威阻断；C-060 在手工 hosted 诊断绿色后恢复 `.github/workflows/ci.yml` 的 main push 自动 `pnpm verify`，作为推送后 clean-runner 独立裁决，并保留 `workflow_dispatch`。workflow 继续锁定 rc.7 registry 截止、Node/pnpm/Playwright、完整历史 checkout、缓存与失败截图；PR/tag 不触发，Release 继续由人基于已通过本地与 main hosted 门禁的 commit 创建。
 - 代码位置: e2e/、package.json、.githooks/、.github/workflows/ci.yml

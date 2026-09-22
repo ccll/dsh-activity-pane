@@ -4219,8 +4219,10 @@ assert.ok(
 	"job 子卡内容行悬停以原生 tooltip 显示完整任务原文（R-01-023/AC-05）",
 );
 assert.ok(
-	bundle.includes("后台任务子卡为纯展示（R-01-023/AC-08）") && !bundle.includes("activationTarget"),
-	"job 子卡为纯展示：不绑激活监听，激活目标解析已随跳转语义删除（R-01-023/AC-08）",
+	bundle.includes('entry.kind === "job" ? null : bindCardActivation(el, (sessionId) => {')
+		&& bundle.includes('rec.el.removeAttribute("role")')
+		&& !bundle.includes("activationTarget"),
+	"job 子卡为纯展示：不绑激活监听、不设按钮语义与 tab 序（R-01-023/AC-08）",
 );
 
 // ---- R-02-003/AC-02 卸载时清理注入元素、样式与监听 ----

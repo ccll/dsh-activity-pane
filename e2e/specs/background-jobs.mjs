@@ -84,9 +84,14 @@ export default async function backgroundJobs({ page, url, assert }) {
 	await page.evaluate(() => document.querySelector('[data-dsh-activity-pane] .dap-density')?.click());
 
 	// R-01-023/AC-08：后台任务子卡为纯展示——切到新会话后点击 job 子卡，不发生会话
-	// 切换（任务在跑期间归属会话保留在活动区，job 子卡跨会话可见）。
+	// 切换（任务在跑期间归属会话保留在活动区，job 子卡跨会话可见）。子卡无激活绑定，
+	// 不存在重试链等延迟路径，1.5s 窗口覆盖事件派发已足够；另以结构断言钉住非按钮语义。
 	await newSessionWithMessage(page, "e2e:fast 会话切换探针");
 	assert.ok(await mainAreaHas(page, "e2e:fast 会话切换探针"), "前置：已切换到新会话");
+	const jobRole = await page.evaluate(() =>
+		document.querySelector('[data-dsh-activity-pane] .dap-card[data-kind="job"]')?.getAttribute("role") ?? null
+	);
+	assert.equal(jobRole, null, "job 子卡不承载按钮语义（R-01-023/AC-08）");
 	await page.evaluate(() => document.querySelector('[data-dsh-activity-pane] .dap-card[data-kind="job"]')?.click());
 	await page.waitForTimeout(1500);
 	assert.ok(await mainAreaHas(page, "e2e:fast 会话切换探针"), "点击后台任务子卡不切换会话（R-01-023/AC-08）");

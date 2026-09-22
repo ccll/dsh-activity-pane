@@ -32,12 +32,33 @@ subprocess.run = _utf8_run  # type: ignore[assignment]
 
 SYSTEM_FILES = {
     "PRD.md": ("prd", "living", "R"),
-    "DESIGN.md": ("design", "living", None),
+    "SOLUTION.md": ("solution", "living", None),
     "DOMAIN.md": ("domain", "living", None),
-    "DECISIONS.md": ("decisions", "append-only", "C"),
+    "RATIONALE.md": ("rationale", "append-only", "C"),
     "TODO.md": ("todo", "inbox", None),
     "CONVENTIONS.md": ("conventions", "living", None),
 }
+# Legacy installs keep pre-rename map filenames (DESIGN.md/DECISIONS.md) and
+# pre-rename vocabulary until bootstrap --migrate-legacy-maps rewrites them.
+LEGACY_MAP_FILES = {
+    "SOLUTION.md": ("DESIGN.md", "design"),
+    "RATIONALE.md": ("DECISIONS.md", "decisions"),
+}
+APPEND_ONLY_FILES = ("RATIONALE.md", "DECISIONS.md")
+LEGACY_DETAIL_TITLES = ("方案细化清单", "设计细化清单")
+LEGACY_READINESS_NAMES = {"重大设计选择已收敛": "重大方案选择已收敛"}
+IMPLEMENTATION_EVIDENCE_RE = re.compile(
+    r"(?:\b(?:src|tests?|tasks)/|\b[0-9a-f]{7,40}\b|`[^`]+\.(?:py|rs|go|js|ts|java|kt|rb|sh)`)",
+    re.IGNORECASE,
+)
+# Decision entries may reference tasks via T-ID and may name tasks/ as workflow
+# vocabulary (the audit chain), so only src/tests paths, hashes, and code-file
+# references count as implementation evidence there. Checked against newly
+# appended entries only; historical entries are immutable and grandfathered.
+DECISION_EVIDENCE_RE = re.compile(
+    r"(?:\b(?:src|tests?)/|\b[0-9a-f]{7,40}\b|`[^`]+\.(?:py|rs|go|js|ts|java|kt|rb|sh)`)",
+    re.IGNORECASE,
+)
 MUTATIONS = {"living", "append-only", "inbox", "lifecycle"}
 TERMINAL_STATES = {"completed", "abandoned", "superseded"}
 TASK_NAME_RE = re.compile(r"^(T-\d{3})-\d{8}-.+\.md$")
@@ -54,7 +75,7 @@ AC_ID_RE = re.compile(r"\bR-\d{2}-\d{3}/AC-\d{2}\b")
 C_ID_RE = re.compile(r"\bC-\d{3}[A-Z]?\b")
 R_RANGE_RE = re.compile(r"R-(\d{2})-(\d{3})\s*[～~-]\s*(?:R-(\d{2})-)?(\d{3})")
 REQUIREMENT_GROUP_RE = re.compile(r"^-\s*需求组\s+(\d{2})\s*[:：]\s*(\S.*?)\s*$", re.MULTILINE)
-DESIGN_VIEW_RULES = {
+SOLUTION_VIEW_RULES = {
     "系统上下文": ("系统上下文图", r"(?:flowchart|graph|C4Context)\b", "context diagram", True),
     "一级静态分解": (
         "一级静态分解图",
@@ -76,7 +97,7 @@ DESIGN_VIEW_RULES = {
     "分层与依赖": ("分层与依赖图", r"(?:flowchart|graph)\b", "layer or dependency diagram", False),
     "系统景观": ("系统景观图", r"(?:flowchart|graph|C4Context)\b", "system landscape diagram", False),
 }
-DESIGN_DETAIL_RULES = {
+SOLUTION_DETAIL_RULES = {
     "边界与对外契约": True,
     "核心数据与不变量": True,
     "状态与生命周期": False,
@@ -91,7 +112,7 @@ DESIGN_DETAIL_RULES = {
 READINESS_RULES = {
     "边界与契约已明确": False,
     "关键不变量已明确": False,
-    "重大设计选择已收敛": True,
+    "重大方案选择已收敛": True,
     "目标实现归属已明确": False,
     "现状差距已有 task 承接": True,
     "可派生验证": False,
@@ -106,7 +127,7 @@ AC_LINE_RE = re.compile(
 )
 REQUIRED_VERIFICATION_DIMENSIONS = {"成功", "异常", "边界配置", "副作用"}
 TODO_ENTRY_RE = re.compile(r"^- \[(?:需求候选|缺陷线索|性能想法|安全想法|维护想法)\] \S")
-TEST_SUFFIXES = {
+CODE_SUFFIXES = {
     ".cs",
     ".ex",
     ".exs",
@@ -145,13 +166,13 @@ IGNORED_PARTS = {
     "tmp",
 }
 CANONICAL_FILES_SHA256 = {
-    "AGENTS.md": "379f11445d7dc110535be8e9e0db19da9f7788fcfb39d76ee980094d2d1f13e1",
+    "AGENTS.md": "f147014436b5f7548e70dd176e1ce4bb7ea02b8d80a80b5c3d998e13850b13c4",
     ".githooks/commit-msg": "8e2d1dd49ab9fd71e8bb3b87fe5786c0ea0314327e58558b518499541e75a51d",
     ".githooks/pre-commit": "83cfb74e7792ed1cf1264105941249d06a37872455faf83297220eb4268325fa",
     ".githooks/pre-push": "c85da06d5f5423959656195835bb570912839e9e65483d3cc20bf096aea9cd4c",
     ".githooks/pre-commit.d/20-agentmap-lint.sh": "95c7df8021cceb8b357c7ea4edafbb2559ddd4179527327f5197ae851d9aa9c4",
     ".githooks/pre-push.d/20-agentmap-lint.sh": "8151ed2cccbb2077f5fafc0a784269fa89815e1a173845c0de90b8563fee6f7d",
-    "tools/agentmap_validate_commit_msg.py": "07b7458a3cd904464b7157b68664fb54aea1dad8d19a4f54d6fb7b7f962a7079",
+    "tools/agentmap_validate_commit_msg.py": "c82459264158781832739346af9a89fbc825b5b1cc8d7d77236ceba7bf11b9cc",
 }
 HOOK_NAME_PATTERN = re.compile(r"^(?P<order>[0-9]{2})-[a-z0-9][a-z0-9-]*\.sh$")
 
@@ -162,7 +183,8 @@ class Result:
     warnings: list[str] = field(default_factory=list)
     requirements: set[str] = field(default_factory=set)
     acceptance_criteria: set[str] = field(default_factory=set)
-    design_covered: set[str] = field(default_factory=set)
+    solution_covered: set[str] = field(default_factory=set)
+    decision_ids: set[str] = field(default_factory=set)
     test_anchored: set[str] = field(default_factory=set)
     test_anchored_acceptance_criteria: set[str] = field(default_factory=set)
     goals: set[str] = field(default_factory=set)
@@ -225,7 +247,7 @@ def expand_requirement_ids(text: str) -> set[str]:
     return ids
 
 
-def design_modules(text: str) -> dict[str, str]:
+def solution_modules(text: str) -> dict[str, str]:
     match = re.search(r"^## 子系统与模块\s*$", text, re.MULTILINE)
     if not match:
         return {}
@@ -239,7 +261,7 @@ def design_modules(text: str) -> dict[str, str]:
     }
 
 
-def design_trace_body(text: str) -> str | None:
+def solution_trace_body(text: str) -> str | None:
     match = re.search(r"^## 需求追溯索引\s*$", text, re.MULTILINE)
     if not match:
         return None
@@ -255,7 +277,40 @@ def document_section_body(text: str, title: str) -> str | None:
     return text[match.end() : match.end() + end.start() if end else len(text)]
 
 
-def design_trace_rows(body: str | None) -> list[tuple[str, str, str, str]]:
+def document_section_body_any(text: str, titles: tuple[str, ...]) -> str | None:
+    for title in titles:
+        body = document_section_body(text, title)
+        if body is not None:
+            return body
+    return None
+
+
+def resolve_map_file(root: Path, canonical: str) -> Path | None:
+    path = root / canonical
+    if path.exists():
+        return path
+    legacy = LEGACY_MAP_FILES.get(canonical)
+    if legacy and (root / legacy[0]).exists():
+        return root / legacy[0]
+    return None
+
+
+def decision_entries(text: str) -> str:
+    """Decision entries start at the first C-heading; the file header stays renameable."""
+    match = C_HEADING_RE.search(text)
+    return text[match.start() :] if match else ""
+
+
+def head_decision_text(root: Path) -> str:
+    """Decision log text at HEAD, resolving the legacy filename for in-flight migrations."""
+    return (
+        git_head_text(root, Path("RATIONALE.md"))
+        or git_head_text(root, Path("DECISIONS.md"))
+        or ""
+    )
+
+
+def solution_trace_rows(body: str | None) -> list[tuple[str, str, str, str]]:
     if body is None:
         return []
     row_re = re.compile(
@@ -265,7 +320,7 @@ def design_trace_rows(body: str | None) -> list[tuple[str, str, str, str]]:
     return [tuple(cell.strip() for cell in row) for row in row_re.findall(body)]
 
 
-def design_view_body(text: str, title: str) -> str | None:
+def solution_view_body(text: str, title: str) -> str | None:
     match = re.search(rf"^###\s+{re.escape(title)}\s*$", text, re.MULTILINE)
     if not match:
         return None
@@ -285,7 +340,7 @@ def has_compact_table(body: str) -> bool:
     return len(rows) >= 3 and bool(re.fullmatch(r"\|?[\s:|-]+\|?", rows[1]))
 
 
-def design_table_rows(body: str | None, first_header: str) -> list[tuple[str, str, str]]:
+def solution_table_rows(body: str | None, first_header: str) -> list[tuple[str, str, str]]:
     if body is None:
         return []
     rows = re.findall(
@@ -303,19 +358,19 @@ def design_table_rows(body: str | None, first_header: str) -> list[tuple[str, st
 def check_markdown_locator(root: Path, result: Result, owner: str, locator: str) -> None:
     match = re.fullmatch(r"([^#]+\.md)#(.+)", locator.strip().strip("`"))
     if not match:
-        result.errors.append(f"{owner}: invalid design locator {locator}, expect path.md#heading")
+        result.errors.append(f"{owner}: invalid solution locator {locator}, expect path.md#heading")
         return
     relative, heading = Path(match.group(1)), match.group(2).strip()
     if relative.is_absolute() or ".." in relative.parts:
-        result.errors.append(f"{owner}: unsafe design locator {locator}")
+        result.errors.append(f"{owner}: unsafe solution locator {locator}")
         return
     target = root / relative
     if not target.is_file():
-        result.errors.append(f"{owner}: missing design locator file {relative.as_posix()}")
+        result.errors.append(f"{owner}: missing solution locator file {relative.as_posix()}")
         return
     text = target.read_text(encoding="utf-8")
     if not re.search(rf"^#{{1,6}}\s+{re.escape(heading)}\s*$", text, re.MULTILINE):
-        result.errors.append(f"{owner}: missing design locator heading {locator}")
+        result.errors.append(f"{owner}: missing solution locator heading {locator}")
 
 
 def check_locator_list(root: Path, result: Result, owner: str, value: str) -> bool:
@@ -327,121 +382,125 @@ def check_locator_list(root: Path, result: Result, owner: str, value: str) -> bo
     return True
 
 
-def check_design_views(design: str, result: Result) -> None:
-    catalog = document_section_body(design, "架构视图清单")
+def check_solution_views(solution: str, result: Result) -> None:
+    catalog = document_section_body(solution, "架构视图清单")
     if catalog is None:
-        result.errors.append("DESIGN.md: missing 架构视图清单")
+        result.errors.append("SOLUTION.md: missing 架构视图清单")
         return
     if not re.search(r"^\| 视图 \| 适用性/理由 \| 图表位置 \|$", catalog, re.MULTILINE):
-        result.errors.append("DESIGN.md: 架构视图清单 must use 视图 | 适用性/理由 | 图表位置 header")
-    rows = design_table_rows(catalog, "视图")
+        result.errors.append("SOLUTION.md: 架构视图清单 must use 视图 | 适用性/理由 | 图表位置 header")
+    rows = solution_table_rows(catalog, "视图")
     names = [name for name, _applicability, _location in rows]
     for name in sorted(duplicate_ids(names)):
-        result.errors.append(f"DESIGN.md: duplicate architecture view {name}")
-    for name in sorted(set(names) - set(DESIGN_VIEW_RULES)):
-        result.errors.append(f"DESIGN.md: unknown architecture view {name}")
+        result.errors.append(f"SOLUTION.md: duplicate architecture view {name}")
+    for name in sorted(set(names) - set(SOLUTION_VIEW_RULES)):
+        result.errors.append(f"SOLUTION.md: unknown architecture view {name}")
     by_name = {name: (applicability, location) for name, applicability, location in rows}
-    for name, (title, kind_pattern, expected_kind, mandatory) in DESIGN_VIEW_RULES.items():
+    for name, (title, kind_pattern, expected_kind, mandatory) in SOLUTION_VIEW_RULES.items():
         row = by_name.get(name)
         if row is None:
-            result.errors.append(f"DESIGN.md: missing architecture view assessment {name}")
+            result.errors.append(f"SOLUTION.md: missing architecture view assessment {name}")
             continue
         applicability, location = row
         if re.search(r"\b(?:TBD|TODO|N/A)\b|待评估|待定|待补", applicability, re.IGNORECASE):
-            result.errors.append(f"DESIGN.md: architecture view {name} needs a concrete applicability reason")
+            result.errors.append(f"SOLUTION.md: architecture view {name} needs a concrete applicability reason")
             continue
         applicable = re.fullmatch(r"适用[:：](.+)", applicability)
         not_applicable = re.fullmatch(r"不适用[:：](.+)", applicability)
         if not applicable and not not_applicable:
-            result.errors.append(f"DESIGN.md: architecture view {name} needs 适用/不适用 with a concrete reason")
+            result.errors.append(f"SOLUTION.md: architecture view {name} needs 适用/不适用 with a concrete reason")
             continue
         if mandatory and not_applicable:
-            result.errors.append(f"DESIGN.md: architecture view {name} is mandatory")
+            result.errors.append(f"SOLUTION.md: architecture view {name} is mandatory")
             continue
         if not_applicable:
             if location != "—":
-                result.errors.append(f"DESIGN.md: non-applicable architecture view {name} must use — location")
+                result.errors.append(f"SOLUTION.md: non-applicable architecture view {name} must use — location")
             continue
         if location != title:
-            result.errors.append(f"DESIGN.md: architecture view {name} location must be {title}")
+            result.errors.append(f"SOLUTION.md: architecture view {name} location must be {title}")
             continue
-        body = design_view_body(design, title)
+        body = solution_view_body(solution, title)
         if body is None:
-            result.errors.append(f"DESIGN.md: applicable architecture view {name} is missing {title}")
+            result.errors.append(f"SOLUTION.md: applicable architecture view {name} is missing {title}")
         elif not has_mermaid_diagram(body, kind_pattern) and not (mandatory and has_compact_table(body)):
             result.errors.append(
-                f"DESIGN.md: {title} must contain a Mermaid {expected_kind}"
+                f"SOLUTION.md: {title} must contain a Mermaid {expected_kind}"
                 + (" or a compact Markdown table" if mandatory else "")
             )
 
 
-def check_design_details(root: Path, design: str, result: Result) -> None:
-    catalog = document_section_body(design, "设计细化清单")
+def check_solution_details(root: Path, solution: str, result: Result) -> None:
+    catalog = document_section_body_any(solution, LEGACY_DETAIL_TITLES)
     if catalog is None:
-        result.errors.append("DESIGN.md: missing 设计细化清单")
+        result.errors.append("SOLUTION.md: missing 方案细化清单")
         return
-    if not re.search(r"^\| 关注面 \| 适用性/理由 \| 设计落点 \|$", catalog, re.MULTILINE):
-        result.errors.append("DESIGN.md: 设计细化清单 must use 关注面 | 适用性/理由 | 设计落点 header")
-    rows = design_table_rows(catalog, "关注面")
+    if not re.search(r"^\| 关注面 \| 适用性/理由 \| (?:方案|设计)落点 \|$", catalog, re.MULTILINE):
+        result.errors.append("SOLUTION.md: 方案细化清单 must use 关注面 | 适用性/理由 | 方案落点 header")
+    rows = solution_table_rows(catalog, "关注面")
     names = [name for name, _applicability, _location in rows]
     for name in sorted(duplicate_ids(names)):
-        result.errors.append(f"DESIGN.md: duplicate design detail concern {name}")
-    for name in sorted(set(names) - set(DESIGN_DETAIL_RULES)):
-        result.errors.append(f"DESIGN.md: unknown design detail concern {name}")
+        result.errors.append(f"SOLUTION.md: duplicate solution detail concern {name}")
+    for name in sorted(set(names) - set(SOLUTION_DETAIL_RULES)):
+        result.errors.append(f"SOLUTION.md: unknown solution detail concern {name}")
     by_name = {name: (applicability, location) for name, applicability, location in rows}
-    for name, mandatory in DESIGN_DETAIL_RULES.items():
+    for name, mandatory in SOLUTION_DETAIL_RULES.items():
         row = by_name.get(name)
         if row is None:
-            result.errors.append(f"DESIGN.md: missing design detail assessment {name}")
+            result.errors.append(f"SOLUTION.md: missing solution detail assessment {name}")
             continue
         applicability, location = row
         if re.search(r"\b(?:TBD|TODO|N/A)\b|待评估|待定|待补", applicability, re.IGNORECASE):
-            result.errors.append(f"DESIGN.md: design detail {name} needs a concrete applicability reason")
+            result.errors.append(f"SOLUTION.md: solution detail {name} needs a concrete applicability reason")
             continue
         applicable = re.fullmatch(r"适用[:：](.+)", applicability)
         not_applicable = re.fullmatch(r"不适用[:：](.+)", applicability)
         if not applicable and not not_applicable:
-            result.errors.append(f"DESIGN.md: design detail {name} needs 适用/不适用 with a concrete reason")
+            result.errors.append(f"SOLUTION.md: solution detail {name} needs 适用/不适用 with a concrete reason")
             continue
         if mandatory and not_applicable:
-            result.errors.append(f"DESIGN.md: design detail {name} is mandatory")
+            result.errors.append(f"SOLUTION.md: solution detail {name} is mandatory")
             continue
         if not_applicable:
             if location != "—":
-                result.errors.append(f"DESIGN.md: non-applicable design detail {name} must use — location")
+                result.errors.append(f"SOLUTION.md: non-applicable solution detail {name} must use — location")
             continue
-        if not check_locator_list(root, result, f"DESIGN.md: design detail {name}", location):
-            result.errors.append(f"DESIGN.md: applicable design detail {name} needs path.md#heading locators")
+        if not check_locator_list(root, result, f"SOLUTION.md: solution detail {name}", location):
+            result.errors.append(f"SOLUTION.md: applicable solution detail {name} needs path.md#heading locators")
 
 
-def check_implementation_readiness(root: Path, design: str, result: Result) -> None:
-    gate = document_section_body(design, "实现就绪检查")
+def check_implementation_readiness(root: Path, solution: str, result: Result) -> None:
+    gate = document_section_body(solution, "实现就绪检查")
     if gate is None:
-        result.errors.append("DESIGN.md: missing 实现就绪检查")
+        result.errors.append("SOLUTION.md: missing 实现就绪检查")
         return
     if not re.search(r"^\| 条件 \| 结论 \| 证据或落点 \|$", gate, re.MULTILINE):
-        result.errors.append("DESIGN.md: 实现就绪检查 must use 条件 | 结论 | 证据或落点 header")
-    rows = design_table_rows(gate, "条件")
+        result.errors.append("SOLUTION.md: 实现就绪检查 must use 条件 | 结论 | 证据或落点 header")
+    rows = solution_table_rows(gate, "条件")
+    rows = [
+        (LEGACY_READINESS_NAMES.get(name, name), conclusion, evidence)
+        for name, conclusion, evidence in rows
+    ]
     names = [name for name, _conclusion, _evidence in rows]
     for name in sorted(duplicate_ids(names)):
-        result.errors.append(f"DESIGN.md: duplicate implementation readiness condition {name}")
+        result.errors.append(f"SOLUTION.md: duplicate implementation readiness condition {name}")
     for name in sorted(set(names) - set(READINESS_RULES)):
-        result.errors.append(f"DESIGN.md: unknown implementation readiness condition {name}")
+        result.errors.append(f"SOLUTION.md: unknown implementation readiness condition {name}")
     by_name = {name: (conclusion, evidence) for name, conclusion, evidence in rows}
     for name, allow_statement in READINESS_RULES.items():
         row = by_name.get(name)
         if row is None:
-            result.errors.append(f"DESIGN.md: missing implementation readiness condition {name}")
+            result.errors.append(f"SOLUTION.md: missing implementation readiness condition {name}")
             continue
         conclusion, evidence = row
         if conclusion != "通过":
-            result.errors.append(f"DESIGN.md: implementation readiness condition {name} must be 通过")
+            result.errors.append(f"SOLUTION.md: implementation readiness condition {name} must be 通过")
         if evidence == "—" or re.search(r"\b(?:TBD|TODO|N/A)\b|待评估|待定|待补", evidence, re.IGNORECASE):
-            result.errors.append(f"DESIGN.md: implementation readiness condition {name} needs concrete evidence")
+            result.errors.append(f"SOLUTION.md: implementation readiness condition {name} needs concrete evidence")
             continue
-        has_locators = check_locator_list(root, result, f"DESIGN.md: readiness {name}", evidence)
+        has_locators = check_locator_list(root, result, f"SOLUTION.md: readiness {name}", evidence)
         if not has_locators and not allow_statement:
-            result.errors.append(f"DESIGN.md: implementation readiness condition {name} needs path.md#heading evidence")
+            result.errors.append(f"SOLUTION.md: implementation readiness condition {name} needs path.md#heading evidence")
 
 
 def git_changed_paths(root: Path) -> set[str]:
@@ -500,8 +559,22 @@ def staged_checkout(root: Path):
 
 
 def check_system_files(root: Path, result: Result, changed: set[str]) -> None:
-    for name, (doc_type, mutation, id_prefix) in SYSTEM_FILES.items():
-        path = root / name
+    for canonical, expected_file in SYSTEM_FILES.items():
+        legacy = LEGACY_MAP_FILES.get(canonical)
+        path = root / canonical
+        if legacy and path.exists() and (root / legacy[0]).exists():
+            result.errors.append(
+                f"conflict: both {canonical} and legacy {legacy[0]} exist; remove one"
+            )
+            continue
+        name, (doc_type, mutation, id_prefix) = canonical, expected_file
+        if not path.exists() and legacy:
+            name, doc_type = legacy
+            path = root / name
+            result.warnings.append(
+                f"legacy map file {name} in use; migrate to {canonical} "
+                "via bootstrap --migrate-legacy-maps"
+            )
         if not path.exists():
             result.errors.append(f"missing: {name}")
             continue
@@ -519,11 +592,25 @@ def check_system_files(root: Path, result: Result, changed: set[str]) -> None:
             result.errors.append(f"{name}: invalid mutation {fm.get('mutation')}")
         if not fm.get("owner"):
             result.errors.append(f"{name}: missing owner")
-        if name == "DECISIONS.md" and name in changed:
-            old = git_head_text(root, Path(name))
-            current = path.read_text(encoding="utf-8")
-            if old and not current.startswith(old):
-                result.errors.append("DECISIONS.md: append-only content was modified or removed")
+        if name in APPEND_ONLY_FILES:
+            text = path.read_text(encoding="utf-8")
+            current_entries = decision_entries(text)
+            appended = ""
+            if name in changed:
+                entries_old = decision_entries(head_decision_text(root))
+                if entries_old and not current_entries.startswith(entries_old):
+                    result.errors.append(
+                        f"{name}: append-only content was modified or removed"
+                    )
+                elif entries_old:
+                    appended = current_entries[len(entries_old):]
+                else:
+                    appended = current_entries
+            if appended and DECISION_EVIDENCE_RE.search(strip_code_fences(appended)):
+                result.errors.append(
+                    f"{name}: new decision entry contains implementation evidence; "
+                    "code paths, commits, and solution details belong in SOLUTION"
+                )
 
 
 def check_todo_entries(root: Path, result: Result) -> None:
@@ -538,23 +625,21 @@ def check_todo_entries(root: Path, result: Result) -> None:
 
 
 def check_traceability(root: Path, result: Result) -> None:
-    prd_path, design_path, domain_path, decisions_path = (
-        root / "PRD.md",
-        root / "DESIGN.md",
-        root / "DOMAIN.md",
-        root / "DECISIONS.md",
-    )
-    if not all(path.exists() for path in (prd_path, design_path, domain_path, decisions_path)):
+    prd_path = root / "PRD.md"
+    solution_path = resolve_map_file(root, "SOLUTION.md")
+    domain_path = root / "DOMAIN.md"
+    decisions_path = resolve_map_file(root, "RATIONALE.md")
+    if not all(path and path.exists() for path in (prd_path, solution_path, domain_path, decisions_path)):
         return
 
     prd = prd_path.read_text(encoding="utf-8")
-    design = design_path.read_text(encoding="utf-8")
+    solution = solution_path.read_text(encoding="utf-8")
     domain = domain_path.read_text(encoding="utf-8")
     decisions = decisions_path.read_text(encoding="utf-8")
     conventions_path = root / "CONVENTIONS.md"
     conventions = conventions_path.read_text(encoding="utf-8") if conventions_path.is_file() else ""
     prd_plain = strip_code_fences(prd)
-    design_plain = strip_code_fences(design)
+    solution_plain = strip_code_fences(solution)
     decisions_plain = strip_code_fences(decisions)
     conventions_plain = strip_code_fences(conventions)
     legacy_requirement_ids = LEGACY_R_HEADING_RE.findall(prd_plain)
@@ -563,9 +648,9 @@ def check_traceability(root: Path, result: Result) -> None:
     requirement_ids = R_HEADING_RE.findall(prd_plain)
     result.requirements = set(requirement_ids)
     if requirement_ids:
-        check_design_views(design, result)
-        check_design_details(root, design, result)
-        check_implementation_readiness(root, design, result)
+        check_solution_views(solution, result)
+        check_solution_details(root, solution, result)
+        check_implementation_readiness(root, solution, result)
     requirement_groups = REQUIREMENT_GROUP_RE.findall(conventions_plain)
     registered_groups = {group for group, _ in requirement_groups}
     for group in sorted(duplicate_ids([group for group, _ in requirement_groups])):
@@ -577,13 +662,14 @@ def check_traceability(root: Path, result: Result) -> None:
         result.errors.append("CONVENTIONS.md: requirement groups must be registered once in 01..nn order")
     for group in sorted({rid[2:4] for rid in requirement_ids} - registered_groups):
         result.errors.append(f"CONVENTIONS.md: missing requirement group {group}")
-    for rid in sorted(set(LEGACY_R_ID_RE.findall(design_plain))):
-        result.errors.append(f"DESIGN.md: legacy requirement reference {rid} must migrate to R-gg-nnn")
+    for rid in sorted(set(LEGACY_R_ID_RE.findall(solution_plain))):
+        result.errors.append(f"SOLUTION.md: legacy requirement reference {rid} must migrate to R-gg-nnn")
     goal_ids = GOAL_RE.findall(prd_plain)
     non_goal_ids = NON_GOAL_RE.findall(prd_plain)
     result.goals = set(goal_ids)
     decision_ids = C_HEADING_RE.findall(decisions_plain)
-    old_decisions = git_head_text(root, Path("DECISIONS.md")) or ""
+    result.decision_ids = set(decision_ids)
+    old_decisions = head_decision_text(root)
     old_decision_ids = set(C_HEADING_RE.findall(old_decisions))
 
     for rid in sorted(duplicate_ids(requirement_ids)):
@@ -593,42 +679,42 @@ def check_traceability(root: Path, result: Result) -> None:
     for ngid in sorted(duplicate_ids(non_goal_ids)):
         result.errors.append(f"PRD.md: duplicate non-goal id {ngid}")
     for cid in sorted(duplicate_ids(decision_ids)):
-        result.errors.append(f"DECISIONS.md: duplicate decision id {cid}")
+        result.errors.append(f"RATIONALE.md: duplicate decision id {cid}")
     for cid in sorted(set(decision_ids) - old_decision_ids):
         if re.fullmatch(r"C-\d{3}[A-Z]", cid):
-            result.errors.append(f"DECISIONS.md: new decision id {cid} cannot use a legacy suffix")
+            result.errors.append(f"RATIONALE.md: new decision id {cid} cannot use a legacy suffix")
     decision_order = []
     for cid in decision_ids:
         match = re.fullmatch(r"C-(\d{3})([A-Z]?)", cid)
         if match:
             decision_order.append((int(match.group(1)), match.group(2) or ""))
     if decision_order != sorted(decision_order):
-        result.errors.append("DECISIONS.md: decision ids are not in chronological order")
+        result.errors.append("RATIONALE.md: decision ids are not in chronological order")
 
-    modules = design_modules(design_plain)
+    modules = solution_modules(solution_plain)
     for module in modules:
         count = len(re.findall(rf"^-\s*\*\*{re.escape(module)}\*\*\s*[:：]", domain, re.MULTILINE))
         if count != 1:
-            result.errors.append(f"DOMAIN.md: design module {module} must be defined exactly once, got {count}")
-    trace_body = design_trace_body(design)
-    trace_rows = design_trace_rows(trace_body)
+            result.errors.append(f"DOMAIN.md: solution module {module} must be defined exactly once, got {count}")
+    trace_body = solution_trace_body(solution)
+    trace_rows = solution_trace_rows(trace_body)
     trace_ids = re.findall(r"^\|\s*(R-\d{2}-\d{3})\s*\|", trace_body or "", re.MULTILINE)
     if trace_body is not None and not re.search(
-        r"^\|\s*需求\s*\|\s*主责子系统\s*\|\s*设计落点\s*\|\s*实现位置\s*\|\s*$",
+        r"^\|\s*需求\s*\|\s*主责子系统\s*\|\s*(?:方案|设计)落点\s*\|\s*实现位置\s*\|\s*$",
         trace_body,
         re.MULTILINE,
     ):
-        result.errors.append("DESIGN.md: 需求追溯索引 must use 需求 | 主责子系统 | 设计落点 | 实现位置 header")
+        result.errors.append("SOLUTION.md: 需求追溯索引 must use 需求 | 主责子系统 | 方案落点 | 实现位置 header")
     traces: dict[str, list[tuple[str, str, str]]] = {}
-    for rid, subsystem, design_locations, implementation_locations in trace_rows:
-        traces.setdefault(rid, []).append((subsystem, design_locations, implementation_locations))
+    for rid, subsystem, solution_locations, implementation_locations in trace_rows:
+        traces.setdefault(rid, []).append((subsystem, solution_locations, implementation_locations))
     requirement_sections = sections(prd_plain, R_HEADING_RE)
     used_goals: set[str] = set()
     for rid, body in requirement_sections.items():
         if not EARS_RE.search(body):
             result.errors.append(f"PRD.md: {rid} must have at least one EARS acceptance criterion")
         goals = re.findall(r"^- 关联目标:\s*(G-\d+)\s*$", body, re.MULTILINE)
-        designs = re.findall(r"^- 关联设计:\s*(.+?)\s*$", body, re.MULTILINE)
+        solutions = re.findall(r"^- 关联(?:方案|设计):\s*(.+?)\s*$", body, re.MULTILINE)
         if len(goals) != 1:
             result.errors.append(f"PRD.md: {rid} must have exactly one 关联目标")
         elif goals[0] not in result.goals:
@@ -636,37 +722,33 @@ def check_traceability(root: Path, result: Result) -> None:
         else:
             used_goals.add(goals[0])
         module_covered = False
-        if len(designs) != 1:
-            result.errors.append(f"PRD.md: {rid} must have exactly one 关联设计")
-        elif designs[0] not in modules:
-            result.errors.append(f"PRD.md: {rid} references missing design module {designs[0]}")
-        elif rid not in expand_requirement_ids(modules[designs[0]]):
-            result.errors.append(f"DESIGN.md: module {designs[0]} does not declare {rid}")
+        if len(solutions) != 1:
+            result.errors.append(f"PRD.md: {rid} must have exactly one 关联方案")
+        elif solutions[0] not in modules:
+            result.errors.append(f"PRD.md: {rid} references missing solution module {solutions[0]}")
+        elif rid not in expand_requirement_ids(modules[solutions[0]]):
+            result.errors.append(f"SOLUTION.md: module {solutions[0]} does not declare {rid}")
         else:
             module_covered = True
 
         rows = traces.get(rid, [])
         if trace_ids.count(rid) != 1:
-            result.errors.append(f"DESIGN.md: {rid} must have exactly one 需求追溯索引 row")
+            result.errors.append(f"SOLUTION.md: {rid} must have exactly one 需求追溯索引 row")
         elif len(rows) != 1:
-            result.errors.append(f"DESIGN.md: {rid} trace row must have four non-empty columns")
-        elif len(designs) == 1 and rows[0][0] != designs[0]:
+            result.errors.append(f"SOLUTION.md: {rid} trace row must have four non-empty columns")
+        elif len(solutions) == 1 and rows[0][0] != solutions[0]:
             result.errors.append(
-                f"DESIGN.md: {rid} trace subsystem {rows[0][0]} does not match PRD 关联设计 {designs[0]}"
+                f"SOLUTION.md: {rid} trace subsystem {rows[0][0]} does not match PRD 关联方案 {solutions[0]}"
             )
         elif module_covered:
-            result.design_covered.add(rid)
+            result.solution_covered.add(rid)
         forbidden_metadata = re.search(
             r"^-\s*(验证|测试|代码|实现|证据|task|commit)\s*:", body, re.MULTILINE | re.IGNORECASE
         )
-        forbidden_reference = re.search(
-            r"(?:\b(?:src|tests?|tasks)/|\b[0-9a-f]{7,40}\b|`[^`]+\.(?:py|rs|go|js|ts|java|kt|rb|sh)`)",
-            body,
-            re.IGNORECASE,
-        )
+        forbidden_reference = IMPLEMENTATION_EVIDENCE_RE.search(body)
         if forbidden_metadata or forbidden_reference:
             result.errors.append(
-                f"PRD.md: {rid} contains implementation evidence; keep code, tests, tasks, and commits below DESIGN"
+                f"PRD.md: {rid} contains implementation evidence; keep code, tests, tasks, and commits below SOLUTION"
             )
         for cid in C_ID_RE.findall(
             "\n".join(re.findall(r"^- 出处:\s*(.+)$", body, re.MULTILINE))
@@ -676,10 +758,10 @@ def check_traceability(root: Path, result: Result) -> None:
 
     for goal in sorted(result.goals - used_goals):
         result.errors.append(f"PRD.md: {goal} has no requirement")
-    for rid in sorted(expand_requirement_ids(design_plain) - result.requirements):
-        result.errors.append(f"DESIGN.md: references missing requirement {rid}")
-    for cid in sorted(set(C_ID_RE.findall(design_plain)) - set(decision_ids)):
-        result.errors.append(f"DESIGN.md: references missing decision {cid}")
+    for rid in sorted(expand_requirement_ids(solution_plain) - result.requirements):
+        result.errors.append(f"SOLUTION.md: references missing requirement {rid}")
+    for cid in sorted(set(C_ID_RE.findall(solution_plain)) - set(decision_ids)):
+        result.errors.append(f"SOLUTION.md: references missing decision {cid}")
 
 
 def task_state(text: str) -> str | None:
@@ -897,14 +979,24 @@ def task_renumbering(old: dict[Path, str], new: dict[Path, str]) -> tuple[dict[P
     return paths, ids
 
 
+def ref_decision_entry(root: Path, ref: str) -> tuple[str, str] | None:
+    for name in APPEND_ONLY_FILES:
+        text = git_ref_text(root, ref, Path(name))
+        if text is not None:
+            return name, text
+    return None
+
+
 def check_history_transition(root: Path, result: Result, parent: str, commit: str, check_additions: bool) -> None:
-    old_decisions = git_ref_text(root, parent, Path("DECISIONS.md"))
-    new_decisions = git_ref_text(root, commit, Path("DECISIONS.md"))
-    if check_additions and old_decisions and (new_decisions is None or not new_decisions.startswith(old_decisions)):
-        result.errors.append(f"{commit[:12]}: DECISIONS.md modified or removed existing history")
-    if check_additions and new_decisions is not None:
-        old_ids = set(C_HEADING_RE.findall(old_decisions or ""))
-        for cid in set(C_HEADING_RE.findall(new_decisions)) - old_ids:
+    old_entry = ref_decision_entry(root, parent)
+    new_entry = ref_decision_entry(root, commit)
+    if check_additions and old_entry and old_entry[1]:
+        old_name, old_text = old_entry
+        if new_entry is None or not decision_entries(new_entry[1]).startswith(decision_entries(old_text)):
+            result.errors.append(f"{commit[:12]}: {old_name} modified or removed existing history")
+    if check_additions and new_entry is not None:
+        old_ids = set(C_HEADING_RE.findall(decision_entries(old_entry[1]))) if old_entry else set()
+        for cid in set(C_HEADING_RE.findall(decision_entries(new_entry[1]))) - old_ids:
             if re.fullmatch(r"C-\d{3}[A-Z]", cid):
                 result.errors.append(f"{commit[:12]}: new decision id {cid} cannot use a legacy suffix")
 
@@ -1234,6 +1326,9 @@ def check_tasks(root: Path, result: Result, changed: set[str]) -> None:
                 result.errors.append(
                     f"tasks/{path.name}: active task legacy requirement reference {rid} must migrate to R-gg-nnn"
                 )
+        if not (old and task_state(old) in TERMINAL_STATES):
+            for cid in sorted(set(C_ID_RE.findall(strip_code_fences(text))) - result.decision_ids):
+                result.errors.append(f"tasks/{path.name}: references missing decision {cid}")
         if name_match:
             states[name_match.group(1)] = state
         if state in TERMINAL_STATES:
@@ -1244,7 +1339,7 @@ def check_tasks(root: Path, result: Result, changed: set[str]) -> None:
                 evidence = terminal.group(1)
                 labels = ["实现", "测试", "commit"]
                 if old is None or task_state(old) not in TERMINAL_STATES:
-                    labels.append("DESIGN 对照")
+                    labels.append("SOLUTION 对照")
                 for label in labels:
                     if not re.search(rf"^-\s*{label}:\s*\S", evidence, re.MULTILINE):
                         result.errors.append(
@@ -1325,7 +1420,7 @@ def test_anchor_patterns(root: Path) -> list[str]:
 def is_test_file(path: Path, patterns: list[str]) -> bool:
     if any(fnmatchcase(path.as_posix(), pattern) for pattern in patterns):
         return not any(part in IGNORED_PARTS for part in path.parts)
-    if path.suffix.lower() not in TEST_SUFFIXES or any(part in IGNORED_PARTS for part in path.parts):
+    if path.suffix.lower() not in CODE_SUFFIXES or any(part in IGNORED_PARTS for part in path.parts):
         return False
     lowered = [part.lower() for part in path.parts]
     stem = path.stem.lower()
@@ -1346,9 +1441,7 @@ def test_anchor_text(path: Path, text: str, patterns: list[str]) -> str | None:
     return None
 
 
-def check_test_anchors(root: Path, result: Result, strict: bool) -> None:
-    anchored: set[str] = set()
-    legacy_anchored: dict[Path, set[str]] = {}
+def tracked_candidates(root: Path) -> list[Path]:
     try:
         tracked = subprocess.run(
             ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
@@ -1357,12 +1450,19 @@ def check_test_anchors(root: Path, result: Result, strict: bool) -> None:
             capture_output=True,
             text=True,
         ).stdout.split("\0")
-        candidates = [Path(item) for item in tracked if item]
+        return [Path(item) for item in tracked if item]
     except (OSError, subprocess.CalledProcessError, UnicodeDecodeError):
         candidates = []
         for directory, dirnames, filenames in os.walk(root):
             dirnames[:] = [name for name in dirnames if name not in IGNORED_PARTS]
             candidates.extend(Path(directory, filename).relative_to(root) for filename in filenames)
+        return candidates
+
+
+def check_test_anchors(root: Path, result: Result, strict: bool) -> None:
+    anchored: set[str] = set()
+    legacy_anchored: dict[Path, set[str]] = {}
+    candidates = tracked_candidates(root)
     patterns = test_anchor_patterns(root)
     for relative in candidates:
         path = root / relative
@@ -1413,6 +1513,55 @@ def check_test_anchors(root: Path, result: Result, strict: bool) -> None:
         result.errors.append(
             f"{relative}: legacy requirement anchors must migrate to R-gg-nnn: {', '.join(sorted(ids))}"
         )
+
+
+def code_anchors_enabled(root: Path, result: Result) -> bool:
+    conventions = root / "CONVENTIONS.md"
+    if not conventions.is_file():
+        return False
+    match = re.search(
+        r"^-\s*代码锚点:\s*(\S+)\s*$",
+        conventions.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    if not match:
+        return False
+    if match.group(1) not in ("开启", "关闭"):
+        result.errors.append("CONVENTIONS.md: invalid 代码锚点, expect 开启 or 关闭")
+        return False
+    return match.group(1) == "开启"
+
+
+def check_code_anchors(root: Path, result: Result, enabled: bool) -> None:
+    """Validate optional `AgentMap: R-… / T-…` code-comment anchors against the map.
+
+    Disabled by default (CONVENTIONS 代码锚点: 关闭); historical references are
+    validated by existence only, so anchors never go stale silently.
+    """
+    if not enabled:
+        return
+    task_ids = historical_task_ids(root)
+    patterns = test_anchor_patterns(root)
+    anchor_re = re.compile(r"AgentMap:\s*(.*)$", re.MULTILINE)
+    for relative in tracked_candidates(root):
+        path = root / relative
+        if not path.is_file() or is_test_file(relative, patterns):
+            continue
+        if path.suffix.lower() not in CODE_SUFFIXES:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        for match in anchor_re.finditer(text):
+            for rid in sorted(set(R_ID_RE.findall(match.group(1))) - result.requirements):
+                result.errors.append(
+                    f"{relative.as_posix()}: code anchor references missing requirement {rid}"
+                )
+            for tid in sorted(set(T_ID_RE.findall(match.group(1))) - task_ids):
+                result.errors.append(
+                    f"{relative.as_posix()}: code anchor references missing task {tid}"
+                )
 
 
 def git_index_mode(root: Path, relative: Path) -> int | None:
@@ -1605,6 +1754,7 @@ def lint(root: Path, strict_tests: bool = False) -> Result:
     check_traceability(root, result)
     check_tasks(root, result, changed)
     check_test_anchors(root, result, strict_test_anchors(root, result, strict_tests))
+    check_code_anchors(root, result, code_anchors_enabled(root, result))
     check_hooks(root, result)
     check_runtime_contract(root, result)
     return result
@@ -1616,7 +1766,7 @@ def print_result(result: Result, report: bool) -> None:
             "AgentMap report: "
             f"requirements={len(result.requirements)}, "
             f"acceptance-criteria={len(result.acceptance_criteria)}, "
-            f"design-covered={len(result.design_covered)}, "
+            f"solution-covered={len(result.solution_covered)}, "
             f"test-anchored={len(result.test_anchored_acceptance_criteria)}, "
             f"goals={len(result.goals)}, "
             f"tasks={result.tasks}"
@@ -1649,14 +1799,14 @@ owner: owner
 The user can search.
 - AC-01 当查询存在时，系统应当返回结果。
 - 关联目标: G-1
-- 关联设计: Search
+- 关联方案: Search
 """,
-        "DESIGN.md": """---
-doc-type: design
+        "SOLUTION.md": """---
+doc-type: solution
 mutation: living
 owner: agent
 ---
-# DESIGN
+# SOLUTION
 ## 架构视图清单
 | 视图 | 适用性/理由 | 图表位置 |
 |---|---|---|
@@ -1670,13 +1820,13 @@ owner: agent
 | 部署 | 不适用：示例是不可独立部署的库 | — |
 | 分层与依赖 | 不适用：示例没有分层约束 | — |
 | 系统景观 | 不适用：示例不属于多系统平台 | — |
-## 设计细化清单
-| 关注面 | 适用性/理由 | 设计落点 |
+## 方案细化清单
+| 关注面 | 适用性/理由 | 方案落点 |
 |---|---|---|
-| 边界与对外契约 | 适用：搜索公开一个调用边界 | DESIGN.md#Search |
-| 核心数据与不变量 | 适用：查询与结果具有稳定关系 | DESIGN.md#数据与领域模型图 |
+| 边界与对外契约 | 适用：搜索公开一个调用边界 | SOLUTION.md#Search |
+| 核心数据与不变量 | 适用：查询与结果具有稳定关系 | SOLUTION.md#数据与领域模型图 |
 | 状态与生命周期 | 不适用：搜索没有持久状态 | — |
-| 运行时、并发与失败语义 | 适用：查询需要明确调用与失败返回 | DESIGN.md#运行时交互图 |
+| 运行时、并发与失败语义 | 适用：查询需要明确调用与失败返回 | SOLUTION.md#运行时交互图 |
 | 外部集成 | 不适用：示例没有外部集成 | — |
 | 配置与可变点 | 不适用：示例没有配置 | — |
 | 安全与信任边界 | 不适用：示例不处理敏感数据 | — |
@@ -1686,10 +1836,10 @@ owner: agent
 ## 实现就绪检查
 | 条件 | 结论 | 证据或落点 |
 |---|---|---|
-| 边界与契约已明确 | 通过 | DESIGN.md#Search |
-| 关键不变量已明确 | 通过 | DESIGN.md#数据与领域模型图 |
-| 重大设计选择已收敛 | 通过 | 无未决重大选择：示例只有一种搜索路径 |
-| 目标实现归属已明确 | 通过 | DESIGN.md#子系统与模块 |
+| 边界与契约已明确 | 通过 | SOLUTION.md#Search |
+| 关键不变量已明确 | 通过 | SOLUTION.md#数据与领域模型图 |
+| 重大方案选择已收敛 | 通过 | 无未决重大选择：示例只有一种搜索路径 |
+| 目标实现归属已明确 | 通过 | SOLUTION.md#子系统与模块 |
 | 现状差距已有 task 承接 | 通过 | tasks/T-001-20260801-search.md#差距评估 |
 | 可派生验证 | 通过 | tasks/T-001-20260801-search.md#测试计划 |
 ## 静态架构
@@ -1716,7 +1866,7 @@ classDiagram
     Query --> Result
 ```
 ## 需求追溯索引
-| 需求 | 主责子系统 | 设计落点 | 实现位置 |
+| 需求 | 主责子系统 | 方案落点 | 实现位置 |
 |---|---|---|---|
 | R-01-001 | Search | Search flow | src/search.py |
 ## 子系统与模块
@@ -1725,7 +1875,7 @@ classDiagram
 - 代码位置: src/search.py
 """,
         "DOMAIN.md": "---\ndoc-type: domain\nmutation: living\nowner: agent\n---\n# DOMAIN\n- **Search**: Search subsystem.\n",
-        "DECISIONS.md": "---\ndoc-type: decisions\nmutation: append-only\nid-prefix: C\nowner: agent\n---\n# DECISIONS\n",
+        "RATIONALE.md": "---\ndoc-type: rationale\nmutation: append-only\nid-prefix: C\nowner: agent\n---\n# RATIONALE\n",
         "TODO.md": "---\ndoc-type: todo\nmutation: inbox\nowner: both\n---\n# TODO\n- [维护想法] Simplify tooling\n",
         "CONVENTIONS.md": """---
 doc-type: conventions
@@ -1846,7 +1996,7 @@ def self_test_merge_task_renumbering() -> None:
             + f"""
 - 实现: merged
 - 测试: passed
-- DESIGN 对照: DESIGN 与实现一致
+- SOLUTION 对照: SOLUTION 与实现一致
 - review:
   - 审核方: reviewer-agent
   - 目的理解: 验证 incoming task 的合并目标
@@ -2040,41 +2190,41 @@ def self_test() -> None:
         assert any("cannot move forward" in error for error in moved_matrix_start.errors)
         conventions.write_text(original_conventions, encoding="utf-8")
 
-        design = root / "DESIGN.md"
-        original_design = design.read_text(encoding="utf-8")
-        design.write_text(original_design.replace("(R-01-001)", ""), encoding="utf-8")
+        solution = root / "SOLUTION.md"
+        original_solution = solution.read_text(encoding="utf-8")
+        solution.write_text(original_solution.replace("(R-01-001)", ""), encoding="utf-8")
         invalid = lint(root, strict_tests=True)
         assert any("does not declare R-01-001" in error for error in invalid.errors), invalid.errors
-        design.write_text(original_design, encoding="utf-8")
+        solution.write_text(original_solution, encoding="utf-8")
 
-        design.write_text(original_design.replace("| R-01-001 | Search | Search flow | src/search.py |\n", ""), encoding="utf-8")
+        solution.write_text(original_solution.replace("| R-01-001 | Search | Search flow | src/search.py |\n", ""), encoding="utf-8")
         missing_trace = lint(root, strict_tests=True)
         assert any("exactly one 需求追溯索引 row" in error for error in missing_trace.errors)
-        design.write_text(original_design, encoding="utf-8")
+        solution.write_text(original_solution, encoding="utf-8")
 
         trace_row = "| R-01-001 | Search | Search flow | src/search.py |\n"
-        design.write_text(original_design.replace(trace_row, trace_row * 2), encoding="utf-8")
+        solution.write_text(original_solution.replace(trace_row, trace_row * 2), encoding="utf-8")
         duplicate_trace = lint(root, strict_tests=True)
         assert any("exactly one 需求追溯索引 row" in error for error in duplicate_trace.errors)
-        design.write_text(original_design, encoding="utf-8")
+        solution.write_text(original_solution, encoding="utf-8")
 
-        design.write_text(
-            original_design.replace(trace_row, trace_row + "| R-01-001 | Search | Extra | src/extra.py | extra |\n"),
+        solution.write_text(
+            original_solution.replace(trace_row, trace_row + "| R-01-001 | Search | Extra | src/extra.py | extra |\n"),
             encoding="utf-8",
         )
         malformed_duplicate = lint(root, strict_tests=True)
         assert any("exactly one 需求追溯索引 row" in error for error in malformed_duplicate.errors)
-        design.write_text(original_design, encoding="utf-8")
+        solution.write_text(original_solution, encoding="utf-8")
 
-        design.write_text(original_design.replace("| 需求 | 主责子系统 |", "| Requirement | 主责子系统 |"), encoding="utf-8")
+        solution.write_text(original_solution.replace("| 需求 | 主责子系统 |", "| Requirement | 主责子系统 |"), encoding="utf-8")
         wrong_trace_header = lint(root, strict_tests=True)
         assert any("需求追溯索引 must use" in error for error in wrong_trace_header.errors)
-        design.write_text(original_design, encoding="utf-8")
+        solution.write_text(original_solution, encoding="utf-8")
 
-        design.write_text(original_design.replace("| R-01-001 | Search |", "| R-01-001 | Other |"), encoding="utf-8")
+        solution.write_text(original_solution.replace("| R-01-001 | Search |", "| R-01-001 | Other |"), encoding="utf-8")
         mismatched_trace = lint(root, strict_tests=True)
-        assert any("does not match PRD 关联设计" in error for error in mismatched_trace.errors)
-        design.write_text(original_design, encoding="utf-8")
+        assert any("does not match PRD 关联方案" in error for error in mismatched_trace.errors)
+        solution.write_text(original_solution, encoding="utf-8")
 
         prd = root / "PRD.md"
         original_prd = prd.read_text(encoding="utf-8")
@@ -2087,7 +2237,7 @@ def self_test() -> None:
         original_domain = domain.read_text(encoding="utf-8")
         domain.write_text(original_domain.replace("- **Search**: Search subsystem.\n", ""), encoding="utf-8")
         missing_domain_module = lint(root, strict_tests=True)
-        assert any("design module Search must be defined exactly once" in error for error in missing_domain_module.errors)
+        assert any("solution module Search must be defined exactly once" in error for error in missing_domain_module.errors)
         domain.write_text(original_domain, encoding="utf-8")
 
         prd.write_text(original_prd + "实现提交为 `a1b2c3d`。\n", encoding="utf-8")
@@ -2107,7 +2257,7 @@ def self_test() -> None:
             + f"""
 - 实现: src/search.py
 - 测试: tests/test_search.py passed
-- DESIGN 对照: DESIGN 与实现一致
+- SOLUTION 对照: SOLUTION 与实现一致
 - review:
   - 审核方: reviewer-agent
   - 目的理解: 验证 Search task 的结果目标

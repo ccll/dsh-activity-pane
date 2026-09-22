@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -25,11 +26,36 @@ SUBJECT = re.compile(
 )
 EXCEPTIONS = ("Merge ", "Revert ", "fixup! ", "squash! ")
 REQUIRED_HEADINGS = {"原因", "影响", "取舍"}
+TASK_REF_RE = re.compile(r"\bT-\d{3}\b")
 
 
 def fail(message: str) -> int:
     print(f"commit-msg: {message}. See CONVENTIONS.md#Git-提交规范", file=sys.stderr)
     return 1
+
+
+def missing_task_files(text: str) -> list[str]:
+    """Cited task ids whose task file does not exist in the repository.
+
+    Without a repository context (the validator only receives the message
+    file), existence cannot be verified and the check is skipped.
+    """
+    try:
+        root = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return []
+    if not root:
+        return []
+    return [
+        task_id
+        for task_id in sorted(set(TASK_REF_RE.findall(text)))
+        if not any(Path(root).glob(f"tasks/{task_id}-*.md"))
+    ]
 
 
 def validate(lines: list[str]) -> int:
@@ -60,6 +86,9 @@ def validate(lines: list[str]) -> int:
     missing = REQUIRED_HEADINGS - headings
     if missing:
         return fail("missing body sections: " + "、".join(sorted(missing)))
+    cited_missing = missing_task_files("\n".join(lines))
+    if cited_missing:
+        return fail("cited task ids have no task file: " + ", ".join(cited_missing))
     return 0
 
 

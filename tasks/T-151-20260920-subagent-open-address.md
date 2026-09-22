@@ -6,7 +6,7 @@ id: T-151
 
 # T-151 子代理会话事件流打开前置持久父地址（自动加载修复）
 
-状态: active
+状态: completed
 关联: R-01-009/AC-01～AC-03、R-01-012/AC-02、AC-03（缺陷修复）→ 活动状态模型
 风险等级: standard
 
@@ -57,8 +57,10 @@ id: T-151
 
 - 实现: `ensureSubagentAddress` 目录驱动前置（母会话子代理目录条目承载 mode/parentAvailable；目录未加载经 `sessions.refreshSubagents` 单发拉取并跳过本轮安装）；`captureSessionLog` open 守卫与 `syncLiveness` 运行中订阅 open 两处接入；`sessionPageAddress` 增目录参数使深翻分页地址与 open 地址同源同 mode；`syncLiveness` 的 `opening` 无声明赋值收敛为显式 `let`；`subagentCatalogEntry` 单源目录查找。
 - 测试: `pnpm verify:fast` 全绿（AgentMap lint、test impact、`scripts/check.mjs` 全部断言含 T-151 顺序钉与 bundle 断言）；`pnpm verify` 17/18 浏览器 E2E 通过，唯一失败 `background-jobs.mjs` 属并行会话新落的后台任务链路 spec——在其提交 a247f11 工作树（不含本修复）同 spec 同样失败（复跑实证），与本修复无因果；宿主侧 mode 校验（`validateAddress` 的 `identity.mode !== address.mode → subagent/unauthorized`）与 `configureSubagent`/`refreshSubagents`/`subagentsByParent` 契约经复审对照宿主 bundle 核实。未实测项：真实子代理会话的浏览器黄金路径（自动加载 + 随工作推进实时滚动）待东家实测回填——staging mock LLM 无委托能力造不出子代理场景；客户端 bundle 变更经 dsh-client-hmr 热载即生效，无需重启 dsh web。
-- DESIGN 对照: 轮内状态数据链句补宿主地址/mode 校验约束、持久地址仅经原生导航留存语义、插件前置处置（目录 mode 优先 + 目录未加载先单发拉取再安装、与 selectSubagent 同构不切换会话），与实现对照无差异；DESIGN 同步经东家批准立项时确认（2026-09-20「批准」）。
-- commit: dfffc0d、219165c、b500ffb
+- SOLUTION 对照: 轮内状态数据链句补宿主地址/mode 校验约束、持久地址仅经原生导航留存语义、插件前置处置（目录 mode 优先 + 目录未加载先单发拉取再安装、与 selectSubagent 同构不切换会话），与实现对照无差异；SOLUTION 同步经东家批准立项时确认（2026-09-20「批准」）。
+- commit: dfffc0d8c847575c14f098717aed470a002eced0
+- commit: 219165c8da30ae88d7829cee4b523eee435f15ed
+- commit: b500ffb54a33c36bb338dca985ff9df9e600095f
 - review:
   - 审核方: code-review skill（Standards/Spec 双轴并行独立 reviewer 子代理，fixed point = HEAD~1 a247f11 对工作树全 diff；修正轮 219165c 同轴复跑）
   - 目的理解: 在 dsh 0.1.5 宿主按地址校验子代理事件流路由（普通地址被 agent-busy 拒绝、地址 mode 须与描述符一致）的约束下，恢复未点选子代理卡时间线的自动水合与实时更新；插件在 open 前安装与原生导航同构的持久父地址，不切换当前会话、不新增订阅/轮询/定时器；PRD 不变，DESIGN 数据链句同步宿主约束。

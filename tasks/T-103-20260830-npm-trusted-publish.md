@@ -6,7 +6,7 @@ id: T-103
 
 # T-103 GitHub Release 触发 npm Trusted Publishing
 
-状态: active
+状态: completed
 关联: C-067 / GitHub CI、Release 流程
 风险等级: high
 
@@ -63,8 +63,9 @@ id: T-103
 
 - 实现: `.github/workflows/npm-publish.yml` 已推送；GitHub Release `v0.2.1` 使用精确 tag、版本校验、快速门禁和 npm Trusted Publishing OIDC 成功发布。
 - 测试: 本地 `pnpm verify:fast`、完整 `pnpm verify` 与 pre-push 完整门禁通过；完整验证包含 12 个 E2E spec。GitHub main CI run `33289807346` 通过；npm 发布 workflow run `33289926745` 通过。`npm view dsh-activity-pane@0.2.1` 确认版本、latest dist-tag、tarball、SLSA provenance attestation；registry metadata 的 `_npmUser.trustedPublisher` 确认发布身份为 GitHub Actions OIDC。
-- DESIGN 对照: 不改变产品设计；仅新增 Release 发布自动化边界。公开的旧 `v0.2.0` tag 保持不变，以 `v0.2.1` 完成 package/tag 对齐。
-- commit: c140033、bd398a9。
+- SOLUTION 对照: 不改变产品设计；仅新增 Release 发布自动化边界。公开的旧 `v0.2.0` tag 保持不变，以 `v0.2.1` 完成 package/tag 对齐。
+- commit: c140033e36e48c3e1c1ca33773e529092189cefc
+- commit: bd398a9518aaf8145411b50137b397c6bf871733
 - review:
   - 审核方: `982ca9d3-6c0b-46ac-9c89-33f4f8655ea6`（Standards）；`07c6a1ab-2658-4c7a-a77b-21a769f1bee1`（Spec）。
   - 目的理解: 在人工确认的 GitHub Release 上，以精确 tag 和 package 版本校验保护 npm 发布，通过 OIDC 完成无长期 token 的非交互发布，完整 E2E 仍由 main CI 负责。

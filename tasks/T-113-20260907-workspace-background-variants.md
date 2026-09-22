@@ -6,7 +6,7 @@ id: T-113
 
 # T-113 工作区徽标拆分前景身份槽与背景变体槽
 
-状态: active
+状态: completed
 关联: R-01-003/AC-08、R-01-003/AC-09、R-01-003/AC-10、R-01-003/AC-11、R-01-003/AC-12 → 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -92,8 +92,8 @@ C-072 已将工作区徽标扩容为 12 个前景 OKLCH 颜色槽位，但底色
 
 - 实现: `src/core.mjs` 保留 12 个前景身份槽位并新增 3 个不可变背景变体槽；前景槽复用时显式优先使用仍有未用背景变体的候选，36 个复合槽位耗尽后均衡复用；`src/client.mjs` 写入前景与背景主题 L/C、混合强度和描边强度变量，缺少复合槽位时隐藏徽标并清理全部变量；`.dsh-plugin/client.js` 已同步重建。
 - 测试: `pnpm verify` 通过，13 个 E2E spec 全部通过；focused `pnpm exec node e2e/run.mjs card-content` 通过；`node scripts/check.mjs`、`pnpm verify:fast`、`python3 tools/agentmap_lint.py --report`、`python3 tools/test_impact_lint.py --self-test && python3 tools/test_impact_lint.py --report`、`git diff --check` 均通过；现有 `http://127.0.0.1:3080/` 返回 HTTP 200。
-- DESIGN 对照: `PRD.md` R-01-003/AC-08～AC-12、`DESIGN.md` 前景/背景复合槽位契约、`DOMAIN.md` 工作区颜色槽位术语与 `DECISIONS.md` C-073 已同步；核心检查覆盖 12 前景槽、每槽 3 背景变体、36 个唯一复合身份、超容量均衡复用、稳定性、主题参数、OKLab/避红与无身份清理，浏览器 E2E 覆盖三档背景在深浅主题的真实 CSS 差异及描边。
-- commit: `69ad43a`。
+- SOLUTION 对照: `PRD.md` R-01-003/AC-08～AC-12、`DESIGN.md` 前景/背景复合槽位契约、`DOMAIN.md` 工作区颜色槽位术语与 `DECISIONS.md` C-073 已同步；核心检查覆盖 12 前景槽、每槽 3 背景变体、36 个唯一复合身份、超容量均衡复用、稳定性、主题参数、OKLab/避红与无身份清理，浏览器 E2E 覆盖三档背景在深浅主题的真实 CSS 差异及描边。
+- commit: 69ad43a9662b218673f37708bd0924d37e0695ba
 - review:
   - 审核方: Standards reviewer `69a7038f-e977-438d-a3fd-67f58ddb780c`；Spec reviewer `d715690a-4e55-4c6a-9c97-cad612e00344`。
   - 目的理解: 在保持 12 个前景工作区身份槽与同色相族语义的前提下，为每个前景槽增加 3 个受控背景变体，将复合容量提升到 36；避免完全独立 12×12 色相矩阵，不引入持久化颜色注册表，并保持深浅主题可读性与稳定映射。

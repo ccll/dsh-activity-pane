@@ -1560,7 +1560,7 @@ export function mainTitle(byId, id) {
  * jobsBySession（R-01-023）：快照携带的 `jobsBySession` 任务视图映射——存在在跑后台任务
  * （status ∈ {running, stopping}）的主会话获得第三种自身活动来源：保留在活动区归入运行组、
  * 完成提醒与错误提醒被抑制（AC-01、AC-02）；条目携带 liveJobs（startedAt 升序）供渲染层
- * 标注数量与构建任务行（R-01-024）。子代理行不派生 liveJobs（后台任务当前仅主会话呈现）。
+ * 标注数量与构建任务行（R-01-023）。子代理行不派生 liveJobs（后台任务当前仅主会话呈现）。
  */
 export function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null, archivedIds = [], waitingStarts = null, jobsBySession = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
@@ -1737,7 +1737,7 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 				stateAt,
 				questionPreview: m.pending && m.row.pendingInteraction === "question" ? (questionPreview ?? null) : undefined,
 			});
-			// 后台任务子条目（R-01-024）：与子代理同形的缩进子卡，跟随母会话在其全部
+			// 后台任务子条目（R-01-023）：与子代理同形的缩进子卡，跟随母会话在其全部
 			// 子代理之前（即母亲条目的直接后继）；结束即随 liveJobs 清空而消失（R-01-023/AC-03）。
 			// 复合 id 在去重视野（entries/visited/cardsById）中唯一，且携 jobs 前缀与子代理
 			// 会话 id 空间天然隔离；层级连接线与子代理同规则参与 trackRuns（R-01-003/AC-04），
@@ -1997,11 +1997,7 @@ function entryErrorNote(completion) {
 	return typeof message === "string" && message !== "" ? message : ERROR_NOTE_FALLBACK;
 }
 
-// ---- 后台任务（R-01-023、R-01-024）：在跑活性归一与 job_output 读取回放 ----
-
-/** 后台任务输出回放的字符上限（R-01-024/AC-04）：模型每次 job_output 读取的
- *  已定案文本拼接后超出即截断并置 truncated；与单条错误信息截断同量级考虑。 */
-export const JOB_OUTPUT_MAX_CHARS = 20000;
+// ---- 后台任务（R-01-023）：在跑活性归一 ----
 
 /** 在跑后台任务的活性状态全集（R-01-023）：stopping 视同在跑——停止请求已发出但
  *  任务尚未结束，呈现与提醒抑制口径与 running 一致。 */
@@ -2045,99 +2041,6 @@ const JOB_KIND_LABELS = { bash: "Bash", pwsh: "PowerShell", subagent: "子代理
 export function jobKindLabel(kind) {
 	if (typeof kind !== "string" || kind === "") return "";
 	return JOB_KIND_LABELS[kind] ?? kind;
-}
-
-/** 从 tool-result 消息提取纯文本：tool-result 内容块内的 text 片段按换行拼接；
- *  非数组内容或无文本块返回 undefined（错误结果是否纳入由调用方按 isError 判定）。 */
-function jobResultText(message) {
-	if (!Array.isArray(message.content)) return undefined;
-	const parts = [];
-	for (const block of message.content) {
-		if (!isRecord(block) || block.type !== "tool-result") continue;
-		if (!Array.isArray(block.content)) continue;
-		for (const item of block.content) {
-			if (isRecord(item) && item.type === "text" && typeof item.text === "string") parts.push(item.text);
-		}
-	}
-	return parts.length > 0 ? parts.join("\n") : undefined;
-}
-
-/** tool-result 是否为错误结果（内层 tool-result 块的 isError 标志）。 */
-function jobResultIsError(message) {
-	if (!Array.isArray(message.content)) return false;
-	return message.content.some((block) => isRecord(block) && block.type === "tool-result" && block.isError === true);
-}
-
-/**
- * 从事件记录列表提取 job_output 读写轨迹（R-01-024）：`tool/call` 名为 `job_output`
- * 的行经 `arguments.job_id`（JSON 字符串或已解析对象）登记 callId → jobId 映射，
- * `tool/result` 行按 `message.source.callId` 配对并携带模型收到的定案文本与错误标志。
- * 兼容包装记录 `{ seq, event }` 与平面事件两种形状（seq 取事件或记录顶层）；seq 非法的
- * 事件跳过。返回按 seq 升序的去重轨迹数组（同 seq 后到者胜——实时镜像与日志重放合并
- * 时的自然口径）。
- */
-export function jobOutputTraces(records) {
-	const bySeq = new Map();
-	for (const record of Array.isArray(records) ? records : []) {
-		const event = eventOf(record);
-		if (!isRecord(event) || (event.type !== "tool/call" && event.type !== "tool/result")) continue;
-		const seq = Number(event.seq ?? (isRecord(record) ? record.seq : undefined));
-		if (!Number.isFinite(seq)) continue;
-		const data = isRecord(event.data) ? event.data : {};
-		if (event.type === "tool/call") {
-			if (data.name !== "job_output" || typeof data.callId !== "string") continue;
-			let jobId = null;
-			if (typeof data.arguments === "string") {
-				try {
-					const parsed = JSON.parse(data.arguments);
-					if (isRecord(parsed) && typeof parsed.job_id === "string") jobId = parsed.job_id;
-				} catch {
-					// 参数不可解析：不构成有效的 job_output 调用轨迹。
-				}
-			} else if (isRecord(data.arguments) && typeof data.arguments.job_id === "string") {
-				jobId = data.arguments.job_id;
-			}
-			if (jobId === null) continue;
-			bySeq.set(seq, { seq, kind: "call", callId: data.callId, jobId });
-		} else {
-			const message = isRecord(data.message) ? data.message : null;
-			const callId = typeof message?.source?.callId === "string" ? message.source.callId : null;
-			if (callId === null) continue;
-			bySeq.set(seq, { seq, kind: "result", callId, text: jobResultText(message), isError: jobResultIsError(message) });
-		}
-	}
-	return [...bySeq.values()].sort((a, b) => a.seq - b.seq);
-}
-
-/**
- * 从轨迹回放指定后台任务的模型已读输出（R-01-024/AC-01）：按 seq 序配对 call → result，
- * 拼接归属 jobId 的全部读取文本；剔除错误结果与 `(no new output)` 占位（模型视角的
- * 「无新内容」对人无展示价值）。返回 `{ text, truncated, read }`——read = 存在已配对
- * 读取（无配对时 text 为空，客户端以「尚未被读取」承接，R-01-024/AC-02）；超出
- * limit 按字符截断并置 truncated（R-01-024/AC-04）。同 seq 轨迹去重（后到者胜），
- * 供日志重放与实时镜像两源合并。jobId 非法返回未读取空结果。
- */
-export function jobOutputFromTraces(traces, jobId, limit = JOB_OUTPUT_MAX_CHARS) {
-	if (typeof jobId !== "string" || jobId === "") return { text: "", truncated: false, read: false };
-	const bySeq = new Map();
-	for (const trace of Array.isArray(traces) ? traces : []) {
-		if (isRecord(trace) && Number.isFinite(Number(trace?.seq))) bySeq.set(Number(trace.seq), trace);
-	}
-	const jobOf = new Map();
-	const parts = [];
-	let read = false;
-	for (const trace of [...bySeq.values()].sort((a, b) => a.seq - b.seq)) {
-		if (trace?.kind === "call") {
-			if (typeof trace.jobId === "string") jobOf.set(trace.callId, trace.jobId);
-		} else if (jobOf.get(trace.callId) === jobId) {
-			read = true;
-			if (trace.isError !== true && typeof trace.text === "string" && !trace.text.startsWith("(no new output)")) {
-				parts.push(trace.text);
-			}
-		}
-	}
-	const text = parts.join("\n");
-	return { text: text.length > limit ? text.slice(0, limit) : text, truncated: text.length > limit, read };
 }
 
 /**

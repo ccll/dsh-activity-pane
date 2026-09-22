@@ -14,12 +14,6 @@
 //      openWaitKind, openWaitId, waitedMs, watermarkSeq }`），无记录/水位缺口/水位超前会话经
 //      `sessionQuery.listEvents` 懒回填（统一 reconcileTurnStats 收敛，启动扫描强制结算
 //      残留开放回合），经 `GET /api/busy` 全量快照与 `/busy/stream` SSE 只读下发，无写回路径。
-//   5. 后台任务输出镜像（R-01-024）：同一事件流中 `job_output` 的 `tool/call`（经
-//      `arguments.job_id` 建 callId → jobId 映射）与配对 `tool/result`（模型收到的定案
-//      文本）登记进每会话内存环形缓冲（200 条）；`GET /api/jobs-output` 以会话事件日志
-//      重放（持久种子）与内存镜像按 seq 去重合并回放 `{ text, truncated, read }`；
-//      `GET /api/jobs/stream` SSE 广播 `{ sessionId, jobId }` 轨迹通知；不消费模型的
-//      `job_output` 读取游标，零 DSH 写入。
 //
 // 持久化：storageDomain 声明式 domain 表 `acks`（sessionId → { lastTurnEnd, lastTurnEndKind,
 // lastTurnEndError, ackedAt }）与 `dsh_activity_pane_turns` 表 `turn_stats`（sessionId →
@@ -32,7 +26,7 @@
 
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import { z } from 'zod'
-import { applyTurnEventToStats, createSessionEventSerializer, isBusyBoundaryEvent, jobOutputFromTraces, jobOutputTraces, reconcileTurnStats, turnStatsEqual, turnStatsFrom, truncateErrorNote } from './core.mjs'
+import { applyTurnEventToStats, createSessionEventSerializer, isBusyBoundaryEvent, reconcileTurnStats, turnStatsEqual, turnStatsFrom, truncateErrorNote } from './core.mjs'
 
 export const name = 'dsh-activity-pane'
 export const inject = ['storageDomain', 'webServer', 'sessionQuery', 'connection']
@@ -118,7 +112,6 @@ export function apply(ctx) {
 	/** SSE 连接集合：广播时逐个写 `event: state`。 */
 	const streamClients = new Set()
 	const busyStreamClients = new Set()
-	const jobStreamClients = new Set()
 	/** 懒回填单飞：每会话至多一个在途回填，重复触发共享同一 promise（R-01-020/AC-05）。 */
 	const backfills = new Map()
 
@@ -327,73 +320,6 @@ export function apply(ctx) {
 		})
 	})
 
-	// 后台任务输出镜像（R-01-024，C-030 同模式——会话事件是唯一事实来源、零 DSH 写入）：
-	// `job_output` 的 tool/call 经 arguments.job_id 建立 callId → jobId 映射，配对的
-	// tool/result 携带模型收到的定案文本。内存环形缓冲每会话 200 条（seq 去重的 Map，
-	// 最旧先出）；镜像只收与已登记 callId 配对的 result（与缓冲内的 call 同源收窄，
-	// 超 200 条被挤出的 call 其后续 result 不再缓存——由事件日志重放兜底，见下）。
-	// result 落镜即经 /jobs/stream 广播 { sessionId, jobId }（轨迹不入库、无全量快照，
-	// 客户端按需回读）。持久侧：/jobs-output 响应以 sessionQuery.listEvents 日志重放
-	// （覆盖宿主重启后镜像空白）与镜像按 seq 去重合并——两源合流的去重口径由
-	// core.jobOutputFromTraces 单点承载。
-	const jobMirrorTraces = new Map() // sessionId -> Map(seq -> trace)
-	const jobMirrorCalls = new Map() // sessionId -> Set(callId)
-	const JOB_MIRROR_MAX = 200
-
-	/** 向一组 SSE 连接写同一 state 帧；写失败（连接已断）的连接当场剔除。 */
-	function broadcastState(clients, payload) {
-		const data = `event: state\ndata: ${JSON.stringify(payload)}\n\n`
-		for (const res of clients) {
-			try {
-				res.write(data)
-			} catch {
-				clients.delete(res)
-			}
-		}
-	}
-
-	/** 向全部 jobs SSE 连接广播一条轨迹通知（result 落镜即发，内容由客户端按需回读）。 */
-	function broadcastJobTrace(sessionId, jobId) {
-		broadcastState(jobStreamClients, { sessionId, jobId })
-	}
-
-	ctx.on('session/event', (session, event) => {
-		const type = event?.type
-		if (type !== 'tool/call' && type !== 'tool/result') return
-		const id = String(session?.id ?? '')
-		if (id === '') return
-		const [trace] = jobOutputTraces([event])
-		if (trace === undefined) return
-		let bySeq = jobMirrorTraces.get(id)
-		if (bySeq === undefined) jobMirrorTraces.set(id, bySeq = new Map())
-		const calls = jobMirrorCalls.get(id)
-		if (trace.kind === 'call') {
-			// callId 只在缓冲内有效：登记与随缓冲驱逐同步，长命会话的集合规模有界。
-			if (calls === undefined) jobMirrorCalls.set(id, new Set([trace.callId]))
-			else calls.add(trace.callId)
-		} else if (calls?.has(trace.callId) !== true) {
-			// 未配对的结算事件不缓存（如其它工具的 result 或镜像缓冲未涵盖的旧 call）。
-			return
-		}
-		bySeq.set(trace.seq, trace)
-		if (bySeq.size > JOB_MIRROR_MAX) {
-			// FIFO 环形：被挤出的轨迹交由 /jobs-output 的日志重放兜底；callId 随驱逐
-			// 同步注销——其后续 result 不再入镜（与持久侧重放的合流口径保持一致）。
-			const excess = bySeq.size - JOB_MIRROR_MAX
-			const evicted = [...bySeq.values()].slice(0, excess)
-			for (const evictedTrace of evicted) {
-				bySeq.delete(evictedTrace.seq)
-				if (evictedTrace.kind === 'call') calls.delete(evictedTrace.callId)
-			}
-		}
-		if (trace.kind !== 'result') return
-		let jobId = null
-		for (const cached of bySeq.values()) {
-			if (cached.kind === 'call' && cached.callId === trace.callId) jobId = cached.jobId
-		}
-		if (jobId !== null) broadcastJobTrace(id, jobId)
-	})
-
 	// HTTP API（前缀挂载，handler 内按子路径分发）。
 	// A1-08：自定义 webServer 路由不继承宿主鉴权门——每个请求先过
 	// connection.requestRejection，401/403 直接拒绝，避免 acks/busy 读写通道
@@ -487,66 +413,6 @@ export function apply(ctx) {
 				res.on('close', remove)
 				return
 			}
-			if (route === '/jobs-output' && method === 'GET') {
-				// 后台任务输出回放（R-01-024）：归属会话事件日志重放（持久种子）与内存镜像
-				// 按 seq 去重合并，配对产出 { text, truncated, read }；只读、无模型游标消费。
-				const sessionId = url.searchParams.get('sessionId') ?? ''
-				const jobId = url.searchParams.get('jobId') ?? ''
-				if (sessionId === '' || jobId === '') {
-					res.writeHead(400, { 'Content-Type': 'application/json' })
-					res.end(JSON.stringify({ ok: false, error: 'sessionId/jobId 缺失或非法' }))
-					return
-				}
-				ctx.inject(['sessionQuery'], (injected) => {
-					Promise.resolve()
-						.then(async () => {
-							// 持久种子：observeSession 返回 live-preferred 完整事件（SessionObservation.events
-							// 带 data 负载）。listEvents 只回元数据记录（sessionId/seq/type/time/surface，
-							// 无 data 负载）——job_output 配对需要 arguments/content，必须走完整事件观察。
-							const observation = await injected.sessionQuery.observeSession(sessionId)
-							try {
-								const events = Array.isArray(observation?.events) ? observation.events : []
-								const storeTraces = jobOutputTraces(events)
-								const mirror = jobMirrorTraces.get(sessionId)
-								const merged = mirror !== undefined && mirror.size > 0 ? storeTraces.concat([...mirror.values()]) : storeTraces
-								return jobOutputFromTraces(merged, jobId)
-							} finally {
-								// SessionObservation 是 Disposable：读取完即释放（Symbol.dispose / dispose 兼容）。
-								try {
-									observation[Symbol.dispose]?.()
-								} catch {}
-							}
-						})
-						.then((payload) => {
-							res.writeHead(200, { 'Content-Type': 'application/json' })
-							res.end(JSON.stringify(payload))
-						})
-						.catch((error) => {
-							// 读取失败以 5xx 明示（客户端呈现「输出读取失败」而非误判「尚未被读取」）：
-							// 失败语义不冒充为「无读取」，下次轨迹通知或重新选中允许重试。
-							ctx.logger?.warn?.(`dsh-activity-pane: 任务输出回放失败（${sessionId}/${jobId}）: ${String(error)}`)
-							if (res.headersSent) return
-							res.writeHead(500, { 'Content-Type': 'application/json' })
-							res.end(JSON.stringify({ ok: false, error: 'job output replay failed' }))
-						})
-				})
-				return
-			}
-			if (route === '/jobs/stream' && method === 'GET') {
-				// SSE：连接即发空快照（轨迹不入库、无全量快照语义），此后每个 result 轨迹
-				// 广播 { sessionId, jobId }；客户端仅对已选中任务回读输出。
-				res.writeHead(200, {
-					'Content-Type': 'text/event-stream',
-					'Cache-Control': 'no-cache',
-					Connection: 'keep-alive',
-				})
-				res.write('event: state\ndata: {}\n\n')
-				jobStreamClients.add(res)
-				const remove = () => jobStreamClients.delete(res)
-				req.on('close', remove)
-				res.on('close', remove)
-				return
-			}
 			res.writeHead(404, { 'Content-Type': 'application/json' })
 			res.end(JSON.stringify({ ok: false, error: 'not found' }))
 		},
@@ -570,13 +436,5 @@ export function apply(ctx) {
 			}
 		}
 		busyStreamClients.clear()
-		for (const res of jobStreamClients) {
-			try {
-				res.end()
-			} catch {
-				/* 连接已断 */
-			}
-		}
-		jobStreamClients.clear()
 	}
 }

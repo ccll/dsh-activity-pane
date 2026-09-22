@@ -42,8 +42,6 @@ import {
 	shouldSubscribeToSession,
 	liveJobsOf,
 	jobKindLabel,
-	jobOutputTraces,
-	jobOutputFromTraces,
 	activeSessionIds,
 	completionReminder,
 	errorReminder,
@@ -98,6 +96,7 @@ import {
 	openSession,
 	scrollCardIntoView,
 	shouldDismissDrawerOnActivation,
+	activationTarget,
 	suppressComposerAutofocus,
 } from "../src/navigation.mjs";
 
@@ -129,6 +128,29 @@ assert.equal(
 	false,
 	"sessions.open 失败时交给调用方进入 refresh/retry",
 );
+
+// ---- R-01-005/AC-03 job 子卡激活目标解析：job 复合 id 以归属会话 id 发起跳转 ----
+assert.equal(
+	activationTarget({ kind: "job", sessionId: "job:s1:job-1", jobOwner: "s1" }),
+	"s1",
+	"job 子卡激活目标解析为归属主会话 id（job 复合 id 非会话 id，R-01-005/AC-03）",
+);
+assert.equal(
+	activationTarget({ kind: "job", sessionId: "job:s1:job-1", jobOwner: "" }),
+	"",
+	"job 子卡归属缺失时返回空目标（R-01-005/AC-03）——不把复合 id 误当会话发起跳转",
+);
+assert.equal(
+	activationTarget({ kind: "job", sessionId: "job:s1:job-1" }),
+	"",
+	"jobOwner 字段缺失同样返回空目标（R-01-005/AC-03）",
+);
+assert.equal(
+	activationTarget({ kind: "subagent", sessionId: "s9", jobOwner: "s1" }),
+	"s9",
+	"非 job 卡片激活目标原样返回，不吞 jobOwner",
+);
+assert.equal(activationTarget({}), null, "无 sessionId 时返回 null（调用方空值判定不发起跳转）");
 
 // ---- R-01-006/AC-02 当前卡片最小滚动：只调整越界方向，不居中 ----
 const viewport = { top: 10, bottom: 110 };
@@ -3550,7 +3572,7 @@ assert.equal(nextDensity("medium"), "full", "中间档的下一档为完整（R-
 assert.equal(nextDensity("compact"), "medium", "紧凑档的下一档为中间（R-01-021/AC-01）");
 assert.equal(nextDensity("junk"), "full", "非法值经归一视作默认中间档再循环（R-01-021/AC-01）");
 
-// ---- R-01-023 在跑后台任务的活性派生、提醒抑制与徽标 ｜ R-01-024 任务输出回放 ----
+// ---- R-01-023 在跑后台任务的活性派生、提醒抑制与徽标 ----
 // R-01-023/AC-01：liveJobs 非空的主会话保留活动区、归运行组并携带任务视图（startedAt 升序）。
 const jobbedSnapshot = {
 	ids: ["jA", "jB", "jC"],
@@ -3579,14 +3601,14 @@ assert.deepEqual(
 	],
 	"R-01-023/AC-01 条目携带在跑任务视图：仅 live 状态、startedAt 升序、已结束任务剔除",
 );
-// R-01-024 任务子卡条目：与子代理同形的缩进子卡，跟随母会话直接后继、结束即消失。
+// R-01-023 任务子卡条目：与子代理同形的缩进子卡，跟随母会话直接后继、结束即消失。
 assert.deepEqual(
 	jobbedEntries.filter((entry) => entry.kind === "job").map((entry) => [entry.id, entry.parentId, entry.depth, entry.title, entry.jobKind, entry.jobStatus]),
 	[
 		["job:jA:job-1", "jA", 1, "sync data", "bash", "stopping"],
 		["job:jA:job-2", "jA", 1, "watch tail.log", "bash", "running"],
 	],
-	"R-01-024/AC-01 每个在跑后台任务产出一张 job 子卡（复合 id、缩进 depth+1、携带任务字段与工具类型）",
+	"R-01-023/AC-01 每个在跑后台任务产出一张 job 子卡（复合 id、缩进 depth+1、携带任务字段与工具类型）",
 );
 assert.ok(jobbedEntries[1].kind === "job" && jobbedEntries[0].id === "jA", "job 子卡紧随母会话条目之后（preorder 位置）");
 assert.ok(jobbedEntries.some((entry) => entry.id === "jB"), "真实运行中会话不受任务视图影响照常显示");
@@ -3634,43 +3656,6 @@ const emptyLabelViews = { jA: [{ id: "job-9", kind: "bash", label: "", status: "
 const emptyLabelEntry = buildEntries(jobbedSnapshot, [], {}, null, null, [], null, emptyLabelViews).find((entry) => entry.kind === "job");
 assert.ok(emptyLabelEntry !== undefined, "R-01-023/AC-06 前置：内容不可得的在跑任务仍产出子卡");
 assert.equal(emptyLabelEntry.title, "", "R-01-023/AC-06 任务内容不可得时条目内容为空串");
-// R-01-024/AC-01：job_output 轨迹提取与配对回放（JSON 字符串与已解析参数、错误结果剔除）。
-const jobEventRecords = [
-	{ seq: 10, event: { type: "tool/call", seq: 10, data: { name: "job_output", callId: "call-1", arguments: JSON.stringify({ job_id: "job-A" }) } } },
-	{ seq: 11, event: { type: "tool/call", seq: 11, data: { name: "bash", callId: "call-2", arguments: "{}" } } },
-	{ seq: 12, event: { type: "tool/result", seq: 12, data: { message: { source: { callId: "call-2" }, content: [{ type: "tool-result", content: [{ type: "text", text: "unrelated" }] }] } } } },
-	{ seq: 13, event: { type: "tool/result", seq: 13, data: { message: { source: { callId: "call-1" }, content: [{ type: "tool-result", content: [{ type: "text", text: "line-1\nline-2" }] }] } } } },
-	{ seq: 14, event: { type: "tool/call", seq: 14, data: { name: "job_output", callId: "call-3", arguments: { job_id: "job-B" } } } },
-	{ seq: 15, event: { type: "tool/result", seq: 15, data: { message: { source: { callId: "call-3" }, content: [{ type: "tool-result", isError: true, content: [{ type: "text", text: "boom" }] }] } } } },
-];
-const jobTraces = jobOutputTraces(jobEventRecords);
-assert.equal(jobTraces.length, 5, "R-01-024 轨迹提取：非任务调用之外的 job_output 对与其它 result 均入轨迹（配对在回放侧收口）");
-assert.equal(jobOutputFromTraces(jobTraces, "job-A").text, "line-1\nline-2", "R-01-024/AC-01 配对回放：仅拼接归属任务的已读文本");
-assert.equal(jobOutputFromTraces(jobTraces, "job-A").read, true, "R-01-024/AC-01 已配对读取置 read=true");
-assert.equal(jobOutputFromTraces(jobTraces, "job-B").text, "", "R-01-024 错误结果文本不进人读回放");
-assert.equal(jobOutputFromTraces(jobTraces, "job-C").read, false, "R-01-024/AC-02 无配对读取 → read=false（客户端承接「尚未被读取」）");
-assert.deepEqual(
-	jobOutputFromTraces([...jobTraces, ...jobTraces], "job-A"),
-	{ text: "line-1\nline-2", truncated: false, read: true },
-	"R-01-024 日志重放与实时镜像同 seq 去重：合并不重复拼接",
-);
-const clipped = jobOutputFromTraces(
-	[
-		{ seq: 1, kind: "call", callId: "c", jobId: "j" },
-		{ seq: 2, kind: "result", callId: "c", text: "x".repeat(50), isError: false },
-	],
-	"j",
-	10,
-);
-assert.deepEqual(clipped, { text: "x".repeat(10), truncated: true, read: true }, "R-01-024/AC-04 超限截断并置 truncated 标志");
-assert.deepEqual(
-	jobOutputFromTraces([
-		{ seq: 1, kind: "call", callId: "c", jobId: "j" },
-		{ seq: 2, kind: "result", callId: "c", text: "(no new output)", isError: false },
-	], "j"),
-	{ text: "", truncated: false, read: true },
-	"R-01-024 模型侧『无新输出』占位不进人读回放",
-);
 
 // ---- 重建 client bundle 并校验产物契约 ----
 await mkdir(join(root, ".dsh-plugin"), { recursive: true });
@@ -4237,28 +4222,29 @@ assert.ok(
 	!bundle.includes("ctx.get(\"dsh-answer-pet\")"),
 	"不得以服务方式依赖第三方宠物插件",
 );
-// R-02-004/AC-02（演进，C-030、C-074、T-149）：HTTP 请求仅三处——完成确认写回（用户操作
-// 触发的一次性 POST）、累计运行时长懒回填触发（每会话至多一次的一次性 GET）与后台任务
-// 输出回读（选中任务或轨迹通知时的一次性 GET），均非状态轮询；轮内状态与回合统计仍只来自
-// 原生订阅推送与 SSE 推送。
+// R-02-004/AC-02（演进，C-030、C-074、T-149）：HTTP 请求仅两处——完成确认写回（用户操作
+// 触发的一次性 POST）与累计运行时长懒回填触发（每会话至多一次的一次性 GET），均非状态
+// 轮询；轮内状态与回合统计仍只来自原生订阅推送与 SSE 推送。
 // fetch/EventSource 数量由下两条断言钉住：轮询需要重复请求，受限的调用面即排除轮询形态。
 assert.ok(
-	(bundle.match(/fetch\(/g) ?? []).length === 3
+	(bundle.match(/fetch\(/g) ?? []).length === 2
 		&& bundle.includes("fetch(`${PANE_API_BASE}/ack`")
-		&& bundle.includes("fetch(`${PANE_API_BASE}/busy?ids=")
-		&& bundle.includes("fetch(`${PANE_API_BASE}/jobs-output?"),
-	"HTTP 请求仅确认写回、busy 懒回填与任务输出回读三处，指向宿主侧自家路由（R-01-002/AC-10、R-01-020、R-01-024/AC-01、C-030、C-074）",
+		&& bundle.includes("fetch(`${PANE_API_BASE}/busy?ids="),
+	"HTTP 请求仅确认写回与 busy 懒回填两处，指向宿主侧自家路由（R-01-002/AC-10、R-01-020、C-030、C-074）",
 );
 assert.ok(
-	(bundle.match(/new window\.EventSource\(/g) ?? []).length === 3
+	(bundle.match(/new window\.EventSource\(/g) ?? []).length === 2
 		&& bundle.includes("${PANE_API_BASE}/acks/stream")
-		&& bundle.includes("${PANE_API_BASE}/busy/stream")
-		&& bundle.includes("${PANE_API_BASE}/jobs/stream"),
-	"SSE 订阅仅 acks、busy 与任务轨迹通知三条通道（C-030、C-074、R-01-024/AC-03）",
+		&& bundle.includes("${PANE_API_BASE}/busy/stream"),
+	"SSE 订阅仅 acks 与 busy 两条通道（C-030、C-074）",
 );
 assert.ok(
 	bundle.includes("label.title = labelText"),
-	"job 子卡内容行悬停以原生 tooltip 显示完整任务原文（R-01-024 呈现细化、R-01-023/AC-05）",
+	"job 子卡内容行悬停以原生 tooltip 显示完整任务原文（R-01-023/AC-05）",
+);
+assert.ok(
+	bundle.includes("activationTarget({ kind: el.dataset.kind, sessionId, jobOwner: el.dataset.jobOwner })"),
+	"job 子卡激活以卡上归属会话 id 发起跳转（R-01-005/AC-03）",
 );
 
 // ---- R-02-003/AC-02 卸载时清理注入元素、样式与监听 ----
@@ -4858,10 +4844,6 @@ assert.ok(hostSource.includes("const API_PATH = '/dsh-activity-pane/api'") && ho
 assert.ok(hostSource.includes("'/acks/stream'") && hostSource.includes("text/event-stream"), "SSE 推送通道（AC-11、AC-12）");
 assert.ok(hostSource.includes("'/ack'") && hostSource.includes("ackedAt: Date.now()"), "ack 写回路由（AC-10～AC-12）");
 assert.ok(hostSource.includes("streamClients") && hostSource.includes("for (const res of streamClients)"), "SSE 连接集合随卸载全数关闭");
-assert.ok(
-	hostSource.includes("observeSession(sessionId)") && !hostSource.includes("listEvents(sessionId)"),
-	"任务输出重放以 observeSession 完整事件为持久种子（listEvents 仅元数据无 data，T-150 缺陷修复，R-01-024/AC-01）",
-);
 assert.ok(
 	hostSource.includes("ctx.connection?.requestRejection?.(req)") && hostSource.includes("res.end('unauthorized')"),
 	"自定义 webServer 路由经 connection.requestRejection 鉴权门（A1-08：不继承宿主鉴权，acks/busy 读写通道不得裸奔）",

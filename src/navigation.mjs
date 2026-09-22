@@ -24,6 +24,17 @@ export function bindCardActivation(card, open) {
 }
 
 /**
+ * 解析卡片激活的跳转目标（R-01-005/AC-03）：后台任务子卡以 job 复合 id 呈现，
+ * 非会话 id——激活以卡上归属主会话 id（data-job-owner）为目标；归属缺失/为空返回
+ * 空串（调用方空值判定兜住，不把复合 id 误当会话目标发起跳转）。其它卡片原样返回。
+ * 纯函数，无 DOM 假设。
+ */
+export function activationTarget({ kind, sessionId, jobOwner } = {}) {
+	if (kind !== "job") return typeof sessionId === "string" ? sessionId : null;
+	return typeof jobOwner === "string" && jobOwner !== "" ? jobOwner : "";
+}
+
+/**
  * 判定卡片激活是否转为收起移动端抽屉（R-01-008/AC-06）：移动断点内抽屉打开、
  * 且激活目标已是当前会话时，激活不再发起切换（避免无意义 open 与重试链），
  * 改为收起抽屉直达会话。纯函数，无 DOM 假设。

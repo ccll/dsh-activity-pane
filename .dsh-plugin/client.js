@@ -1566,7 +1566,7 @@ function mainTitle(byId, id) {
  * jobsBySession（R-01-023）：快照携带的 `jobsBySession` 任务视图映射——存在在跑后台任务
  * （status ∈ {running, stopping}）的主会话获得第三种自身活动来源：保留在活动区归入运行组、
  * 完成提醒与错误提醒被抑制（AC-01、AC-02）；条目携带 liveJobs（startedAt 升序）供渲染层
- * 标注数量与构建任务行（R-01-024）。子代理行不派生 liveJobs（后台任务当前仅主会话呈现）。
+ * 标注数量与构建任务行（R-01-023）。子代理行不派生 liveJobs（后台任务当前仅主会话呈现）。
  */
 function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null, archivedIds = [], waitingStarts = null, jobsBySession = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
@@ -1743,7 +1743,7 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 				stateAt,
 				questionPreview: m.pending && m.row.pendingInteraction === "question" ? (questionPreview ?? null) : undefined,
 			});
-			// 后台任务子条目（R-01-024）：与子代理同形的缩进子卡，跟随母会话在其全部
+			// 后台任务子条目（R-01-023）：与子代理同形的缩进子卡，跟随母会话在其全部
 			// 子代理之前（即母亲条目的直接后继）；结束即随 liveJobs 清空而消失（R-01-023/AC-03）。
 			// 复合 id 在去重视野（entries/visited/cardsById）中唯一，且携 jobs 前缀与子代理
 			// 会话 id 空间天然隔离；层级连接线与子代理同规则参与 trackRuns（R-01-003/AC-04），
@@ -2003,11 +2003,7 @@ function entryErrorNote(completion) {
 	return typeof message === "string" && message !== "" ? message : ERROR_NOTE_FALLBACK;
 }
 
-// ---- 后台任务（R-01-023、R-01-024）：在跑活性归一与 job_output 读取回放 ----
-
-/** 后台任务输出回放的字符上限（R-01-024/AC-04）：模型每次 job_output 读取的
- *  已定案文本拼接后超出即截断并置 truncated；与单条错误信息截断同量级考虑。 */
-const JOB_OUTPUT_MAX_CHARS = 20000;
+// ---- 后台任务（R-01-023）：在跑活性归一 ----
 
 /** 在跑后台任务的活性状态全集（R-01-023）：stopping 视同在跑——停止请求已发出但
  *  任务尚未结束，呈现与提醒抑制口径与 running 一致。 */
@@ -2051,99 +2047,6 @@ const JOB_KIND_LABELS = { bash: "Bash", pwsh: "PowerShell", subagent: "子代理
 function jobKindLabel(kind) {
 	if (typeof kind !== "string" || kind === "") return "";
 	return JOB_KIND_LABELS[kind] ?? kind;
-}
-
-/** 从 tool-result 消息提取纯文本：tool-result 内容块内的 text 片段按换行拼接；
- *  非数组内容或无文本块返回 undefined（错误结果是否纳入由调用方按 isError 判定）。 */
-function jobResultText(message) {
-	if (!Array.isArray(message.content)) return undefined;
-	const parts = [];
-	for (const block of message.content) {
-		if (!isRecord(block) || block.type !== "tool-result") continue;
-		if (!Array.isArray(block.content)) continue;
-		for (const item of block.content) {
-			if (isRecord(item) && item.type === "text" && typeof item.text === "string") parts.push(item.text);
-		}
-	}
-	return parts.length > 0 ? parts.join("\n") : undefined;
-}
-
-/** tool-result 是否为错误结果（内层 tool-result 块的 isError 标志）。 */
-function jobResultIsError(message) {
-	if (!Array.isArray(message.content)) return false;
-	return message.content.some((block) => isRecord(block) && block.type === "tool-result" && block.isError === true);
-}
-
-/**
- * 从事件记录列表提取 job_output 读写轨迹（R-01-024）：`tool/call` 名为 `job_output`
- * 的行经 `arguments.job_id`（JSON 字符串或已解析对象）登记 callId → jobId 映射，
- * `tool/result` 行按 `message.source.callId` 配对并携带模型收到的定案文本与错误标志。
- * 兼容包装记录 `{ seq, event }` 与平面事件两种形状（seq 取事件或记录顶层）；seq 非法的
- * 事件跳过。返回按 seq 升序的去重轨迹数组（同 seq 后到者胜——实时镜像与日志重放合并
- * 时的自然口径）。
- */
-function jobOutputTraces(records) {
-	const bySeq = new Map();
-	for (const record of Array.isArray(records) ? records : []) {
-		const event = eventOf(record);
-		if (!isRecord(event) || (event.type !== "tool/call" && event.type !== "tool/result")) continue;
-		const seq = Number(event.seq ?? (isRecord(record) ? record.seq : undefined));
-		if (!Number.isFinite(seq)) continue;
-		const data = isRecord(event.data) ? event.data : {};
-		if (event.type === "tool/call") {
-			if (data.name !== "job_output" || typeof data.callId !== "string") continue;
-			let jobId = null;
-			if (typeof data.arguments === "string") {
-				try {
-					const parsed = JSON.parse(data.arguments);
-					if (isRecord(parsed) && typeof parsed.job_id === "string") jobId = parsed.job_id;
-				} catch {
-					// 参数不可解析：不构成有效的 job_output 调用轨迹。
-				}
-			} else if (isRecord(data.arguments) && typeof data.arguments.job_id === "string") {
-				jobId = data.arguments.job_id;
-			}
-			if (jobId === null) continue;
-			bySeq.set(seq, { seq, kind: "call", callId: data.callId, jobId });
-		} else {
-			const message = isRecord(data.message) ? data.message : null;
-			const callId = typeof message?.source?.callId === "string" ? message.source.callId : null;
-			if (callId === null) continue;
-			bySeq.set(seq, { seq, kind: "result", callId, text: jobResultText(message), isError: jobResultIsError(message) });
-		}
-	}
-	return [...bySeq.values()].sort((a, b) => a.seq - b.seq);
-}
-
-/**
- * 从轨迹回放指定后台任务的模型已读输出（R-01-024/AC-01）：按 seq 序配对 call → result，
- * 拼接归属 jobId 的全部读取文本；剔除错误结果与 `(no new output)` 占位（模型视角的
- * 「无新内容」对人无展示价值）。返回 `{ text, truncated, read }`——read = 存在已配对
- * 读取（无配对时 text 为空，客户端以「尚未被读取」承接，R-01-024/AC-02）；超出
- * limit 按字符截断并置 truncated（R-01-024/AC-04）。同 seq 轨迹去重（后到者胜），
- * 供日志重放与实时镜像两源合并。jobId 非法返回未读取空结果。
- */
-function jobOutputFromTraces(traces, jobId, limit = JOB_OUTPUT_MAX_CHARS) {
-	if (typeof jobId !== "string" || jobId === "") return { text: "", truncated: false, read: false };
-	const bySeq = new Map();
-	for (const trace of Array.isArray(traces) ? traces : []) {
-		if (isRecord(trace) && Number.isFinite(Number(trace?.seq))) bySeq.set(Number(trace.seq), trace);
-	}
-	const jobOf = new Map();
-	const parts = [];
-	let read = false;
-	for (const trace of [...bySeq.values()].sort((a, b) => a.seq - b.seq)) {
-		if (trace?.kind === "call") {
-			if (typeof trace.jobId === "string") jobOf.set(trace.callId, trace.jobId);
-		} else if (jobOf.get(trace.callId) === jobId) {
-			read = true;
-			if (trace.isError !== true && typeof trace.text === "string" && !trace.text.startsWith("(no new output)")) {
-				parts.push(trace.text);
-			}
-		}
-	}
-	const text = parts.join("\n");
-	return { text: text.length > limit ? text.slice(0, limit) : text, truncated: text.length > limit, read };
 }
 
 /**
@@ -2730,6 +2633,17 @@ function bindCardActivation(card, open) {
 		card.removeEventListener?.("click", activate);
 		card.removeEventListener?.("keydown", activate);
 	};
+}
+
+/**
+ * 解析卡片激活的跳转目标（R-01-005/AC-03）：后台任务子卡以 job 复合 id 呈现，
+ * 非会话 id——激活以卡上归属主会话 id（data-job-owner）为目标；归属缺失/为空返回
+ * 空串（调用方空值判定兜住，不把复合 id 误当会话目标发起跳转）。其它卡片原样返回。
+ * 纯函数，无 DOM 假设。
+ */
+function activationTarget({ kind, sessionId, jobOwner } = {}) {
+	if (kind !== "job") return typeof sessionId === "string" ? sessionId : null;
+	return typeof jobOwner === "string" && jobOwner !== "" ? jobOwner : "";
 }
 
 /**
@@ -3599,23 +3513,6 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-family: var(--dsh-font-mono, monospace); font-size: 11px; line-height: 15px;
 }
-/* 子卡输出区（R-01-024/AC-01）：展开时追加于卡内底部，终端风回放。 */
-[data-dsh-activity-pane] .dap-jobout {
-  min-width: 0; max-height: 160px; overflow: auto;
-  margin: 4px 0 0;
-  background: color-mix(in srgb, currentColor 7%, transparent);
-  border-radius: 6px; padding: 4px 6px;
-}
-[data-dsh-activity-pane] .dap-jobout-pre {
-  margin: 0; white-space: pre-wrap; word-break: break-word;
-  font-family: var(--dsh-font-mono, monospace); font-size: 10px; line-height: 14px;
-  color: color-mix(in srgb, currentColor 78%, transparent);
-}
-[data-dsh-activity-pane] .dap-jobout-hint {
-  font-size: 10px; line-height: 14px;
-  color: color-mix(in srgb, currentColor 55%, transparent);
-}
-[data-dsh-activity-pane] .dap-jobout-hint:empty { display: none; }
 [data-dsh-activity-pane] .dap-history-line {
   display: flex; align-items: center; gap: 4px; height: 15px;
   min-width: 0; overflow: hidden; white-space: nowrap;
@@ -3925,7 +3822,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card:hover {
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="subagent"] {
   background: var(--dsw-specific-sidebar-fill, rgb(249, 250, 251));
 }
-/* 后台任务子卡浅色主题与子代理卡同源（R-01-024）：淡侧栏填充底，轻染同族蓝与子代理卡区分（R-01-023/AC-07）。 */
+/* 后台任务子卡浅色主题与子代理卡同源（R-01-023）：淡侧栏填充底，轻染同族蓝与子代理卡区分（R-01-023/AC-07）。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="job"] {
   background: color-mix(in srgb, #65a0ff 8%, var(--dsw-specific-sidebar-fill, rgb(249, 250, 251)));
 }
@@ -4414,12 +4311,10 @@ function apply(ctx) {
 		}
 	}
 
-	/** 回到前台（含 bfcache 还原）时 ack 与任务输出通道自愈：重建 SSE（jobs 无全量快照，
-	 *  重连后由下一次轨迹通知或重新选中收敛；选中输出随卡片渲染帧刷新）。 */
+	/** 回到前台（含 bfcache 还原）时 ack 通道自愈：重建 SSE（连接即发全量，状态必然收敛）。 */
 	function resumePushChannels() {
 		if (!disposed) {
 			connectAcksStream();
-			connectJobsStream();
 		}
 	}
 	const onVisibilityResume = () => {
@@ -4431,51 +4326,6 @@ function apply(ctx) {
 	document.addEventListener("visibilitychange", onVisibilityResume);
 	window.addEventListener("pageshow", onPageShow);
 	connectAcksStream();
-
-	// ---- 后台任务输出通道（R-01-024） ----
-	// SSE 订阅宿主侧 job_output 轨迹通知：连接即发空快照（轨迹不入库、无全量快照语义），
-	// 此后每个新轨迹广播 { sessionId, jobId }；客户端仅对「已选中该任务」的可见卡片
-	// 回读输出（R-01-024/AC-03）。无 EventSource 环境静默降级为选中时不自动刷新，
-	// 不引入轮询。
-	let jobsSource = null;
-
-	/** 轨迹通知应用：命中已展开该任务的 job 子卡即置脏并回读一次；其余通知忽略。 */
-	function applyJobTraceNotice(raw) {
-		if (disposed) return;
-		let notice = null;
-		try {
-			notice = JSON.parse(raw);
-		} catch {
-			notice = null;
-		}
-		const sessionId = typeof notice?.sessionId === "string" ? notice.sessionId : null;
-		const jobId = typeof notice?.jobId === "string" ? notice.jobId : null;
-		if (sessionId === null || jobId === null) return;
-		for (const [, card] of cardsById) {
-			const el = card?.el;
-			if (el?.dataset?.kind !== "job" || el.dataset.jobOwner !== sessionId || el.dataset.jobId !== jobId) continue;
-			// 脏标记 + 回读钩子：仅展开中的输出区需要拉取新轨迹（R-01-024/AC-03）。
-			el.__jobOutDirty = true;
-			el.__jobOutReload?.();
-		}
-	}
-
-	/** （重）建 jobs SSE 连接：与 acks 通道同模式的断连自愈口径。 */
-	function connectJobsStream() {
-		try {
-			jobsSource?.close();
-		} catch {}
-		jobsSource = null;
-		if (disposed || typeof window.EventSource !== "function") return;
-		try {
-			const source = new window.EventSource(`${PANE_API_BASE}/jobs/stream`);
-			source.addEventListener("state", (event) => applyJobTraceNotice(event.data ?? ""));
-			jobsSource = source;
-		} catch {
-			jobsSource = null;
-		}
-	}
-	connectJobsStream();
 
 	/** 确认写回（R-01-002/AC-10～AC-12）：乐观更新本地游标（签名驱动即时解除），
 	 *  再 POST 宿主侧持久化并广播；写回失败回滚本地游标（提醒恢复），不吞异常。 */
@@ -5404,8 +5254,8 @@ function apply(ctx) {
 			return [head, row, makeEl("div", "dap-trace"), makeStatsRow(), foot];
 		}
 		if (kind === "job") {
-			// 后台任务子卡（R-01-023/AC-05、R-01-024）：行 1 = 状态点 + 工具名称 + 随时钟
-			// 时长；行 2 = 任务内容原文（mono 省略 + tooltip）；输出区在展开时追加。
+			// 后台任务子卡（R-01-023/AC-05）：行 1 = 状态点 + 工具名称 + 随时钟时长；
+			// 行 2 = 任务内容原文（mono 省略 + tooltip）。
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-job-dot"), makeEl("span", "dap-job-kind"), makeEl("span", "dap-job-elapsed"));
 			const content = makeEl("div", "dap-job-content");
@@ -5898,7 +5748,7 @@ function apply(ctx) {
 	const JOB_STATUS_LABELS = { running: "运行中", stopping: "停止中", completed: "已完成", killed: "已终止", failed: "失败" };
 
 	/** 后台任务数量注（R-01-023/AC-01）：母卡标题行内 `后台 ×N` 小注；任务本体以 job
-	 *  子卡呈现（R-01-024），本注仅承载数量语义。无 liveJobs 时隐藏节点。 */
+	 *  子卡呈现（R-01-023），本注仅承载数量语义。无 liveJobs 时隐藏节点。 */
 	function renderJobsChip(el, entry) {
 		const chip = el.querySelector(".dap-jobs-chip");
 		if (chip === null) return;
@@ -5909,83 +5759,8 @@ function apply(ctx) {
 		if (chip.hidden !== hidden) chip.hidden = hidden;
 	}
 
-	/** 后台任务子卡的输出展开/收起（R-01-024/AC-01）：激活 job 卡即在卡内展开输出区，
-	 *  再次激活收起；同一母会话下至多展开一张（点击新卡先收兄弟，稳定性与共享坞等价）。 */
-	function toggleJobExpanded(el) {
-		if (el.hasAttribute("data-expanded")) {
-			el.removeAttribute("data-expanded");
-			el.querySelector(".dap-jobout")?.remove();
-			delete el.dataset.loadedFor;
-			el.__jobOutReload = null;
-			return;
-		}
-		const ownerId = el.dataset.jobOwner ?? "";
-		for (const [, card] of cardsById) {
-			const other = card?.el;
-			if (other === el || other?.dataset?.kind !== "job" || other.dataset.jobOwner !== ownerId) continue;
-			other.removeAttribute("data-expanded");
-			other.querySelector(".dap-jobout")?.remove();
-			delete other.dataset.loadedFor;
-			other.__jobOutReload = null;
-		}
-		el.setAttribute("data-expanded", "");
-		// 展开视为显式回读请求：置脏令 renderJobOutput 必发一次（含重复点选的重试语义）。
-		el.__jobOutDirty = true;
-		renderJobOutput(el);
-	}
-
-	/** 输出区装载/刷新（R-01-024/AC-01～AC-04）：按卡上归属与任务 id 回读一次模型已读
-	 *  输出——未被读取显示「尚未被读取」（AC-02），超限截断提示（AC-04），失败诚实降级。
-	 *  回读仅在展开、选中切换（=重新展开）或轨迹通知置脏时发出（R-01-024/AC-03）：
-	 *  loadedFor 未变且未置脏时渲染帧直达 return，不构成周期性拉取（R-02-004）。
-	 *  token 使迟到的响应失效（快速切换不串内容）。 */
-	function renderJobOutput(el) {
-		if (!el.hasAttribute("data-expanded")) return;
-		const sessionId = el.dataset.jobOwner ?? null;
-		const jobId = el.dataset.jobId ?? null;
-		if (sessionId === null || sessionId === "" || jobId === null || jobId === "") return;
-		let out = el.querySelector(".dap-jobout");
-		if (out === null) {
-			out = makeEl("div", "dap-jobout");
-			out.append(makeEl("pre", "dap-jobout-pre"), makeEl("div", "dap-jobout-hint"));
-			el.append(out);
-		}
-		const loadedFor = el.dataset.loadedFor;
-		const key = `${sessionId}/${jobId}`;
-		if (loadedFor === key && el.__jobOutDirty !== true) return;
-		el.dataset.loadedFor = key;
-		el.__jobOutDirty = false;
-		const pre = out.querySelector(".dap-jobout-pre");
-		const hint = out.querySelector(".dap-jobout-hint");
-		const token = `${sessionId} ${jobId} ${Date.now()}`;
-		el.__jobOutToken = token;
-		// jobs SSE 轨迹通知按此钩子触发回读（R-01-024/AC-03）；随卡片重建自然失效。
-		el.__jobOutReload = () => renderJobOutput(el);
-		pre.textContent = "";
-		hint.textContent = "读取中…";
-		fetch(`${PANE_API_BASE}/jobs-output?sessionId=${encodeURIComponent(sessionId)}&jobId=${encodeURIComponent(jobId)}`)
-			.then((response) => (response.ok ? response.json() : null))
-			.then((payload) => {
-				if (el.__jobOutToken !== token || disposed) return;
-				if (payload === null || typeof payload !== "object") {
-					hint.textContent = "输出读取失败";
-					return;
-				}
-				pre.textContent = typeof payload.text === "string" ? payload.text : "";
-				hint.textContent =
-					payload.read === false
-						? "尚未被读取"
-						: payload.truncated === true
-							? "输出过长，已截断"
-							: "";
-			})
-			.catch(() => {
-				if (el.__jobOutToken === token && !disposed) hint.textContent = "输出读取失败";
-			});
-	}
-
-	/** 后台任务子卡渲染（R-01-023/AC-01、R-01-024/AC-01）：状态点着色、标题与随时钟
-	 *  推进的已运行时长；展开态下装载/刷新输出区。任务消失由条目派生侧收卡（随
+	/** 后台任务子卡渲染（R-01-023/AC-01、AC-05）：状态点着色、标题与随时钟推进的
+	 *  已运行时长；卡上归属会话 id 供激活跳转消费。任务消失由条目派生侧收卡（随
 	 *  liveJobs 清空整个条目消失），此处只呈现当帧状态。 */
 	function renderJobCardInto(el, entry) {
 		const dot = el.querySelector(".dap-job-dot");
@@ -5999,8 +5774,7 @@ function apply(ctx) {
 			if (kindEl.hidden !== kindHidden) kindEl.hidden = kindHidden;
 		}
 		// 任务内容行（R-01-023/AC-05、AC-06）：mono 原文单行省略，完整原文以原生 tooltip
-		// 显示（沿用 R-01-024 呈现细化语义，tooltip 归内容行）；内容不可得时整行隐藏，
-		// 不补空白或占位。
+		// 显示（tooltip 归内容行）；内容不可得时整行隐藏，不补空白或占位。
 		const contentRow = el.querySelector(".dap-job-content");
 		const labelText = String(entry.title ?? "");
 		if (contentRow !== null) {
@@ -6023,8 +5797,6 @@ function apply(ctx) {
 			if (elapsed.textContent !== elapsedText) elapsed.textContent = elapsedText;
 		}
 		if (el.dataset.jobOwner !== String(entry.parentId)) el.dataset.jobOwner = String(entry.parentId);
-		if (el.dataset.jobId !== String(entry.jobId)) el.dataset.jobId = String(entry.jobId);
-		renderJobOutput(el);
 	}
 
 	function renderCardInto(el, entry, colorByWorkspace) {
@@ -6500,22 +6272,20 @@ function apply(ctx) {
 			const el = document.createElement("div");
 			el.className = CARD_CLASS;
 			const unbind = bindCardActivation(el, (sessionId) => {
-				// 后台任务子卡（R-01-024/AC-01）：激活即切换卡内输出展开，不发起会话跳转
-				//（job 复合 id 非会话 id，无可打开目标）。
-				if (el.dataset.kind === "job") {
-					toggleJobExpanded(el);
-					return;
-				}
+				// job 复合 id 非会话 id：后台任务子卡激活解析为归属主会话后走通用跳转链
+				//（R-01-005/AC-03）；归属缺失时不发起跳转。
+				const target = activationTarget({ kind: el.dataset.kind, sessionId, jobOwner: el.dataset.jobOwner });
+				if (target === null || target === "") return;
 				if (typeof sessions?.open !== "function") return;
-				lastActivatedId = sessionId;
+				lastActivatedId = target;
 				// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标；
 				// 收起抽屉的分支同样是最新意图，必须先取消挂起链条再 return。
-				cancelStaleOpenRetries({ activatedId: sessionId });
+				cancelStaleOpenRetries({ activatedId: target });
 				// 二次激活当前会话卡片：移动断点抽屉打开时收起抽屉直达会话
 				//（R-01-008/AC-06），不发起会话切换。
 				if (
 					shouldDismissDrawerOnActivation({
-						targetId: sessionId,
+						targetId: target,
 						currentId: getSnapshot(sessions, "list")?.current ?? null,
 						mobile: window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`).matches,
 						drawerOpen:
@@ -6525,7 +6295,7 @@ function apply(ctx) {
 					togglePane(false);
 					return;
 				}
-				attemptOpen(sessionId, 0);
+				attemptOpen(target, 0);
 			});
 			rec = { el, kind: null, unbind };
 			reuseMap.set(entry.id, rec);
@@ -7464,8 +7234,6 @@ function apply(ctx) {
 		pendingUnsubscribe?.();
 		acksSource?.close();
 		acksSource = null;
-		jobsSource?.close();
-		jobsSource = null;
 		busySource?.close();
 		busySource = null;
 		document.removeEventListener("visibilitychange", onBusyVisibilityResume);

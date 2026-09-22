@@ -6,7 +6,7 @@ id: T-153
 
 # T-153 AgentMap map 文件迁移：DESIGN.md→SOLUTION.md、DECISIONS.md→RATIONALE.md
 
-状态: active
+状态: completed
 关联: C-081 → 文档坐标系（过程层维护；PRD 需求不变）
 风险等级: standard
 
@@ -54,4 +54,13 @@ id: T-153
 
 ## 终态与证据
 
-（关闭时填写）
+- 实现: `DESIGN.md`→`SOLUTION.md`、`DECISIONS.md`→`RATIONALE.md` 改名（Git 识别为 99% 相似 rename）；PRD 28 条需求字段「关联设计」→「关联方案」；`AGENTS.md`、`CONVENTIONS.md`、`tools/agentmap_lint.py`、`tools/agentmap_validate_commit_msg.py` 升级到 canonical（CONVENTIONS 新增 task 引用 commit-msg 规则）；`TODO.md` 维护想法条目旧名引用对齐；RATIONALE 末尾追加 C-081（既有决策条目正文逐字不变，append-only 前缀校验保持通过）。双轴审核修复（11ab208）：`tools/test_impact_lint.py` 门禁条件改为 SOLUTION.md 或旧名 DESIGN.md 均触发、行键接受 `SOLUTION` 或 `DESIGN`，self-test 新增 SOLUTION.md 触发与豁免断言；SOLUTION.md 实现就绪行改用 canonical 条件名「重大方案选择已收敛」并指向 RATIONALE.md；SOLUTION.md:394 与 CONVENTIONS.md:34/44/48 共 5 处旧术语对齐。
+- 测试: `python3 tools/agentmap_lint.py --self-test`、`--report`（requirements=28、solution-covered=28、test-anchored=173/173）通过；`python3 tools/test_impact_lint.py --self-test`（含新增 SOLUTION.md 门禁路径）与 `--report` 通过；`.githooks/pre-commit` 通过；`.githooks/pre-push` 对迁移提交 2f26e04 重放完整 `pnpm verify`（agentmap lint、test impact、`scripts/check.mjs` 全部断言、19 个浏览器 E2E spec）全部通过。
+- SOLUTION 对照: 实现就绪检查行、测试影响门禁描述与 CONVENTIONS 验证门禁条目已与 SOLUTION.md/RATIONALE.md 命名一致；map 与现实无差异；终态 task 与历史决策正文中的旧文件名引用按 C-081 作为审计历史保留（经 C-081 机械可映射，属已记录偏差）。
+- commit: 2f26e04aeac14a08fd0909bf16a8abbbf3041d7a
+- review:
+  - 审核方: code-review skill（Standards reviewer `52e854ee-2bb6-4a0a-bbaf-b30c86ddfe06`、Spec reviewer `259d958a-17a6-4a47-8959-dbb3cea74dcb`，双轴并行独立）
+  - 目的理解: 在东家确认下执行 AgentMap canonical 框架要求的 map 文件迁移（DESIGN.md→SOLUTION.md、DECISIONS.md→RATIONALE.md），使 map 命名、活文档引用与术语对齐 canonical，且 agentmap lint 与提交/推送门禁全绿；约束为 append-only 决策条目正文逐字不变、终态 task 旧名引用按审计历史保留、不触及 src/ 与 e2e/ 运行时行为。
+  - 执行方式: code-review skill 双轴评审；Standards 轴对照 AGENTS.md/CONVENTIONS.md + Fowler 气味基线，Spec 轴对照 tasks/T-153-20260922-agentmap-map-rename.md 与 RATIONALE C-081；评审基线 `git diff 2f26e04^...2f26e04`，复审范围 `git diff 2f26e04..11ab208`，两轴独立并行后聚合。
+  - 问题与修复: ① SOLUTION.md 实现就绪检查行残留「重大设计选择已收敛/DECISIONS.md」→ 改 canonical 条件名并指向 RATIONALE.md；② SOLUTION.md 测试影响门禁描述与 CONVENTIONS.md 三处残留「PRD/DESIGN」旧术语 → 同次对齐 SOLUTION 措辞；③ `tools/test_impact_lint.py:195` 硬编码 DESIGN.md 致改名后方案层变化静默绕过 C-059 门禁 → 触发条件纳入 SOLUTION.md（保留 legacy DESIGN.md 兼容）、行键接受 `SOLUTION` 或 `DESIGN`，self-test 补 SOLUTION.md 触发+豁免双断言；④ C-081「机械映射」表述强于实际设施（lint 容忍 + 兼容触发，无独立映射设施）→ append-only 不可改写，复审接受为已记录偏差。①②③均经同一审核方复审确认消失。
+  - 复审结论: 通过。残余风险与测试缺口：`tools/test_impact_lint.py` 门禁报错文案仍写「without a DESIGN row」未提 SOLUTION 行（纯文案，不阻塞，留待后续维护）；`tools/agentmap_lint.py` 内部 Duplicated Code/Repeated Switches 气味判断项未处置——该文件属 AgentMap 框架属主约定范围（CANONICAL_FILES_SHA256 不含它，但 canonical 契约要求与运行实例一致），留待经东家向上游推进；C-081 影响面未附 T-153（非强制）。

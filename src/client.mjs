@@ -3522,7 +3522,7 @@ function apply(ctx) {
 				// job 复合 id 非会话 id：后台任务子卡激活解析为归属主会话后走通用跳转链
 				//（R-01-005/AC-03）；归属缺失时不发起跳转。
 				const target = activationTarget({ kind: el.dataset.kind, sessionId, jobOwner: el.dataset.jobOwner });
-				if (target === null || target === "") return;
+				if (target === null) return;
 				if (typeof sessions?.open !== "function") return;
 				lastActivatedId = target;
 				// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标；

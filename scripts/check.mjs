@@ -137,13 +137,13 @@ assert.equal(
 );
 assert.equal(
 	activationTarget({ kind: "job", sessionId: "job:s1:job-1", jobOwner: "" }),
-	"",
-	"job 子卡归属缺失时返回空目标（R-01-005/AC-03）——不把复合 id 误当会话发起跳转",
+	null,
+	"job 子卡归属缺失时返回 null（R-01-005/AC-03）——不把复合 id 误当会话发起跳转",
 );
 assert.equal(
 	activationTarget({ kind: "job", sessionId: "job:s1:job-1" }),
-	"",
-	"jobOwner 字段缺失同样返回空目标（R-01-005/AC-03）",
+	null,
+	"jobOwner 字段缺失同样返回 null（R-01-005/AC-03）",
 );
 assert.equal(
 	activationTarget({ kind: "subagent", sessionId: "s9", jobOwner: "s1" }),

@@ -26,12 +26,12 @@ export function bindCardActivation(card, open) {
 /**
  * 解析卡片激活的跳转目标（R-01-005/AC-03）：后台任务子卡以 job 复合 id 呈现，
  * 非会话 id——激活以卡上归属主会话 id（data-job-owner）为目标；归属缺失/为空返回
- * 空串（调用方空值判定兜住，不把复合 id 误当会话目标发起跳转）。其它卡片原样返回。
- * 纯函数，无 DOM 假设。
+ * null（调用方空值判定兜住，不把复合 id 误当会话目标发起跳转）。其它卡片原样返回，
+ * 无 sessionId 时同样返回 null。纯函数，无 DOM 假设。
  */
 export function activationTarget({ kind, sessionId, jobOwner } = {}) {
-	if (kind !== "job") return typeof sessionId === "string" ? sessionId : null;
-	return typeof jobOwner === "string" && jobOwner !== "" ? jobOwner : "";
+	if (kind === "job") return typeof jobOwner === "string" && jobOwner !== "" ? jobOwner : null;
+	return typeof sessionId === "string" ? sessionId : null;
 }
 
 /**

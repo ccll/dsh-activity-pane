@@ -1,9 +1,9 @@
-// R-01-023/AC-01、AC-02、AC-05、R-01-003/AC-04 呈现链路（浏览器黄金路径）：
+// R-01-023/AC-01、AC-02、AC-05、R-01-003/AC-04、R-01-005/AC-03 呈现与交互链路（浏览器黄金路径）：
 // e2e:job 剧本让引擎真实启动后台任务并读取一次输出——窗格以 job 子卡呈现（与子代理
 // 同形：层级连接线 + 两行卡面）、第一行工具名称与随时钟时长、第二行任务内容原文（悬停
 // tooltip 完整原文）、卡面底色与子代理卡区分、紧凑档仅保留工具名行、母卡标题行「后台 ×N」
-// 数量注、回合结束后在跑任务期间完成提醒被抑制。
-import { openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
+// 数量注、回合结束后在跑任务期间完成提醒被抑制、点击 job 子卡跳转归属主会话。
+import { mainAreaHas, newSessionWithMessage, openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
 
 const TITLE = "e2e:job 后台任务探针";
 
@@ -82,4 +82,12 @@ export default async function backgroundJobs({ page, url, assert }) {
 	}, 10_000);
 	assert.ok(compactHidden === true, "紧凑档任务内容行隐藏、仅保留工具名行（R-01-023/AC-05）");
 	await page.evaluate(() => document.querySelector('[data-dsh-activity-pane] .dap-density')?.click());
+
+	// R-01-005/AC-03：切到新会话后点击 job 子卡，主会话应切回任务的归属主会话
+	//（任务在跑期间归属会话保留在活动区，job 子卡跨会话可见）。
+	await newSessionWithMessage(page, "e2e:fast 会话切换探针");
+	assert.ok(await mainAreaHas(page, "e2e:fast 会话切换探针"), "前置：已切换到新会话");
+	await page.evaluate(() => document.querySelector('[data-dsh-activity-pane] .dap-card[data-kind="job"]')?.click());
+	await until("job 子卡激活切回归属会话", () => mainAreaHas(page, TITLE), 15_000);
+	assert.ok(await mainAreaHas(page, TITLE), "点击后台任务子卡切换到归属主会话（R-01-005/AC-03）");
 }

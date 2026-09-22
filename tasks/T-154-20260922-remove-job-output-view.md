@@ -49,7 +49,7 @@ id: T-154
 | 维度 | 适用性/理由 | 可执行证据 |
 |---|---|---|
 | 成功 | 适用：job 子卡呈现与激活跳转归属会话正常、其余卡片交互不变 | `scripts/check.mjs#R-01-005/AC-03`、`src/navigation.mjs::activationTarget`、`e2e/specs/background-jobs.mjs#R-01-023/AC-01` |
-| 异常 | 适用：job 子卡归属缺失（jobOwner 为空）时激活返回空目标、不发起跳转，不误用复合 id 调 sessions.open | `scripts/check.mjs#job 子卡归属缺失时返回空目标`、`src/navigation.mjs::activationTarget` |
+| 异常 | 适用：job 子卡归属缺失（jobOwner 为空）时激活返回 null、不发起跳转，不误用复合 id 调 sessions.open | `scripts/check.mjs#job 子卡归属缺失时返回 null`、`src/navigation.mjs::activationTarget` |
 | 边界配置 | 适用：删除路由后宿主 `/api/*` 其余路由（acks/busy/ack）不受影响；bundle 调用面收敛为 fetch=2、EventSource=2 | `scripts/check.mjs#SSE 订阅仅 acks 与 busy 两条通道`、`scripts/check.mjs#HTTP 请求仅确认写回与 busy 懒回填两处`、`package.json::verify` |
 | 副作用 | 适用：卸载清理、SSE 连接集合、渲染签名不含已删除机制 | `scripts/check.mjs#卸载移除注入样式`、`package.json::verify` |
 

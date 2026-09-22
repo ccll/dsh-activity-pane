@@ -1765,7 +1765,6 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 						userPreview: "",
 						agentPreview: "",
 						isCurrent: false,
-						jobId: job.id,
 						jobStatus: job.status,
 						jobStartedAt: job.startedAt,
 					});
@@ -2638,12 +2637,12 @@ function bindCardActivation(card, open) {
 /**
  * 解析卡片激活的跳转目标（R-01-005/AC-03）：后台任务子卡以 job 复合 id 呈现，
  * 非会话 id——激活以卡上归属主会话 id（data-job-owner）为目标；归属缺失/为空返回
- * 空串（调用方空值判定兜住，不把复合 id 误当会话目标发起跳转）。其它卡片原样返回。
- * 纯函数，无 DOM 假设。
+ * null（调用方空值判定兜住，不把复合 id 误当会话目标发起跳转）。其它卡片原样返回，
+ * 无 sessionId 时同样返回 null。纯函数，无 DOM 假设。
  */
 function activationTarget({ kind, sessionId, jobOwner } = {}) {
-	if (kind !== "job") return typeof sessionId === "string" ? sessionId : null;
-	return typeof jobOwner === "string" && jobOwner !== "" ? jobOwner : "";
+	if (kind === "job") return typeof jobOwner === "string" && jobOwner !== "" ? jobOwner : null;
+	return typeof sessionId === "string" ? sessionId : null;
 }
 
 /**
@@ -6275,7 +6274,7 @@ function apply(ctx) {
 				// job 复合 id 非会话 id：后台任务子卡激活解析为归属主会话后走通用跳转链
 				//（R-01-005/AC-03）；归属缺失时不发起跳转。
 				const target = activationTarget({ kind: el.dataset.kind, sessionId, jobOwner: el.dataset.jobOwner });
-				if (target === null || target === "") return;
+				if (target === null) return;
 				if (typeof sessions?.open !== "function") return;
 				lastActivatedId = target;
 				// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标；

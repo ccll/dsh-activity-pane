@@ -6,7 +6,7 @@ id: T-118
 
 # T-118 会话卡片标题行显示累计运行时长
 
-状态: active
+状态: completed
 关联: R-01-020 → 回合统计宿主侧
 风险等级: standard
 
@@ -66,7 +66,7 @@ id: T-118
 
 - 实现: 宿主侧（src/host.mjs）新独立 domain `dsh_activity_pane_turns` 表 `turn_stats`（sessionId → { busyMs, openTurnStart, watermarkSeq }），注入 sessionQuery；`session/event` 配对 turn/start–turn/end 实时记账（seq ≤ watermark 幂等跳过、全部结束原因计入、主/子统一登记），表内无记录的会话先经 sessionQuery.listEvents 全量重放懒回填再应用实时事件（每会话单飞）；`GET /dsh-activity-pane/api/busy?ids=` 全量快照 + `/busy/stream` SSE 只读下发。客户端（src/client.mjs）busy SSE 订阅 + 可见主会话回填触发，active/recent 条目注入 totalBusyMs（totalBusyDisplayMs 渲染期合成，运行中含开放回合实时已耗时），标题行最右侧 dap-total-time 呈现，子代理卡不显示。core（src/core.mjs）applyTurnEventToStats/totalBusyDisplayMs 纯函数；cardSignature 纳入 totalBusyMs。`.dsh-plugin/client.js` 随 d72a8aa 重建。
 - 测试: `scripts/check.mjs` 先行补 R-01-020 六条 AC 断言（配对累计、孤儿/逆序回合、水位幂等、显示合成、重放补齐、空数据 null）确认实现后全绿；fetch/EventSource 契约断言按 C-074 演进为 2 处（ack 写回 + busy 懒回填触发；acks/busy 两条 SSE 通道）；e2e session-lifecycle 新增运行卡与历史卡标题行累计时长锚点（R-01-020/AC-01、AC-03、AC-05、AC-06 反向覆盖 hidden）。`pnpm verify:fast` 全绿；`pnpm verify` 全量 13 spec 通过（202140ms）。
-- DESIGN 对照: DESIGN.md 新增「回合统计宿主侧」子系统条目、关键机制「会话累计运行时长」条目、核心数据不变量「回合统计记账」、运行时语义「回合统计运行时」与需求追溯索引行（R-01-020 → 回合统计宿主侧，实现位置 src/host.mjs、src/core.mjs、src/client.mjs）；PRD R-01-020 六条 AC 与实现逐条对应（agentmap lint：requirements=24、design-covered=24、test-anchored=142/142）；DOMAIN.md 登记术语「累计运行时长」与实体「回合统计宿主侧」；无实现与 DESIGN 差异。
+- SOLUTION 对照: DESIGN.md 新增「回合统计宿主侧」子系统条目、关键机制「会话累计运行时长」条目、核心数据不变量「回合统计记账」、运行时语义「回合统计运行时」与需求追溯索引行（R-01-020 → 回合统计宿主侧，实现位置 src/host.mjs、src/core.mjs、src/client.mjs）；PRD R-01-020 六条 AC 与实现逐条对应（agentmap lint：requirements=24、design-covered=24、test-anchored=142/142）；DOMAIN.md 登记术语「累计运行时长」与实体「回合统计宿主侧」；无实现与 DESIGN 差异。
 - commit: d72a8aa
 - review:
   - 审核方: Standards reviewer `91417982-db55-46e7-bf5c-fbd0f25f603b`；Spec reviewer `41ed45aa-1aa8-4de7-97c7-9b33c09dbd98`。

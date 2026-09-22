@@ -6269,32 +6269,31 @@ function apply(ctx) {
 			const el = document.createElement("div");
 			el.className = CARD_CLASS;
 			// 后台任务子卡为纯展示（R-01-023/AC-08）：不绑激活监听，job 复合 id 亦非会话
-			// id，不存在可跳转目标。
-			const unbind =
-				entry.kind === "job"
-					? null
-					: bindCardActivation(el, (sessionId) => {
-							if (typeof sessions?.open !== "function") return;
-							lastActivatedId = sessionId;
-							// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标；
-							// 收起抽屉的分支同样是最新意图，必须先取消挂起链条再 return。
-							cancelStaleOpenRetries({ activatedId: sessionId });
-							// 二次激活当前会话卡片：移动断点抽屉打开时收起抽屉直达会话
-							//（R-01-008/AC-06），不发起会话切换。
-							if (
-								shouldDismissDrawerOnActivation({
-									targetId: sessionId,
-									currentId: getSnapshot(sessions, "list")?.current ?? null,
-									mobile: window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`).matches,
-									drawerOpen:
-										document.querySelector(`[${PANE_ATTR}]`)?.getAttribute("data-open") === "true",
-								})
-							) {
-								togglePane(false);
-								return;
-							}
-							attemptOpen(sessionId, 0);
-						});
+			// id，不存在可跳转目标。job 复合 id 与会话 id 空间隔离（`job:` 前缀），reuseMap
+			// 按条目 id 复用，同一 card 元素不会跨 kind 复用——创建时按 entry.kind 一次性
+			// 决定是否绑激活是安全的；若 id 规则变化须同步复核此处。
+			const unbind = entry.kind === "job" ? null : bindCardActivation(el, (sessionId) => {
+				if (typeof sessions?.open !== "function") return;
+				lastActivatedId = sessionId;
+				// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标；
+				// 收起抽屉的分支同样是最新意图，必须先取消挂起链条再 return。
+				cancelStaleOpenRetries({ activatedId: sessionId });
+				// 二次激活当前会话卡片：移动断点抽屉打开时收起抽屉直达会话
+				//（R-01-008/AC-06），不发起会话切换。
+				if (
+					shouldDismissDrawerOnActivation({
+						targetId: sessionId,
+						currentId: getSnapshot(sessions, "list")?.current ?? null,
+						mobile: window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`).matches,
+						drawerOpen:
+							document.querySelector(`[${PANE_ATTR}]`)?.getAttribute("data-open") === "true",
+					})
+				) {
+					togglePane(false);
+					return;
+				}
+				attemptOpen(sessionId, 0);
+			});
 			rec = { el, kind: null, unbind };
 			reuseMap.set(entry.id, rec);
 		}

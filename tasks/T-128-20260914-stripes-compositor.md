@@ -6,7 +6,7 @@ id: T-128
 
 # T-128 运行卡进度条纹动画合成器化：background-position 平移改 transform 载体
 
-状态: active
+状态: completed
 关联: R-01-009 → 活动状态模型（AC-08 进度条纹呈现）；R-01-014 → 窗格渲染器
 风险等级: standard
 
@@ -44,13 +44,13 @@ id: T-128
 
 ## 终态与证据
 
-- 实现:
-- 测试:
-- DESIGN 对照:
-- commit:
+- 实现: `.dap-fill` 保留 width 过渡/`overflow:hidden` 裁切/阴影/圆角，移除背景与 animation；新增 `.dap-fill::after` 伪元素条带（`width: calc(100% + 40px)`）承载 repeating-linear-gradient，滚动改 `dap-stripes` transform 平移，滚动帧全程合成器驱动；`scripts/check.mjs` 基础断言迁移到 ::after 载体并新增 transform 机制断言与 background-position 无残留反向断言；reduced-motion 行为不变（仅关宽度过渡）。supersession 如实记录：本 task 现场的视觉等价存在两处偏差——①方向翻转（`translateX(0→-40px)` 使条纹视觉左移，与 AC-08「持续向右滚动」不符）；②周期加倍（色带 10px→20px，依据「background-size:200% 拉伸后观感等价」的错误假设——px 色标不受拉伸）；两者均由 T-129（提交 3c56a08）校正为右移、10px 色带。提交 3f12c6e 正文中「渐变周期 40px 与原 background-size 200% 拉伸观感等价」一句基于该错误假设且不可改史，以 T-129 校正后状态为准。
+- 测试: 本 task 现场（3f12c6e 提交正文「验证」段）：`pnpm check` 全绿；card-content / auto-update / mobile-thermal E2E 全绿（证据在提交正文，task 终态当时未回填）。当前 HEAD 新鲜回归（2026-09-22）：pre-push 重放完整 `pnpm verify` 通过——agentmap lint、test impact、`scripts/check.mjs` 全部断言（含 `animation: dap-stripes` 锚定 R-01-009/AC-08、transform keyframes 机制断言、`background-position: 40px` 无残留反向断言）与 19 个浏览器 E2E spec（含 card-content、auto-update、mobile-thermal）。达标类性能收敛的量化守恒（C-082）：mobile-thermal E2E rAF 请求次数阈值断言通过（流式回合 5s rAF 请求 69 次，阈值 80）。人工观感验收无独立记录，按 acceptance AC-08 条目与全绿 E2E 推断守恒——此为推断而非观测，属如实记录的残余缺口。
+- SOLUTION 对照: SOLUTION 不承载条纹滚动实现机制（机制属实现自由，R-01-009/AC-08 行为承诺「持续向右滚动条纹」不变）；本变更为纯机制迁移，无 map 漂移、无 PRD 变化；豁免依据见 RATIONALE C-082 与 CONVENTIONS 验证门禁对应条目。
+- commit: 3f12c6e31796049890150c74ae1a442e0344dd46
 - review:
-  - 审核方:
-  - 目的理解:
-  - 执行方式:
-  - 问题与修复:
-  - 复审结论:
+  - 审核方: code-review skill（Standards reviewer `44e049fe-d266-4869-a59a-94e111daf1de`、Spec reviewer `b6168a5d-d1e0-42ec-b6b3-192887e3a058`，双轴并行独立）
+  - 目的理解: 在不改变 R-01-009/AC-08「持续向右滚动条纹」可观察行为与 reduced-motion 行为的前提下，把 dap-stripes 从不可合成的 background-position 逐帧重绘改为 transform 合成器驱动载体，消除移动端与宿主流式重绘叠加的逐帧重绘源（T-127 调研确认的剩余项）；约束为视觉等价、无 map 漂移、断言迁移锚定 AC-08。
+  - 执行方式: code-review skill 双轴并行独立 reviewer；评审基线 `git diff c1714c3...3f12c6e`；修复处置复审范围含 commit 622d2c3（C-082 豁免决策）与拟议终态文本。
+  - 问题与修复: ① Standards 硬违规（性能优化无 PRD 承诺、无量化基线，违反 AGENTS.md 性能优化入口规则）→ 经东家确认（2026-09-22）以 RATIONALE C-082 豁免留痕处置（commit 622d2c3）：达标类性能收敛按 map 不变短路，量化守恒由 mobile-thermal rAF 阈值门禁承载，CONVENTIONS 同步落过程条目；两轴复审确认闭环。② 视觉等价两处现场偏差（方向、周期）→ 不改史，在终态如实记录 supersession（T-129 校正），终态 commit 取 3f12c6e。③ E2E/人工验收证据缺口 → 以当前 HEAD 全量 verify（19 spec 全绿）为新鲜守恒回归，现场证据位置如实注明，人工观感验收标注为推断。④ 判断性说明（无代码修复）：单提交搭车 T-127 遗留 TODO 登记（Divergent Change，轻）；性能优化使用 🐛 修复类型（格式合规，类型选择偏 🐛，后续此类宜用 ✨/♻️）。
+  - 复审结论: 双轴复审通过，无「残余需处理」项。残余风险与测试缺口：人工观感验收为推断而非实测（staging 环境无真实移动设备，观感对照依赖 E2E 像素/行为断言与东家日常使用）；`scripts/check.mjs:4359` 机制断言硬绑定具体 keyframes 数值，后续调参须同步（T-129 已同步无残留）；3f12c6e 提交正文中周期等价论断不实（不可改史，已在本终态注明，防 git blame 反查误导）。

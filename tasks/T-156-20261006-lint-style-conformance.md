@@ -6,7 +6,7 @@ id: T-156
 
 # T-156 活文档写作风格告警清零
 
-状态: active
+状态: completed
 关联: 全部 R-gg-nnn 的措辞层收敛（无 R/AC 语义变化、无 AC 增删）
 风险等级: standard
 
@@ -113,13 +113,36 @@ id: T-156
 
 ## 终态与证据
 
-- 实现: 五个活文档风格告警清零（PRD 53、SOLUTION 110、DOMAIN 25、TODO 3、CONVENTIONS 5）。多规则列表项拆为父项加子项，名词串以逗号或「的/是/而/在」断链，含糊词按既有锚点删除或改写；SOLUTION 删除与原 287 行逐字节重复的 289 行，并补齐「上述职责实现 R-01-004…」行缺失的句号（评审建议 5）。测试证据文件零改动；48 个 AC 为措辞层重构，测试影响门禁以本 task 的 none 行豁免。实现提交 1c6994f。
-- 测试: `pnpm verify:fast` 等价门禁逐项通过（agentmap lint self-test 与 report 零告警、test-impact self-test 与 report 通过、`node scripts/check.mjs` 全部断言、staged client bundle 校验），pre-commit 四 hook 全绿；ID 机检：五文档 R/C/T/AC-ID 集合与 HEAD 零漂移。全量 `pnpm verify` 由 pre-push 重门禁承载（见 commit 后运行记录）。
-- SOLUTION 对照: 27 条需求追溯一一对应；追溯索引表格、canonical commit block、本地参数与全部阈值字面量未动；方案语义与实现无差异（拆分仅改变列表形状与断链词，模态词计数逐一相同）。
-- commit: 1c6994f 实现与 map 措辞重构；本提交关闭 task 并附评审建议的句号修补。
+- 实现: 五个活文档风格告警清零（PRD 53、SOLUTION 110、DOMAIN 25、TODO 3、CONVENTIONS 5）。
+  - 多规则列表项拆为父项加子项，名词串以逗号或「的/是/而/在」断链，含糊词按既有锚点删除或改写。
+  - SOLUTION 删除与原 287 行逐字节重复的 289 行，并补齐「上述职责实现 R-01-004…」行缺失的句号（评审建议 5）。
+  - 测试证据文件零改动；48 个 AC 为措辞层重构，测试影响门禁以本 task 的 none 行豁免。
+  - 实现提交 1c6994f。
+- 测试: 快速门禁逐项通过，pre-commit 四 hook 全绿。
+  - 覆盖项：agentmap lint self-test 与 report 零告警、test-impact self-test 与 report 通过、`node scripts/check.mjs` 全部断言、staged client bundle 校验。
+  - ID 机检：五文档 R/C/T/AC-ID 集合与 HEAD 零漂移。
+  - 全量 `pnpm verify` 由 pre-push 重门禁承载。
+- SOLUTION 对照: 27 条需求追溯一一对应。
+  - 追溯索引表格、canonical commit block、本地参数与全部阈值字面量未动。
+  - 方案语义与实现无差异：拆分仅改变列表形状与断链词，模态词计数逐一相同。
+- commit: 1c6994f 实现与 map 措辞重构；328840e 双轴审核句号修补。
 - review:
   - 审核方: code-review skill（Standards reviewer 与 Spec reviewer 双轴并行独立）
-  - 目的理解: 在东家「修所有 warning」指示下，消除 agentmap_lint 新写作风格检查的全部存量告警；约束为语义零漂移（ID/阈值/模态词不变）、含糊词仅在仓库有锚点处删除、RATIONALE 只追加不可改写、PRD/SOLUTION 变化以 active task 测试影响行豁免。
-  - 执行方式: code-review skill 双轴并行评审；Standards 轴对照 AGENTS.md 文件规范与 CONVENTIONS.md 过程规范加气味基线，Spec 轴对照本 task 与约束清单；评审基线 `git diff 3818911...1c6994f`。
-  - 问题与修复: ① Spec 轴指出 SOLUTION/DOMAIN 的「尽快」改写偏离「无锚点则保留并上报」的字面约束——接受为已声明待东家复核项，论证依据为 PRD R-01-002 同句锚点（紧迫度由金色卡面与同频同相脉冲承载）适用于全部副本；② Standards 轴指出 PRD R-01-002/AC-09 拆分后父行条件收窄为阻塞等待——接受为已记录判断项，不改动：每个子项均自带完整「当…系统应当…」条件，与原单行内三个并列条件等价，加共享条件说明需在 PRD 新增句子、超出本次最小变更；③ Standards 轴指出测试影响表 50 行样板重复与 40 字单句残余债务——接受为已知事项，不构成返工项；④ Standards 轴小疵「上述职责实现」行缺句号——已修复（本提交）。①②③均经两轴各自确认无需返工。
-  - 复审结论: 双轴通过。残余事项：SOLUTION「催促用户及时响应」与 DOMAIN「催促响应」的含糊词处置待东家复核确认；RATIONALE 26 条告警为 append-only 结构性永久债务。
+  - 目的理解: 在东家「修所有 warning」指示下，消除新写作风格检查的全部存量告警。
+    - 约束：语义零漂移（ID、阈值、模态词不变）；含糊词仅在仓库有锚点处删除。
+    - 约束：RATIONALE 只追加不可改写；PRD/SOLUTION 变化以 active task 测试影响行豁免。
+  - 执行方式: code-review skill 双轴并行评审。
+    - Standards 轴对照 AGENTS.md 文件规范与 CONVENTIONS.md 过程规范加气味基线；Spec 轴对照本 task 与约束清单。
+    - 评审基线 `git diff 3818911...1c6994f`。
+  - 问题与修复: 两轴共 4 项发现，逐项处置如下。
+    - Spec 轴指出 SOLUTION 与 DOMAIN 的 `尽快` 改写偏离「无锚点则保留并上报」的字面约束。
+      - 处置：接受为已声明待东家复核项；论证依据为 PRD R-01-002 同句锚点（紧迫度由金色卡面与同频同相脉冲承载）适用于全部副本。
+    - Standards 轴指出 PRD R-01-002/AC-09 拆分后父行条件收窄为阻塞等待。
+      - 处置：接受为已记录判断项，不改动；每个子项均自带完整「当…系统应当…」条件，与原单行内三个并列条件等价。
+    - Standards 轴指出测试影响表 50 行样板重复与 40 字单句残余债务。
+      - 处置：接受为已知事项，不构成返工项。
+    - Standards 轴小疵「上述职责实现」行缺句号。
+      - 处置：已修复（328840e）。
+  - 复审结论: 双轴通过。
+    - 残余事项一：SOLUTION `催促用户及时响应` 与 DOMAIN `催促响应` 的含糊词处置待东家复核确认。
+    - 残余事项二：RATIONALE 26 条告警为 append-only 结构性永久债务。

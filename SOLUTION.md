@@ -145,69 +145,242 @@ flowchart LR
 
 ## 边界与对外契约
 
-- 对外只读（例外：完成确认写回与回合统计只读下发）：窗格只消费 DSH 原生 `sessions` / `workspaces` / `uiSession` 客户端服务（dsh 0.1.5 起待确认/待审查/待回复经 `uiSession.pendingInteractions` 快照承载，行内 `pendingInteraction` 字段已移除）、可选的 `modelDirectories` 模型目录服务（缺失时回落，见模型上下文条目）及 `remote` 服务（`@deepseek-ai/dsh-api-remotes`，dsh 0.1.5 起替代已移除的 `connection.api` 门面）的一次性目录/日志分页读取；唯一写回路径是完成提醒卡确认按钮（展示文案「移入历史」）经宿主侧 HTTP 路由 `/dsh-activity-pane/api/ack` 写回确认游标（R-02-001、R-02-003、R-01-002/AC-10）；回合统计经宿主侧只读通道 `GET /dsh-activity-pane/api/busy`（全量快照）与 `/busy/stream`（SSE）下发，无写回路径；不发起第三方 HTTP 状态轮询。
-- 宿主依赖：窗口宿主为外壳三栏的中间列（`#root [data-slot="main"]` keyed main 槽容器的父级；dsh 0.1.5 起原 `conversation` Slot 迁移为 `main` 的 `conversation` key，槽容器为 `display:contents` 占位层、真实 flex 列为其父级中列）。桌面下窗格作为该列内**真实的 flex 行元素**（插于 main 槽容器之前）占据左侧列宽（默认 280px，可经右缘手柄拖拽在 200–480px 内调整），会话根被设为 `flex:1 1 0%` 弹性填充余宽——主会话内容（标题/tabs/滚动区/输入框）随窗格展开与调宽随之让位、随折叠（窄条）同步恢复，而非被浮层覆盖（R-01-007、R-01-011、R-01-015）。
-- 移动端：抽屉以 `position:fixed` 脱离文档流，不改变主会话布局；中间列恢复外壳默认列布局（R-01-008）。抽屉打开时显示透明全屏遮罩，z-index 介于主会话与抽屉之间，点击遮罩收起抽屉；遮罩完全透明、不占布局（R-01-008/AC-03）。浮动开关固定于会话头部左上角（`top:12px; left:44px`，即原生左边栏切换按钮右侧），文案为「活动」；抽屉打开时开关随之隐藏，关闭后恢复（R-01-008/AC-04、AC-05）。
+- 对外只读（例外：完成确认写回与回合统计只读下发）：窗格只消费 DSH 原生 `sessions` / `workspaces` / `uiSession` 客户端服务。
+- dsh 0.1.5 起待确认/待审查/待回复经 `uiSession.pendingInteractions` 快照承载，行内 `pendingInteraction` 字段已移除。
+- 窗格还消费可选的 `modelDirectories` 模型目录服务（缺失时回落，见模型上下文条目）及 `remote` 服务（`@deepseek-ai/dsh-api-remotes`，dsh 0.1.5 起替代已移除的 `connection.api` 门面）的一次性目录/日志分页读取。
+- 唯一写回路径是完成提醒卡确认按钮（展示文案「移入历史」）经宿主侧 HTTP 路由 `/dsh-activity-pane/api/ack` 写回确认游标（R-02-001、R-02-003、R-01-002/AC-10）。
+- 回合统计经宿主侧只读通道 `GET /dsh-activity-pane/api/busy`（全量快照）与 `/busy/stream`（SSE）下发，无写回路径。
+- 不发起第三方 HTTP 状态轮询。
+- 宿主依赖：窗口宿主为外壳三栏的中间列（`#root [data-slot="main"]` keyed main 槽容器的父级）。
+- dsh 0.1.5 起原 `conversation` Slot 迁移为 `main` 的 `conversation` key，槽容器为 `display:contents` 占位层、真实 flex 列为其父级中列。
+- 桌面下窗格作为该列内**真实的 flex 行元素**（插于 main 槽容器之前）占据左侧列宽（默认 280px，可经右缘手柄拖拽在 200–480px 内调整）。
+- 会话根被设为 `flex:1 1 0%` 弹性填充余宽——主会话内容（标题/tabs/滚动区/输入框）随窗格展开与调宽随之让位。
+- 主会话内容随折叠（窄条）同步恢复，而非被浮层覆盖（R-01-007、R-01-011、R-01-015）。
+- 移动端：抽屉以 `position:fixed` 脱离文档流，不改变主会话布局；中间列恢复外壳默认列布局（R-01-008）。
+- 抽屉打开时显示透明全屏遮罩，z-index 介于主会话与抽屉之间，点击遮罩收起抽屉；遮罩完全透明、不占布局（R-01-008/AC-03）。
+- 浮动开关固定于会话头部左上角（`top:12px; left:44px`，即原生左边栏切换按钮右侧），文案为「活动」。
+- 抽屉打开时开关随之隐藏，关闭后恢复（R-01-008/AC-04、AC-05）。
 - 页面契约：点击/键盘激活活动卡片 → 调用 `sessions.open` 切换当前会话；列表未就绪时以 `sessions.refresh` + 有限重试兜底（R-01-005）。
 - 卸载契约：移除注入的窗格元素、浮动开关、透明遮罩、样式与全部事件监听，复位对中间列/会话根的布局改写，不残留（R-02-003、R-02-004）。
 - 关键机制：
   - 不依赖任何第三方宠物插件，也不向第三方数据路由发请求（R-02-001）。
   - 移动端抽屉不改变主会话布局，离开文档流（R-01-008）。
   - 双区结构：窗格内容区分为上「活动会话」下「最近历史」，两者都由同一快照派生；最近历史仅主会话，并由窗格渲染器按历史分页渐进呈现（R-01-010、R-01-019）。
-  - 完成确认与迁移动画：完成确认状态由宿主侧持久化承载——宿主侧订阅 `session/event` 把每个主/子会话的 `turn/end`（取事件顶层 `time`，并记录 `data.reason.kind` 与 error 回合的错误信息）登记为最新回合结束时刻 `lastTurnEnd` 与结束原因 `lastTurnEndKind`/错误信息 `lastTurnEndError`；确认按钮经 HTTP 路由写回 `ackedAt`；完成提醒成立 = 主会话 && 非 running && 无阻塞等待 && 非委托周期 && `lastTurnEnd > ackedAt`，错误提醒成立 = 主会话 && 非 running && 无阻塞等待 && 非委托周期 && `lastTurnEndKind === 'error'`（不消费 ack 游标），由渲染器从 SSE 通道的 ack 状态派生（R-01-002/AC-03、AC-05、AC-10～AC-13、R-01-010/AC-06）。任一卡片在活动区与历史区之间迁移（双向）时，渲染器以相邻两帧活动区/历史区 id 集合差检测迁移，用旧卡克隆 ghost（挂于窗格内、继承卡片样式作用域）从原矩形 FLIP 平移并形变至目标区卡片矩形，到位后淡出、真卡同步淡入，`transitionend` 收口移除 ghost；迁移导致位置变化的其它卡片（含历史区段头）同样以 FLIP 平移平滑过渡到新位置，不瞬间跳变；`prefers-reduced-motion` 或目标矩形不可量取时跳过动画直接落位（R-01-002/AC-05、R-01-010/AC-06、AC-07、AC-10）。
-   - 会话累计运行时长：宿主侧订阅 `session/event` 按回合配对登记每个主/子会话的运行过程时长（start 记开放回合起点 `openTurnStart`；回合内阻塞等待经 `approval/asked`–`approval/decided` 与 `ask_user_question` 的 `tool/call`–`tool/result` 配对为等待区间，`waitedMs` 累计、`openWaitStart`/`openWaitKind` 记未配对等待；end 先强制结算未配对等待，再以 `time − openTurnStart − waitedMs` 累加 `busyMs` 并清空回合态，completed/blocked/max-tokens/aborted/error 任意结束原因均计入，回合间空闲与回合内等待不计入），与水位 `watermarkSeq` 一并持久化于独立 storageDomain `dsh_activity_pane_turns` 表 `turn_stats`（dsh-storage-domain 无迁移机制，version 不同在 open 时拒绝，新增表落新 domain 不动 acks medium）；客户端对可见主会话卡片经 `GET /dsh-activity-pane/api/busy` 触发懒回填——宿主对无记录、存在水位缺口或水位超前于日志最大 seq（事件 seq 空间被重编，如 dsh 0.1.5 V3 迁移）的会话经注入的 `sessionQuery.listEvents` 读全会话事件重放配对（增量路径下 `seq ≤ watermarkSeq` 的事件不重复计数），回填结果持久化后经 `/busy/stream` SSE 全量快照 + 变更广播下发；总耗时显示 `busyMs + max(0, (now − openTurnStart) − waitedMs − (openWaitStart 非空时 now − openWaitStart))`，渲染期计算并随运行时钟逐秒更新——等待期间公式自冻结，等待结束与回合结算处显示值连续无跳变，开放回合起点不可得时只显示已完成累计；标题行最右侧以 `fmtElapsedMs` 分级格式呈现，子代理卡片不显示（R-01-020）。
-  - 轮内状态通过 `sessions.binding(sessionId).session` 订阅运行中会话取得（dsh 0.1.5 起该快照不再携带会话内容，仅承载运行状态面：running/openState/队列与分页状态），随运行结束断开；token 统计（计费输入/输出/缓存命中率）与速率取 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`，复用既有列表订阅，无新增轮询），运行卡停止前在可见详情中保留最后已知投影统计供等待卡与历史卡复用；运行时长与进度在渲染期按回合开始时间实时计算——回合起点经宿主侧 busy 通道的 `openTurnStart` 提供（快照 `turnTimings` 已随 V3 移除）；等待行动卡与最近卡从保留投影统计或日志分页读取的回合边界冻结最近回合耗时，等待行动卡同时保留停止前最后已知的 token 统计，页面刷新时回退当前列表投影（R-01-009、R-01-009/AC-13、R-01-013/AC-12、R-02-004）。
-  - 工作项数据统一取自会话日志（Session 格式 V3）：经 `remote.session.page`（`address: {kind:"session", sessionId}`，主会话；子代理 `{kind:"subagent", parentSessionId, childSessionId, mode}`）按 `{events, hasMore}` 页读取，dsh 0.1.5 起会话快照不再携带 `ConversationSnapshot.chat`，日志分页是唯一工作项来源。尾页取不到最近用户消息时按 `beforeSeq` 向前回溯翻页（默认无页数上限，一直翻到命中最近一条用户消息或翻尽为止——用户消息必然存在于会话最早段，翻尽必终止；实证约 28% 会话的最后用户消息距尾部超 150 事件，固定 3 页上限会让历史卡用户预览永久缺失；`maxPages` 保留为显式护栏），不克隆第三方 UI 路由；预览提取（`messagePreviews`）对多页组合的事件按尾部反向扫描取最近命中；最近卡窗口缺用户或 agent 任一预览时补读一次日志，避免完成瞬间窗口仅含用户消息而把 agent 预览永久留空（R-01-013/AC-03、AC-04）。运行中当前项由原生 `session.subscribe` 推送驱动 `captureSessionLog` 就地读取 eventSource 窗口（快照引用变化才重算，无轮询）（R-01-012）。子代理会话的事件流仅接受持久父地址路由——dsh 0.1.5 起宿主校验地址与会话归属及描述符 mode 的一致性，普通地址或不符 mode 的 page/follow 被 agent-busy/subagent-unauthorized 拒绝，持久地址仅经原生导航留存——插件在打开子代理会话前经 `configureSubagent` 安装地址，mode 取母会话子代理目录条目、目录未加载时先单发 `refreshSubagents` 拉取再安装（与原生 selectSubagent 同构，不切换当前会话），未点选的子代理卡时间线因此可自动水合并随原生推送更新（R-01-012/AC-03）。活动卡时间线以 eventSource 窗口（`captureSessionLog` 的 V3 快照 `entries`）的日志派生为主源：transient `assistant/live-chunk` 条目（agent-stream 增量帧，seq 为插值小数，仅流式期间在窗）按 `attemptId` 原位累积为单个 running live assistant 行——运行卡 running 圆点与「agent 工作中」呈现的来源；非用户 source 的 `user/message` 即宿主 ContextMessageNode（0.1.5 无独立 context 事件），按 provenance 投影为「上下文注入/跨会话召回」行；阻塞等待呈现（pendingText 存在）下折叠前落定残留 running 行（settleIdle），组标题由已定案成员派生。同一日志读取顺带提取最后 `turn/end` 时刻，供历史区时间精化与最近卡最近回合统计的耗时补足（R-01-010/AC-08、AC-09、R-01-013/AC-12）。冷窗口兜底：加载窗口缺最近用户消息/最近回合边界数据（页面刷新/断连重装窗口后出现）时按预览与耗时缺口触发深翻补读；开放回合起点以宿主侧 busy 通道的 `openTurnStart` 为主源（快照 `turnTimings` 已随 V3 移除），日志窗口内 `openTurnStartFromEvents` 尾扫作兜底（R-01-009/AC-06、R-01-012/AC-12）。
-  - 模型上下文：主会话当前模型/effort 经模型目录链承载——目录 store 订阅 + 一次性显式 `load()`（dsh 0.1.5 起目录 store 惰性加载：不 load 不产出当前选择，此为对 C-024「只订阅不 load」的修订，显式 load 的最新操作胜出生成处理已实现）；子代理模型/effort 从其会话日志最新一条 `request/header` 事件的 `config.{model, reasoningEffort}` 提取（effort 折叠以溯源模型在场为前置——无溯源助手消息时仅 effort 不单独显示，避免「· high」式畸形卡头；反向扫描、命中最新请求头即停——更早请求头属已废弃纪元；dsh 0.1.5 起原 per-session `sessions.models` RPC 已移除，子代理目录 RPC 被宿主 agent-busy 拒绝）。部署级目录经 `remote.session.modelCatalog()`（无参数）一次性读取并随到达收获 `groups` 为 `modelId → {name, reasoning}` 索引（`catalogModelEntries`，主/子会话共享同一目录）；同时为每个可见主会话保留可选 `modelDirectories` 服务的 per-session 目录 store 订阅（与主会话窗口模型选择器同源，同客户端切换模型选择经 `select()` 成功即推送），推送到达即按当前选择与 catalog metadata 重归一并就地更新卡片；服务缺失、会话无 scope 或订阅失败时不订阅。模型名称与 reasoning level 缺失时保持空值；不使用 `agentPreset` 冒充模型（R-01-012/AC-01、AC-16、AC-17，C-024）。溯源值为 provider 侧模型 id，显示名经目录分组就地解析——显示名未覆盖该 id 时回退显示原始溯源 id，effort 请求头不在页内或未声明时回落到模型目录条目的 `reasoning` 字段，仍不可得则保持空值（R-01-012/AC-17、AC-18）；读取在「会话不在运行中或已收到运行中通知」时经日志分页发起（详情记账随可见性清理，重回可见允许重试），不构成轮询（R-02-004）。
-  - 富卡统计：运行卡展示工具动作摘要、底部统计行与阶段进度——统计行左列依次为 tok/s 输出速率（不带近似符号）、缓存命中率、计费输入 token、输出 token，与会话主窗口统计行同序，字段间以小圆点区隔，本回合时长固定显示于该行最右；完成提醒、阻塞等待与错误提醒卡在时间线之后复用同一统计行结构，冻结显示进入等待前最后已知的 tok/s、缓存命中率、计费输入 token 与输出 token，统计字段缺失时省略；token 统计行最右侧继续显示最近一个已结束回合的固定耗时，等待类型胶囊同行不再重复显示（R-01-009、R-01-009/AC-12、R-01-009/AC-13）；动作摘要由 `summarizeToolArguments` 按主会话窗口同一语义派生（分工具类型参数键、bash 含 command、无命中取首个字符串参数值、剥离工作区前缀、取首行）后上卡（R-01-009）。
+  - 完成确认与迁移动画：完成确认的状态由宿主侧持久化承载——宿主侧订阅 `session/event` 把每个主/子会话的 `turn/end`（取事件顶层 `time`，并记录 `data.reason.kind` 与 error 回合的错误信息）登记为最新回合结束时刻 `lastTurnEnd` 与结束原因 `lastTurnEndKind`/错误信息 `lastTurnEndError`。
+  - 确认按钮经 HTTP 路由写回 `ackedAt`。
+  - 完成提醒成立 = 主会话 && 非 running && 无阻塞等待 && 非委托周期 && `lastTurnEnd > ackedAt`。
+  - 错误提醒成立 = 主会话 && 非 running && 无阻塞等待 && 非委托周期 && `lastTurnEndKind === 'error'`（不消费 ack 游标）。
+  - 两者由渲染器从 SSE 通道的 ack 状态派生（R-01-002/AC-03、AC-05、AC-10～AC-13、R-01-010/AC-06）。
+  - 任一卡片在活动区与历史区之间迁移（双向）时，渲染器以相邻两帧活动区/历史区 id 集合差检测迁移。
+  - 迁移时用旧卡克隆 ghost（挂于窗格内、继承卡片样式作用域）从原矩形 FLIP 平移并形变至目标区卡片矩形，到位后淡出、真卡同步淡入，`transitionend` 收口移除 ghost。
+  - 迁移导致位置变化的其它卡片（含历史区段头）同样以 FLIP 平移平滑过渡到新位置，不瞬间跳变。
+  - `prefers-reduced-motion` 或目标矩形不可量取时跳过动画直接落位（R-01-002/AC-05、R-01-010/AC-06、AC-07、AC-10）。
+  - 会话累计运行时长：宿主侧订阅 `session/event` 按回合配对登记每个主/子会话的运行过程时长。
+  - start 记开放回合起点 `openTurnStart`；回合内阻塞等待经 `approval/asked`–`approval/decided` 与 `ask_user_question` 的 `tool/call`–`tool/result` 配对为等待区间。
+  - `waitedMs` 累计、`openWaitStart`/`openWaitKind` 记未配对等待；end 先强制结算未配对等待，再以 `time − openTurnStart − waitedMs` 累加 `busyMs` 并清空回合态。
+  - completed/blocked/max-tokens/aborted/error 任意结束原因均计入，回合间空闲与回合内等待不计入。
+  - 与水位 `watermarkSeq` 一并持久化于独立 storageDomain `dsh_activity_pane_turns` 表 `turn_stats`（dsh-storage-domain 无迁移机制，version 不同在 open 时拒绝，新增表落新 domain 不动 acks medium）。
+  - 客户端对可见主会话卡片经 `GET /dsh-activity-pane/api/busy` 触发懒回填——宿主对无记录、存在水位缺口或水位超前于日志最大 seq（事件 seq 空间被重编，如 dsh 0.1.5 V3 迁移）的会话经注入的 `sessionQuery.listEvents` 读全会话事件重放配对，增量路径下 `seq ≤ watermarkSeq` 的事件不重复计数。
+  - 回填结果持久化后经 `/busy/stream` SSE 全量快照 + 变更广播下发。
+  - 总耗时显示 `busyMs + max(0, (now − openTurnStart) − waitedMs − (openWaitStart 非空时 now − openWaitStart))`，渲染期计算并随运行时钟逐秒更新。
+  - 等待期间公式自冻结，等待结束与回合结算处显示值连续无跳变，开放回合起点不可得时只显示已完成累计。
+  - 标题行最右侧以 `fmtElapsedMs` 分级格式呈现，子代理卡片不显示（R-01-020）。
+  - 轮内状态通过 `sessions.binding(sessionId).session` 订阅运行中会话取得（dsh 0.1.5 起该快照不再携带会话内容，仅承载运行状态面：running/openState/队列与分页状态），随运行结束断开。
+  - token 统计（计费输入/输出/缓存命中率）与速率取 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`，复用既有列表订阅，无新增轮询）。
+  - 运行卡停止前在可见详情中保留最后已知投影统计供等待卡与历史卡复用。
+  - 运行时长与进度在渲染期按回合开始时间实时计算——回合起点经宿主侧 busy 通道的 `openTurnStart` 提供（快照 `turnTimings` 已随 V3 移除）。
+  - 等待行动卡与最近卡从保留投影统计或日志分页读取的回合边界冻结最近回合耗时。
+  - 等待行动卡同时保留停止前的最后已知 token 统计，页面刷新时回退当前列表投影（R-01-009、R-01-009/AC-13、R-01-013/AC-12、R-02-004）。
+  - 工作项数据统一取自会话日志（Session 格式 V3）：经 `remote.session.page`（`address: {kind:"session", sessionId}`，主会话；子代理 `{kind:"subagent", parentSessionId, childSessionId, mode}`）按 `{events, hasMore}` 页读取。
+  - dsh 0.1.5 起会话快照不再携带 `ConversationSnapshot.chat`，日志分页是唯一工作项来源。
+  - 尾页取不到最近用户消息时按 `beforeSeq` 向前回溯翻页（默认无页数上限，一直翻到命中最近一条用户消息或翻尽为止——用户消息必然存在于会话最早段，翻尽必终止）。
+  - 实证约 28% 会话的最后用户消息距尾部超 150 事件，固定 3 页上限会让历史卡用户预览永久缺失；`maxPages` 保留为显式护栏，不克隆第三方 UI 路由。
+  - 预览提取（`messagePreviews`）对多页组合的事件按尾部反向扫描取最近命中。
+  - 最近卡窗口缺用户或 agent 任一预览时补读一次日志，避免完成瞬间窗口中仅含用户消息而把 agent 预览永久留空（R-01-013/AC-03、AC-04）。
+  - 运行中当前项由原生 `session.subscribe` 推送驱动 `captureSessionLog` 就地读取 eventSource 窗口（快照引用变化才重算，无轮询）（R-01-012）。
+  - 子代理会话的事件流仅接受持久父地址路由——dsh 0.1.5 起宿主校验地址与会话归属及描述符 mode 的一致性，普通地址或不符 mode 的 page/follow 被 agent-busy/subagent-unauthorized 拒绝，持久地址仅经原生导航留存。
+  - 插件在打开子代理会话前经 `configureSubagent` 安装地址，mode 取母会话子代理目录条目、目录未加载时先单发 `refreshSubagents` 拉取再安装（与原生 selectSubagent 同构，不切换当前会话）。
+  - 未点选的子代理卡时间线因此得以自动水合并随原生推送更新（R-01-012/AC-03）。
+  - 活动卡时间线以 eventSource 窗口（`captureSessionLog` 的 V3 快照 `entries`）的日志派生为主源：transient `assistant/live-chunk` 条目（agent-stream 增量帧，seq 为插值小数，仅流式期间在窗）按 `attemptId` 原位累积为单个 running live assistant 行——运行卡 running 圆点与「agent 工作中」呈现的来源。
+  - 非用户 source 的 `user/message` 即宿主 ContextMessageNode（0.1.5 无独立 context 事件），按 provenance 投影为「上下文注入/跨会话召回」行。
+  - 阻塞等待呈现（pendingText 存在）下折叠前落定残留 running 行（settleIdle），组标题由已定案成员派生。
+  - 同一日志读取顺带提取最后 `turn/end` 时刻，供历史区时间精化与最近卡最近回合统计的耗时补足（R-01-010/AC-08、AC-09、R-01-013/AC-12）。
+  - 冷窗口兜底：加载窗口缺最近用户消息/最近回合边界数据（页面刷新/断连重装窗口后出现）时按预览与耗时缺口触发深翻补读。
+  - 开放回合起点以宿主侧 busy 通道的 `openTurnStart` 为主源（快照 `turnTimings` 已随 V3 移除），日志窗口内 `openTurnStartFromEvents` 尾扫作兜底（R-01-009/AC-06、R-01-012/AC-12）。
+  - 模型上下文：主会话当前模型/effort 经模型目录链承载——目录 store 订阅 + 一次性显式 `load()`（dsh 0.1.5 起目录 store 惰性加载：不 load 不产出当前选择，此为对 C-024「只订阅不 load」的修订，显式 load 的最新操作胜出生成处理已实现）。
+  - 子代理模型/effort 从其会话日志最新一条 `request/header` 事件的 `config.{model, reasoningEffort}` 提取。
+  - effort 折叠以溯源模型在场为前置——无溯源助手消息时仅 effort 不单独显示，避免「· high」式畸形卡头。
+  - 反向扫描、命中最新请求头即停——更早请求头属已废弃纪元；dsh 0.1.5 起原 per-session `sessions.models` RPC 已移除，子代理目录 RPC 被宿主 agent-busy 拒绝。
+  - 部署级目录经 `remote.session.modelCatalog()`（无参数）一次性读取并随到达收获 `groups` 为 `modelId → {name, reasoning}` 索引（`catalogModelEntries`，主/子会话共享同一目录）。
+  - 同时为每个可见主会话保留可选 `modelDirectories` 服务的 per-session 目录 store 订阅（与主会话窗口模型选择器同源，同客户端切换模型选择经 `select()` 成功即推送）。
+  - 推送到达即按当前选择与 catalog metadata 重归一并就地更新卡片；服务缺失、会话无 scope 或订阅失败时不订阅。
+  - 模型名称与 reasoning level 缺失时保持空值；不使用 `agentPreset` 冒充模型（R-01-012/AC-01、AC-16、AC-17，C-024）。
+  - 溯源值为 provider 侧模型 id，显示名经目录分组就地解析——显示名未覆盖该 id 时回退显示原始溯源 id。
+  - effort 请求头不在页内或未声明时回落到模型目录条目的 `reasoning` 字段，仍不可得则保持空值（R-01-012/AC-17、AC-18）。
+  - 读取在「会话不在运行中或已收到运行中通知」时经日志分页发起（详情记账随可见性清理，重回可见允许重试），不构成轮询（R-02-004）。
+  - 富卡统计：运行卡展示工具动作摘要、底部统计行与阶段进度——统计行左列依次为 tok/s 输出速率（不带近似符号）、缓存命中率、计费输入 token、输出 token，与会话主窗口统计行同序。
+  - 统计行字段间以小圆点区隔，本回合时长固定显示于该行最右。
+  - 完成提醒、阻塞等待与错误提醒卡在时间线之后复用同一统计行结构，冻结显示进入等待前最后已知的 tok/s、缓存命中率、计费输入 token 与输出 token，统计字段缺失时省略。
+  - token 统计行最右侧，继续显示最近一个已结束回合的固定耗时；等待类型胶囊同行不再重复显示（R-01-009、R-01-009/AC-12、R-01-009/AC-13）。
+  - 动作摘要由 `summarizeToolArguments` 按主会话窗口同一语义派生（分工具类型参数键、bash 含 command、无命中取首个字符串参数值、剥离工作区前缀、取首行）后上卡（R-01-009）。
   - 运行卡外观沿用 answer-pet 的卡片质感。
     - 工作项时间线从卡片内容左边界起步，竖线与圆点严格同圆心；当前节点圆点带半透明外环并闪烁。
-    - 进度行由可伸缩的 5px 圆角进度条与其右侧固定宽百分比组成，两者同行；百分比在固定占位内右对齐，其文字右缘与下一行最右侧耗时文字右缘对齐，并以不改变布局占位的方式相对进度条中心上移 1px；会话运行期间填充持续呈现向右滚动条纹，作为活动标志（R-01-009/AC-06、AC-08）。
+    - 进度行由可伸缩的 5px 圆角进度条与其右侧固定宽百分比组成，两者同行。
+    - 百分比在固定占位内右对齐，其文字右缘与下一行最右侧的耗时文字右缘对齐，并以不改变布局占位的方式相对进度条中心上移 1px。
+    - 会话运行期间填充持续呈现向右滚动条纹，作为活动标志（R-01-009/AC-06、AC-08）。
     - 卡片不渲染独立当前动作状态行。
     - 工作项标题与摘要之间显示小圆点；用户项使用人物图标并带「用户」标签（R-01-012/AC-05）。
-    - 错误所在分组行整体染为错误红色；含 Bash 的分组行使用稳定的命令图标，不读取展开态下的 disclosure 箭头（R-01-009/AC-02、AC-08、AC-09；R-01-012/AC-03～AC-08）。
-  - 徽标计数与脉冲提醒：列头/窄条/移动端开关的数量徽标由 buildEntries 条目单点派生——分子为 running 主会话数、分母为其加等待行动（awaiting）主会话之和（`awaitBadgeStats` 统计，`countBadgeState` 取分子 running = total − waiting，随会话完成递减至 0），子代理不计入；空态同样以「0/0」呈现；三处徽标以原生 `title` 悬浮提示说明口径——文案为「运行中的会话 <运行中数> / 总活动会话 <活动主会话总数>」（由 `countBadgeState` 单点派生，加载态摘除）（R-01-001/AC-04、AC-05、AC-08）。存在等待行动时徽标以与等待卡完全一致的背景色与透明度呈现（列头/窄条/移动端开关三处徽标均无描边与外环），底色动态跟随等待构成且按错误 > 阻塞 > 完成 优先级取色——存在错误提醒主会话时取错误提醒卡同款红色，否则存在阻塞等待主会话时取阻塞等待卡同款金色，等待行动全部为完成提醒时取完成提醒卡同款绿色（R-01-002/AC-06）；并以固定 1.2s 亮度呼吸脉冲提示——脉冲表达「有会话等你行动」，三类等待行动同等提醒；脉冲不改整体不透明度，避免半透明底透进列头背景。渲染层只写文本、`title`、`data-awaiting` 与徽标 tone；等待条目 id/类别集合或当前可见数量胶囊表面（列头/窄条/移动按钮/抽屉）变化时，在同一渲染帧统一重启三处数量徽标与全部等待卡末行胶囊/正文动画，使当前可见数量徽标与末行文字同频同相且不随 n/m 变化（R-01-001/AC-04～AC-06、AC-08、R-01-002/AC-06～AC-08）。
+    - 错误所在分组行整体染为错误红色。
+  - 含 Bash 的分组行使用稳定的命令图标，不读取展开态下的 disclosure 箭头（R-01-009/AC-02、AC-08、AC-09；R-01-012/AC-03～AC-08）。
+  - 徽标计数与脉冲提醒：列头/窄条/移动端开关的数量徽标由 buildEntries 条目单点派生——分子为 running 主会话数、分母为其加等待行动（awaiting）主会话之和（`awaitBadgeStats` 统计，`countBadgeState` 取分子 running = total − waiting，随会话完成递减至 0），子代理不计入。
+  - 空态同样以「0/0」呈现；三处徽标以原生 `title` 悬浮提示说明口径——文案为「运行中的会话 <运行中数> / 总活动会话 <活动主会话总数>」（由 `countBadgeState` 单点派生，加载态摘除）（R-01-001/AC-04、AC-05、AC-08）。
+  - 存在等待行动时徽标以与等待卡完全一致的背景色与透明度呈现（列头/窄条/移动端开关三处徽标均无描边与外环），底色动态跟随等待构成且按错误 > 阻塞 > 完成 优先级取色。
+  - 存在错误提醒主会话时，取错误提醒卡同款红色；否则存在阻塞等待主会话时，取阻塞等待卡同款金色。
+  - 等待行动全部为完成提醒时，取完成提醒卡同款绿色（R-01-002/AC-06）。
+  - 并以固定 1.2s 亮度呼吸脉冲提示——脉冲表达「有会话等你行动」，三类等待行动同等提醒；脉冲不改整体不透明度，避免半透明底透进列头背景。
+  - 渲染层只写文本、`title`、`data-awaiting` 与徽标 tone。
+  - 等待条目 id/类别集合或当前可见数量胶囊表面（列头/窄条/移动按钮/抽屉）变化时，在同一渲染帧，统一重启三处数量徽标与全部等待卡末行胶囊/正文动画。
+  - 该机制使当前可见数量徽标与末行文字同频同相且不随 n/m 变化（R-01-001/AC-04～AC-06、AC-08、R-01-002/AC-06～AC-08）。
 
-  - 桌面列右缘使用与外壳 AppFrame 同类的窄透明 pointer-capture 调宽手柄：手柄保持在 pane 右缘，只改变光标、不绘制 hover 高亮；`.dap-scroll` 以 `--dsh-scrollbar-width` 的外部 inset 配合 `scrollbar-gutter: stable`，让 native scrollbar 与手柄严格分离、位于手柄左侧；鼠标指针进入窗格（含调宽区）时经 `data-pointer-inside` 显示 scrollbar，悬停 native thumb 时使用 `--dsh-scrollbar-thumb-hover` 高亮，停止滚动且指针离开后隐藏（Firefox 标准路径由浏览器派生 hover 状态）。拖拽实时写入 `--dap-width` 并夹取在 200–480px；调宽结果存 localStorage，启动时读取恢复，缺失/非法值回退默认 280px、越界值夹取进范围；折叠窄条与移动端抽屉不显示手柄（R-01-004/AC-03、R-01-015）。
+  - 桌面列右缘使用与外壳 AppFrame 同类的窄透明 pointer-capture 调宽手柄：手柄保持在 pane 右缘，只改变光标、不绘制 hover 高亮。
+  - `.dap-scroll` 以 `--dsh-scrollbar-width` 的外部 inset 配合 `scrollbar-gutter: stable`，让 native scrollbar 与手柄严格分离、位于手柄左侧。
+  - 鼠标指针进入窗格（含调宽区）时经 `data-pointer-inside` 显示 scrollbar，悬停 native thumb 时使用 `--dsh-scrollbar-thumb-hover` 高亮，停止滚动且指针离开后隐藏（Firefox 标准路径由浏览器派生 hover 状态）。
+  - 拖拽实时写入 `--dap-width` 并夹取在 200–480px；调宽结果存 localStorage，启动时读取恢复。
+  - 缺失/非法值回退默认 280px、越界值夹取进范围；折叠窄条与移动端抽屉不显示手柄（R-01-004/AC-03、R-01-015）。
   - 时间线只有折叠分组一种形态：渲染层不做任何 dsh-auto-collapse 探测或条件切换，时间线 memo 键由快照引用、cwd、后代活跃与 idle 判定组成；该插件热装/卸载对窗格无可观察影响（R-01-017、R-02-001）。
 
 ## 核心数据与不变量
 
-- 核心结构：`活动卡片条目 = { id, parentId?, depth, kind: running|awaiting|subagent|job, title, workspaceTitle, workspaceKey, model, reasoning, timeline, isCurrent, pendingText?, waitClass?, pendingKind?, noteText?, stateAt?, questionPreview?, elapsedMs?, outputTokens?, inputTokens?, cacheHitPct?, rateTokS?, progress? }`（`waitClass` 为 awaiting 条目的等待类别：`'blocked'` 阻塞等待 / `'done'` 完成提醒 / `'error'` 错误提醒；`pendingKind` 携带原始 pendingInteraction 种类；`noteText` 为普通末行正文或提问不可得时的回落文字；`questionPreview = { items: [{ index, text }], omitted }` 为待回复卡的结构化问题预览，`index` 是原始问题位置的 1 基序号，R-01-002；`stateAt` 为 awaiting 条目进入当前等待行动状态的时刻（毫秒；阻塞等待取等待边界开启时刻、完成提醒与错误提醒取最近一次回合结束登记时刻，与排序键同源同值，不可得为 null，R-01-002/AC-14）；`elapsedMs` 在 running 条目上表示随时钟变化的当前回合耗时，在 awaiting 条目上表示固定的最近回合耗时，R-01-009/AC-12；subagent 条目的 `model` 为子代理模型溯源（最近一条助手消息溯源经目录解析，`reasoning` 为最近请求头 effort、目录条目回退或空值，R-01-012/AC-17），运行中携带与运行卡同口径的 `progress` 与统计字段、非运行时冻结统计并置空 `progress`，R-01-009/AC-14、AC-15）；`最近卡片条目 = { id, kind: 'recent', title, workspaceTitle, workspaceKey, model, reasoning, userPreview, agentPreview, outputTokens?, inputTokens?, cacheHitPct?, rateTokS?, elapsedMs?, isCurrent, activityAt }`（`activityAt` 承载精化后的最后活动时间，R-01-010/AC-08；统计字段组成`最近回合统计`，由列表投影与最近完整回合边界派生，缺失时保持为空，R-01-013/AC-12；`workspaceKey` 承载工作区身份——路径优先、名称兜底、无归属或子代理（徽标隐藏）为空，供工作区颜色槽位派生，R-01-003/AC-08）。
+- 核心结构：`活动卡片条目 = { id, parentId?, depth, kind: running|awaiting|subagent|job, title, workspaceTitle, workspaceKey, model, reasoning, timeline, isCurrent, pendingText?, waitClass?, pendingKind?, noteText?, stateAt?, questionPreview?, elapsedMs?, outputTokens?, inputTokens?, cacheHitPct?, rateTokS?, progress? }`。
+  - `waitClass` 为 awaiting 条目的等待类别：`'blocked'` 阻塞等待 / `'done'` 完成提醒 / `'error'` 错误提醒。
+  - `pendingKind` 携带原始 pendingInteraction 种类。
+  - `noteText` 为普通末行正文或提问不可得时的回落文字。
+  - `questionPreview = { items: [{ index, text }], omitted }` 为待回复卡的结构化问题预览，`index` 是原始问题位置的 1 基序号，R-01-002。
+  - `stateAt` 为 awaiting 条目进入当前等待行动状态的时刻（毫秒；阻塞等待取等待边界开启时刻、完成提醒与错误提醒取最近一次回合结束的登记时刻，与排序键同源同值，不可得为 null，R-01-002/AC-14）。
+  - `elapsedMs` 在 running 条目上表示随时钟变化的当前回合耗时，在 awaiting 条目上表示固定的最近回合耗时，R-01-009/AC-12。
+  - subagent 条目的 `model` 为子代理模型溯源（最近一条助手消息的溯源经目录解析，`reasoning` 为最近请求头 effort、目录条目回退或空值，R-01-012/AC-17）。
+  - subagent 条目运行中携带与运行卡同口径的 `progress` 与统计字段，非运行时冻结统计并置空 `progress`（R-01-009/AC-14、AC-15）。
+  - `最近卡片条目 = { id, kind: 'recent', title, workspaceTitle, workspaceKey, model, reasoning, userPreview, agentPreview, outputTokens?, inputTokens?, cacheHitPct?, rateTokS?, elapsedMs?, isCurrent, activityAt }`。
+  - `activityAt` 承载精化后的最后活动时间（R-01-010/AC-08）。
+  - 统计字段组成`最近回合统计`，由列表投影与最近完整回合边界派生，缺失时保持为空（R-01-013/AC-12）。
+  - `workspaceKey` 承载工作区身份——路径优先、名称兜底、无归属或子代理（徽标隐藏）为空，供工作区颜色槽位派生（R-01-003/AC-08）。
 - 显示过滤（核心不变量）：
-  - 主会话显示当自身 `running || pendingInteraction`、处于完成确认或错误提醒（未解除的完成提醒/错误提醒）、存在活动后代、或存在在跑后台任务；`pendingInteraction` 时显示为 awaiting，自身 `running`、存在活动后代或在跑后台任务时显示为 running（委托周期中母会话保持运行中呈现，R-01-003/AC-05），完成确认/错误提醒时显示为 awaiting。完成提醒成立与否不消费宿主 `completed` 边沿标志（C-030 唯一口径为 `completions` 游标比较）；错误提醒成立与否同样只由 `completions` 记账的 `lastTurnEndKind` 判定（C-043）。
-  - 在跑后台任务活性（R-01-023）：`liveJobs` = 快照 `jobsBySession[id]` 中 `status ∈ {'running','stopping'}` 的任务集合（快照缺失、非数组或空数组均视为无任务）——派生为主会话第三种活动来源，与自身 running、活动后代并列：存在 liveJobs 的主会话保留在活动区按运行态呈现（时间线冻结、不渲染进度条与运行条纹，不冒充回合运行），标题行以「后台 ×N」小注标注在跑任务数量（R-01-023/AC-01）；每个在跑任务另产出 `kind: "job"` 的缩进子卡（与子代理同形，跟随母会话直接后继，复合 id `job:<sessionId>:<jobId>` 与会话 id 空间隔离，层级连接线与子代理同规则绘制、不参与徽标计数（R-01-003/AC-04）；子卡第一行显示工具名称与随时钟时长、第二行显示任务内容原文，卡面底色与子代理卡可辨区分（R-01-023/AC-05、AC-07）；激活子卡不触发跳转（纯展示，R-01-023/AC-08）），任务全部结束后子卡随 liveJobs 清空而消失（R-01-023/AC-03）；完成提醒与错误提醒在 liveJobs 非空期间被抑制、liveJobs 清空后按既有规则恢复（R-01-023/AC-02）；数量徽标分子（running 口径）将仅有 liveJobs 的主会话计入（job 子卡被 kind 过滤，不计入）（R-01-023/AC-04）。任务列表与状态变化由 `sessions.list` 快照的 `jobsBySession` 推送帧承载，不新增订阅或轮询。
-  - 完成提醒：`buildEntries` 以 `completions` 记账（id → `{ lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }`，经 SSE 通道注入）派生——主会话且 `lastTurnEnd > ackedAt` 时完成提醒成立；打开会话或切换当前会话不解除，仅显式确认（按钮写回 `ackedAt`）或新回合完成（`lastTurnEnd` 前移，旧提醒被新回合更替）改变成立性（R-01-002/AC-03、AC-05、AC-10、AC-11、AC-12、R-01-010/AC-06）。错误提醒：主会话且 `lastTurnEndKind === 'error'` 时成立，随新回合结束（`lastTurnEndKind` 被新 reason 覆盖）或活动条件（running/阻塞等待/委托周期）抑制解除，不消费 `ackedAt`、无确认按钮（R-01-002/AC-05、AC-12、AC-13）。
-  - 子代理显示当自身 `running || pendingInteraction`，或存在活动后代；自身不活动但存在活动后代时保持 `subagent` 呈现，既无自身活动也无活动后代时结束并消失（R-01-001、R-01-003）。
-  - 等待优先：存在待确认/待审查/待回复（阻塞等待）时以对应文案呈现；否则进入错误提醒（红色卡面）或完成提醒（绿色成功卡面）呈现——`lastTurnEndKind === 'error'` 时取错误提醒、否则取完成提醒；完成提醒/错误提醒在会话存在活动后代期间不生效，后代全部结束后恢复；在跑后台任务（liveJobs 非空）期间同样不生效、全部结束后恢复（R-01-002、R-01-010/AC-06、R-01-023/AC-02）。
-- 分区不变量：会话要么在活动区、要么在历史区，绝不同时出现；最近历史 = 当前非活动、**仅主会话（不含子代理）**且仍被会话服务列出、且无在跑后台任务的候选，按最后活动时间倒序后经历史分页呈现；完成确认（未确认的完成提醒）中会话仍归属活动区，确认后经移动动画迁入历史区（R-01-010、R-01-019、R-01-023/AC-01）。
-- 轮内状态输入：`runtimeStats({ elapsedMs, outputTokens, rateTokS })`、`usageSummary(tokenUsage)`（计费输入=未缓存输入+缓存读+缓存写，缓存命中率=缓存读÷计费输入，对齐原生统计行口径）与 `conversationTimelineFromHistory(events)` 为纯函数，输入由渲染器从会话日志分页事件（Session V3 记录，`user/message` / `assistant/message` / `tool/*` / `request/header` / `turn/*`）与 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`）归一而来（dsh 0.1.5 起会话快照不再携带 `ConversationSnapshot`）；运行卡停止前的最后已知投影统计保存在可见会话详情中，等待行动卡优先复用该值，刷新后回退当前列表投影；等待行动卡的最近回合耗时由同一日志读取的回合边界或宿主侧 busy 通道的 `openTurnStart` 提取（R-01-009、R-01-009/AC-13、R-01-012）。
-- 排序不变量：活动区主会话分两组——运行中主会话置顶，组内按最后一次用户指令时间（宿主列表时间，无用户消息取创建时刻，缺失视为最旧）从新到旧；非运行中主会话（阻塞等待、完成提醒、错误提醒）排其后，组内按进入该状态的时刻从新到旧——阻塞等待取回合内等待边界的开启时刻（宿主回合记账 `openWaitStart`，缺失回落宿主列表时间），完成提醒与错误提醒取最近一次回合结束登记时刻（缺失回落宿主列表时间）；两组相同时间保持宿主列表出现顺序；工作区侧栏顺序不参与排序，仅承载卡片徽标与名称；子代理跟随母会话并缩进（R-01-001、R-01-003）。
-- 工作区颜色槽位不变量：`workspaceHue(key)` 仍以工作区身份（`workspaceKey`）为唯一输入，经 djb2 雪崩终混在避开红色警戒区的基色色相弧 [30°,320°] 上均匀取色（30 + hash % 291），输出 [30,320] 整数；同一身份恒得同一基色，与工作区列表顺序、会话状态及持久化存储无关（R-01-003/AC-08、AC-09，C-026、C-027、C-029）。`resolveWorkspaceColors(keys)` 在基色之上做逐身份复合槽位映射：每个身份独立地以其 32 位雪崩哈希派生前景与背景槽位——前景取基色色相在 12 个 OKLCH 前景槽位中环形色相距离最近者（平局取低槽位），背景变体取 `floor(hash / 291) % 3`；映射是单个身份的纯函数，身份之间互不影响，创建、移除或变更其它工作区不改变既有工作区的前景/背景复合槽位（C-077）。7 个主槽位为 `[55,100,145,190,235,280,325]`，补充槽位为 `[77,122,167,257,302]`；主槽位深/浅主题分别使用 L/C `0.78/0.16`、`0.48/0.15`，补充槽位使用 `0.64/0.15`、`0.36/0.15`，背景变体只改变同色相族的主题 L/C 与混合强度；两主题前景 12 槽任意两色 OKLab 距离均不小于 0.11；不同工作区可能复用同一前景槽位，均匀哈希使碰撞概率保持在约 1/12（前景）与 1/36（复合）的最小水平（R-01-003/AC-08、AC-12，C-031～C-034、C-072、C-077）。
-- 稳定签名：渲染签名由 `listState` 与 `cardSignature` 的结构化二元组组成；后者覆盖条目可见字段（含 model/reasoning/timeline/userPreview/agentPreview/activityAt、stateAt、questionPreview、progress/tokenStats）。仅二者均相同时才跳过 DOM 写入，使空卡集合的 pending/error → ready 仍提交列表状态（R-02-003，C-058）。
-- 完成确认状态由宿主侧持久化承载：`lastTurnEnd`、`lastTurnEndKind`（回合结束原因：completed/blocked/max-tokens/aborted/error，宿主对缺失/非法值归一 `unknown`）、`lastTurnEndError`（error 回合的错误信息）与 `ackedAt` 存于 storageDomain 表，会话事件是宿主侧登记的唯一事实来源；页面刷新或客户端重新连接后经 SSE 通道全量快照恢复（R-01-002/AC-12、AC-13）。
-- 回合统计记账：`turn_stats = sessionId → { busyMs, openTurnStart?, openWaitStart?, openWaitKind?, openWaitId?, waitedMs?, watermarkSeq, watermarkTime? }`——`busyMs` 为已完成回合运行过程时长的累计（completed/blocked/max-tokens/aborted/error 全部结束原因计入，回合间空闲与回合内阻塞等待不计入）；`openTurnStart` 为当前开放回合起点（无开放回合为 null）；`openWaitStart`/`openWaitKind`/`openWaitId` 为当前未配对等待区间的起点、种类（`'approval'` 审批 / `'question'` 提问，无等待为 null）与配对标识（审批 id 或提问 callId）；`waitedMs` 为当前开放回合内已配对等待时长的累计（换回合清零）；等待边界事件为 `approval/asked`–`approval/decided` 与 `ask_user_question` 的 `tool/call`–同 `callId` `tool/result`（kind 或 id/callId 不一致的结算事件忽略；等待串行不嵌套，已有未配对等待时新等待边界忽略），`turn/end` 先按事件时刻强制结算未配对等待再结算回合；`watermarkSeq` 为实时登记已覆盖的最大事件 seq，实时登记与回填以水位衔接、`seq ≤ watermarkSeq` 的事件不再计入，保证不重复、不遗漏；`watermarkTime` 为水位处已覆盖事件的时刻（重放在水位前推处记录该事件时刻，实时登记随效果事件落盘写入）——实时登记发现低 seq 事件携带比水位更新的时刻、或记录尚无该字段（存量记录），即判定持久化水位口径不可信、丢弃旧记账强制全量重放自愈（部分重叠重编时「水位超前于日志最大 seq」检测不可达）；持久化 `watermarkSeq` 超前于日志最大 seq（事件 seq 空间被重编，如 dsh 0.1.5 V3 迁移）时增量口径失效，回填改为从空状态全量重放自愈，宿主启动对无 `watermarkTime` 的存量记录强制全量重放复核一次、对残留开放回合的记录按日志最后事件时刻强制结算关闭（宿主重启后不存在仍在运行的回合）；宿主重启后以持久化记账恢复，页面刷新或客户端重连经 SSE 全量快照恢复；无任何有效回合计时数据的会话 `busyMs` 为 null，客户端不显示累计值（R-01-020/AC-02、AC-04、AC-05、AC-06、AC-07）。
-- 运行卡渲染期字段：渲染器为 running 条目补充 `progress`（阶段百分比）、`timeline`（主会话窗口最近工作项）与 `tokenStats`；subagent 条目在运行中同样补充同口径 `progress` 与统计字段、非运行时冻结统计并隐藏进度条（R-01-009/AC-14、AC-15）；awaiting 条目补充固定的最近回合 `elapsedMs` 与进入等待前最后已知的 `tokenStats`，页面刷新时从当前列表投影回退；不再派生独立 `status` 文案行；标题行只承载状态点与标题，运行卡进度行按 `.dap-track`、`.dap-pct` 的顺序承载可伸缩进度条与固定宽、文字右对齐的百分比，统计行位于其下，百分比文字右缘与统计行最右侧耗时文字右缘对齐，垂直视觉位置相对进度条中心上移 1px；等待卡在时间线之后显示与运行卡相同的统计行，耗时置于统计行最右侧；`.dap-await-head` 承载等待类型胶囊与其右侧的进入状态相对时间（状态年龄，`.dap-await-age`，静态不参与脉冲），不显示进度条或运行条纹。
-- 非运行活动卡呈现：awaiting 条目同样承载 `timeline`（会话最后已知工作项，最多 4 项，非运行会话不做尾部 running 提升）（R-01-016）；非执行呈现（快照 pending，或渲染层按条目 pendingText 判定的等待/暂停——等待卡使用冻结快照、pending 不可得）下残留执行中状态在分组之前经 `settleWhenIdle` 全部落定（组标题/状态均由已定案成员派生，不出现已定案圆点配「思考」标题），尾部提升同时跳过；存在活动后代时除外（保留委托周期在飞呈现与尾部提升，R-01-009/AC-10）。
+  - 主会话显示当自身 `running || pendingInteraction`、处于完成确认或错误提醒（未解除的完成提醒/错误提醒）、存在活动后代、或存在在跑后台任务。
+  - `pendingInteraction` 时显示为 awaiting；自身 `running`、存在活动后代或在跑后台任务时显示为 running（委托周期中母会话保持运行中呈现，R-01-003/AC-05）。
+  - 完成确认/错误提醒时显示为 awaiting。
+  - 完成提醒成立与否不消费宿主 `completed` 边沿标志（C-030 唯一口径为 `completions` 游标比较）。
+  - 错误提醒成立与否同样只由 `completions` 记账的 `lastTurnEndKind` 判定（C-043）。
+  - 在跑后台任务活性（R-01-023）：`liveJobs` = 快照 `jobsBySession[id]` 中 `status ∈ {'running','stopping'}` 的任务集合（快照缺失、非数组或空数组均视为无任务）。
+  - liveJobs 派生为主会话第三种活动来源，与自身 running、活动后代并列。
+  - 存在 liveJobs 的主会话保留在活动区按运行态呈现（时间线冻结、不渲染进度条与运行条纹，不冒充回合运行），标题行以「后台 ×N」小注标注在跑任务数量（R-01-023/AC-01）。
+  - 每个在跑任务另产出 `kind: "job"` 的缩进子卡（与子代理同形，跟随母会话直接后继，复合 id `job:<sessionId>:<jobId>` 与会话 id 空间隔离）。
+  - 层级连接线与子代理同规则绘制、不参与徽标计数（R-01-003/AC-04）。
+  - 子卡第一行显示工具名称与随时钟时长，第二行显示任务内容原文，卡面底色与子代理卡可辨区分（R-01-023/AC-05、AC-07）。
+  - 激活子卡不触发跳转（纯展示，R-01-023/AC-08）。
+  - 任务全部结束后子卡随 liveJobs 清空而消失（R-01-023/AC-03）。
+  - 完成提醒与错误提醒在 liveJobs 非空期间被抑制、liveJobs 清空后按既有规则恢复（R-01-023/AC-02）。
+  - 数量徽标分子（running 口径）将仅有 liveJobs 的主会话计入，job 子卡被 kind 过滤、不计入（R-01-023/AC-04）。
+  - 任务列表与状态变化由 `sessions.list` 快照的 `jobsBySession` 推送帧承载，不新增订阅或轮询。
+  - 完成提醒：`buildEntries` 以 `completions` 记账（id → `{ lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }`，经 SSE 通道注入）派生——主会话且 `lastTurnEnd > ackedAt` 时完成提醒成立。
+  - 打开会话或切换当前会话不解除，仅显式确认（按钮写回 `ackedAt`）或新回合完成（`lastTurnEnd` 前移，旧提醒被新回合更替）改变成立性（R-01-002/AC-03、AC-05、AC-10、AC-11、AC-12、R-01-010/AC-06）。
+  - 错误提醒：主会话且 `lastTurnEndKind === 'error'` 时成立，随新回合结束（`lastTurnEndKind` 被新 reason 覆盖）或活动条件（running/阻塞等待/委托周期）抑制解除，不消费 `ackedAt`、无确认按钮（R-01-002/AC-05、AC-12、AC-13）。
+  - 子代理显示当自身 `running || pendingInteraction`，或存在活动后代。
+  - 自身不活动但存在活动后代时保持 `subagent` 呈现；既无自身活动、也无活动后代时结束并消失（R-01-001、R-01-003）。
+  - 等待优先：存在待确认/待审查/待回复（阻塞等待）时以对应文案呈现。
+  - 否则进入错误提醒（红色卡面）或完成提醒（绿色成功卡面）呈现——`lastTurnEndKind === 'error'` 时取错误提醒、否则取完成提醒。
+  - 完成提醒/错误提醒在会话存在活动后代期间不生效，后代全部结束后恢复。
+  - 在跑后台任务（liveJobs 非空）期间同样不生效、全部结束后恢复（R-01-002、R-01-010/AC-06、R-01-023/AC-02）。
+- 分区不变量：会话要么在活动区、要么在历史区，绝不同时出现。
+- 最近历史 = 当前非活动、**仅主会话（不含子代理）**且仍被会话服务列出、且无在跑后台任务的候选。
+- 候选按最后活动时间倒序后，经历史分页呈现。
+- 完成确认（未确认的完成提醒）中会话仍归属活动区，确认后经移动动画迁入历史区（R-01-010、R-01-019、R-01-023/AC-01）。
+- 轮内状态输入：`runtimeStats({ elapsedMs, outputTokens, rateTokS })`、`usageSummary(tokenUsage)`（计费输入=未缓存输入+缓存读+缓存写，缓存命中率=缓存读÷计费输入，对齐原生统计行口径）与 `conversationTimelineFromHistory(events)` 为纯函数。
+- 纯函数输入由渲染器从会话日志分页事件（Session V3 记录，`user/message` / `assistant/message` / `tool/*` / `request/header` / `turn/*`）与 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`）归一而来。
+- dsh 0.1.5 起会话快照不再携带 `ConversationSnapshot`。
+- 运行卡停止前的最后已知投影统计保存在可见会话详情中，等待行动卡优先复用该值，刷新后回退当前列表投影。
+- 等待行动卡的最近回合耗时由同一日志读取的回合边界或宿主侧 busy 通道的 `openTurnStart` 提取（R-01-009、R-01-009/AC-13、R-01-012）。
+- 排序不变量：活动区主会话分两组——运行中主会话置顶，组内按最后一次用户指令时间（宿主列表时间，无用户消息取创建时刻，缺失视为最旧）从新到旧。
+- 非运行中主会话（阻塞等待、完成提醒、错误提醒）排其后，组内按进入该状态的时刻从新到旧——阻塞等待取回合内等待边界的开启时刻（宿主回合记账 `openWaitStart`，缺失回落宿主列表时间）。
+- 完成提醒与错误提醒取最近一次回合结束的登记时刻（缺失回落宿主列表时间）；两组相同时间保持宿主列表的出现顺序。
+- 工作区侧栏顺序不参与排序，仅承载卡片徽标与名称；子代理跟随母会话并缩进（R-01-001、R-01-003）。
+- 工作区颜色槽位不变量：`workspaceHue(key)` 仍以工作区身份（`workspaceKey`）为唯一输入，经 djb2 雪崩终混在避开红色警戒区的基色色相弧 [30°,320°] 上均匀取色（30 + hash % 291），输出 [30,320] 整数。
+- 同一身份恒得同一基色，与工作区列表顺序、会话状态及持久化存储无关（R-01-003/AC-08、AC-09，C-026、C-027、C-029）。
+- `resolveWorkspaceColors(keys)` 在基色之上做逐身份复合槽位映射：每个身份独立地以其 32 位雪崩哈希派生前景与背景槽位。
+- 前景取基色色相在 12 个 OKLCH 前景槽位中环形色相距离最近者（平局取低槽位），背景变体取 `floor(hash / 291) % 3`。
+- 映射是单个身份的纯函数，身份之间互不影响，创建、移除或变更其它工作区不改变既有工作区的前景/背景复合槽位（C-077）。
+- 7 个主槽位为 `[55,100,145,190,235,280,325]`，补充槽位为 `[77,122,167,257,302]`。
+- 主槽位深/浅主题分别使用 L/C `0.78/0.16`、`0.48/0.15`，补充槽位使用 `0.64/0.15`、`0.36/0.15`，背景变体只改变同色相族的主题 L/C 与混合强度。
+- 两主题前景 12 槽任意两色 OKLab 距离均不小于 0.11。
+- 不同工作区可能复用同一前景槽位，均匀哈希使碰撞概率保持在约 1/12（前景）与 1/36（复合）的最小水平（R-01-003/AC-08、AC-12，C-031～C-034、C-072、C-077）。
+- 稳定签名：渲染签名由 `listState` 与 `cardSignature` 的结构化二元组组成。
+- `cardSignature` 覆盖条目可见字段（含 model/reasoning/timeline/userPreview/agentPreview/activityAt、stateAt、questionPreview、progress/tokenStats）。
+- 仅二者均相同时才跳过 DOM 写入，使空卡集合的 pending/error → ready 仍提交列表状态（R-02-003，C-058）。
+- 完成确认的状态由宿主侧持久化承载：`lastTurnEnd`、`lastTurnEndKind`（回合结束原因：completed/blocked/max-tokens/aborted/error，宿主对缺失/非法值归一 `unknown`）、`lastTurnEndError`（error 回合的错误信息）与 `ackedAt` 存于 storageDomain 表。
+- 会话事件是宿主侧登记的唯一事实来源。
+- 页面刷新或客户端重新连接后经 SSE 通道全量快照恢复（R-01-002/AC-12、AC-13）。
+- 回合统计记账：`turn_stats = sessionId → { busyMs, openTurnStart?, openWaitStart?, openWaitKind?, openWaitId?, waitedMs?, watermarkSeq, watermarkTime? }`。
+- `busyMs` 为已完成回合运行过程时长的累计（completed/blocked/max-tokens/aborted/error 全部结束原因计入，回合间空闲与回合内阻塞等待不计入）。
+- `openTurnStart` 为当前开放回合起点，无开放回合为 null。
+- `openWaitStart`/`openWaitKind`/`openWaitId` 为当前未配对等待区间的起点、种类（`'approval'` 审批 / `'question'` 提问，无等待为 null）与配对标识（审批 id 或提问 callId）。
+- `waitedMs` 为当前开放回合内已配对等待时长的累计（换回合清零）。
+- 等待边界事件为 `approval/asked`–`approval/decided` 与 `ask_user_question` 的 `tool/call`–同 `callId` `tool/result`（kind 或 id/callId 不一致的结算事件忽略；等待串行不嵌套，已有未配对等待时新等待边界忽略）。
+- `turn/end` 先按事件时刻强制结算未配对等待，再结算回合。
+- `watermarkSeq` 为实时登记已覆盖的最大事件 seq，实时登记与回填以水位衔接、`seq ≤ watermarkSeq` 的事件不再计入，保证不重复、不遗漏。
+- `watermarkTime` 为水位处已覆盖事件的时刻（重放在水位前推处记录该事件时刻，实时登记随效果事件落盘写入）。
+- 实时登记发现低 seq 事件携带比水位更新的时刻、或记录尚无该字段（存量记录），即判定持久化水位口径不可信，丢弃旧记账强制全量重放自愈（部分重叠重编时「水位超前于日志最大 seq」检测不可达）。
+- 持久化 `watermarkSeq` 超前于日志最大 seq（事件 seq 空间被重编，如 dsh 0.1.5 V3 迁移）时增量口径失效，回填改为从空状态全量重放自愈。
+- 宿主启动对无 `watermarkTime` 的存量记录，强制全量重放复核一次；对残留开放回合的记录按日志最后的事件时刻强制结算关闭（宿主重启后不存在仍在运行的回合）。
+- 宿主重启后以持久化记账恢复，页面刷新或客户端重连经 SSE 全量快照恢复。
+- 无任何有效回合计时数据的会话 `busyMs` 为 null，客户端不显示累计值（R-01-020/AC-02、AC-04、AC-05、AC-06、AC-07）。
+- 运行卡渲染期字段：渲染器为 running 条目补充 `progress`（阶段百分比）、`timeline`（主会话窗口最近工作项）与 `tokenStats`。
+- subagent 条目在运行中同样补充同口径 `progress` 与统计字段、非运行时冻结统计并隐藏进度条（R-01-009/AC-14、AC-15）。
+- awaiting 条目补充固定的最近回合 `elapsedMs` 与进入等待前最后已知的 `tokenStats`，页面刷新时从当前列表投影回退。
+- 不再派生独立 `status` 文案行；标题行只承载状态点与标题。
+- 运行卡进度行按 `.dap-track`、`.dap-pct` 的顺序承载可伸缩进度条与固定宽、文字右对齐的百分比，统计行位于其下。
+- 百分比文字右缘与统计行最右侧的耗时文字右缘对齐，垂直视觉位置相对进度条中心上移 1px。
+- 等待卡在时间线之后显示与运行卡相同的统计行，耗时置于统计行最右侧。
+- `.dap-await-head` 承载等待类型胶囊与其右侧的进入状态相对时间（状态年龄，`.dap-await-age`，静态不参与脉冲），不显示进度条或运行条纹。
+- 非运行活动卡呈现：awaiting 条目同样承载 `timeline`（会话最后已知工作项，最多 4 项，非运行会话不做尾部 running 提升）（R-01-016）。
+- 非执行呈现（快照 pending，或渲染层按条目 pendingText 判定的等待/暂停——等待卡使用冻结快照、pending 不可得）下，残留执行中状态在分组之前经 `settleWhenIdle` 全部落定。
+- 落定后组标题/状态均由已定案成员派生，不出现已定案圆点配「思考」标题，尾部提升同时跳过。
+- 存在活动后代时除外（保留委托周期在飞呈现与尾部提升，R-01-009/AC-10）。
 
 ## 运行时、并发与失败语义
 
-- 响应式渲染：订阅会话/工作区列表快照，任一变化即排队一次重绘；`cardSignature` 防止"渲染→写 DOM→再渲染"反馈循环（R-02-003）。工作项时间线与消息预览按快照/历史引用 memo（引用不变即命中缓存），`conversationTimeline`/`messagePreviews` 自尾部反向扫描、取够目标条数即停，长会话不做全序扫描；会话区 DOM 行索引每次渲染构建一次供当次全部工作项共用。
-- 历史分页运行时：`buildRecent` 每帧只负责候选过滤与确定性排序，`窗格渲染器` 以 `recentVisibleCount` 对结果取前缀；历史区底部仅在仍有候选时显示原生「加载更多...」按钮，用户激活后追加一次最多 10 条并以 guard 合并重复触发；首批未填满滚动视口或滚动到底部均不自动补页，手动追加不改变既有 `scrollTop`。详情读取目标只包含活动条目和当前已显示历史条目，未显示候选不会触发 models/history 读取；列表短暂 pending 不回退已展开页，窗格重挂载才恢复首批（R-01-019、R-01-014）。
-- 宿主 DOM 观察：槽座迟到由 body `MutationObserver` 通知唤醒；绑定后 center → body 的祖先链逐级以 `childList` 观察，任一级断裂（含高于 parent 的视图级重挂载）即重装并恢复窗格；center 只观察直接子节点处理 seat/center 重挂载，main 槽容器子树只观察流式 `childList` 变化，插件 pane 子树不进入观察范围（R-02-002、R-02-003）。
+- 响应式渲染：订阅会话/工作区列表快照，任一变化即排队一次重绘。
+- `cardSignature` 防止"渲染→写 DOM→再渲染"反馈循环（R-02-003）。
+- 工作项时间线与消息预览按快照/历史引用 memo（引用不变即命中缓存）。
+- `conversationTimeline`/`messagePreviews` 自尾部反向扫描、取够目标条数即停，长会话不做全序扫描。
+- 会话区 DOM 行索引每次渲染构建一次，供当次全部工作项共用。
+- 历史分页运行时：`buildRecent` 每帧只负责候选过滤与确定性排序，`窗格渲染器` 以 `recentVisibleCount` 对结果取前缀。
+- 历史区底部仅在仍有候选时显示原生「加载更多...」按钮，用户激活后追加一次最多 10 条并以 guard 合并重复触发。
+- 首批未填满滚动视口或滚动到底部均不自动补页，手动追加不改变既有 `scrollTop`。
+- 详情读取目标只包含活动条目和当前已显示历史条目，未显示候选不会触发 models/history 读取。
+- 列表短暂 pending 不回退已展开页，窗格重挂载才恢复首批（R-01-019、R-01-014）。
+- 宿主 DOM 观察：槽座迟到由 body `MutationObserver` 通知唤醒。
+- 绑定后 center → body 的祖先链逐级以 `childList` 观察，任一级断裂（含高于 parent 的视图级重挂载）即重装并恢复窗格。
+- center 只观察直接子节点处理 seat/center 重挂载，main 槽容器子树只观察流式 `childList` 变化，插件 pane 子树不进入观察范围（R-02-002、R-02-003）。
 - 并发安全：重绘经 rAF/微任务合并，同一时刻至多进行一次；卡片按 id 复用，保证顺序稳定（R-01-004、R-02-003）。
-- 迁移动画并发语义：动画不阻塞渲染循环；ghost 与受影响卡片平移均为独立呈现层状态，生命周期由 `transitionend` 收口（平移收口过滤冒泡：仅本元素 `transform` 过渡生效，子元素过渡事件不消耗收口）、不引入定时器；动画期间新渲染照常进行，同一 id 再次迁移时旧 ghost 移除并按最新帧重新判定，平移中的卡片以当前视觉矩形为起点重新计算反向位移；平移状态在卡片摘除、窗格重建与卸载时同步取消（R-01-010/AC-07、AC-10）。
+- 迁移动画并发语义：动画不阻塞渲染循环。
+- ghost 与受影响卡片平移均为独立呈现层状态，生命周期由 `transitionend` 收口（平移收口过滤冒泡：仅本元素 `transform` 过渡生效，子元素过渡事件不消耗收口）、不引入定时器。
+- 动画期间新渲染照常进行，同一 id 再次迁移时旧 ghost 移除并按最新帧重新判定，平移中的卡片以当前视觉矩形为起点重新计算反向位移。
+- 平移状态在卡片摘除、窗格重建与卸载时同步取消（R-01-010/AC-07、AC-10）。
 - 轮内状态订阅：
   - 仅对运行中会话建立 `binding().session.subscribe`，随会话停止运行或插件卸载执行 `unsubscribe`，订阅数量与运行中会话一致（R-01-009、R-02-004）。
-  - 订阅为推送式，各订阅在独立轻量回调中归一为 `{ startTime }`；运行时长在渲染期按 `Date.now() - startTime` 实时计算（配合运行时钟逐秒刷新），不依赖推送事件更新；会话停止运行后，等待卡改用最近完整回合的固定耗时，并复用停止前最后已知的 token 统计（R-01-009/AC-03、AC-12、AC-13）。
+  - 订阅为推送式，各订阅在独立轻量回调中归一为 `{ startTime }`。
+  - 运行时长在渲染期按 `Date.now() - startTime` 实时计算（配合运行时钟逐秒刷新），不依赖推送事件更新。
+  - 会话停止运行后，等待卡改用最近完整回合的固定耗时，并复用停止前最后已知的 token 统计（R-01-009/AC-03、AC-12、AC-13）。
 - 失败语义：
   - 宿主元素未出现 → 由 body `MutationObserver` 静默等待，不报错、不使用探测定时器（R-02-002）。
   - 点击目标未在列表就绪 → 仅在用户点击触发后限时重试，超时结束本次交互、不影响其它卡片；重试链在目标已成为当前会话、用户激活其它卡片或任一打开成功时立即取消，避免过期跳转把当前会话拽回旧目标（R-01-005）。
   - 外壳重挂载移除窗格 → 观察者重新插入，且不产生重复实例（R-02-002）。
 - 回合统计运行时（R-01-020、R-02-003）：
-  - 实时登记串行化：同会话边界事件的读-改-写逐个完成（含 `turnStats.put` 内存生效）后才应用下一事件；宿主 `KvTable.put` 先异步落盘后更新内存快照，并发 handler 会让后到事件读到旧状态、把先到事件的效果当作「无效果」永久丢弃。串行链由 core `createSessionEventSerializer` 提供，不同会话互不阻塞。
+  - 实时登记串行化：同会话边界事件的读-改-写逐个完成（含 `turnStats.put` 内存生效）后才应用下一事件。
+  - 宿主 `KvTable.put` 先异步落盘后更新内存快照，并发 handler 会让后到事件读到旧状态、把先到事件的效果当作「无效果」永久丢弃。
+  - 串行链由 core `createSessionEventSerializer` 提供，不同会话互不阻塞。
   - 口径收敛：增量登记与全量重放/强制结算统一收敛于 core 纯函数 `applyTurnEventToStats`/`reconcileTurnStats`，宿主侧只做读取、写入与广播。
-  - 懒回填：每会话至多一个在途，重复请求共享同一 promise；回填读取失败保留已持久化记账并按 30s 退避随下次请求重试，不使卡片渲染失败。
+  - 懒回填：每会话至多一个在途，重复请求共享同一 promise。
+  - 回填读取失败，保留已持久化记账并按 30s 退避随下次请求重试，不使卡片渲染失败。
   - SSE 推送：与 acks 通道同模式——连接即发全量、变更即广播，插件卸载关闭全部连接。
 - 定时器纪律：不使用服务发现/frame probe 或数据状态轮询；仅保留运行中可见时长的单一 1 秒时钟，以及用户点击触发的有限重试（R-02-001、R-02-004）。
 - 加载状态模型（R-01-014）：
@@ -252,51 +425,228 @@ flowchart LR
 | R-01-023 | 活动状态模型 | 在跑后台任务的活性派生、完成/错误提醒抑制与徽标计数、任务子卡层级与两行呈现 | src/core.mjs、src/client.mjs |
 ## 产品契约
 
-- 活动卡片集合：`活动状态模型#buildEntries(snapshot, workspaceItems, detailsById, completions, delegatingIds, archivedIds, waitingStarts)` 产出已排序的活动卡片条目数组——运行中主会话在前、按最后一次用户指令时间（宿主列表时间）从新到旧；非运行中主会话在后、按进入等待/完成状态的时刻从新到旧——阻塞等待取回合内等待边界开启时刻（`waitingStarts` 入参，Map id → 毫秒时刻，来自宿主侧回合记账 `openWaitStart`，缺失回落宿主列表时间），完成提醒/错误提醒取最近一次回合结束登记时刻（缺失回落宿主列表时间）；两组相同时间保持宿主列表出现顺序（R-01-001）；`completions` 入参（Map id → `{ lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }`，来自宿主侧 ack 状态）使完成提醒/错误提醒中会话以 awaiting 条目保留在活动区（R-01-002/AC-05、AC-13、R-01-010/AC-06）；awaiting 条目同时携带 `stateAt`（进入当前等待行动状态的时刻：阻塞等待取 `waitingStarts`、完成/错误提醒取 `lastTurnEnd`，与排序键同源同值；不可得为 null——排序键缺失时的宿主列表时间回退仅用于排序，不作显示时刻，R-01-002/AC-14）。`jobsBySession`（快照携带的任务视图）经 `liveJobs` 派生并入 `buildEntries`/`buildRecent`：存在在跑后台任务的主会话归入运行组（排序键沿用宿主列表时间），条目携带 `liveJobs`（`{ id, kind, label, status, startedAt }[]`，`startedAt` 升序）与 `selfRunning`（自身回合是否真实运行，布尔）——前者供渲染层在标题行标注数量（R-01-023/AC-01、AC-04），后者区分「仅后台任务」（隐藏进度行、呈现冻结）与真实回合运行；并为每个在跑任务产出 `kind: "job"` 子条目（`{ id: "job:<sessionId>:<jobId>", parentId, depth+1, kind, title=label, jobKind, jobStatus, jobStartedAt }`，归属会话以 `parentId` 承载），任务子卡为纯展示，激活不触发会话跳转（R-01-023/AC-08）；任务卡两行呈现——第一行为工具名称（经 `jobKindLabel` 友好映射：bash→Bash、pwsh→PowerShell、subagent→子代理，未知 kind 原样、不可得时仅保留状态点与时长）与随时钟推进的已运行时长，第二行为任务内容原文（`label`，mono 单行省略截断，悬停以原生 tooltip 显示完整原文；内容不可得——`label` 缺失或纯空白——时不显示第二行，R-01-023/AC-05、AC-06）；job 子条目的渲染签名携带 `jobsAgeSec`（秒桶，渲染期注入），使任务行时长随时钟照常推进（`jobKind` 不入签名：同一 jobId 的工具类型恒定，任务视图整体已随推送帧入签名）。
-- 最近历史集合：`活动状态模型#buildRecent(snapshot, workspaceItems, now)` 产出当前非活动、仅主会话且仍被会话服务列出的全部历史候选，按最后活动时间倒序（同时间以会话 id 稳定排序）（R-01-010）；`completions` 入参把完成提醒/错误提醒中会话排除在历史区外（R-01-010/AC-06）；`turnEnds` 入参（id → 已知回合结束时刻）驱动时间精化：条目 `activityAt` 取宿主列表时间与回合结束时刻的较新者，未提供时刻时即宿主列表时间（R-01-010/AC-03、AC-08、AC-09）。
-- 历史分页：`窗格渲染器` 保留 `recentVisibleCount`，初始显示 10 条；历史区底部在仍有候选时显示「加载更多...」按钮，用户激活后追加最多 10 条，已显示条目不移除、不重复；候选耗尽后隐藏按钮，滚动到底部不触发追加，窗格重挂载时恢复首批状态，列表短暂 pending 后保持已展开页（R-01-019）。
+- 活动卡片集合：`活动状态模型#buildEntries(snapshot, workspaceItems, detailsById, completions, delegatingIds, archivedIds, waitingStarts)` 产出已排序的活动卡片条目数组。
+- 运行中主会话在前、按最后一次用户指令时间（宿主列表时间）从新到旧；非运行中主会话在后、按进入等待/完成状态的时刻从新到旧。
+- 阻塞等待取回合内等待边界开启时刻（`waitingStarts` 入参，Map id → 毫秒时刻，来自宿主侧回合记账 `openWaitStart`，缺失回落宿主列表时间）。
+- 完成提醒/错误提醒取最近一次回合结束的登记时刻（缺失回落宿主列表时间）；两组相同时间保持宿主列表的出现顺序（R-01-001）。
+- `completions` 入参（Map id → `{ lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }`，来自宿主侧 ack 状态）使完成提醒/错误提醒中会话以 awaiting 条目保留在活动区（R-01-002/AC-05、AC-13、R-01-010/AC-06）。
+- awaiting 条目同时携带 `stateAt`（进入当前等待行动状态的时刻：阻塞等待取 `waitingStarts`、完成/错误提醒取 `lastTurnEnd`，与排序键同源同值；不可得为 null）。
+- 排序键缺失时的宿主列表时间回退仅用于排序，不作显示时刻（R-01-002/AC-14）。
+- `jobsBySession`（快照携带的任务视图）经 `liveJobs` 派生并入 `buildEntries`/`buildRecent`：存在在跑后台任务的主会话归入运行组（排序键沿用宿主列表时间）。
+- 条目携带 `liveJobs`（`{ id, kind, label, status, startedAt }[]`，`startedAt` 升序）与 `selfRunning`（自身回合是否真实运行，布尔）。
+- `liveJobs` 供渲染层在标题行标注数量（R-01-023/AC-01、AC-04）；`selfRunning` 区分「仅后台任务」（隐藏进度行、呈现冻结）与真实回合运行。
+- 并为每个在跑任务产出 `kind: "job"` 子条目（`{ id: "job:<sessionId>:<jobId>", parentId, depth+1, kind, title=label, jobKind, jobStatus, jobStartedAt }`，归属会话以 `parentId` 承载）。
+- 任务子卡为纯展示，激活不触发会话跳转（R-01-023/AC-08）。
+- 任务卡两行呈现——第一行为工具名称（经 `jobKindLabel` 友好映射：bash→Bash、pwsh→PowerShell、subagent→子代理，未知 kind 原样、不可得时仅保留状态点与时长）与随时钟推进的已运行时长。
+- 第二行为任务内容原文（`label`，mono 单行省略截断，悬停以原生 tooltip 显示完整原文）。
+- 内容不可得——`label` 缺失或纯空白——时不显示第二行（R-01-023/AC-05、AC-06）。
+- job 子条目的渲染签名携带 `jobsAgeSec`（秒桶，渲染期注入），使任务行时长随时钟照常推进。
+- `jobKind` 不入签名：同一 jobId 的工具类型恒定，任务视图整体已随推送帧并入签名。
+- 最近历史集合：`活动状态模型#buildRecent(snapshot, workspaceItems, now)` 产出当前非活动、仅主会话且仍被会话服务列出的全部历史候选。
+- 候选按最后活动时间倒序（同时间以会话 id 稳定排序）（R-01-010）；`completions` 入参把完成提醒/错误提醒中会话排除在历史区外（R-01-010/AC-06）。
+- `turnEnds` 入参（id → 已知回合结束时刻）驱动时间精化：条目 `activityAt` 取宿主列表时间与回合结束时刻的较新者，未提供时刻时即宿主列表时间（R-01-010/AC-03、AC-08、AC-09）。
+- 历史分页：`窗格渲染器` 保留 `recentVisibleCount`，初始显示 10 条。
+- 历史区底部在仍有候选时显示「加载更多...」按钮，用户激活后追加最多 10 条。
+- 已显示条目不移除、不重复；候选耗尽后隐藏按钮，滚动到底部不触发追加。
+- 窗格重挂载时恢复首批状态，列表短暂 pending 后保持已展开页（R-01-019）。
 - 完成提醒判定：`活动状态模型#completionReminder(row, completion, isSub)` 纯函数判定主会话的完成提醒成立——`lastTurnEnd > ackedAt` 且该完成未被更近的活动条件（running/阻塞等待）或委托周期抑制（R-01-002/AC-03、AC-05、R-01-010/AC-06）。
 - 错误提醒判定：`活动状态模型#errorReminder(row, completion, isSub)` 纯函数判定主会话的错误提醒成立——`lastTurnEndKind === 'error'` 且未被更近的活动条件（running/阻塞等待）或委托周期抑制；不消费 `ackedAt`，随新回合结束（`lastTurnEndKind` 覆盖）解除（R-01-002/AC-13）。
-- ack 状态通道契约（宿主侧）：`GET /dsh-activity-pane/api/acks` 返回全量快照 `{ [sessionId]: { lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt } }`；`GET /dsh-activity-pane/api/acks/stream` 为 SSE 推送（连接时先发全量快照，此后每次变更广播 `state` 事件）；`POST /dsh-activity-pane/api/ack` 接收 `{ sessionId }` 写回 `ackedAt` 并向全部连接广播。（宿主侧路由与协议，属完成确认宿主侧子系统；客户端只经受信 fetch/EventSource 消费，不新增轮询。）
-- 回合结束时刻提取：`活动状态模型#lastTurnEndFromEvents(events)` 从 history 事件取最后 `turn/end` 的 `time`、`#lastTurnEndFromTimings(turnTimings)` 取最大 `endTime`；均无已完成回合时返回 null（R-01-010/AC-08）。`#lastTurnDuration({ history })` 经 `#lastTurnBusyFromEvents(events)` 重放回合与等待边界事件，取最近已结束回合的运行过程时长——起止差值扣除回合内阻塞等待，与 R-01-020 累计口径一致、恒不大于该会话累计运行时长；回合起止或回合内等待边界不可得时返回 null（R-01-009/AC-12）。
-- 轮内状态数据：`活动状态模型#runtimeStats({ elapsedMs, outputTokens, rateTokS })` 产出运行卡所需的时长、token 与速率字段，`#usageSummary(tokenUsage)` 产出计费输入与缓存命中率，`#statsFromProjection(projection, elapsedMs)` 统一归一列表投影统计；运行卡停止前将最后已知投影统计留在可见会话详情中，等待卡与最近卡优先复用该值，页面刷新或无留存时回退当前列表投影；`#lastTurnDuration({ history })` 为等待行动卡与最近卡产出最近已结束回合的固定耗时（busy 口径，R-01-009/AC-12）。当前动作不再单独输出为卡片状态行，工具名、回复文本与详情进入 `工作项时间线`；最近卡复用同一统计顺序并在助手预览后显示最近回合统计，等待卡在时间线后显示同一统计顺序的冻结字段（R-01-009/AC-01、AC-02、AC-03、AC-05、AC-12、AC-13、R-01-013/AC-12）。subagent 条目运行中复用运行卡同一条统计口径与锚点进度（R-01-009/AC-14），非运行时以 `#lastTurnDuration` 冻结最近回合耗时并隐藏进度条（R-01-009/AC-15）；`活动状态模型#modelFromHistoryEvents(history)` 从 history 事件流取最近一条 `assistant/message` 的 `message.source.model` 作为子代理模型溯源，无命中返回 null；`活动状态模型#reasoningEffortFromHistoryEvents(history)` 反向扫描同页最新一条 `request/header` 事件，取 `config.reasoningEffort`（命中最新请求头即停——更早请求头属已废弃纪元），无命中或未声明返回 null（R-01-012/AC-17、AC-18）；`活动状态模型#catalogModelEntries(groups)` 把目录分组展平为 `modelId → {name, reasoning}` 索引，畸形条目跳过、目录缺失返回空索引，渲染层据此把子代理溯源 id 解析为显示名与 effort、未覆盖时保留原始 id 或空值（R-01-012/AC-17、AC-18）。
-- 工作项时间线呈现：`活动状态模型#foldedConversationTimeline` 产出的显示行为折叠分组行与用户输入行，含 label/summary/status；时间线不显示行级耗时，对齐主会话窗口工作项行（原生无行级耗时，C-012）；显示行 label 中文归一——agent 正文行 label 为「助手」、思考语义 label 为「思考」，数据层不残留英文「Assistant」「Think」标签（R-01-012/AC-09、AC-10）；工具成员摘要经 `summarizeToolArguments` 镜像主会话窗口 `deriveSummary` 语义（R-01-009/AC-07、R-01-012）。
+- ack 状态通道契约（宿主侧）：`GET /dsh-activity-pane/api/acks` 返回全量快照 `{ [sessionId]: { lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt } }`。
+- `GET /dsh-activity-pane/api/acks/stream` 为 SSE 推送（连接时先发全量快照，此后每次变更广播 `state` 事件）。
+- `POST /dsh-activity-pane/api/ack` 接收 `{ sessionId }` 写回 `ackedAt` 并向全部连接广播。
+- 宿主侧路由与协议属完成确认宿主侧子系统；客户端只经受信 fetch/EventSource 消费，不新增轮询。
+- 回合结束时刻提取：`活动状态模型#lastTurnEndFromEvents(events)` 从 history 事件取最后 `turn/end` 的 `time`，`#lastTurnEndFromTimings(turnTimings)` 取最大 `endTime`。
+- 均无已完成回合时返回 null（R-01-010/AC-08）。
+- `#lastTurnDuration({ history })` 经 `#lastTurnBusyFromEvents(events)` 重放回合与等待边界事件，取最近已结束回合的运行过程时长。
+- 时长为起止差值扣除回合内阻塞等待，与 R-01-020 累计口径一致、恒不大于该会话累计运行时长。
+- 回合起止或回合内等待边界不可得时返回 null（R-01-009/AC-12）。
+- 轮内状态数据：`活动状态模型#runtimeStats({ elapsedMs, outputTokens, rateTokS })` 产出运行卡所需的时长、token 与速率字段。
+- `#usageSummary(tokenUsage)` 产出计费输入与缓存命中率，`#statsFromProjection(projection, elapsedMs)` 统一归一列表投影统计。
+- 运行卡停止前将最后已知投影统计留在可见会话详情中，等待卡与最近卡优先复用该值，页面刷新或无留存时回退当前列表投影。
+- `#lastTurnDuration({ history })` 为等待行动卡与最近卡产出最近已结束回合的固定耗时（busy 口径，R-01-009/AC-12）。
+- 当前动作不再单独输出为卡片状态行，工具名、回复文本与详情进入 `工作项时间线`。
+- 最近卡复用同一统计顺序并在助手预览后显示最近回合统计，等待卡在时间线后显示同一统计顺序的冻结字段（R-01-009/AC-01、AC-02、AC-03、AC-05、AC-12、AC-13、R-01-013/AC-12）。
+- subagent 条目运行中复用运行卡同一条统计口径与锚点进度（R-01-009/AC-14），非运行时以 `#lastTurnDuration` 冻结最近回合耗时并隐藏进度条（R-01-009/AC-15）。
+- `活动状态模型#modelFromHistoryEvents(history)` 从 history 事件流取最近一条 `assistant/message` 的 `message.source.model` 作为子代理模型溯源，无命中返回 null。
+- `活动状态模型#reasoningEffortFromHistoryEvents(history)` 反向扫描同页最新一条 `request/header` 事件，取 `config.reasoningEffort`（命中最新请求头即停——更早请求头属已废弃纪元），无命中或未声明返回 null（R-01-012/AC-17、AC-18）。
+- `活动状态模型#catalogModelEntries(groups)` 把目录分组展平为 `modelId → {name, reasoning}` 索引，畸形条目跳过、目录缺失返回空索引。
+- 渲染层据此把子代理溯源 id 解析为显示名与 effort、未覆盖时保留原始 id 或空值（R-01-012/AC-17、AC-18）。
+- 工作项时间线呈现：`活动状态模型#foldedConversationTimeline` 产出的显示行为折叠分组行与用户输入行，含 label/summary/status。
+- 时间线不显示行级耗时，对齐主会话窗口工作项行（原生无行级耗时，C-012）。
+- 显示行 label 中文归一——agent 正文行 label 为「助手」、思考语义 label 为「思考」，数据层不残留英文「Assistant」「Think」标签（R-01-012/AC-09、AC-10）。
+- 工具成员摘要经 `summarizeToolArguments` 镜像主会话窗口 `deriveSummary` 语义（R-01-009/AC-07、R-01-012）。
   - 渲染层以竖线串圆点的时间线呈现：轨道从卡片内容左边界起步，竖线与圆点严格同圆心（整数像素位，避免 1px 竖线分数位吸附偏移）；竖线穿过首个节点圆点并向上引出，终点没入最新动作圆点内部不外露。
-  - 圆点带跟随小圆核轮廓的半透明光晕；正在执行节点使用蓝色 halo、状态 glow 并闪烁，已定案节点使用绿/红实心核；时间线节点与标题点使用同为 7px 的承载盒（`left: 0`），并与 `left: 3px` 的 1px 竖线共享 x=3.5 圆心和跨 DPR 光栅相位，但时间线承载盒的 1px border 完全透明；实体背景经 `background-clip: padding-box` 仅绘制承载盒内部的 5px 圆核，普通节点以基于圆核 alpha 的 1px `drop-shadow` 生成半透明 halo，running 节点使用同源 1px halo + 3px glow；节点不使用按 7px 盒绘制的 box-shadow，因而隐藏承载盒边界并保持视觉主体小于 7px 标题点；`border-radius: 50%` 原生裁剪为平滑正圆，不使用硬停色 radial-gradient；圆点位于内容区，不被容器裁切（R-01-009/AC-09，C-036、C-061、C-062、C-063）。
-  - 会话处于运行呈现（快照 `running === true` 或存在活动后代，且 `pending` 为空）时，核心优先识别并保留真实 live 当前活动行，将最新一条置于时间线末行；仅在不存在真实当前活动行且尾部为已定案非用户显示行时，才克隆尾部并提升为 `running` 作为持续工作标志；尾部为 error/stopped/用户输入行时不提升（R-01-009/AC-10、AC-11，C-035）。
-  - 显示行图标一律由渲染层自绘的 canonical 图标表产出（按 toolName 镜像原生 classifyTool 与行级覆盖，未知工具按 view.kind 语义兜底），不读取宿主 DOM、无克隆图标；用户项使用人物 SVG，agent 正文行使用机器人 SVG（与最近卡 agent 角色标识同源），思考行使用思考图标，图标分流按 reasoning/detail 有无判定而不比较 label 显示文案；机器人 SVG 为 Lucide bot 改造的小电视几何（去双耳、双 45° 外撇短斜天线，C-021）：viewBox `1 3 22 18` 保框保持显示尺度，字形与其他图标同用 12px 盒整数像素对齐，stroke-width 2.2 经 12/22 缩放渲染 1.2px、与 canonical 填充轮廓视觉重量相当（R-01-012/AC-11）；选中/非选中态不漂移（R-01-012/AC-03、AC-09、AC-10）。
-  - 文字语义镜像原生 keyed 行：`TOOL_LABELS` 含 todo_write「更新任务清单」与 ask_user_question「提问」；todo 摘要复刻「done/total 已完成 · 当前活动项」、ask 摘要复刻「等待回答 / 已答 x/y / 已取消 / 已中断」状态文案，错误态摘要取结果输出首行；上述语义经折叠分组的工作成员派生上卡（R-01-012/AC-03）。
-  - 含 Bash 的分组无论成员状态均使用稳定的命令图标，不替换为 disclosure 箭头；错误分组行整体染色而不替换图标；组标题和组摘要之间插入 2px 圆形分隔符（R-01-009/AC-09、R-01-012/AC-03～AC-08）。
-- 回合进度：`活动状态模型#progressOf({ elapsedMs, halfLifeSec })` 产出 0–100 的进度百分比，由已耗时按有理曲线 y = t/(t+k)（t 为已耗秒数、k 为半衰期秒数）映射，过原点、先快后慢、渐近 100% 永不到达，不区分 think/stream/tool 阶段；固定 k 下单调性由函数本身保证，无渲染层单调下限，也不承诺 k 变化时的单调（C-044）。半衰期由 `#progressHalfLifeSec({ rateTokS })` 按会话实测输出速率校准为 clamp(120×90÷r, 60, 600) 秒（r 为全会话累计输出速率 tok/s，无可用速率回退保守默认 540s 即 20 tok/s 起步基准，C-044）；渲染层每次进度更新按最新实测速率现算 k 传入 `progressOf`（C-044）——进度是对完成度的实时估计，允许随速率回落而回退，`#progressAnchor` 状态机只记账锚点与委托周期连续性、不承载半衰期（C-025 的捕获冻结语义经 C-044 废弃）。进度锚点三态状态机（idle/turn/delegating）按会话记账：委托周期外由宿主回合起点驱动、`turnTimings` 新回合起点归零重计；`turnTimings` 只覆盖加载窗口内的回合起点，窗口不含开放回合 `turn/start`（超长回合 + 刷新/断连重装窗口）时由 `#openTurnStartFromEvents` 从补读的 history 事件尾扫提取开放回合起点兜底（history 开放回合落后于快照已知最晚回合号时判为陈旧不采用）（R-01-009/AC-06）；委托周期（自出现活动后代起，至后代全部结束且处理其结果的回合完成止）内锚点连续——进入周期时取最近已知回合起点（无已知起点时取当刻），不随自身回合结束或新回合开始而归零；后代耗尽且无开放回合时记 `drainedAt`，耗尽后 `SETTLE_TURN_GRACE_MS`（60s）内开始的新回合归属本周期（视为处理后代结果的回合），超时开始的新回合归零并退出周期（R-01-009/AC-06，C-014）。渲染层以 `.dap-progress` 同行承载可伸缩的 5px 圆角进度条与紧跟其右侧的固定宽百分比，百分比在占位内右对齐并与下一行最右侧耗时文字共用右缘，同时以 `translateY(-1px)` 做不影响布局占位的视觉上移，标题行不再承载百分比；会话运行期间填充持续为向右滚动条纹动画（R-01-009/AC-06、AC-08）。
-- 非运行活动卡时间线：等待卡（完成提醒/待确认/待审查/待回复）显示会话最近工作项时间线（最多 4 项，图标/文字/状态语义同运行卡时间线；数据在途时时间线区域显示加载指示，就地填充），时间线之后显示从停止前最后已知投影统计复用的 `tok/s · 缓存 · 输入 · 输出` 可用字段且等待期间冻结，统计全空时隐藏该行；同时在同一统计行最右侧显示最近回合耗时；等待类型胶囊同行不重复显示（R-01-016、R-01-009/AC-12、R-01-009/AC-13）。
-- 最近卡消息预览行：第三行（最近用户消息首行）文本前常驻人物图标与「用户」标签、第四行（最近 agent reply 首行）文本前常驻机器人图标与「助手」标签，标签与文本之间以小圆点分隔，图标字形与时间线行同为 12px，整体形式与工作项时间线的用户/助手行一致；文本缺失时仅显示图标与标签，文本与加载指示写入独立文本段（R-01-013/AC-03、AC-04、AC-07、AC-08）。
-- 最近卡最近回合统计行：在助手预览之后、活动时间之前插入倒数第二行，复用运行卡 `.dap-token-stats` 双段结构；左段按 `tok/s · 缓存 · 输入 · 输出` 顺序写入 `statsFromProjection` 的可用字段并允许省略，右段固定显示 `lastTurnDuration` 的最近完整回合耗时；统计全空时隐藏整行，不改变历史卡已有消息预览与时间行（R-01-013/AC-12）。
-- 最近卡活动时间显示：统计行之后的末行使用 `activityAt` 的本地时区绝对日期时间与相对活动时间组合文案；当前年份省略年份，跨年份显示年份，绝对时间保留月日及时分；相对时间按分钟级别刷新（R-01-013/AC-05、AC-12）。
-- 最近卡弱化且可辨的视觉呈现：整体不透明度 0.8（低于活动卡）承载历史区弱化，悬停沿用既有亮度反馈（R-01-013/AC-10）；卡片底色介于窗格底色与活动卡底色之间（暗于活动卡不抢视线、与窗格底色可分辨）并带细描边——深色主题为 `rgba(26,28,34,0.92)` 底色（活动卡 `rgba(29,31,37,0.94)`）+ `rgba(255,255,255,0.08)` 描边，浅色主题为 `rgb(243,244,246)` 底色（活动卡 `--dsw-alias-bg-layer-2` 纯白）+ `--dsw-alias-border-l2` 描边（R-01-013/AC-11）。
-- 等待三类呈现（R-01-002，C-043、C-064）：`buildEntries` 为 awaiting 条目产出 `waitClass`（`'blocked'` 阻塞等待 / `'done'` 完成提醒 / `'error'` 错误提醒）、`pendingKind`（原始 pendingInteraction 种类）、`noteText`（普通末行正文或提问回落文字）与可选 `questionPreview`（结构化提问预览）；`pendingText(kind)` 将待确认/待审查/提问中归一为中文标识，未知阻塞种类中性兜底「待处理」（不冒充已知类型）。三类的紧迫度由色彩语义一眼区分：阻塞等待卡采用金色系卡面（金黄 `#f5c542` 描边/光晕/状态点/胶囊 + 金黄调底色 `rgba(46,42,26,.97)`，自琥珀暖色系调亮调纯而来，底色与旧琥珀须一眼可辨），催促尽快响应；完成提醒卡采用绿色成功色系卡面（暗绿底色 + 绿描边光晕 + 标题状态点绿），表达任务成功执行完毕、不必抢答；错误提醒卡采用红色错误色系卡面（红调底色 + 红描边光晕 + 标题状态点红，与时间线错误分组行同源错误红 `#f06a72`），警示会话出错、需要用户注意（R-01-002/AC-03、AC-04、AC-08、AC-13）。三类描边与光晕强度一致；标题状态点在三类下均静止不闪。
-  - 三类等待卡的末行统一为「类型胶囊 + 正文」结构：末行首行是一个前置类型图标（圆形底 + 12px 字形，与卡片其它图标一致）的类型胶囊——阻塞等待胶囊文字由 `pendingText(kind)` 归一（待确认=对勾、待审查=文档、提问中=问号），完成提醒胶囊为绿色对勾 +「已完成」，错误提醒胶囊为红色感叹号 +「错误」；胶囊右侧以裸相对时间显示状态年龄（进入状态时刻起至今，`fmtRelativeAge` 分级；静态不参与脉冲，时刻不可得时不显示，R-01-002/AC-14）；胶囊与正文文字固定以 `dap-pulse 1.2s` 同频同相闪烁。渲染器以排序后的等待条目 id/类别集合与当前可见数量胶囊表面组成脉冲队列签名；等待集合、类别或可见表面变化时在同一渲染帧统一重启全部末行胶囊/正文以及列头、窄条、移动端开关三处数量徽标动画，使当前可见等待提醒同相；签名仅在整轮渲染成功后提交，其它渲染不重启动画（R-01-002/AC-01、AC-02、AC-07、AC-08）。
-  - 阻塞等待卡正文：待确认/待审查为「等待你确认授权后继续」「等待你审查计划后继续」；待回复使用结构化提问预览：`活动状态模型#askQuestionsPreview` 从时间线末条 ask_user_question 工作项参数解析全部问题，逐条取问题正文物理首行（该条正文缺失时回落其 `header` 短标题，仍不可得则跳过该条）、剥除行尾多余冒号，并返回 `{ items: [{ index, text }], omitted }`；`index` 保留问题在原始数组中的 1 基位置，`items` 最多 3 条，仍有可展示问题时 `omitted=true`；全部问题均不可得时返回 null 并回落「等待你回答问题后继续」。该结构经时间线行 `question` 字段穿透折叠组行上浮并进入 awaiting 条目的 `questionPreview`。窗格渲染器仅有一个可展示问题时创建 `<ul><li>` bullet list，多个时创建 `<ol>` 并以各 `<li value="index">` 保持原始编号；省略项使用末尾 `<li>` 且隐藏 marker。动态问题文字只写入 `textContent`，不解析为 HTML。由于条目派生先于渲染层时间线 memo 完成，待回复卡在时间线就绪后以同一核心纯函数补全 `questionPreview` 并触发重绘，不依赖下一帧推送（R-01-002/AC-01、AC-02、AC-08、AC-09，C-064）。
-  - 完成提醒卡：胶囊为绿色对勾 +「已完成」；正文行左侧为「继续对话，或移入历史」（`ROUND_DONE_NOTE`，10 字符——与行尾按钮同排单行完整可见的宽度上界约束，R-01-002/AC-09，「已完成」语义由胶囊承载、正文不重复）整行闪烁（dap-pulse 1.2s）、右侧提供小号「移入历史」按钮（按钮本身不闪烁；点击除写回 ack 外不触发跳转）（R-01-002/AC-05、AC-08、AC-09、AC-10）。
-  - 错误提醒卡：胶囊为红色感叹号 +「错误」；正文为错误信息——宿主登记的 `lastTurnEndError`（error 回合 `reason.error.message`，字符串契约；缺失/非字符串回落固定文案 `ERROR_NOTE_FALLBACK`「回合以错误结束，请检查会话」；截断语义统一由 `活动状态模型#truncateErrorNote` 承载：按 Unicode 码点截断至 `ERROR_NOTE_MAX` 字符、超限以省略号收尾，省略号不计入上限），整行闪烁；不提供任何按钮（R-01-002/AC-09、AC-10、AC-13）。
-  - 等待卡统计与耗时：三类等待卡在时间线之后复用 `.dap-token-stats` 显示停止前最后已知的 `tok/s · 缓存 · 输入 · 输出` 字段，等待期间冻结，缺失字段隐藏且统计全空但耗时可用时仍显示该行；统计行最右侧显示 `fmtElapsedMs(elapsedMs)`，起止时刻不可用且统计也全空时不占用显示行。`.dap-await-head` 承载等待类型胶囊与其右侧的状态年龄（R-01-002/AC-14），不重复显示回合耗时。运行卡继续在独立统计行中显示完整 token/速率统计（R-01-009/AC-05、AC-12、AC-13）。
+  - 圆点带跟随小圆核轮廓的半透明光晕；正在执行节点使用蓝色 halo、状态 glow 并闪烁，已定案节点使用绿/红实心核。
+  - 时间线节点与标题点使用同为 7px 的承载盒（`left: 0`），并与 `left: 3px` 的 1px 竖线共享 x=3.5 圆心和跨 DPR 光栅相位，但时间线承载盒的 1px border 完全透明。
+  - 实体背景经 `background-clip: padding-box` 仅绘制承载盒内部的 5px 圆核。
+  - 普通节点以基于圆核 alpha 的 1px `drop-shadow` 生成半透明 halo，running 节点使用同源 1px halo + 3px glow。
+  - 节点不使用按 7px 盒绘制的 box-shadow，因而隐藏承载盒边界并保持视觉主体小于 7px 标题点。
+  - `border-radius: 50%` 原生裁剪为平滑正圆，不使用硬停色 radial-gradient。
+  - 圆点位于内容区，不被容器裁切（R-01-009/AC-09，C-036、C-061、C-062、C-063）。
+  - 会话处于运行呈现（快照 `running === true` 或存在活动后代，且 `pending` 为空）时，核心优先识别并保留真实 live 当前活动行，将最新一条置于时间线末行。
+  - 仅在不存在真实当前活动行且尾部为已定案非用户显示行时，才克隆尾部并提升为 `running` 作为持续工作标志。
+  - 尾部为 error/stopped/用户输入行时不提升（R-01-009/AC-10、AC-11，C-035）。
+  - 显示行图标一律由渲染层自绘的 canonical 图标表产出（按 toolName 镜像原生 classifyTool 与行级覆盖，未知工具按 view.kind 语义兜底），不读取宿主 DOM、无克隆图标。
+  - 用户项使用人物 SVG，agent 正文行使用机器人 SVG（与最近卡 agent 角色标识同源），思考行使用思考图标。
+  - 图标分流按 reasoning/detail 有无判定而不比较 label 显示文案。
+  - 机器人 SVG 为 Lucide bot 改造的小电视几何（去双耳、双 45° 外撇短斜天线，C-021）。
+  - viewBox `1 3 22 18` 保框保持显示尺度，字形与其他图标同用 12px 盒整数像素对齐。
+  - stroke-width 2.2 经 12/22 缩放渲染 1.2px、与 canonical 填充轮廓视觉重量相当（R-01-012/AC-11）。
+  - 选中/非选中态不漂移（R-01-012/AC-03、AC-09、AC-10）。
+  - 文字语义镜像原生 keyed 行：`TOOL_LABELS` 含 todo_write「更新任务清单」与 ask_user_question「提问」。
+  - todo 摘要复刻「done/total 已完成 · 当前活动项」状态文案；ask 摘要复刻「等待回答 / 已答 x/y / 已取消 / 已中断」状态文案。
+  - 错误态摘要取结果输出首行。
+  - 上述语义经折叠分组的工作成员派生上卡（R-01-012/AC-03）。
+  - 含 Bash 的分组无论成员状态均使用稳定的命令图标，不替换为 disclosure 箭头。
+  - 错误分组行整体染色而不替换图标。
+  - 组标题和组摘要之间插入 2px 圆形分隔符（R-01-009/AC-09、R-01-012/AC-03～AC-08）。
+- 回合进度：`活动状态模型#progressOf({ elapsedMs, halfLifeSec })` 产出 0–100 的进度百分比，由已耗时按有理曲线 y = t/(t+k)（t 为已耗秒数、k 为半衰期秒数）映射。
+- 曲线过原点、先快后慢、渐近 100% 永不到达，不区分 think/stream/tool 阶段。
+- 固定 k 下单调性由函数本身保证，无渲染层单调下限，也不承诺 k 变化时的单调（C-044）。
+- 半衰期由 `#progressHalfLifeSec({ rateTokS })` 按会话实测输出速率校准为 clamp(120×90÷r, 60, 600) 秒（r 为全会话累计输出速率 tok/s，无可用速率回退保守默认 540s 即 20 tok/s 起步基准，C-044）。
+- 渲染层每次进度更新按最新实测速率现算 k 传入 `progressOf`（C-044）——进度是对完成度的实时估计，允许随速率回落而回退。
+- `#progressAnchor` 状态机只记账锚点与委托周期连续性、不承载半衰期（C-025 的捕获冻结语义经 C-044 废弃）。
+- 进度锚点三态状态机（idle/turn/delegating）按会话记账：委托周期外由宿主回合的起点驱动，`turnTimings` 新回合起点归零重计。
+- `turnTimings` 只覆盖加载窗口内的回合起点；窗口不含开放回合 `turn/start`（超长回合 + 刷新/断连重装窗口）时由 `#openTurnStartFromEvents` 从补读的 history 事件尾扫提取开放回合的起点兜底。
+- history 开放回合落后于快照已知最晚回合号时判为陈旧不采用（R-01-009/AC-06）。
+- 委托周期（自出现活动后代起，至后代全部结束且处理其结果的回合完成止）内锚点连续——进入周期时取最近已知的回合起点（无已知起点时取当刻），不随自身回合结束或新回合开始而归零。
+- 后代耗尽且无开放回合时记 `drainedAt`；耗尽后 `SETTLE_TURN_GRACE_MS`（60s）内开始的新回合归属本周期（视为处理后代结果的回合）。
+- 超时开始的新回合归零并退出周期（R-01-009/AC-06，C-014）。
+- 渲染层以 `.dap-progress` 同行承载可伸缩的 5px 圆角进度条与紧跟其右侧的固定宽百分比。
+- 百分比在占位内右对齐并与下一行最右侧的耗时文字共用右缘，同时以 `translateY(-1px)` 做不影响布局占位的视觉上移，标题行不再承载百分比。
+- 会话运行期间填充持续为向右滚动条纹动画（R-01-009/AC-06、AC-08）。
+- 非运行活动卡时间线：等待卡（完成提醒/待确认/待审查/待回复）显示会话最近工作项时间线（最多 4 项，图标/文字/状态语义同运行卡时间线）。
+- 数据在途时时间线区域显示加载指示，就地填充。
+- 时间线之后显示从停止前最后已知投影统计复用的 `tok/s · 缓存 · 输入 · 输出` 可用字段且等待期间冻结，统计全空时隐藏该行。
+- 最近回合耗时同时显示于该统计行最右侧；等待类型胶囊同行不重复显示（R-01-016、R-01-009/AC-12、R-01-009/AC-13）。
+- 最近卡消息预览行：第三行（最近用户消息首行）文本前常驻人物图标与「用户」标签。
+- 第四行（最近 agent reply 首行）文本前常驻机器人图标与「助手」标签；标签与文本之间以小圆点分隔。
+- 图标字形与时间线行同为 12px，整体形式与工作项时间线的用户/助手行一致。
+- 文本缺失时仅显示图标与标签；文本与加载指示写入独立文本段（R-01-013/AC-03、AC-04、AC-07、AC-08）。
+- 最近卡最近回合统计行：在助手预览之后、活动时间之前插入倒数第二行，复用运行卡 `.dap-token-stats` 双段结构。
+- 左段按 `tok/s · 缓存 · 输入 · 输出` 顺序写入 `statsFromProjection` 的可用字段并允许省略；右段固定显示 `lastTurnDuration` 的最近完整回合耗时。
+- 统计全空时隐藏整行，不改变历史卡已有消息预览与时间行（R-01-013/AC-12）。
+- 最近卡活动时间显示：统计行之后的末行使用 `activityAt` 的本地时区绝对日期时间与相对活动时间组合文案。
+- 当前年份省略年份，跨年份显示年份，绝对时间保留月日及时分。
+- 相对时间按分钟级别刷新（R-01-013/AC-05、AC-12）。
+- 最近卡弱化且可辨的视觉呈现：整体不透明度 0.8（低于活动卡）承载历史区弱化，悬停沿用既有亮度反馈（R-01-013/AC-10）。
+- 卡片底色介于窗格底色与活动卡底色之间（暗于活动卡不抢视线、与窗格底色可分辨）并带细描边。
+- 深色主题为 `rgba(26,28,34,0.92)` 底色（活动卡 `rgba(29,31,37,0.94)`）+ `rgba(255,255,255,0.08)` 描边。
+- 浅色主题为 `rgb(243,244,246)` 底色（活动卡 `--dsw-alias-bg-layer-2` 纯白）+ `--dsw-alias-border-l2` 描边（R-01-013/AC-11）。
+- 等待三类呈现（R-01-002，C-043、C-064）：`buildEntries` 为 awaiting 条目产出 `waitClass`（`'blocked'` 阻塞等待 / `'done'` 完成提醒 / `'error'` 错误提醒）。
+- `pendingKind` 携带原始 pendingInteraction 种类；`noteText` 为普通末行正文或提问回落文字。
+- 可选 `questionPreview` 为结构化提问预览；`pendingText(kind)` 将待确认/待审查/提问中归一为中文标识，未知阻塞种类中性兜底「待处理」（不冒充已知类型）。
+- 三类的紧迫度由色彩语义一眼区分：阻塞等待卡采用金色系卡面（金黄 `#f5c542` 描边/光晕/状态点/胶囊 + 金黄调底色 `rgba(46,42,26,.97)`）。
+- 金色自琥珀暖色系调亮调纯而来，底色与旧琥珀须一眼可辨，催促用户及时响应。
+- 完成提醒卡采用绿色成功色系的卡面（暗绿底色 + 绿描边光晕 + 标题状态点绿），表达任务成功执行完毕、不必抢答。
+- 错误提醒卡采用红色错误色系的卡面（红调底色 + 红描边光晕 + 标题状态点红，与时间线错误分组行同源错误红 `#f06a72`），警示会话出错、需要用户注意（R-01-002/AC-03、AC-04、AC-08、AC-13）。
+- 三类描边与光晕强度一致；标题状态点在三类下均静止不闪。
+  - 三类等待卡的末行统一为「类型胶囊 + 正文」结构：末行首行是一个前置类型图标（圆形底 + 12px 字形，与卡片其它图标一致）的类型胶囊——阻塞等待胶囊文字由 `pendingText(kind)` 归一（待确认=对勾、待审查=文档、提问中=问号），完成提醒胶囊为绿色对勾 +「已完成」，错误提醒胶囊为红色感叹号 +「错误」。
+  - 胶囊右侧以裸相对时间显示状态年龄（进入状态时刻起至今，`fmtRelativeAge` 分级；静态不参与脉冲，时刻不可得时不显示，R-01-002/AC-14）。
+  - 胶囊与正文文字固定以 `dap-pulse 1.2s` 同频同相闪烁。
+  - 渲染器以排序后的等待条目 id/类别集合与当前可见数量胶囊表面，组成脉冲队列签名。
+  - 等待集合、类别或可见表面变化时在同一渲染帧，统一重启全部末行胶囊/正文以及列头、窄条、移动端开关三处数量徽标动画，使当前可见等待提醒同相。
+  - 签名仅在整轮渲染成功后提交，其它渲染不重启动画（R-01-002/AC-01、AC-02、AC-07、AC-08）。
+  - 阻塞等待卡正文：待确认/待审查为「等待你确认授权后继续」「等待你审查计划后继续」。
+  - 待回复使用结构化提问预览：`活动状态模型#askQuestionsPreview` 从时间线末条 ask_user_question 工作项参数解析全部问题。
+  - 逐条取问题正文物理首行（该条正文缺失时回落其 `header` 短标题，仍不可得则跳过该条）、剥除行尾多余冒号。
+  - 返回 `{ items: [{ index, text }], omitted }`：`index` 保留问题在原始数组中的 1 基位置，`items` 最多 3 条，仍有可展示问题时 `omitted=true`。
+  - 全部问题均不可得时返回 null 并回落「等待你回答问题后继续」。
+  - 该结构经时间线行 `question` 字段穿透折叠组行上浮并进入 awaiting 条目的 `questionPreview`。
+  - 窗格渲染器仅有一个可展示问题时创建 `<ul><li>` bullet list，多个时创建 `<ol>` 并以各 `<li value="index">` 保持原始编号。
+  - 省略项使用末尾 `<li>` 且隐藏 marker；动态问题文字只写入 `textContent`，不解析为 HTML。
+  - 由于条目派生先于渲染层时间线 memo 完成，待回复卡在时间线就绪后以同一核心纯函数补全 `questionPreview` 并触发重绘，不依赖下一帧推送（R-01-002/AC-01、AC-02、AC-08、AC-09，C-064）。
+  - 完成提醒卡：胶囊为绿色对勾 +「已完成」。
+  - 正文行左侧为「继续对话，或移入历史」（`ROUND_DONE_NOTE`，10 字符——与行尾按钮同排单行完整可见的宽度上界约束，R-01-002/AC-09，「已完成」语义由胶囊承载、正文不重复）。
+  - 正文整行闪烁（dap-pulse 1.2s）。
+  - 右侧提供小号「移入历史」按钮（按钮本身不闪烁；点击除写回 ack 外不触发跳转）（R-01-002/AC-05、AC-08、AC-09、AC-10）。
+  - 错误提醒卡：胶囊为红色感叹号 +「错误」。
+  - 正文为错误信息——宿主登记的 `lastTurnEndError`（error 回合 `reason.error.message`，字符串契约）。
+  - 缺失/非字符串回落固定文案 `ERROR_NOTE_FALLBACK`「回合以错误结束，请检查会话」。
+  - 截断语义统一由 `活动状态模型#truncateErrorNote` 承载：按 Unicode 码点截断至 `ERROR_NOTE_MAX` 字符、超限以省略号收尾，省略号不计入上限。
+  - 错误提醒卡整行闪烁；不提供任何按钮（R-01-002/AC-09、AC-10、AC-13）。
+  - 等待卡统计与耗时：三类等待卡在时间线之后复用 `.dap-token-stats` 显示停止前最后已知的 `tok/s · 缓存 · 输入 · 输出` 字段。
+  - 等待期间统计冻结，缺失字段隐藏且统计全空但耗时可用时仍显示该行。
+  - 统计行最右侧显示 `fmtElapsedMs(elapsedMs)`；起止时刻不可用且统计也全空时不占用显示行。
+  - `.dap-await-head` 承载等待类型胶囊与其右侧的状态年龄（R-01-002/AC-14），不重复显示回合耗时。
+  - 运行卡继续在独立统计行中显示完整 token/速率统计（R-01-009/AC-05、AC-12、AC-13）。
   - 卡片以 `data-wait="blocked"|"done"|"error"` 承载等待类别，三类卡面的底色/描边/状态点着色、末行结构（胶囊、正文与按钮差异）均由该属性驱动（R-01-002/AC-08）。
-  - 数量徽标底色与固定同步脉冲（R-01-002/AC-06、AC-07）：`awaitBadgeTone` 按错误 > 阻塞 > 完成 的优先级取色——存在错误提醒主会话取错误提醒卡红色、否则存在阻塞等待主会话取阻塞等待卡金色、等待行动全部为完成提醒时取完成提醒卡绿色；无等待行动返回 null 不脉冲。三处数量徽标固定使用 1.2s 亮度呼吸，等待集合、类别或可见表面变化时与等待卡末行统一重启对相，不再按等待占比派生周期。
-- 迁移动画：渲染器比较相邻两帧派生的活动区/历史区 id 集合，id 由活动区消失且出现于历史区（或反向由历史区消失且出现于活动区）即判定一次迁移（id 彻底消失不播放）；动画以旧卡克隆 ghost 经 FLIP 平移并形变至目标区卡片矩形、到位后淡出，真卡同步淡入，`transitionend` 移除 ghost，时长约 300ms，多次迁移各自独立播放；同一渲染帧内位置受影响的其它卡片（含历史区段头）经 FLIP 反向位移后过渡到新位置，与 ghost 同向同步；`prefers-reduced-motion` 或目标矩形不可量取时降级为直接落位（R-01-010/AC-07、AC-10）。
-- 层级结构：子代理与后台任务子卡经 `parentId` 关联并以 `depth` 表达缩进；子代理标题优先取目录 label，其次显示标题；渲染层在缩进槽内绘制母会话到直属子代理与后台任务子卡的层级连接线（R-01-003/AC-01、AC-04）。
-- 工作区徽标着色：渲染层先以 `活动状态模型#resolveWorkspaceColors` 对当帧可见条目的身份集合做 12 个前景槽位与背景变体的逐身份映射，再把前景槽位的 hue/L/C 及背景变体的主题 L/C/混合强度写入徽标元素 `--dap-workspace-hue`、`--dap-workspace-dark-l`、`--dap-workspace-dark-c`、`--dap-workspace-light-l`、`--dap-workspace-light-c`、`--dap-workspace-bg-dark-l`、`--dap-workspace-bg-dark-c`、`--dap-workspace-bg-dark-mix`、`--dap-workspace-bg-dark-border-mix`、`--dap-workspace-bg-light-l`、`--dap-workspace-bg-light-c`、`--dap-workspace-bg-light-mix`、`--dap-workspace-bg-light-border-mix`（无归属时徽标隐藏、不写入；映射是每个条目身份的纯函数、与其它条目无关，稳定签名已含 workspaceKey，无需额外签名分量）；CSS 以 `oklch(var(--dap-workspace-*-l) var(--dap-workspace-*-c) var(--dap-workspace-hue))` 为文字与背景源色，文字直接使用前景调色板色、不再混入 currentColor，底色使用独立背景变体、描边使用前景调色板色，并以 `color-mix(in oklch, …, transparent)` 保持同色相族层次。主槽位深/浅主题 L/C 为 `0.78/0.16`、`0.48/0.15`，补充槽位为 `0.64/0.15`、`0.36/0.15`；背景变体按前景槽位提供 3 档深/浅主题 L/C 与混合强度；胶囊几何（圆角、padding、行高）与名称字号下限不变（R-01-003/AC-08～AC-12）。
-- 窗口形态：桌面为左栏旁贴边列，可经「活动会话」标题行整体折叠为窄条（窄条竖排标题 + 计数，整条可点展开）；移动端（≤767px）为固定抽屉 + 左上角浮动开关（文案「活动」，抽屉打开时隐藏）（R-01-007、R-01-008、R-01-011）。桌面列宽可经右缘手柄拖拽在 200–480px 内调整，拖拽实时生效并令主会话弹性让位，结果存 localStorage 于启动时恢复（R-01-015）。
-- 卡片紧凑呈现：`窗格渲染器` 以窗格根属性 `data-density` 承载三档呈现（`full` 完整 / `medium` 中间 / `compact` 紧凑，按钮按紧凑→中间→完整循环），经 CSS 规则按档位对活动区与历史区全部卡片递增隐藏次要行：中间档保留标题行、工作区徽标行、工作项时间线的最新一行（经渲染层 lastOnly 单行渲染，当前正在执行或最近完成的工作项，含执行中状态实时更新）、等待类型胶囊与正文行（含「移入历史」按钮）与最近卡消息预览行、隐藏更早的时间线显示行/进度行/token 统计行；完成提醒卡在中间档将末行收合为单行——`.dap-foot` 改横向 flex，`.dap-await-head` 与 `.dap-note-row` 以 `display: contents` 释放为同行项，「已完成」胶囊居左（其右为状态年龄）、`.dap-confirm` 以 `margin-left: auto` 居右、`.dap-note` 正文隐藏（选择器以卡片根 `data-wait="done"` 作用域，阻塞/错误提醒卡不收合），完整呈现档维持「胶囊行 + 正文行」两行结构、紧凑档维持整体隐藏末行。紧凑档在中间档基础上再隐藏工作区徽标行、时间线末行、等待末行与消息预览行，仅保留标题行。卡片的 `data-wait` 类别底色与状态点着色由既有属性驱动、在中间与紧凑呈现下保持，卡片的 DOM 复用与激活跳转逻辑不感知档位切换；渲染签名含显示档位分量，档位切换经 queueSync 触发一轮重渲染使时间线按新档位重建（R-02-003 的签名去重仅对重复渲染生效）。等待卡末行隐藏期间 R-01-002 的胶囊/正文脉冲暂不呈现，恢复完整呈现后随既有渲染自然恢复。切换时执行滚动锚定：记录切换前当前选中卡片（`.dap-card[data-current]`）顶部相对 `.dap-scroll` 视口的位置，档位翻转后再次量测并把 `scrollTop` 补偿回该相对位置，使当前卡片顶部在屏幕上保持不动；当前会话卡不可得时不补偿；补偿目标超出滚动边界（如向紧凑档切换后列表缩短至低于视口）时由浏览器把 `scrollTop` 钳制在 [0, maxScroll]，此时以当前卡片不移出滚动视口为准（R-01-021/AC-01）。切换按钮 `.dap-density` 常显于「活动会话」标题行右侧工具区（`.dap-tools`，右侧工具按钮区域、预留后续工具按钮扩展；22px 圆形、不透明底色、hover/focus-visible 高亮、可访问名称），窄条态随标题行隐藏、移动端抽屉内同样提供；工具区是标题区折叠控件的兄弟节点，按钮激活不构成标题区折叠激活；激活按紧凑→中间→完整循环翻转并同步可访问名称（表达将切换到的目标档位），档位存 localStorage（键 `dsh-activity-pane:density`，与列宽键同冒号命名惯例；缺失/非法值经 `normalizeDensity` 归一为默认中间档）于启动时恢复；会话状态变化不解除已选档位（R-01-021）。
-- 窗口形态：桌面为左栏旁贴边列，可经「活动会话」标题行整体折叠为窄条（窄条竖排标题 + 计数，整条可点展开）；移动端（≤767px）为固定抽屉 + 左上角浮动开关（文案「活动」，抽屉打开时隐藏）（R-01-007、R-01-008、R-01-011）。桌面列宽可经右缘手柄拖拽在 200–480px 内调整，拖拽实时生效并令主会话弹性让位，结果存 localStorage 于启动时恢复（R-01-015）。
-- 交互面：点击或 Enter/Space 激活卡片 → 切换会话（后台任务子卡除外——纯展示，激活不触发任何操作，R-01-023/AC-08）；当前会话卡片高亮。原生左侧栏切换当前会话后，若对应卡片已呈现但未完整可见，渲染器通过原生 `scrollTo({ top, behavior: "smooth" })` 只调整 `.dap-scroll.scrollTop` 的最小必要距离，使其快速平滑地完整可见；命中降低动效偏好时传入 `auto`，不居中且不影响主会话滚动；`scrollTo` 不可用或调用失败时回退同步定位（R-01-005、R-01-006/AC-01～AC-02）。
-- 折叠时间线：`活动状态模型#foldedConversationTimeline(snapshot, limit, cwd, descendantActive, idle, fallbackAnchor)` 是渲染层时间线的唯一来源（无条件折叠，不做任何探测切换）：先按指数扩窗收集尾部原始工作项并合并 live 项，live partial/running call 以内部标记穿透 `#foldWorkGroups`，再经分组派生组标题、摘要与状态；用户输入项与含正文的 assistant 项为硬边界，连续 context 单独成组，状态聚合 running > error > stopped > done。窗口选择由 `selectTimelineRows` 单点完成（C-039）：可锚用户行（非空文本用户输入行）作为普通显示行参与尾部窗口滚动；滚动至显示第一行时停留为首行指令锚行并占一个名额（满窗几何为其后有 limit-1 个显示行；时间线不足一窗时自然窗口首行的可锚用户行直接停留），其后为最近 limit-1 个工作显示行；已存在停留锚行且更近的可锚用户行滚动至显示第二行时，该行取代旧锚行升上首行，其后各行上移、总行数暂减一；窗口内不存在可锚用户行或停留锚行已滚出快照尾窗时，以 `fallbackAnchor`（history 提取的最近用户消息）充当停留锚行。工作行选取优先保留最新真实当前活动行作为末行，再以最新历史工作行填满剩余名额；无真实当前活动行时才按 R-01-009/AC-10 提升尾部；空文本用户输入行不参与停留与取代。总行数不超过 limit，锚行存在时工作行预算为 limit-1。history 锚行在调用核心派生前作为 `fallbackAnchor` 输入，渲染层不得在派生完成后再次裁剪；冷 history 时间线经同一 `#foldWorkGroups` 与窗口选择但不做运行提升。该派生不依赖 dsh-auto-collapse 存在，分组语义改编自 dsh-auto-collapse@0.1.3 `src/fold.ts`（C-016）（R-01-009/AC-10、AC-11，R-01-012/AC-12～AC-15，R-01-017，C-035、C-039）。
-- 折叠呈现细节：tool 组行图标统一为 DSH canonical IconApiOutline14 命令图标（与 auto-collapse 工具 chip 同源）；含正文 assistant 边界的推理文本只归组摘要，其正文行以 stripNative 标记剥离推理展示，避免同一推理文本双行重复（R-01-017/AC-02、AC-04）；正文已流出即本步推理结束——拆入组的思考成员按已定案处理，组行不与正文行同闪（真实在飞的 partial/runningCalls 行不受影响）。
+  - 数量徽标底色与固定同步脉冲（R-01-002/AC-06、AC-07）：`awaitBadgeTone` 按错误 > 阻塞 > 完成 的优先级取色。
+  - 存在错误提醒主会话时，取错误提醒卡红色；否则存在阻塞等待主会话时，取阻塞等待卡金色。
+  - 等待行动全部为完成提醒时取完成提醒卡绿色；无等待行动返回 null 不脉冲。
+  - 三处数量徽标固定使用 1.2s 亮度呼吸，等待集合、类别或可见表面变化时与等待卡末行统一重启对相。
+  - 脉冲不再按等待占比派生周期。
+- 迁移动画：渲染器比较相邻两帧派生的活动区/历史区 id 集合，id 由活动区消失且出现于历史区（或反向由历史区消失且出现于活动区）即判定一次迁移，id 彻底消失不播放。
+- 动画以旧卡克隆 ghost 经 FLIP 平移并形变至目标区卡片矩形、到位后淡出，真卡同步淡入，`transitionend` 移除 ghost。
+- 动画时长约 300ms，多次迁移各自独立播放。
+- 同一渲染帧内位置受影响的其它卡片（含历史区段头）经 FLIP 反向位移后过渡到新位置，与 ghost 同向同步。
+- `prefers-reduced-motion` 或目标矩形不可量取时降级为直接落位（R-01-010/AC-07、AC-10）。
+- 层级结构：子代理与后台任务子卡经 `parentId` 关联并以 `depth` 表达缩进。
+- 子代理标题优先取目录 label，其次显示标题。
+- 渲染层在缩进槽内绘制母会话到直属子代理与后台任务子卡的层级连接线（R-01-003/AC-01、AC-04）。
+- 工作区徽标着色：渲染层先以 `活动状态模型#resolveWorkspaceColors` 对当帧可见条目的身份集合做 12 个前景槽位与背景变体的逐身份映射。
+- 再把前景槽位的 hue/L/C 及背景变体的主题 L/C/混合强度写入徽标元素 `--dap-workspace-hue`、`--dap-workspace-dark-l`、`--dap-workspace-dark-c`、`--dap-workspace-light-l`、`--dap-workspace-light-c`、`--dap-workspace-bg-dark-l`、`--dap-workspace-bg-dark-c`、`--dap-workspace-bg-dark-mix`、`--dap-workspace-bg-dark-border-mix`、`--dap-workspace-bg-light-l`、`--dap-workspace-bg-light-c`、`--dap-workspace-bg-light-mix`、`--dap-workspace-bg-light-border-mix`。
+- 无归属时徽标隐藏、不写入；映射是每个条目身份的纯函数、与其它条目无关，稳定签名已含 workspaceKey，无需额外签名分量。
+- CSS 以 `oklch(var(--dap-workspace-*-l) var(--dap-workspace-*-c) var(--dap-workspace-hue))` 为文字与背景源色。
+- 文字直接使用前景调色板色、不再混入 currentColor；底色使用独立背景变体、描边使用前景调色板色。
+- CSS 并以 `color-mix(in oklch, …, transparent)` 保持同色相族层次。
+- 主槽位深/浅主题 L/C 为 `0.78/0.16`、`0.48/0.15`，补充槽位为 `0.64/0.15`、`0.36/0.15`。
+- 背景变体按前景槽位提供 3 档深/浅主题 L/C 与混合强度；胶囊几何（圆角、padding、行高）与名称字号下限不变（R-01-003/AC-08～AC-12）。
+- 窗口形态：桌面为左栏旁贴边列，可经「活动会话」标题行整体折叠为窄条（窄条竖排标题 + 计数，整条可点展开）。
+- 移动端（≤767px）为固定抽屉 + 左上角浮动开关（文案「活动」，抽屉打开时隐藏）（R-01-007、R-01-008、R-01-011）。
+- 桌面列宽可经右缘手柄拖拽在 200–480px 内调整，拖拽实时生效并令主会话弹性让位。
+- 调宽结果存 localStorage，于启动时恢复（R-01-015）。
+- 卡片紧凑呈现：`窗格渲染器` 以窗格根属性 `data-density` 承载三档呈现（`full` 完整 / `medium` 中间 / `compact` 紧凑，按钮按紧凑→中间→完整循环）。
+- 经 CSS 规则按档位对活动区与历史区的全部卡片递增隐藏次要行。
+- 中间档保留标题行、工作区徽标行、工作项时间线的最新一行（经渲染层 lastOnly 单行渲染，当前正在执行或最近完成的工作项，含执行中状态实时更新）、等待类型胶囊与正文行（含「移入历史」按钮）与最近卡消息预览行。
+- 中间档隐藏更早的时间线显示行/进度行/token 统计行。
+- 完成提醒卡在中间档将末行收合为单行——`.dap-foot` 改横向 flex，`.dap-await-head` 与 `.dap-note-row` 以 `display: contents` 释放为同行项，「已完成」胶囊居左（其右为状态年龄）、`.dap-confirm` 以 `margin-left: auto` 居右、`.dap-note` 正文隐藏。
+- 收合选择器以卡片根 `data-wait="done"` 作用域，阻塞/错误提醒卡不收合。
+- 完整呈现档维持「胶囊行 + 正文行」两行结构，紧凑档维持整体隐藏末行。
+- 紧凑档在中间档的基础上再隐藏工作区徽标行、时间线末行、等待末行与消息预览行，仅保留标题行。
+- 卡片的 `data-wait` 类别底色与状态点着色由既有属性驱动、在中间与紧凑呈现下保持。
+- 卡片的 DOM 复用与激活跳转逻辑不感知档位切换。
+- 渲染签名含显示档位分量，档位切换经 queueSync 触发一轮重渲染使时间线按新档位重建（R-02-003 的签名去重仅对重复渲染生效）。
+- 等待卡末行隐藏期间 R-01-002 的胶囊/正文脉冲暂不呈现，恢复完整呈现后，随既有渲染自然恢复。
+- 切换时执行滚动锚定：记录切换前当前选中卡片（`.dap-card[data-current]`）顶部相对 `.dap-scroll` 视口的位置。
+- 档位翻转后再次量测并把 `scrollTop` 补偿回该相对位置，使当前卡片顶部在屏幕上保持不动；当前会话卡不可得时不补偿。
+- 补偿目标超出滚动边界（如向紧凑档切换后列表缩短至低于视口）时由浏览器把 `scrollTop` 钳制在 [0, maxScroll]，此时以当前卡片不移出滚动视口为准（R-01-021/AC-01）。
+- 切换按钮 `.dap-density` 常显于「活动会话」标题行右侧工具区（`.dap-tools`，右侧工具按钮区域、预留后续工具按钮扩展；22px 圆形、不透明底色、hover/focus-visible 高亮、可访问名称）。
+- 窄条态随标题行隐藏，移动端抽屉内同样提供。
+- 工具区是标题区折叠控件的兄弟节点，按钮激活不构成标题区折叠激活。
+- 激活按紧凑→中间→完整循环翻转并同步可访问名称（表达将切换到的目标档位）。
+- 档位存 localStorage（键 `dsh-activity-pane:density`，与列宽键同冒号命名惯例；缺失/非法值经 `normalizeDensity` 归一为默认中间档）于启动时恢复。
+- 会话状态变化不解除已选档位（R-01-021）。
+- 交互面：点击或 Enter/Space 激活卡片 → 切换会话（后台任务子卡除外——纯展示，激活不触发任何操作，R-01-023/AC-08）；当前会话卡片高亮。
+- 原生左侧栏切换当前会话后，若对应卡片已呈现但未完整可见，渲染器通过原生 `scrollTo({ top, behavior: "smooth" })` 只调整 `.dap-scroll.scrollTop` 的最小必要距离，使其快速平滑地完整可见。
+- 命中降低动效偏好时传入 `auto`，不居中且不影响主会话滚动。
+- `scrollTo` 不可用或调用失败时回退同步定位（R-01-005、R-01-006/AC-01～AC-02）。
+- 折叠时间线：`活动状态模型#foldedConversationTimeline(snapshot, limit, cwd, descendantActive, idle, fallbackAnchor)` 是渲染层时间线的唯一来源（无条件折叠，不做任何探测切换）。
+- 派生先按指数扩窗收集尾部原始工作项并合并 live 项，live partial/running call 以内部标记穿透 `#foldWorkGroups`，再经分组派生组标题、摘要与状态。
+- 用户输入项与含正文的 assistant 项为硬边界，连续 context 单独成组，状态聚合 running > error > stopped > done。
+- 窗口选择由 `selectTimelineRows` 单点完成（C-039）：可锚用户行（非空文本用户输入行）作为普通显示行参与尾部窗口滚动。
+- 滚动至显示第一行时停留为首行指令锚行并占一个名额（满窗几何为其后有 limit-1 个显示行；时间线不足一窗时自然窗口首行的可锚用户行直接停留）。
+- 停留锚行之后为最近 limit-1 个工作显示行。
+- 已存在停留锚行且更近的可锚用户行滚动至显示第二行时，该行取代旧锚行升上首行，其后各行上移、总行数暂减一。
+- 窗口内不存在可锚用户行或停留锚行已滚出快照尾窗时，以 `fallbackAnchor`（history 提取的最近用户消息）充当停留锚行。
+- 工作行选取优先保留最新的真实当前活动行作为末行，再以最新历史工作行填满剩余名额。
+- 无真实当前活动行时才按 R-01-009/AC-10 提升尾部；空文本用户输入行不参与停留与取代。
+- 总行数不超过 limit，锚行存在时工作行预算为 limit-1。
+- history 锚行在调用核心派生前作为 `fallbackAnchor` 输入，渲染层不得在派生完成后再次裁剪。
+- 冷 history 时间线经同一 `#foldWorkGroups` 与窗口选择但不做运行提升。
+- 该派生不依赖 dsh-auto-collapse 存在，分组语义改编自 dsh-auto-collapse@0.1.3 `src/fold.ts`（C-016）（R-01-009/AC-10、AC-11，R-01-012/AC-12～AC-15，R-01-017，C-035、C-039）。
+- 折叠呈现细节：tool 组行图标统一为 DSH canonical IconApiOutline14 命令图标（与 auto-collapse 工具 chip 同源）。
+- 含正文 assistant 边界的推理文本只归组摘要，其正文行以 stripNative 标记剥离推理展示，避免同一推理文本双行重复（R-01-017/AC-02、AC-04）。
+- 正文已流出即本步推理结束——拆入组的思考成员按已定案处理，组行不与正文行同闪（真实在飞的 partial/runningCalls 行不受影响）。
 
 ## 横切约束
 
 - 安全呈现：任何会话标题/文本只经 `textContent` 写入，不走 HTML 拼接（防注入）。
 - 角色纪律：窗格只读，不写回宿主（唯一例外：完成提醒卡「移入历史」按钮的 ack 写回，经宿主侧路由完成，R-01-002/AC-10）；活动数据方向恒为 服务 → 卡片。
 - 依赖边界：`src/core.mjs` 为纯函数（可 Node 单测），`src/client.mjs` 为浏览器 DOM 层。
-- 归属约束：卡片视觉布局借鉴自 MIT 许可证的 dsh-answer-pet，保留来源声明（见 LICENSE 与 README）；折叠分组语义改编自 MIT 许可证的 dsh-auto-collapse@0.1.3（src/fold.ts），同留来源声明（C-016）；agent 角色机器人图标以 ISC 许可证的 Lucide bot 图标几何为底改造（小电视式：去双耳、双斜短天线；canonical 图标集无机器人），同留来源声明（C-021）。
+- 归属约束：卡片视觉布局借鉴自 MIT 许可证的 dsh-answer-pet，保留来源声明（见 LICENSE 与 README）。
+- 折叠分组语义改编自 MIT 许可证的 dsh-auto-collapse@0.1.3（src/fold.ts），同留来源声明（C-016）。
+- agent 角色机器人图标以 ISC 许可证的 Lucide bot 图标几何为底改造（小电视式：去双耳、双斜短天线；canonical 图标集无机器人），同留来源声明（C-021）。
 
 ## 子系统与模块
 
@@ -306,7 +656,8 @@ flowchart LR
   - cordis 宿主插件（`.dsh-plugin/index.mjs` 入口，`export function apply(ctx)`）；经 `ctx.inject(['storageDomain'])` 打开声明式 domain（表 `acks`：sessionId → `{ lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }`），domain 生命周期随宿主进程（`ctx.effect` 关闭）。
   - 事件登记：`ctx.on('session/event', ...)` 中 `event.type === 'turn/end'` 时以事件顶层 `time` 写 `lastTurnEnd`、以 `event.data.reason.kind` 写 `lastTurnEndKind`（非字符串时归一为 `'unknown'`）、`kind === 'error'` 时以 `reason.error.message`（截断至 `ERROR_NOTE_MAX` 字符）写 `lastTurnEndError`（非 error 回合清空）并广播；子代理与会话统一登记，主/子过滤由客户端判定。
   - 确认写回：`POST /dsh-activity-pane/api/ack` 校验 sessionId 后写 `ackedAt = Date.now()` 并广播。
-  - 推送：`GET /dsh-activity-pane/api/acks` 全量快照；`GET /dsh-activity-pane/api/acks/stream` SSE——连接即发全量、变更即广播；连接集合宿主侧维护，插件卸载时全数关闭。
+  - 推送：`GET /dsh-activity-pane/api/acks` 全量快照；`GET /dsh-activity-pane/api/acks/stream` SSE——连接即发全量、变更即广播。
+  - 连接集合宿主侧维护，插件卸载时全数关闭。
   - 内存态仅 SSE 连接集合；确认状态持久化于 storageDomain，宿主重启不丢。
 - 代码位置: src/host.mjs（`.dsh-plugin/index.mjs` 为入口转发）
 - 实现: 单端（宿主 cordis 运行）
@@ -315,61 +666,167 @@ flowchart LR
 - 职责: 把会话回合配对累计为全会话运行过程 busy 总时长（回合内阻塞等待区间扣除），经懒回填与水位自愈补齐存量回合、宿主停机缺口与 seq 空间重编，并经 HTTP/SSE 通道只读下发（实现 R-01-020）
 - 关键内部结构:
   - cordis 宿主插件：注入 `['storageDomain', 'webServer', 'sessionQuery']`；独立 domain `dsh_activity_pane_turns` 表 `turn_stats`（sessionId → `{ busyMs, openTurnStart, openWaitStart, openWaitKind, openWaitId, waitedMs, watermarkSeq }`）——dsh-storage-domain 无迁移机制（version 不同在 open 时拒绝），新增表落新 domain 不动 acks medium。
-  - 实时登记：`ctx.on('session/event')` 中回合与等待边界事件（`turn/start`、`turn/end`、`approval/asked`、`approval/decided`、`ask_user_question` 的 `tool/call`/`tool/result`）经 `applyTurnEventToStats` 单步转移后按会话序写入并前移 `watermarkSeq`；id/callId 不匹配的结算事件与无效果边界事件不落盘；主/子统一登记，过滤由客户端判定（C-030 同模式）。
-  - 懒回填与自愈：`GET /api/busy` 触发——统一经 `reconcileTurnStats(current, records)` 收敛：无记录、或持久化 `watermarkSeq` 超前于日志最大 seq（事件 seq 空间被重编）时从空状态全量重放；否则仅增量应用 `seq > watermarkSeq` 的事件（补宿主离线期间经其它入口发生的回合）。宿主启动扫描对 `openTurnStart` 非空的存量记录以强制结算模式重放（回合按日志最后事件时刻关闭——重启后不存在仍在运行的回合）。回填期间实时登记照常进行，实时监听对在途回填排队等待写入完成后再应用事件，防覆盖、防缺口丢失。
-  - 下发：`GET /dsh-activity-pane/api/busy` 全量快照；`GET /dsh-activity-pane/api/busy/stream` SSE——连接即发全量、变更即广播；无新增写回路径。
+  - 实时登记：`ctx.on('session/event')` 中回合与等待边界事件（`turn/start`、`turn/end`、`approval/asked`、`approval/decided`、`ask_user_question` 的 `tool/call`/`tool/result`）经 `applyTurnEventToStats` 单步转移后按会话序写入并前移 `watermarkSeq`。
+  - id/callId 不匹配的结算事件与无效果边界事件不落盘。
+  - 主/子统一登记，过滤由客户端判定（C-030 同模式）。
+  - 懒回填与自愈：`GET /api/busy` 触发——统一经 `reconcileTurnStats(current, records)` 收敛。
+  - 无记录、或持久化 `watermarkSeq` 超前于日志最大 seq（事件 seq 空间被重编）时从空状态全量重放；否则仅增量应用 `seq > watermarkSeq` 的事件。
+  - 增量应用覆盖在宿主离线期间经其它入口发生的回合。
+  - 宿主启动扫描对 `openTurnStart` 非空的存量记录以强制结算模式重放（回合按日志最后事件时刻关闭——重启后不存在仍在运行的回合）。
+  - 回填期间实时登记照常进行，实时监听对在途回填排队等待写入完成后再应用事件，防覆盖、防缺口丢失。
+  - 下发：`GET /dsh-activity-pane/api/busy` 全量快照；`GET /dsh-activity-pane/api/busy/stream` SSE——连接即发全量、变更即广播。
+  - 无新增写回路径。
 - 代码位置: src/host.mjs（与完成确认宿主侧同文件，`.dsh-plugin/index.mjs` 为入口转发）
 - 实现: 单端（宿主 cordis 运行）
 
 ### 活动状态模型
-- 职责: 把宿主会话与工作区快照归一化为活动区/历史区条目、工作项时间线、折叠分组时间线、模型上下文与消息预览（实现 R-01-001、R-01-002、R-01-003、R-01-009、R-01-010、R-01-012、R-01-013、R-01-016、R-01-017、R-01-020、R-01-023、R-02-001、R-02-003）
+- 职责: 把宿主会话与工作区快照归一化为活动区/历史区条目、工作项时间线、折叠分组时间线、模型上下文与消息预览。
+  - 上述职责实现 R-01-001、R-01-002、R-01-003、R-01-009、R-01-010、R-01-012、R-01-013、R-01-016、R-01-017、R-01-020、R-01-023、R-02-001、R-02-003
 - 关键内部结构:
   - 纯函数、无 DOM、可单测。
-  - 显示过滤单点实现：`lineageActiveIds` 沿自身活动会话的 `parentId` 链上溯——含自身为 `activeSessionIds`（历史区显示判定），仅祖先为 `descendantActiveIds`（活动区委托周期判定）；`isSubagentRow` 判定直属子代理；轮内订阅以宿主 running 为准（`shouldSubscribeToSession` 按 `byId` 行 `running` 判定），与呈现 kind 解耦——委托周期中的母会话保持 running 呈现但不建立订阅。
-  - `buildRecent` 派生所有当前非活动的历史区候选（仅主会话，不设时间窗口或条数上限），按精化最后活动时间倒序，并归一化 workspace/model/reasoning、最近用户首行与 agent 首行；`turnEnds` 入参驱动 max 归一，相同时间以会话 id 稳定排序。最近卡显示的最近回合统计由渲染器以同一候选的 `projectionValues` 与保留快照/history 补充，不改变候选集合或排序（R-01-010/AC-03、AC-08、AC-09、R-01-013/AC-12）。
-  - `fmtRelativeAge` 将 `activityAt` 与当前时间差按分钟/小时/天/周/月/年归一为相对时间文案；渲染层以本地时区格式化绝对日期时分，并按分钟级时钟触发历史卡时间文案重绘；等待卡状态年龄复用同一分级与分钟级时钟，历史卡相对时间与状态年龄文案并入渲染签名、仅在文案实际变化时重绘（R-01-013/AC-05、R-01-002/AC-14）。
+  - 显示过滤单点实现：`lineageActiveIds` 沿自身活动会话的 `parentId` 链上溯——含自身为 `activeSessionIds`（历史区显示判定），仅祖先为 `descendantActiveIds`（活动区委托周期判定）。
+  - `isSubagentRow` 判定直属子代理。
+  - 轮内订阅以宿主 running 为准：`shouldSubscribeToSession` 按 `byId` 行 `running` 判定，与呈现 kind 解耦——委托周期中的母会话保持 running 呈现但不建立订阅。
+  - `buildRecent` 派生所有当前非活动的历史区候选（仅主会话，不设时间窗口或条数上限），按精化最后活动时间倒序。
+  - 候选并归一化 workspace/model/reasoning、最近用户首行与 agent 首行；`turnEnds` 入参驱动 max 归一，相同时间以会话 id 稳定排序。
+  - 最近卡显示的最近回合统计由渲染器以同一候选的 `projectionValues` 与保留快照/history 补充，不改变候选集合或排序（R-01-010/AC-03、AC-08、AC-09、R-01-013/AC-12）。
+  - `fmtRelativeAge` 将 `activityAt` 与当前时间差按分钟/小时/天/周/月/年归一为相对时间文案。
+  - 渲染层以本地时区格式化绝对日期时分，并按分钟级时钟触发历史卡的时间文案重绘。
+  - 等待卡状态年龄复用同一分级与分钟级时钟。
+  - 历史卡相对时间与状态年龄文案并入渲染签名，仅在文案实际变化时重绘（R-01-013/AC-05、R-01-002/AC-14）。
   - `lastTurnEndFromEvents`/`lastTurnEndFromTimings` 从 history 事件或 `turnTimings` 提取最后回合结束时刻，无已完成回合返回 null（R-01-010/AC-08）。
   - `buildEntries`/`buildRecent` 接受 `completions` 入参（Map id → `{ lastTurnEnd, ackedAt }`）：完成提醒中主会话以 awaiting 完成提醒条目留在活动区，并从历史区排除（R-01-002/AC-05、R-01-010/AC-06）；完成提醒成立判定收敛到 `completionReminder` 纯函数单点。
   - `conversationWorkItems` 从原生 ChatSnapshot 的实际 order 收集尾部扁平工作项（含 live 合并与尾部提升），作为折叠分组的输入内核与分组成员级观察接缝；`firstPhysicalLine` 只取消息的第一个非空物理行。
-  - `rawTailItems`/`mergeLiveItems` 为 `conversationWorkItems` 与 `foldedConversationTimeline` 共用的收集与 live 合并内核（指数扩窗：分组数不足 limit 时依次加倍窗口，避免长会话全序扫描）；`foldWorkGroups` 把扁平工作项序列折叠成分组行——硬边界为用户输入与含正文 assistant 项（其 reasoning 并入当前分组）、context 连续段独立成组；组行含 label/summary/detail/status/fold 标记，仅用核心聚合状态与 canonical 图标自绘；tool 组行图标统一命令图标，正文边界行以 stripNative 标记剥离推理展示（R-01-017）。
-  - 冷窗口兜底家族：`selectTimelineRows` 为快照路径与冷 history 路径（`foldedHistoryTimeline`）共用的窗口/指令锚行选择（末尾进入、触顶停留、第二行顶替，C-039）；`historyInstructionAnchor` 从 history 提取最近真实用户消息作为 `fallbackAnchor` 停留锚行候选；`openTurnStartFromEvents` 从日志窗口尾扫开放回合 `turn/start` 时刻（minTurn 陈旧判定），作为宿主侧 busy 通道 `openTurnStart` 的窗口内兜底（R-01-009/AC-06、R-01-012/AC-12；0.1.5 起快照 `turnTimings` 移除，开放回合起点主源为 busy 通道，`openTurnStartMissing` 缺口判定门禁随之移除）。
+  - `rawTailItems`/`mergeLiveItems` 为 `conversationWorkItems` 与 `foldedConversationTimeline` 共用的收集与 live 合并内核（指数扩窗：分组数不足 limit 时依次加倍窗口，避免长会话全序扫描）。
+  - `foldWorkGroups` 把扁平工作项序列折叠成分组行——硬边界为用户输入与含正文 assistant 项（其 reasoning 并入当前分组）、context 连续段独立成组。
+  - 组行含 label/summary/detail/status/fold 标记，仅用核心聚合状态与 canonical 图标自绘。
+  - tool 组行图标统一命令图标，正文边界行以 stripNative 标记剥离推理展示（R-01-017）。
+  - 冷窗口兜底家族：`selectTimelineRows` 为快照路径与冷 history 路径（`foldedHistoryTimeline`）共用的窗口/指令锚行选择（末尾进入、触顶停留、第二行顶替，C-039）。
+  - `historyInstructionAnchor` 从 history 提取最近真实用户消息作为 `fallbackAnchor` 停留锚行候选。
+  - `openTurnStartFromEvents` 从日志窗口尾扫开放回合 `turn/start` 时刻（minTurn 陈旧判定），作为宿主侧 busy 通道 `openTurnStart` 的窗口内兜底（R-01-009/AC-06、R-01-012/AC-12）。
+  - 0.1.5 起快照 `turnTimings` 移除，开放回合起点主源为 busy 通道，`openTurnStartMissing` 缺口判定门禁随之移除。
   - `modelMetadata` 从 native models response（或同形状的模型目录 store 快照）提取当前模型名称与 reasoning level；缺失值保持空白。
-  - 富卡辅助：`fmtTokens`（token 计数 K/M 紧凑缩写，镜像原生统计行 formatTokens）、`summarizeToolArguments`（镜像原生 `deriveSummary` 语义）、`progressOf`（回合进度）、`progressHalfLifeSec`（进度半衰期速率校准）、`runtimeStats`（时长/token/速率）、`usageSummary`（计费输入/缓存命中率）与 `lastTurnDuration`（从最新完整回合边界提取固定耗时）为卡片提供纯函数派生。
-  - 排序分两组：运行中在前、按宿主列表时间（最后一次用户指令时间）倒序；等待/完成组在后、按进入状态时刻倒序（阻塞等待取回合内等待边界开启时刻 `openWaitStart`，完成/错误提醒取最近一次回合结束登记时刻，缺失均回落宿主列表时间）；组内相同时间回落 lineage 稳定序；工作区索引不参与排序。
-  - 工作区归属归一：`workspaceInfoForSession` 在单一路径上同时判定归属并返回 `{ title, key }`（key 为工作区身份：路径优先、名称兜底）；`workspaceHue(key)` 以 djb2 哈希经雪崩终混后在避红弧上均匀取基色（30 + hash % 291）；`resolveWorkspaceColors(keys)` 对每个可见身份独立做逐身份映射——前景取基色色相在 12 个 OKLCH 前景槽位中环形色相距离最近者（平局取低槽位），背景变体取 `floor(hash / 291) % 3`，身份之间互不影响、其它工作区增减不改变既有工作区槽位；深浅主题任意前景槽位 OKLab 距离至少 0.11，输出确定性复合颜色槽位映射供活动卡与最近卡徽标着色（R-01-003/AC-08、AC-09、AC-12、C-072、C-077）。
-  - `cardSignature` 提供渲染去重签名；`trackRuns` 把活动条目压成母会话轨道运行（每个拥有可见直属子代理的母会话一条：全部可见直属子代理 id 与子级深度；直属性按母会话条目深度+1 判定，无 id 或非直属条目跳过）；`trackBoxes` 由测量矩形推导全部绘制盒并统一取整到 CSS 像素（竖轨：母会话底缘 → 末级子卡中心含收口行；横线：竖轨右缘 → 子卡左缘），供渲染层整体绘制。
+  - 富卡辅助：`fmtTokens`（token 计数 K/M 紧凑缩写，镜像原生统计行 formatTokens）、`summarizeToolArguments`（镜像原生 `deriveSummary` 语义）、`progressOf`（回合进度）、`progressHalfLifeSec`（进度半衰期速率校准）、`runtimeStats`（时长/token/速率）、`usageSummary`（计费输入/缓存命中率）与 `lastTurnDuration`（从最新完整回合边界提取的固定耗时）为卡片提供纯函数派生。
+  - 排序分两组：运行中在前、按宿主列表时间（最后一次用户指令时间）倒序。
+  - 等待/完成组在后、按进入状态时刻倒序：阻塞等待取回合内等待边界开启时刻 `openWaitStart`，完成/错误提醒取最近一次回合结束的登记时刻，缺失均回落宿主列表时间。
+  - 组内相同时间回落 lineage 稳定序；工作区索引不参与排序。
+  - 工作区归属归一：`workspaceInfoForSession` 在单一路径上同时判定归属并返回 `{ title, key }`（key 为工作区身份：路径优先、名称兜底）。
+  - `workspaceHue(key)` 以 djb2 哈希经雪崩终混后在避红弧上均匀取基色（30 + hash % 291）。
+  - `resolveWorkspaceColors(keys)` 对每个可见身份独立做逐身份映射——前景取基色色相在 12 个 OKLCH 前景槽位中环形色相距离最近者（平局取低槽位），背景变体取 `floor(hash / 291) % 3`。
+  - 身份之间互不影响，其它工作区增减不改变既有工作区槽位。
+  - 深浅主题任意前景槽位 OKLab 距离至少 0.11。
+  - 输出确定性复合颜色槽位映射，供活动卡与最近卡徽标着色（R-01-003/AC-08、AC-09、AC-12、C-072、C-077）。
+  - `cardSignature` 提供渲染去重签名。
+  - `trackRuns` 把活动条目压成母会话轨道运行（每个拥有可见直属子代理的母会话一条：全部可见直属子代理 id 与子级深度）。
+  - 直属性按母会话条目深度+1 判定，无 id 或非直属条目跳过。
+  - `trackBoxes` 由测量矩形推导全部绘制盒并统一取整到 CSS 像素（竖轨：母会话底缘 → 末级子卡中心含收口行；横线：竖轨右缘 → 子卡左缘），供渲染层整体绘制。
 - 代码位置: src/core.mjs
 - 备注: 宽度夹取纯函数 `clampPaneWidth`（200–480px，非法输入回退默认 280px）亦属本模块，供渲染层拖拽与启动恢复共用（R-01-015/AC-02、AC-04）。
 - 实现: 单端（JS，浏览器与 Node 共用同一份纯逻辑）
 
 ### 窗格渲染器
 - 职责:
-  - 窗格结构与交互：挂载窗格、双区绘制、历史分页与手动追加、独立滚动、回到顶部悬浮按钮、卡片紧凑呈现切换、卡片激活跳转、桌面折叠、移动端抽屉、真实布局参与（实现 R-01-004、R-01-005、R-01-006、R-01-007、R-01-008、R-01-011、R-01-018、R-01-019、R-01-020、R-01-021、R-01-022）
+  - 窗格结构与交互：挂载窗格、双区绘制、历史分页与手动追加、独立滚动、回到顶部悬浮按钮、卡片紧凑呈现切换、卡片激活跳转、桌面折叠、移动端抽屉、真实布局参与。
+  - 上述职责实现 R-01-004、R-01-005、R-01-006、R-01-007、R-01-008、R-01-011、R-01-018、R-01-019、R-01-020、R-01-021、R-01-022
   - 内容呈现与加载：轮内状态订阅生命周期、加载状态模型与渐进呈现、历史卡片可见页详情加载、重挂载自愈（实现 R-01-009、R-01-010、R-01-012、R-01-013、R-01-014、R-01-016、R-01-019、R-02-002、R-02-004）
   - 桌面调宽：右缘拖拽手柄实时调宽、范围夹取与 localStorage 持久化（实现 R-01-015）
 - 关键内部结构:
-  - 桌面下把中间列临时改为行方向，窗格作为真实 flex 行子项（先于会话座）占据左侧默认 280px；经祖先链（跳过 display:contents）找到会话根设 `flex:1 1 0%` 弹性填充，会话内容随之让位；折叠为窄条时让位同步恢复；仅桌面生效，移动端恢复外壳默认列布局。
+  - 桌面下把中间列临时改为行方向，窗格作为真实 flex 行子项（先于会话座）占据左侧默认 280px。
+  - 经祖先链（跳过 display:contents）找到会话根设 `flex:1 1 0%` 弹性填充，会话内容随之让位。
+  - 折叠为窄条时让位同步恢复。
+  - 仅桌面生效，移动端恢复外壳默认列布局。
   - 内容区为上「活动会话」下「最近历史」两段，各自带空态；由同一快照派生。
-  - 委托周期中的母会话保持运行卡呈现（kind=running，骨架不重建）：轮内订阅随自身回合结束断开，时间线与 token 统计冻结在最后已知值，进度按委托周期锚点继续推进（R-01-003/AC-05、R-01-009/AC-06）。委托周期集合由渲染层 `progressAnchorById` 记账经 `delegationActive` 逐帧派生并注入 `buildEntries`/`buildRecent`——后代耗尽至 settle 处理回合启动的空窗内（`SETTLE_TURN_GRACE_MS` 宽限）母会话保持运行呈现、完成提醒不生效、不入历史区（分区不变量）；宽限超时无新回合则退出周期，完成提醒恢复显示。
-  - 活动区子代理卡片与后台任务子卡沿 `depth` 缩进；母会话到直属子代理及后台任务子卡的连接线由列表内轨道层（`.dap-tracks`）按测量值整体绘制：每条竖轨一个连续元素、零拼接接缝，横线同为轨道层元素，全部坐标统一取整（同相位、粗细一致、端点相接）；连接线不覆盖卡片内容或点击区域（R-01-003/AC-04）。
-  - 后台任务子卡两行结构与底色区分（R-01-023/AC-05～AC-07）：行 1 为标题行（`.dap-job-dot` 状态点 + `.dap-job-kind` 工具名称 + `.dap-job-elapsed` 随时钟时长右缘对齐），行 2 为内容行（`.dap-job-content` 内 `.dap-job-label` mono 单行省略、原生 tooltip 承载完整原文，内容为空整行 `hidden`）；紧凑呈现档仅保留行 1（`.dap-job-content` 随紧凑档隐藏、中间档保留）；卡面底色在子代理卡底色上经 `color-mix` 轻染任务状态点同族的 `#65a0ff` 蓝（明暗两主题同法），与子代理卡相互可辨且不改变子卡呈现；job 子卡为纯展示——不绑激活监听、不设 `role="button"`/`tabIndex`、默认光标且无悬停/聚焦反馈（R-01-023/AC-08）。
+  - 委托周期中的母会话保持运行卡呈现（kind=running，骨架不重建）。
+  - 轮内订阅随自身回合结束断开，时间线与 token 统计冻结在最后已知值，进度按委托周期锚点继续推进（R-01-003/AC-05、R-01-009/AC-06）。
+  - 委托周期集合由渲染层 `progressAnchorById` 记账经 `delegationActive` 逐帧派生并注入 `buildEntries`/`buildRecent`。
+  - 后代耗尽至 settle 处理回合启动的空窗内（`SETTLE_TURN_GRACE_MS` 宽限），母会话保持运行呈现、完成提醒不生效、不入历史区（分区不变量）。
+  - 宽限超时无新回合则退出周期，完成提醒恢复显示。
+  - 活动区子代理卡片与后台任务子卡沿 `depth` 缩进。
+  - 母会话到直属子代理及后台任务子卡的连接线由列表内轨道层（`.dap-tracks`）按测量值整体绘制。
+  - 每条竖轨一个连续元素、零拼接接缝，横线同为轨道层元素，全部坐标统一取整（同相位、粗细一致、端点相接）。
+  - 连接线不覆盖卡片内容或点击区域（R-01-003/AC-04）。
+  - 后台任务子卡两行结构与底色区分（R-01-023/AC-05～AC-07）。
+  - 行 1 为标题行：`.dap-job-dot` 状态点 + `.dap-job-kind` 工具名称 + `.dap-job-elapsed` 随时钟时长右缘对齐。
+  - 行 2 为内容行：`.dap-job-content` 内 `.dap-job-label` mono 单行省略、原生 tooltip 承载完整原文，内容为空整行 `hidden`。
+  - 紧凑呈现档仅保留行 1：`.dap-job-content` 随紧凑档隐藏、中间档保留。
+  - 卡面底色在子代理卡底色上经 `color-mix` 轻染任务状态点同族的 `#65a0ff` 蓝（明暗两主题同法），与子代理卡相互可辨且不改变子卡呈现。
+  - job 子卡为纯展示——不绑激活监听、不设 `role="button"`/`tabIndex`、默认光标且无悬停/聚焦反馈（R-01-023/AC-08）。
   - 卡片按 id 复用，流程节点按稳定 id 复用 DOM；配合签名去重避免无谓 DOM 写入，并保持运行节点脉冲动画连续。
-  - 当前会话同步：`cardSignature` 中的 `isCurrent` 驱动原生侧栏切换后的单帧更新；渲染完成后只对已呈现且未完整可见的当前卡片调用 `.dap-scroll.scrollTo({ top, behavior: "smooth" })`，以最小必要距离快速平滑上下滚动；调用失败时直接落位，不调用外层页面滚动。
-  - 完成确认通道与迁移检测：完成提醒成立由核心 `completionReminder` 从 SSE ack 状态派生（`lastTurnEnd > ackedAt`，且未被 running/阻塞等待/委托周期抑制）；错误提醒成立由核心 `errorReminder` 从同一通道派生（`lastTurnEndKind === 'error'`，不消费 ack 游标）；完成提醒卡末行正文行之后渲染「移入历史」按钮，激活时除 ack 写回（`POST /dsh-activity-pane/api/ack`）与本地即时更新外不触发卡片跳转；确认后同一帧派生解除，卡片经既有 FLIP 动画迁入历史区。跨区迁移（活动区↔历史区，双向）以旧卡克隆 ghost FLIP 平移淡降 + 真卡淡入呈现，迁移检测收敛到 `movedToRecentIds`/`movedToActiveIds` 纯函数；位置受影响的其它卡片与历史区段头经 FLIP 反向位移平滑过渡，`transitionend` 收口，`prefers-reduced-motion` 降级为直接落位（R-01-002/AC-05、AC-10、AC-13、R-01-010/AC-06、AC-07、AC-10）。
-  - 工作区徽标为「文件夹图标 + 名称文本」双段结构：胶囊内常驻与左边栏工作区条目同源的 canonical 文件夹图标（dsh-client-ui-primitives IconFolderClose16 同款 path，经 `createInlineIcon` 工厂复刻），置于名称文字之前使归属一眼可辨；名称字号 10.5px（AC-07 下限）、行高 14px 不变以维持胶囊与卡片高度；无归属时整枚隐藏；文本写入独立文本段，省略号截断不波及图标（R-01-003/AC-03、AC-06、AC-07）。徽标按条目 `workspaceKey` 经核心 `resolveWorkspaceColors` 派生前景槽位与背景变体，写入 hue、前景主题 L/C、背景主题 L/C 与混合强度自定义属性，图标、文字、底色与描边同色相族着色，槽位变化并入既有 workspaceKey 签名驱动重绘（R-01-003/AC-08、AC-09、AC-10、AC-12）。
-  - 最近卡两条消息预览行为「角色图标 + 角色标签 + 圆点分隔符 + 文本」结构：用户消息行人物图标 +「用户」、agent 回复行机器人图标 +「助手」，图标常驻且字形 12px 与时间线图标字形一致；文本与加载 spinner 只写入文本段，不覆盖图标与标签（R-01-013/AC-07、AC-08）。最近卡在该两行之后复用 `.dap-token-stats` 显示最近回合统计，再以 `activityAt` 时间行收尾（R-01-013/AC-12）。
-  - 对每个运行中会话经 `sessions.binding(id).session` 订阅轮内状态与 ChatSnapshot，归一为 `runtimeStats` 与工作项时间线；运行中时长在渲染期按起始时间实时计算，停止运行或卸载即 `unsubscribe`；进入等待行动后从保留快照或 native history 读取最近完整回合耗时，写入同一 `elapsedMs` 字段并保持冻结，同时复用停止前最后已知的 token 统计字段（R-01-009/AC-12、AC-13）。冷会话只通过 native history/model 的一次性读取补齐，不进行状态轮询。模型目录订阅（`modelDirectories` store）随补充数据读取对可见主会话建立，会话离开可见集合或插件卸载时先 `unsubscribe` 再除名（`pruneSubscriptions`），监听器不残留（R-01-012/AC-16）。历史区时间精化：history 到达或保留快照存在时提取最后回合结束时刻注入 `buildRecent` 的 `turnEnds`，重派生后排序与时间显示经签名驱动就地更新；数据在途期间以宿主列表时间显示（R-01-010/AC-09）。
-  - 时间线用户行标识与图标几何：时间线内用户消息行（`.dap-trace-item[data-icon="user"]`）以行下 1px 中性灰实线下划线标识，宽度仅为图标+文字的内容宽度（`width: fit-content; max-width: 100%`，不贯穿整行；深浅主题各自适配，不占用蓝/绿/红/橙状态色；仍以 bottom 1px 背景渐变绘制、不占盒高，保持 14px 行高几何；C-019 整行虚线呈现的修订见 C-022）；全部时间线图标统一真实 14px 盒（字形 12px 居中、无占位 padding——content-box 下 padding 会把盒撑成 16px 并抬高时间线行），助手正文行（`data-icon="robot"`，按 kind=detail 有无与 fold 标记判别，思考组/思考行不算）无底色、字形与其他图标同用 12px 盒（13px 盒在 14px 图标盒内产生 0.5px 半像素偏移致描边发虚，C-021）；文本经 textContent 写入。
+  - 当前会话同步：`cardSignature` 中的 `isCurrent` 驱动原生侧栏切换后的单帧更新。
+  - 渲染完成后只对已呈现且未完整可见的当前卡片调用 `.dap-scroll.scrollTo({ top, behavior: "smooth" })`，以最小必要距离快速平滑地上下滚动。
+  - 调用失败时直接落位，不调用外层页面滚动。
+  - 完成确认通道与迁移检测：完成提醒成立由核心 `completionReminder` 从 SSE ack 状态派生（`lastTurnEnd > ackedAt`，且未被 running/阻塞等待/委托周期抑制）。
+  - 错误提醒成立由核心 `errorReminder` 从同一通道派生（`lastTurnEndKind === 'error'`，不消费 ack 游标）。
+  - 完成提醒卡末行正文行之后渲染「移入历史」按钮，激活时除 ack 写回（`POST /dsh-activity-pane/api/ack`）与本地即时更新外不触发卡片跳转。
+  - 确认后同一帧派生解除，卡片经既有 FLIP 动画迁入历史区。
+  - 跨区迁移（活动区↔历史区，双向）以旧卡克隆 ghost FLIP 平移淡降 + 真卡淡入呈现，迁移检测收敛到 `movedToRecentIds`/`movedToActiveIds` 纯函数。
+  - 位置受影响的其它卡片与历史区段头经 FLIP 反向位移平滑过渡，`transitionend` 收口，`prefers-reduced-motion` 降级为直接落位（R-01-002/AC-05、AC-10、AC-13、R-01-010/AC-06、AC-07、AC-10）。
+  - 工作区徽标为「文件夹图标 + 名称文本」双段结构：胶囊内常驻与左边栏工作区条目同源的 canonical 文件夹图标（dsh-client-ui-primitives IconFolderClose16 同款 path，经 `createInlineIcon` 工厂复刻）。
+  - 图标置于名称文字之前使归属一眼可辨；名称字号 10.5px（AC-07 下限）、行高 14px 不变以维持胶囊与卡片高度。
+  - 无归属时整枚隐藏；文本写入独立文本段，省略号截断不波及图标（R-01-003/AC-03、AC-06、AC-07）。
+  - 徽标按条目 `workspaceKey` 经核心 `resolveWorkspaceColors` 派生前景槽位与背景变体，写入 hue、前景主题 L/C、背景主题 L/C 与混合强度自定义属性。
+  - 图标、文字、底色与描边同色相族着色，槽位变化并入既有 workspaceKey 签名驱动重绘（R-01-003/AC-08、AC-09、AC-10、AC-12）。
+  - 最近卡两条消息预览行为「角色图标 + 角色标签 + 圆点分隔符 + 文本」结构：用户消息行人物图标 +「用户」、agent 回复行机器人图标 +「助手」。
+  - 图标常驻且字形 12px 与时间线图标字形一致。
+  - 文本与加载 spinner 只写入文本段，不覆盖图标与标签（R-01-013/AC-07、AC-08）。
+  - 最近卡在该两行之后复用 `.dap-token-stats` 显示最近回合统计，再以 `activityAt` 时间行收尾（R-01-013/AC-12）。
+  - 对每个运行中会话经 `sessions.binding(id).session` 订阅轮内状态与 ChatSnapshot，归一为 `runtimeStats` 与工作项时间线。
+  - 运行中时长在渲染期按起始时间实时计算，停止运行或卸载即 `unsubscribe`。
+  - 进入等待行动后从保留快照或 native history 读取最近完整回合耗时，写入同一 `elapsedMs` 字段并保持冻结，同时复用停止前最后已知的 token 统计字段（R-01-009/AC-12、AC-13）。
+  - 冷会话只通过 native history/model 的一次性读取补齐，不进行状态轮询。
+  - 模型目录订阅（`modelDirectories` store）随补充数据读取对可见主会话建立。
+  - 会话离开可见集合或插件卸载时先 `unsubscribe` 再除名（`pruneSubscriptions`），监听器不残留（R-01-012/AC-16）。
+  - 历史区时间精化：history 到达或保留快照存在时提取最后回合结束时刻注入 `buildRecent` 的 `turnEnds`。
+  - 重派生后排序与时间显示经签名驱动就地更新；数据在途期间以宿主列表时间显示（R-01-010/AC-09）。
+  - 时间线用户行标识与图标几何：时间线内用户消息行（`.dap-trace-item[data-icon="user"]`）以行下 1px 中性灰实线下划线标识。
+  - 下划线宽度仅为图标+文字的内容宽度（`width: fit-content; max-width: 100%`），不贯穿整行。
+  - 下划线深浅主题各自适配，不占用蓝/绿/红/橙状态色。
+  - 下划线仍以 bottom 1px 背景渐变绘制、不占盒高，保持 14px 行高几何；C-019 整行虚线呈现的修订见 C-022。
+  - 全部时间线图标统一真实 14px 盒（字形 12px 居中、无占位 padding——content-box 下 padding 会把盒撑成 16px 并抬高时间线行）。
+  - 助手正文行（`data-icon="robot"`，按 kind=detail 有无与 fold 标记判别，思考组/思考行不算）无底色、字形与其他图标同用 12px 盒。
+  - 13px 盒在 14px 图标盒内产生 0.5px 半像素偏移致描边发虚（C-021）。
+  - 文本经 textContent 写入。
   - 运行卡外观对齐 answer-pet。
     - CSS 实现动作时间线（从卡片内容左边界起步、竖线 + 圆点半透明外环 + 运行节点闪烁）与进度条（5px、运行期间持续向右滚动条纹动画）。
     - 工作项标题与摘要之间渲染小圆点；错误显示行通过 `data-status="error"` 将动作 SVG、标题和摘要染红。
     - `prefers-reduced-motion` 仅关闭填充宽度 transition，不关闭状态脉冲/进度条纹。
-  - 标题行三部分结构（两端断点一致）：`.dap-header` 为 flex 行，首段 `.dap-repo` 为仓库入口专属区（不参与标题区的悬停高亮与折叠激活，T-144）；中段 `.dap-titlebar`（`flex: 1` 占满剩余宽度）是收起控件与悬停高亮的载体（`role="button"` + `tabindex` + `aria-expanded`，click 与 Enter/Space 激活；hover 高亮与 `cursor: pointer` 只覆盖标题区）；右段 `.dap-tools` 为固定宽的工具按钮区（预留后续工具按钮扩展），承载常显的档位切换按钮，不参与标题区的悬停高亮与折叠激活；仓库入口与档位切换按钮分处标题行两端、距离最大化，消除触屏点按档位按钮时的误触（R-01-022/AC-01）；收起方向图标（左侧竖杠 + 向左箭头指向竖杠，`.dap-collapse-hint`）以 `margin-left: auto` 锚定在标题区内容行最右端，仅在鼠标悬停或键盘聚焦标题区时即时显现（无过渡动画，右缘锚定不动、不挤动工具区按钮），离开即隐藏，常态不占位（R-01-011/AC-07）；桌面断点激活折叠为窄条，折叠态隐藏标题行、显示窄条，窄条内竖排（`writing-mode: vertical-rl`）显示「活动会话」与计数徽标，整条可点展开；移动端断点激活即收起抽屉（`togglePane(false)`），不执行窄条折叠，不再提供独立 × 关闭按钮（R-01-008/AC-02、R-01-011）；移动端经媒体查询切为固定抽屉 + 浮动开关按钮（固定于会话头部左上角 `top:12px; left:44px`，左边栏切换按钮右侧，文案「活动」，R-01-008/AC-04）。
-  - 桌面调宽手柄：右缘 6px 命中区，`pointerdown` 后经 `setPointerCapture` 跟踪 `pointermove` 实时写入 `--dap-width`（经核心 `clampPaneWidth` 夹取 200–480px，拖拽期间经 rAF 合帧派发 resize 通知），`pointerup`/`pointercancel` 持久化 localStorage；折叠窄条态与移动断点下经 CSS 隐藏手柄；卸载移除手柄与监听（R-01-015）。
-  - 抽屉开合状态经 `togglePane` 单点写入，同步 `data-open`、透明遮罩显隐与浮动开关显隐（抽屉打开时开关隐藏、关闭恢复，R-01-008/AC-05）；遮罩为 `position:fixed` 透明层（z-index 介于主会话与抽屉之间），点击经 `bindBackdropDismiss` 收起抽屉；触摸轻点经浏览器 tap→click 合成事件覆盖（与 ×/卡片交互一致，仅绑 click，不额外绑 touch 事件避免双触发与滑动误收起）；桌面断点外由媒体查询直接隐藏，无需 JS 断点监听（R-01-008/AC-03）。抽屉打开且处于移动断点时，激活当前会话对应的卡片（click 与 Enter/Space 同路径）经 `shouldDismissDrawerOnActivation` 纯函数判定转为 `togglePane(false)` 收起抽屉直达会话，不发起会话切换；分流前先按最新激活意图取消过期打开重试链（R-01-005），桌面断点、抽屉未打开或激活非当前卡片时维持既有切换行为（R-01-008/AC-06）。
+  - 标题行三部分结构（两端断点一致）：`.dap-header` 为 flex 行。
+  - 首段 `.dap-repo` 为仓库入口专属区（不参与标题区的悬停高亮与折叠激活，T-144）。
+  - 中段 `.dap-titlebar`（`flex: 1` 占满剩余宽度）是收起控件与悬停高亮的载体。
+  - 中段承载 `role="button"` + `tabindex` + `aria-expanded`，click 与 Enter/Space 激活；hover 高亮与 `cursor: pointer` 只覆盖标题区。
+  - 右段 `.dap-tools` 为固定宽的工具按钮区（预留后续工具按钮扩展），承载常显的档位切换按钮，不参与标题区的悬停高亮与折叠激活。
+  - 仓库入口与档位切换按钮分处标题行两端、距离最大化，消除触屏点按档位按钮时的误触（R-01-022/AC-01）。
+  - 收起方向图标（左侧竖杠 + 向左箭头指向竖杠，`.dap-collapse-hint`）以 `margin-left: auto` 锚定在标题区内容行最右端，仅在鼠标悬停或键盘聚焦标题区时即时显现。
+  - 收起方向图标无过渡动画，右缘锚定不动、不挤动工具区按钮，离开即隐藏，常态不占位（R-01-011/AC-07）。
+  - 桌面断点激活折叠为窄条，折叠态隐藏标题行、显示窄条，窄条内竖排（`writing-mode: vertical-rl`）显示「活动会话」与计数徽标，整条可点展开。
+  - 移动端断点激活即收起抽屉（`togglePane(false)`），不执行窄条折叠，不再提供独立 × 关闭按钮（R-01-008/AC-02、R-01-011）。
+  - 移动端经媒体查询切为固定抽屉 + 浮动开关按钮（固定于会话头部左上角 `top:12px; left:44px`，左边栏切换按钮右侧，文案「活动」，R-01-008/AC-04）。
+  - 桌面调宽手柄：右缘 6px 命中区，`pointerdown` 后经 `setPointerCapture` 跟踪 `pointermove` 实时写入 `--dap-width`（经核心 `clampPaneWidth` 夹取 200–480px，拖拽期间经 rAF 合帧派发 resize 通知）。
+  - `pointerup`/`pointercancel` 持久化 localStorage；折叠窄条态与移动断点下经 CSS 隐藏手柄。
+  - 卸载移除手柄与监听（R-01-015）。
+  - 抽屉开合状态经 `togglePane` 单点写入，同步 `data-open`、透明遮罩显隐与浮动开关显隐（抽屉打开时开关隐藏、关闭恢复，R-01-008/AC-05）。
+  - 遮罩为 `position:fixed` 透明层（z-index 介于主会话与抽屉之间），点击经 `bindBackdropDismiss` 收起抽屉。
+  - 触摸轻点经浏览器 tap→click 合成事件覆盖（与 ×/卡片交互一致，仅绑 click，不额外绑 touch 事件避免双触发与滑动误收起）。
+  - 桌面断点之外由媒体查询直接隐藏，无需 JS 断点监听（R-01-008/AC-03）。
+  - 抽屉打开且处于移动断点时，激活当前会话对应的卡片（click 与 Enter/Space 同路径）经 `shouldDismissDrawerOnActivation` 纯函数判定转为 `togglePane(false)` 收起抽屉直达会话，不发起会话切换。
+  - 分流前先按最新激活意图取消过期打开重试链（R-01-005）。
+  - 桌面断点、抽屉未打开或激活非当前卡片时，维持既有切换行为（R-01-008/AC-06）。
   - 每张 card 在创建时注册自身的 `click` / `keydown` handler，直接读取当前 card 的 `data-session-id`（后台任务子卡除外——不绑激活，R-01-023/AC-08）；外部菜单与 pane 空白不进入卡片处理，配列表就绪重试。
-  - 回到顶部悬浮按钮：`.dap-top` 为窗格内 `position:absolute` 的圆形图标按钮（右下角 `bottom:12px; right:12px`，纯向上箭头图标无文字、`aria-label` 提供可访问名称，不透明底色——深色纯色 `#1d1f25`、浅色经外壳 layer-2 别名覆盖），随窗格骨架创建、默认 `hidden`；滚动监听在 `scrollTop` 超过阈值 `TOP_THRESHOLD`（200px）时显示、回到阈值内隐藏；激活时 `scrollTo({ top: 0 })`，`prefersReducedMotion()` 命中用 `auto` 直接定位、否则 `smooth` 平滑滚动，滚动回顶经同一滚动监听自然收口隐藏；桌面折叠窄条态经 CSS 隐藏，移动端抽屉形态同样适用（抽屉即同一窗格）；监听随 `bindPaneControls` 的 unbind 清理，按钮随窗格骨架移除（R-01-018、R-02-003）。
-  - 卡片紧凑呈现切换：`.dap-density` 为标题行右侧工具区（`.dap-tools`）内的常显纯图标按钮（22px 圆形、不透明底色、hover/focus-visible 高亮、可访问名称），工具区预留后续工具按钮扩展；激活时按紧凑→中间→完整循环翻转窗格根 `data-density` 属性并执行滚动锚定（补偿 `scrollTop` 使当前选中卡片顶部相对视口位置不变，当前卡不可得时不补偿，补偿目标超出滚动边界时钳制在滚动边界内），可访问名称表达将切换到的目标档位；中间档经渲染层以 `lastOnly` 单行渲染时间线（末行为当前执行或最近完成的工作项，含 running 实时更新）并隐藏进度行与统计行，完成提醒卡末行经 CSS 收合为单行（「已完成」胶囊居左、「移入历史」按钮居右、正文隐藏，选择器以卡片 `data-wait="done"` 作用域），紧凑档再经 CSS 隐藏 `.dap-card-head`、等待末行（`.dap-foot`）与最近卡消息预览行，仅保留标题行——激活跳转逻辑不感知档位，渲染签名含显示档位分量（档位切换经 queueSync 触发一轮重渲染，R-02-003 的签名去重语义不变）（R-01-021/AC-01、AC-02、AC-04、AC-08）；档位经 `normalizeDensity` 归一（缺失/非法回退默认中间档）后存 localStorage，启动恢复，会话状态变化不翻转已选档位；桌面折叠窄条态随标题行隐藏，移动端抽屉形态同样适用；按钮随窗格骨架创建与移除（R-01-021、R-02-003）。
+  - 回到顶部悬浮按钮：`.dap-top` 为窗格内 `position:absolute` 的圆形图标按钮（右下角 `bottom:12px; right:12px`，纯向上箭头图标无文字、`aria-label` 提供可访问名称，不透明底色——深色纯色 `#1d1f25`、浅色经外壳 layer-2 别名覆盖）。
+  - 按钮随窗格骨架创建、默认 `hidden`；滚动监听在 `scrollTop` 超过阈值 `TOP_THRESHOLD`（200px）时显示、回到阈值内隐藏。
+  - 激活时 `scrollTo({ top: 0 })`，`prefersReducedMotion()` 命中用 `auto` 直接定位、否则 `smooth` 平滑滚动。
+  - 滚动回顶后，由同一滚动监听自然收口隐藏。
+  - 桌面折叠窄条态经 CSS 隐藏，移动端抽屉形态同样适用（抽屉即同一窗格）。
+  - 监听随 `bindPaneControls` 的 unbind 清理，按钮随窗格骨架移除（R-01-018、R-02-003）。
+  - 卡片紧凑呈现切换：`.dap-density` 为标题行右侧工具区（`.dap-tools`）内的常显纯图标按钮（22px 圆形、不透明底色、hover/focus-visible 高亮、可访问名称），工具区预留后续工具按钮扩展。
+  - 激活时按紧凑→中间→完整循环翻转窗格根 `data-density` 属性并执行滚动锚定，可访问名称表达将切换到的目标档位。
+  - 滚动锚定补偿 `scrollTop` 使当前选中卡片顶部相对视口位置不变，当前卡不可得时不补偿，补偿目标超出滚动边界时钳制在滚动边界内。
+  - 中间档经渲染层以 `lastOnly` 单行渲染时间线（末行为当前执行或最近完成的工作项，含 running 实时更新）并隐藏进度行与统计行。
+  - 完成提醒卡末行经 CSS 收合为单行（「已完成」胶囊居左、「移入历史」按钮居右、正文隐藏，选择器以卡片 `data-wait="done"` 作用域）。
+  - 紧凑档再经 CSS 隐藏 `.dap-card-head`、等待末行（`.dap-foot`）与最近卡消息预览行，仅保留标题行。
+  - 激活跳转逻辑不感知档位，渲染签名含显示档位分量（档位切换经 queueSync 触发一轮重渲染，R-02-003 的签名去重语义不变）（R-01-021/AC-01、AC-02、AC-04、AC-08）。
+  - 档位经 `normalizeDensity` 归一（缺失/非法回退默认中间档）后存 localStorage，启动恢复，会话状态变化不翻转已选档位。
+  - 桌面折叠窄条态随标题行隐藏，移动端抽屉形态同样适用；按钮随窗格骨架创建与移除（R-01-021、R-02-003）。
   - 仓库入口：`.dap-repo` 为标题行最左端独立区的常显纯图标链接（T-144），与右侧工具区（`.dap-tools`）的档位切换按钮远离以防触屏误触，视觉强度弱于带描边的档位切换按钮（主次分明，R-01-022/AC-01）；与标题区的接缝间距（`margin-right: 12px`）对齐工具区的接缝间距（`.dap-tools` 的 `padding-left: 12px`），标题区悬停高亮两侧留白对称（T-146）：
     - 呈现：22px 圆形、无边框、不透明底色、hover/focus-visible 高亮、可访问名称，悬停提示「报告问题，点赞收藏」（可访问名称保持「报告问题」表达元素用途，东家指令）；图标为 MIT 许可的 GitHub Octicon `mark-github` 字形，与工具区既有图标同用 14px 字形盒。
     - 行为：`href` 指向 https://github.com/ccll/dsh-activity-pane，以 `target="_blank"` + `rel="noreferrer noopener"` 在新标签页打开；激活不进入标题区收起激活路径，也不改变当前选中会话与呈现档位（R-01-022/AC-02）。
@@ -379,17 +836,49 @@ flowchart LR
 - 实现: 单端（浏览器 client bundle）
 
 ### E2E 验证基建
-- 职责: 以真实浏览器对最终页面行为做端到端回归验证，为交互类验收点提供自动化锚点（T-082 首条 spec 锚定 R-01-001、R-01-002、R-01-010；T-083/T-084 迁移布局、滚动、跳转、调宽、回顶与卡面内容；T-085 加固 runner 并覆盖 R-01-002 跨客户端确认同步/恢复与 R-01-008 移动抽屉完整交互；T-088 覆盖 R-01-002 错误提醒的 provider→Host→SSE→浏览器跨边界路径；T-089 补 R-01-009 tool→stream、R-01-014 loading→ready 与键盘路径；T-090 补 R-01-014/AC-03 detail 渐进就绪中间帧；不承担产品数据源或恢复补偿）
+- 职责: 以真实浏览器对最终页面行为做端到端回归验证，为交互类验收点提供自动化锚点。
+  - T-082 首条 spec 锚定 R-01-001、R-01-002、R-01-010。
+  - T-083/T-084 迁移布局、滚动、跳转、调宽、回顶与卡面内容。
+  - T-085 加固 runner 并覆盖 R-01-002 跨客户端确认同步/恢复与 R-01-008 移动抽屉完整交互。
+  - T-088 覆盖 R-01-002 错误提醒的 provider→Host→SSE→浏览器跨边界路径。
+  - T-089 补 R-01-009 tool→stream、R-01-014 loading→ready 与键盘路径。
+  - T-090 补 R-01-014/AC-03 detail 渐进就绪中间帧。
+  - 不承担产品数据源或恢复补偿。
 - 关键内部结构:
-  - 隔离测试环境：每个 spec 使用独立 `$DSH_HOME` 临时目录 + 预置 settings.yaml（provider 指向 mock LLM）+ `dsh web --port 0`；插件经 `dsh plugin --profile web add` 以 link: 装入；spec 间会话与持久化状态互不可见。
-  - 浏览器生命周期：每个 spec 使用独立 Chromium 与主 context，结束后关闭；需要验证同服务多客户端语义的 spec 可在该 Chromium 内创建第二个 context，二者只共享对应 spec 的 dsh web 服务。C-047 的隔离策略保证 spec 间浏览器状态不可见；runner 按 C-053 固定顺序执行以保持单机资源上限与日志顺序稳定，C-058 仅删除 sessions 专用恢复。
-  - 阶段可观测性与清理：PASS 日志分列 boot/browser/spec/cleanup/total，定位真实墙钟占比；dsh web 正常退出后立即取消 5s SIGKILL escalation timer，只有 SIGTERM 未在窗口内收敛才升级；slow mock 在客户端响应已 destroyed/writableEnded 时停止剩余 chunk timers 与收尾写入。context/browser/environment 清理逐项执行，任一步失败均显式使 spec 失败而不阻止后续资源释放。
-  - mock LLM 剧本服务：OpenAI 兼容 `POST /chat/completions` 端点，按用户消息关键词选择 E2E 剧本——慢速流式（运行中）、ask_user_question tool_call（待回复）、runtime 的 tool→回答后 slow stream（运行态时间线实时更新）、立即 finish（完成提醒）、非重试型 HTTP 400（错误提醒）。
-  - 可控加载接缝：仅当页面 URL fragment 显式携带参数时启用且单项上限 1s；`dap-e2e-list-delay` 把首次非错误列表快照在渲染边界内短暂投影为 pending，到期只触发同一 `queueSync`；`dap-e2e-model-delay` 仅跳过 model directory 的抢先初值并延迟正式 native models RPC，不伪造 response。默认 URL 为零分支，不修改宿主 sessions、真实快照或页面连接世代。`loading-ready.mjs` 以 MutationObserver 证明列表 loading 帧实际提交及真实 slow 卡标题/时间线先呈现、model detail 后补齐。
+  - 隔离测试环境：每个 spec 使用独立 `$DSH_HOME` 临时目录 + 预置 settings.yaml（provider 指向 mock LLM）+ `dsh web --port 0`。
+  - 插件经 `dsh plugin --profile web add` 以 link: 装入。
+  - spec 间会话与持久化状态互不可见。
+  - 浏览器生命周期：每个 spec 使用独立 Chromium 与主 context，结束后关闭。
+  - 需要验证同服务多客户端语义的 spec 可在该 Chromium 内创建第二个 context，二者只共享对应 spec 的 dsh web 服务。
+  - C-047 的隔离策略保证 spec 间浏览器状态不可见。
+  - runner 按 C-053 固定顺序执行以保持单机资源上限与日志顺序稳定，C-058 仅删除 sessions 专用恢复。
+  - 阶段可观测性与清理：PASS 日志分列 boot/browser/spec/cleanup/total，定位真实墙钟占比。
+  - dsh web 正常退出后立即取消 5s SIGKILL escalation timer，只有 SIGTERM 未在窗口内收敛才升级。
+  - slow mock 在客户端响应已 destroyed/writableEnded 时停止剩余 chunk timers 与收尾写入。
+  - context/browser/environment 清理逐项执行，任一步失败均显式使 spec 失败而不阻止后续资源释放。
+  - mock LLM 剧本服务：OpenAI 兼容 `POST /chat/completions` 端点，按用户消息关键词选择 E2E 剧本。
+  - 剧本：慢速流式（运行中）、ask_user_question tool_call（待回复）、runtime 的 tool→回答后 slow stream（运行态时间线实时更新）、立即 finish（完成提醒）、非重试型 HTTP 400（错误提醒）。
+  - 可控加载接缝：仅当页面 URL fragment 显式携带参数时启用且单项上限 1s。
+  - `dap-e2e-list-delay` 把首次非错误列表快照在渲染边界内短暂投影为 pending，到期只触发同一 `queueSync`。
+  - `dap-e2e-model-delay` 仅跳过 model directory 的抢先初值并延迟正式 native models RPC，不伪造 response。
+  - 默认 URL 为零分支，不修改宿主 sessions、真实快照或页面连接世代。
+  - `loading-ready.mjs` 以 MutationObserver 证明列表 loading 帧实际提交及真实 slow 卡标题/时间线先呈现、model detail 后补齐。
   - 驱动：Playwright 经真实 composer UI 发起会话，断言窗格可观察行为；不断言内部 DOM 结构，结构断言仅限宿主槽座、可访问角色与列表状态等显式契约边界。
-  - 失败语义：每个 spec 只建立一个 Chromium context、一个页面连接世代并观察 6s；普通断言、列表超时与明确列表失败均立即计为回归，不 reload、不换环境重试。列表 `pending/error → ready` 参与卡片渲染签名，空卡集合也会提交状态转换，避免签名短路把 DOM 冻结在「加载中」/「列表加载失败」；失败保存 screenshot 与服务端 stderr 尾部（C-058，废弃 C-053/C-055 的 sessions 专用恢复）。
-  - 测试影响门禁：项目级 `tools/test_impact_lint.py` 比较 Git 基线与 working tree、index 或 outgoing commit 的 PRD AC 正文与 SOLUTION 变化；AC 新增/修改必须触碰含 exact AC-ID 的 unit/E2E/manual 证据，或由同次变化的 active task 记录 `none` 理由；SOLUTION（方案层，兼容旧名 DESIGN.md）变化必须有同次 active task 的 `DESIGN` 或 `SOLUTION` 测试影响行。检查器分别报告 unit、E2E 与 manual 锚定数，只证明证据被重新审视，不替代断言充分性审核，也不自动生成测试（C-059）。
-  - staged 产物门禁：`scripts/check-staged-client.mjs` 把 Git index 中的 staged builder、core、navigation 与 client source 写入临时目录，执行 staged builder 生成期望 bundle，再与 staged `.dsh-plugin/client.js` 按字节比较；未暂存工作树不参与判定，hook 不改 index。日常 `pnpm check` 仍从工作树重建 bundle，服务开发与 HMR。
-  - 门禁归属：`pnpm verify:fast` 为快速入口（AgentMap + 测试影响 self-test/report + core/bundle），`pnpm verify` 为完整入口；agent 任务结束与 `.githooks/pre-push.d/` 重放完整入口，pre-commit 依次验证 AgentMap、staged 测试影响、工作树单测与 staged bundle。本地 pre-push 负责推送前权威阻断；C-060 在手工 hosted 诊断绿色后恢复 `.github/workflows/ci.yml` 的 main push 自动 `pnpm verify`，作为推送后 clean-runner 独立裁决，并保留 `workflow_dispatch`。workflow 继续锁定 rc.7 registry 截止、Node/pnpm/Playwright、完整历史 checkout、缓存与失败截图；PR/tag 不触发，Release 继续由人基于已通过本地与 main hosted 门禁的 commit 创建。
+  - 失败语义：每个 spec 只建立一个 Chromium context、一个页面连接世代并观察 6s。
+  - 普通断言、列表超时与明确列表失败均立即计为回归，不 reload、不换环境重试。
+  - 列表 `pending/error → ready` 参与卡片渲染签名，空卡集合也会提交状态转换，避免签名短路把 DOM 冻结在「加载中」/「列表加载失败」。
+  - 失败保存 screenshot 与服务端 stderr 尾部（C-058，废弃 C-053/C-055 的 sessions 专用恢复）。
+  - 测试影响门禁：项目级 `tools/test_impact_lint.py` 比较 Git 基线与 working tree、index 或 outgoing commit 的 PRD AC 正文与 SOLUTION 变化。
+  - AC 新增/修改必须触碰含 exact AC-ID 的 unit/E2E/manual 证据，或由同次变化的 active task 记录 `none` 理由。
+  - SOLUTION（方案层，兼容旧名 DESIGN.md）变化必须有同次 active task 的 `DESIGN` 或 `SOLUTION` 测试影响行。
+  - 检查器分别报告 unit、E2E 与 manual 锚定数，只证明证据被重新审视，不替代断言充分性审核，也不自动生成测试（C-059）。
+  - staged 产物门禁：`scripts/check-staged-client.mjs` 把 Git index 中的 staged builder、core、navigation 与 client source 写入临时目录。
+  - 门禁执行 staged builder 生成期望 bundle，再与 staged `.dsh-plugin/client.js` 按字节比较；未暂存工作树不参与判定，hook 不改 index。
+  - 日常 `pnpm check` 仍从工作树重建 bundle，服务开发与 HMR。
+  - 门禁归属：`pnpm verify:fast` 为快速入口（AgentMap + 测试影响 self-test/report + core/bundle），`pnpm verify` 为完整入口。
+  - agent 任务结束与 `.githooks/pre-push.d/` 重放完整入口，pre-commit 依次验证 AgentMap、staged 测试影响、工作树单测与 staged bundle。
+  - 本地 pre-push 负责推送前权威阻断；C-060 在手工 hosted 诊断绿色后恢复 `.github/workflows/ci.yml` 的 main push 自动 `pnpm verify`，作为推送后 clean-runner 独立裁决，并保留 `workflow_dispatch`。
+  - workflow 继续锁定 rc.7 registry 截止、Node/pnpm/Playwright、完整历史 checkout、缓存与失败截图。
+  - PR/tag 不触发，Release 继续由人基于已通过本地与 main hosted 门禁的 commit 创建。
 - 代码位置: e2e/、package.json、.githooks/、.github/workflows/ci.yml
 - 实现: 单端（Node，测试期进程）

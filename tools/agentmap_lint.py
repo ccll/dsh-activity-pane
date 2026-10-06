@@ -172,7 +172,7 @@ IGNORED_PARTS = {
     "tmp",
 }
 CANONICAL_FILES_SHA256 = {
-    "AGENTS.md": "b61058d6b2bac84d5cdf862d3c0713146b3dcd26d3b8d1ae88e4ce7aac1a64ae",
+    "AGENTS.md": "691d715f7ba4b058f778d178dead2f7528668eae703302e1d4bb2ef415d6337b",
     ".githooks/commit-msg": "8e2d1dd49ab9fd71e8bb3b87fe5786c0ea0314327e58558b518499541e75a51d",
     ".githooks/pre-commit": "83cfb74e7792ed1cf1264105941249d06a37872455faf83297220eb4268325fa",
     ".githooks/pre-push": "c85da06d5f5423959656195835bb570912839e9e65483d3cc20bf096aea9cd4c",
@@ -314,6 +314,54 @@ def head_decision_text(root: Path) -> str:
         or git_head_text(root, Path("DECISIONS.md"))
         or ""
     )
+
+
+DECISION_ID_RE = re.compile(
+    r"\b(?:R-\d{2}-\d{3}/AC-\d{2}|R-\d{2}-\d{3}|T-\d{3}|G-\d+|NG-\d+|C-\d{3}[A-Z]?)\b"
+)
+
+
+def decision_entry_signature(body: str) -> tuple:
+    """Semantic identity of one entry: heading, date, ID/evidence/number multisets."""
+    lines = body.splitlines()
+    heading = lines[0].rstrip() if lines else ""
+    date_match = re.search(r"^日期:.*$", body, re.MULTILINE)
+    date = date_match.group(0).rstrip() if date_match else ""
+    ids = tuple(sorted(DECISION_ID_RE.findall(body)))
+    evidence = tuple(sorted(DECISION_EVIDENCE_RE.findall(body)))
+    skeleton = DECISION_ID_RE.sub(" ", body)
+    numbers = tuple(sorted(re.findall(r"\d+(?:\.\d+)?", skeleton)))
+    return (heading, date, ids, evidence, numbers)
+
+
+def decision_entry_signatures(text: str) -> list:
+    """Pair each C-ID with its semantic signature, in document order."""
+    matches = list(C_HEADING_RE.finditer(text))
+    entries = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        entries.append((match.group(1), decision_entry_signature(text[match.start() : end])))
+    return entries
+
+
+def decision_transition_failure(old_text: str, new_text: str) -> str | None:
+    """Existing entries may be reworded in place; identity and semantics stay frozen.
+
+    东家授权（2026-10-06）：措辞层修订放行，语义漂移拒绝。指纹 = 标题行、日期行、
+    ID 多重集、实现证据多重集与数值多重集；分点重构只动文字与列表形状，指纹不变。
+    """
+    old_entries = decision_entry_signatures(decision_entries(old_text))
+    new_entries = decision_entry_signatures(decision_entries(new_text))
+    if len(new_entries) < len(old_entries):
+        return "removed existing history"
+    for index in range(len(old_entries)):
+        old_cid, old_signature = old_entries[index]
+        new_cid, new_signature = new_entries[index]
+        if old_cid != new_cid:
+            return "decision %s replaced by %s" % (old_cid, new_cid)
+        if old_signature != new_signature:
+            return "decision %s changed identity or semantics" % old_cid
+    return None
 
 
 def solution_trace_rows(body: str | None) -> list[tuple[str, str, str, str]]:
@@ -618,12 +666,16 @@ def check_system_files(root: Path, result: Result, changed: set[str]) -> None:
             appended = ""
             if name in changed:
                 entries_old = decision_entries(head_decision_text(root))
-                if entries_old and not current_entries.startswith(entries_old):
-                    result.errors.append(
-                        f"{name}: append-only content was modified or removed"
-                    )
-                elif entries_old:
-                    appended = current_entries[len(entries_old):]
+                appended = ""
+                if entries_old:
+                    failure = decision_transition_failure(entries_old, current_entries)
+                    if failure:
+                        result.errors.append(f"{name}: append-only content {failure}")
+                    else:
+                        old_count = len(decision_entry_signatures(entries_old))
+                        new_matches = list(C_HEADING_RE.finditer(current_entries))
+                        start = new_matches[old_count].start() if len(new_matches) > old_count else len(current_entries)
+                        appended = current_entries[start:]
                 else:
                     appended = current_entries
             if appended and DECISION_EVIDENCE_RE.search(strip_code_fences(appended)):
@@ -1184,8 +1236,12 @@ def check_history_transition(root: Path, result: Result, parent: str, commit: st
     new_entry = ref_decision_entry(root, commit)
     if check_additions and old_entry and old_entry[1]:
         old_name, old_text = old_entry
-        if new_entry is None or not decision_entries(new_entry[1]).startswith(decision_entries(old_text)):
-            result.errors.append(f"{commit[:12]}: {old_name} modified or removed existing history")
+        if new_entry is None:
+            result.errors.append(f"{commit[:12]}: {old_name} removed existing history")
+        else:
+            failure = decision_transition_failure(decision_entries(old_text), decision_entries(new_entry[1]))
+            if failure:
+                result.errors.append(f"{commit[:12]}: {old_name} {failure}")
     if check_additions and new_entry is not None:
         old_ids = set(C_HEADING_RE.findall(decision_entries(old_entry[1]))) if old_entry else set()
         for cid in set(C_HEADING_RE.findall(decision_entries(new_entry[1]))) - old_ids:

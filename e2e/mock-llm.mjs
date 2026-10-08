@@ -203,12 +203,14 @@ async function playJobStart(res, model) {
 }
 
 /** 后台任务剧本读轮：从最近 tool 结果文本提取动态 job id，发起 job_output 读取。 */
-async function playJobRead(res, model, messages) {
+async function playJobRead(res, model, toolTexts) {
 	let jobId = null;
-	for (let i = messages.length - 1; i >= 0 && jobId === null; i -= 1) {
-		if (messages[i]?.role !== "tool") continue;
-		const match = messageText(messages[i]).match(/background job (bash-\d+)/);
-		if (match) jobId = match[1];
+	for (const text of toolTexts) {
+		const match = String(text).match(/background job (bash-\d+)/);
+		if (match) {
+			jobId = match[1];
+			break;
+		}
 	}
 	send(res, chunk(model, { role: "assistant", content: "读取后台任务输出。\n" }));
 	const deltas = [
@@ -232,7 +234,7 @@ const SCENARIOS = {
 	error: playError,
 	fast: playFast,
 	job: playJobStart,
-	jobread: (res, model, messages) => playJobRead(res, model, messages),
+	jobread: (res, model, toolTexts) => playJobRead(res, model, toolTexts),
 };
 
 // ---- Messages API 引擎（dsh 0.2.0 起 DeepSeek provider 走 Anthropic 风格
@@ -318,19 +320,14 @@ async function playMessagesJobStart(res, model) {
 	res.end();
 }
 
-async function playMessagesJobRead(res, model, messages) {
+async function playMessagesJobRead(res, model, toolTexts) {
+	// 工具结果文本由调用方经 messagesScenarioTexts 统一抽取（T-159 审核发现 6）。
 	let jobId = null;
-	for (const message of messages ?? []) {
-		if (jobId !== null) break;
-		const blocks = Array.isArray(message?.content) ? message.content : [];
-		for (const block of blocks) {
-			if (block?.type !== "tool_result") continue;
-			const parts = Array.isArray(block.content) ? block.content : [block.content];
-			for (const part of parts) {
-				const text = typeof part === "string" ? part : part?.text ?? "";
-				const match = String(text).match(/background job (bash-\d+)/);
-				if (match) jobId = match[1];
-			}
+	for (const text of toolTexts) {
+		const match = String(text).match(/background job (bash-\d+)/);
+		if (match) {
+			jobId = match[1];
+			break;
 		}
 	}
 	beginMessage(res);
@@ -348,7 +345,7 @@ const MESSAGES_SCENARIOS = {
 	error: playError,
 	fast: playMessagesFast,
 	job: playMessagesJobStart,
-	jobread: (res, model, messages) => playMessagesJobRead(res, model, messages),
+	jobread: (res, model, toolTexts) => playMessagesJobRead(res, model, toolTexts),
 };
 
 /**
@@ -386,19 +383,15 @@ export async function startMockLlm() {
 			}
 			try {
 				const model = body.model ?? "e2e-mock";
-				if (isChat) {
-					await (scenario === "slow"
-						? playSlow(res, model, streamLog)
-						: scenario === "jobread"
-							? SCENARIOS.jobread(res, model, body.messages ?? [])
-							: SCENARIOS[scenario](res, model));
-				} else {
-					await (scenario === "slow"
-						? playMessagesSlow(res, model, streamLog)
-						: scenario === "jobread"
-							? MESSAGES_SCENARIOS.jobread(res, model, body.messages ?? [])
-							: MESSAGES_SCENARIOS[scenario](res, model));
-				}
+				const texts = isChat ? scenarioTexts(body) : messagesScenarioTexts(body);
+				const table = isChat ? SCENARIOS : MESSAGES_SCENARIOS;
+				// 双引擎共用一个派发形状（T-159 审核发现 6）：slow 需要流式日志记账、
+				// jobread 需要工具结果文本，其余剧本只要 (res, model)。
+				await (scenario === "slow"
+					? table.slow(res, model, streamLog)
+					: scenario === "jobread"
+						? table.jobread(res, model, texts.toolTexts)
+						: table[scenario](res, model));
 			} catch {
 				res.end();
 			}

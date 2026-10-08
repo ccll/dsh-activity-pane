@@ -3773,9 +3773,10 @@ assert.ok(
 	"紧凑档主会话跳过模型目录订阅与一次性 load，切回更高档位经既有语义补齐（R-01-025/AC-06）",
 );
 assert.ok(
-	clientSource.includes("const face = liveSessionFace(id);") &&
-		clientSource.includes("if (logWindowSuppressedFor(id)) return;"),
-	"紧凑档主会话运行时不建立日志窗口，轮内状态订阅与 liveness 记账保留（R-01-025/AC-01、AC-02；T-159 起共享初始历史打开由宿主 retain 语义承载）",
+	clientSource.indexOf("if (logWindowSuppressedFor(id)) return;") < clientSource.indexOf("const live = liveSessionFace(id);") &&
+		clientSource.includes("const face = peekSessionFace(id);") &&
+		!clientSource.includes("const face = liveSessionFace(id);"),
+	"紧凑档主会话不发起日志水合：档位门控先于 retain（retain.ready 即宿主共享初始历史打开），轮内状态订阅只借用既有引用面、无引用运行卡降级 sessionStatus/busy（R-01-025/AC-01、AC-02；T-159 审核发现 1）",
 );
 assert.ok(
 	clientSource.includes("function enforceDensityDataDiscipline()") &&

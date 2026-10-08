@@ -6,7 +6,7 @@ id: T-157
 
 # T-157 档位资源纪律：紧凑档数据面裁剪与渲染面跳写
 
-状态: active
+状态: completed
 关联: R-01-024（新增）、R-01-010/AC-09（档位限定注记）、C-084
 风险等级: standard
 
@@ -73,4 +73,40 @@ id: T-157
 
 ## 终态与证据
 
-（终态前填写）
+- 实现: 紧凑档数据面裁剪与渲染面跳写（R-01-024 七条 AC + R-01-010/AC-09 档位限定）。
+  - 提交 ef3a270（实现）：core 新增 `logWindowSuppressed` 谓词；client 的 `captureSessionLog`/`syncLiveness`/`loadNativeDetails` 门控、`enforceDensityDataDiscipline` 渲染期持续执法（unsubscribe + `detail.log` 置空 + 非当前会话 `session.dispose()`）、三处时间线跳写与进度/统计行完整档门控；新增 e2e/specs/density-resource.mjs 与 check.mjs、acceptance.mjs 锚点。
+  - 提交 8e70618（复审收敛）：PRD/DOMAIN 补当前会话豁免注记；`logWindowSuppressedFor` 单点判定统一四处；深翻 fetchPage 响应点重读档位、中止路径不落地不置 `historyDeepReadDone`；enforce 列表未就绪整轮跳过守卫；check.mjs 契约同步。
+  - 实现期隔离探针证据（一次性，脚本已删，结论记录于此）：紧凑档拆窗后探针会话原 `session/follow` 流帧计数冻结（24→24，跨 4s 无增量），dispose 为真正停流手段（仅 unsubscribe 不终止共享传输流）；切回高档位经既有 open 语义重新水合。宿主对外壳与会话窗口按会话对象去重，同一会话 follow open 帧无法按发起方归因——e2e 不做网络层负向断言，以 bundle 契约承载门控存在性。
+- 测试: 快速门禁与全量门禁逐项通过。
+  - `pnpm check`（unit + bundle 契约）与 `pnpm verify:fast` 全绿（agentmap lint、测试影响记账）。
+  - `pnpm verify` 全量 E2E 20 spec 通过（运行于含中止路径修复的代码；8e70618 之后仅注释措辞零行为差异）：density-resource 新 spec 通过；移动端热静默 rAF 74 < 80 阈值（C-082 量化守恒门禁对照：档位跳写与拆窗使紧凑档 rAF 事件源减少，阈值未放宽）。
+  - `session-lifecycle.mjs` 首轮全量出现一次 opacity 采样 NaN（时间线点脉冲采样与渲染重建的既有竞态窗口）；隔离复跑两次 + 全量复跑两次均通过，判定为既有采样竞态非本需求引入。
+- SOLUTION 对照: SOLUTION 与实现一致。
+  - 运行时语义、产品契约、窗格渲染器内部结构与实现对照无差异（logWindowSuppressedFor 单点判定、dispose 停流、当前会话豁免与渲染期执法、深翻响应点与中止语义、渲染跳写）。
+  - 需求追溯索引含 R-01-024 行（主责 窗格渲染器）；DOMAIN「档位资源纪律」不变量五子项与 RATIONALE C-084 与实现一致。
+  - 测试锚点：`scripts/check.mjs#R-01-024/AC-01`（谓词断言）、`scripts/check.mjs#R-01-024/AC-03`、`#R-01-024/AC-06`、bundle 契约 7 组；`e2e/specs/density-resource.mjs#R-01-024/AC-01`～AC-07 相关断言；`scripts/acceptance.mjs#R-01-024/AC-02` 等 4 条人工条目与 R-01-010/AC-09 步骤更新。
+- commit: ef3a270
+- commit: 8e70618
+- review:
+  - 审核方: code-review skill 双轴并行独立子代理（Standards agent 50173d15、Spec agent 108ba4b5），基线 36b2ed2
+  - 目的理解: 本变更目的为紧凑/中间档表达「只看概要」时收紧窗格数据面与渲染面资源消耗（移动网络/设备体验）。
+    - 约束：不引入轮询（R-02-001/004）；裁剪以档位为唯一输入（C-084）；非日志通道不停摆。
+    - 约束：切回高档位经既有渐进语义重建；子代理模型上下文读取不受影响。
+    - 预期行为：紧凑档主会话日志窗口不建立/保持（当前会话由外壳持有豁免、切走后渲染期释放）、深翻与目录读取豁免子代理、隐藏行不构建不写入、切回渐进重建。
+  - 执行方式: code-review skill 双轴并行评审。
+    - Standards 轴对照 AGENTS/CONVENTIONS 写作与过程规范加 Fowler 基线；Spec 轴对照 T-157 与 PRD R-01-024、SOLUTION/DOMAIN/RATIONALE C-084。
+    - 复审覆盖工作树与两笔提交；修复由同一审核方循环复审。
+  - 问题与修复: 七项发现逐条修复并经同一审核方复审闭环（明细如下）。
+    - PRD AC-01 与当前会话豁免 map 矛盾 → PRD/DOMAIN 增豁免注记（两轴确认闭环）。
+    - 写作风格长句 → 陈述拆三短句；AC 存量同形句式按惯例接受。
+    - 判定组合三处重复 → `logWindowSuppressedFor` 单点化；syncLiveness 拆窗分支并入正常路径记账。
+    - 逐点档位条件级联 → 沿仓库惯例保留（判断题）。
+    - task 措辞漂移（detail.log）→ 已同步实现。
+    - 深翻「响应点重读」声明与实现不符 → fetchPage 响应点重读 + 中止不落地不置 historyDeepReadDone；两处 map 措辞同步为「中止时已取页不落地」。
+    - enforce 列表快照未就绪误 dispose 风险 → `listSnap?.current == null` 整轮跳过守卫。
+  - 复审结论: Standards 轴「五项全部闭环，无新增问题，复审通过」；Spec 轴三轮逐项闭环，最终结论「措辞同步后即可关闭 task」，措辞已在 8e70618 同步。
+- 残余风险与测试缺口:
+  - AC-01/AC-03/AC-06 传输层负向承诺无可重复自动化行为断言（bundle 字符串契约与一次性探针承载；网络层按会话对象去重、发起方不可归因）。
+  - AC-02 的 acks/busy SSE 不停摆仅人工 DevTools 条目承载；AC-04 仅 MANUAL 层验证。
+  - 当前会话豁免依赖「外壳持有会话运行时」假设，无锚定断言。
+  - 中止路径行为级断言缺失（字面量契约承载）；落地与响应点门控之间的微任务级档位切换竞态记录不修（实际不可达）。

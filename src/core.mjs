@@ -147,9 +147,9 @@ export function nextDensity(value) {
 }
 
 /**
- * 档位资源纪律谓词（R-01-024/AC-01）：紧凑呈现档下主会话日志窗口不建立或保持。
+ * 档位资源纪律谓词（R-01-025/AC-01）：紧凑呈现档下主会话日志窗口不建立或保持。
  * 子代理日志窗口承载标题行可见的模型上下文（R-01-012/AC-17），恒不裁剪；
- * 输入档位经 normalizeDensity 归一，非法值视作中间档即不裁剪（R-01-024/AC-01）。
+ * 输入档位经 normalizeDensity 归一，非法值视作中间档即不裁剪（R-01-025/AC-01）。
  */
 export function logWindowSuppressed(densityLevel, isSubagent) {
 	return normalizeDensity(densityLevel) === "compact" && isSubagent !== true;

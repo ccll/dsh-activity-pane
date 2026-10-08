@@ -383,7 +383,7 @@ flowchart LR
   - 回填读取失败，保留已持久化记账并按 30s 退避随下次请求重试，不使卡片渲染失败。
   - SSE 推送：与 acks 通道同模式——连接即发全量、变更即广播，插件卸载关闭全部连接。
 - 定时器纪律：不使用服务发现/frame probe 或数据状态轮询；仅保留运行中可见时长的单一 1 秒时钟，以及用户点击触发的有限重试（R-02-001、R-02-004）。
-- 档位资源纪律（R-01-024）：数据面与渲染面的裁剪以档位为唯一输入，不探测设备或网络（东家闸口确认，全平台生效）。
+- 档位资源纪律（R-01-025）：数据面与渲染面的裁剪以档位为唯一输入，不探测设备或网络（东家闸口确认，全平台生效）。
   - 门控判定单点为 core 纯函数 `logWindowSuppressed(densityLevel, isSubagent)`：紧凑档且非子代理时为真；子代理日志窗口承载标题行可见的模型上下文（R-01-012/AC-17），恒不裁剪。
   - 进入紧凑档时拆掉既有主会话日志窗口订阅（先 unsubscribe 再除名）并清除窗口引用（`detail.log` 置空）。
     - 非当前会话再 dispose 会话运行时 live 源，终止底层 `session/follow` 流——订阅回调移除不终止共享传输流，dispose 才停带宽。
@@ -434,7 +434,7 @@ flowchart LR
 | R-01-021 | 窗格渲染器 | 卡片紧凑呈现标题行工具区切换与持久化 | src/core.mjs、src/client.mjs |
 | R-01-022 | 窗格渲染器 | 标题行左侧仓库入口 | src/client.mjs |
 | R-01-023 | 活动状态模型 | 在跑后台任务的活性派生、完成/错误提醒抑制与徽标计数、任务子卡层级与两行呈现 | src/core.mjs、src/client.mjs |
-| R-01-024 | 窗格渲染器 | 档位资源纪律：紧凑档主会话日志窗口/深翻/目录读取门控、切档再水合与隐藏行跳写 | src/core.mjs、src/client.mjs |
+| R-01-025 | 窗格渲染器 | 档位资源纪律：紧凑档主会话日志窗口/深翻/目录读取门控、切档再水合与隐藏行跳写 | src/core.mjs、src/client.mjs |
 ## 产品契约
 
 - 活动卡片集合：`活动状态模型#buildEntries(snapshot, workspaceItems, detailsById, completions, delegatingIds, archivedIds, waitingStarts)` 产出已排序的活动卡片条目数组。
@@ -629,9 +629,9 @@ flowchart LR
 - 激活按紧凑→中间→完整循环翻转并同步可访问名称（表达将切换到的目标档位）。
 - 档位存 localStorage（键 `dsh-activity-pane:density`，与列宽键同冒号命名惯例；缺失/非法值经 `normalizeDensity` 归一为默认中间档）于启动时恢复。
 - 会话状态变化不解除已选档位（R-01-021）。
-- 档位资源纪律：紧凑档下主会话不建立或保持会话日志窗口（不水合、不订阅事件流、不派生）、不发起日志分页深翻与无可见消费者的一次性模型目录读取（R-01-024/AC-01、AC-03、AC-06）。
-- 非日志通道（轮内状态订阅、回合统计与完成确认通道、会话/工作区列表订阅、子代理日志窗口）不随裁剪停摆，标题行可见信息与累计运行时长照常更新（R-01-024/AC-02、AC-07）。
-- 中间/紧凑档不写进度行与 token 统计行，紧凑档不构建时间线内容；切回更高档位经档位签名重渲染恢复（R-01-024/AC-05）。
+- 档位资源纪律：紧凑档下主会话不建立或保持会话日志窗口（不水合、不订阅事件流、不派生）、不发起日志分页深翻与无可见消费者的一次性模型目录读取（R-01-025/AC-01、AC-03、AC-06）。
+- 非日志通道（轮内状态订阅、回合统计与完成确认通道、会话/工作区列表订阅、子代理日志窗口）不随裁剪停摆，标题行可见信息与累计运行时长照常更新（R-01-025/AC-02、AC-07）。
+- 中间/紧凑档不写进度行与 token 统计行，紧凑档不构建时间线内容；切回更高档位经档位签名重渲染恢复（R-01-025/AC-05）。
 - 交互面：点击或 Enter/Space 激活卡片 → 切换会话（后台任务子卡除外——纯展示，激活不触发任何操作，R-01-023/AC-08）；当前会话卡片高亮。
 - 原生左侧栏切换当前会话后，若对应卡片已呈现但未完整可见，渲染器通过原生 `scrollTo({ top, behavior: "smooth" })` 只调整 `.dap-scroll.scrollTop` 的最小必要距离，使其快速平滑地完整可见。
 - 命中降低动效偏好时传入 `auto`，不居中且不影响主会话滚动。
@@ -842,7 +842,7 @@ flowchart LR
   - 激活跳转逻辑不感知档位，渲染签名含显示档位分量（档位切换经 queueSync 触发一轮重渲染，R-02-003 的签名去重语义不变）（R-01-021/AC-01、AC-02、AC-04、AC-08）。
   - 档位经 `normalizeDensity` 归一（缺失/非法回退默认中间档）后存 localStorage，启动恢复，会话状态变化不翻转已选档位。
   - 桌面折叠窄条态随标题行隐藏，移动端抽屉形态同样适用；按钮随窗格骨架创建与移除（R-01-021、R-02-003）。
-  - 档位资源纪律（R-01-024）：`onDensityClick` 翻转档位后调用 `enforceDensityDataDiscipline`——进入紧凑档时对主会话日志窗口先 unsubscribe 再除名（`logSourceSubs`）并清除窗口引用（`detail.log` 置空）；非当前会话再 `session.dispose()` 终止底层 `session/follow` 流（订阅回调移除不终止共享传输流），当前会话由外壳持有不 dispose；子代理窗口保留。
+  - 档位资源纪律（R-01-025）：`onDensityClick` 翻转档位后调用 `enforceDensityDataDiscipline`——进入紧凑档时对主会话日志窗口先 unsubscribe 再除名（`logSourceSubs`）并清除窗口引用（`detail.log` 置空）；非当前会话再 `session.dispose()` 终止底层 `session/follow` 流（订阅回调移除不终止共享传输流），当前会话由外壳持有不 dispose；子代理窗口保留。
   - `captureSessionLog`/`syncLiveness`/`loadNativeDetails` 入口与日志分页响应点经渲染层单点判定 `logWindowSuppressedFor(id)`（core `logWindowSuppressed(densityLevel, isSubagent)` + 子代理判定）用时校验：紧凑档主会话不订阅事件流、不发起 `session.open()` 水合、不读窗口快照、不续翻在途深翻页；轮内状态订阅与 liveness 记账保留（与正常路径共用代码）。
   - `loadNativeDetails` 按同谓词门控：紧凑档主会话跳过日志分页深翻与模型目录订阅/一次性 load；子代理读取不受影响；切回更高档位后下一轮渲染经既有渐进路径重建就绪。
   - 渲染层档位跳写：`renderTimelineArea` 紧凑档跳过（中间档 lastOnly 不变）；进度行与 token 统计行仅在完整档写入；被跳写区域的就地更新器保持空安全。

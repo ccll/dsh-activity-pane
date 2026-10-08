@@ -153,9 +153,9 @@ function nextDensity(value) {
 }
 
 /**
- * 档位资源纪律谓词（R-01-024/AC-01）：紧凑呈现档下主会话日志窗口不建立或保持。
+ * 档位资源纪律谓词（R-01-025/AC-01）：紧凑呈现档下主会话日志窗口不建立或保持。
  * 子代理日志窗口承载标题行可见的模型上下文（R-01-012/AC-17），恒不裁剪；
- * 输入档位经 normalizeDensity 归一，非法值视作中间档即不裁剪（R-01-024/AC-01）。
+ * 输入档位经 normalizeDensity 归一，非法值视作中间档即不裁剪（R-01-025/AC-01）。
  */
 function logWindowSuppressed(densityLevel, isSubagent) {
 	return normalizeDensity(densityLevel) === "compact" && isSubagent !== true;
@@ -4627,7 +4627,7 @@ function apply(ctx) {
 			// 选择），订阅与一次性 load 一并触发；子代理的目录不可用（宿主以 agent-busy
 			// 拒绝其模型 RPC），不建立订阅。e2e 接缝把订阅与 load 整体延后，使模型上下文
 			// 严格晚于时间线呈现（R-01-014/AC-03 渐进语义可观察）。
-			// 档位资源纪律（R-01-024/AC-06）：紧凑档主会话的模型区域在头部行内、整体
+			// 档位资源纪律（R-01-025/AC-06）：紧凑档主会话的模型区域在头部行内、整体
 			// 隐藏——模型上下文无可见消费者，不订阅不 load；切回更高档位后经既有
 			// 一次性读取语义补齐。logWindowSuppressed 单点判定。
 			if (!subagent && !logWindowSuppressedFor(id, byId)) {
@@ -4649,7 +4649,7 @@ function apply(ctx) {
 			const lastSeq = Number(windowEntries.at(-1)?.event?.seq);
 			const deepReadNeeded =
 				(previewFallbackIds.has(id) || durationFallbackIds.has(id) || (subagent && subagentModelReadIds.has(id))) &&
-				// 档位资源纪律（R-01-024/AC-03）：紧凑档主会话不发起日志分页深翻——
+				// 档位资源纪律（R-01-025/AC-03）：紧凑档主会话不发起日志分页深翻——
 				// 预览行与最近回合耗时在该档位均不可见，最近历史排序以既有可用时刻
 				// 承载（R-01-010/AC-09 档位限定）；子代理模型溯源读取不受影响。
 				(subagent || !logWindowSuppressed(densityLevel, subagent)) &&
@@ -4667,7 +4667,7 @@ function apply(ctx) {
 					.then(async () => {
 						const { events, error } = await pagedHistoryEvents({
 							fetchPage: async (beforeSeq) => {
-								// 档位资源纪律（R-01-024/AC-03）：分页响应点用时重读档位——
+								// 档位资源纪律（R-01-025/AC-03）：分页响应点用时重读档位——
 								// 切入紧凑档后，在途深翻不再发起下一页；中止时已取页不落地、
 								// 保持既有详情，切回后重新入队重取。子代理模型溯源读取不受影响。
 								if (logWindowSuppressed(densityLevel, subagent)) return null;
@@ -4680,7 +4680,7 @@ function apply(ctx) {
 						});
 						// 切档中止的在途深翻不落地、不标记完成——historyDeepReadDone 无复位
 						// 路径，中止即置位会让切回高档位后的预览/耗时补齐永久失效；中止时
-						// 保持既有详情不变，切回后经 deepReadNeeded 重新入队（R-01-024/AC-01）。
+						// 保持既有详情不变，切回后经 deepReadNeeded 重新入队（R-01-025/AC-01）。
 						if (logWindowSuppressed(densityLevel, subagent)) return;
 						if (error) detail.historyError = error instanceof Error ? error.message : String(error);
 						detail.history = events;
@@ -4703,13 +4703,13 @@ function apply(ctx) {
 		}
 	}
 
-	/** 档位资源纪律单点判定（R-01-024）：档位谓词与子代理判定的唯一组合。
+	/** 档位资源纪律单点判定（R-01-025）：档位谓词与子代理判定的唯一组合。
 	 *  byId 缺省时读当帧列表快照；调用方已持有快照时传入以免重复读取。 */
 	function logWindowSuppressedFor(id, byId = getSnapshot(sessions, "list")?.byId ?? {}) {
 		return logWindowSuppressed(densityLevel, isSubagentRow(byId[id], byId));
 	}
 
-	/** 档位资源纪律拆窗（R-01-024/AC-01）：对非当前主会话的日志窗口订阅先
+	/** 档位资源纪律拆窗（R-01-025/AC-01）：对非当前主会话的日志窗口订阅先
 	 *  unsubscribe 再除名并清除窗口引用，并 dispose 会话运行时的 live 源
 	 *  （openState 归 cold，底层 session/follow 流终止）——订阅回调移除不终止
 	 *  共享传输流，dispose 才真正停带宽。当前会话的窗口由外壳会话视图持有，
@@ -4778,7 +4778,7 @@ function apply(ctx) {
 			session = null;
 		}
 		if (session === null) return;
-		// 档位资源纪律（R-01-024/AC-01）：紧凑档主会话不建立或保持会话日志窗口——
+		// 档位资源纪律（R-01-025/AC-01）：紧凑档主会话不建立或保持会话日志窗口——
 		// 不订阅事件流、不发起 open 水合、不读窗口快照。判定在函数入口用时重读，
 		// 切档在途的回调与重试不落地新窗口。子代理日志窗口承载标题行可见的
 		// 模型上下文（R-01-012/AC-17），恒不裁剪（单点判定见 logWindowSuppressedFor）。
@@ -5092,7 +5092,7 @@ function apply(ctx) {
 			const anchorTop = currentCard ? currentCard.getBoundingClientRect().top - viewportTop : null;
 			densityLevel = nextDensity(densityLevel);
 			writeStoredDensity(densityLevel);
-			// 档位资源纪律（R-01-024/AC-01）：进入紧凑档即拆主会话日志窗口订阅；
+			// 档位资源纪律（R-01-025/AC-01）：进入紧凑档即拆主会话日志窗口订阅；
 			// captureSessionLog 入口门控阻止在途回调重建。
 			enforceDensityDataDiscipline();
 			applyDensity();
@@ -5984,7 +5984,7 @@ function apply(ctx) {
 			const jobsOnly = Array.isArray(entry.liveJobs) && entry.liveJobs.length > 0 && entry.selfRunning !== true;
 			renderJobsChip(el, entry);
 			const progressRow = el.querySelector(".dap-progress");
-			// 档位资源纪律（R-01-024/AC-05）：进度行在中间/紧凑档被 CSS 隐藏，不写入；
+			// 档位资源纪律（R-01-025/AC-05）：进度行在中间/紧凑档被 CSS 隐藏，不写入；
 			// 切回完整档后随档位签名重渲染恢复。
 			if (progressRow !== null && densityLevel === "full") {
 				if (jobsOnly) {
@@ -5995,7 +5995,7 @@ function apply(ctx) {
 				}
 			}
 			const traceContainer = el.querySelector(".dap-trace");
-			// 档位资源纪律（R-01-024/AC-05）：紧凑档不构建被隐藏的时间线内容；
+			// 档位资源纪律（R-01-025/AC-05）：紧凑档不构建被隐藏的时间线内容；
 			// 中间档 lastOnly 单行语义不变（R-01-021/AC-08）。切回后随档位签名重渲染恢复。
 			if (traceContainer !== null && densityLevel !== "compact") renderTimelineArea(traceContainer, entry, { lastOnly: densityLevel === "medium" });
 			if (densityLevel === "full") renderTokenStats(el, entry);
@@ -6009,12 +6009,12 @@ function apply(ctx) {
 
 		if (entry.kind === "subagent") {
 			const traceContainer = el.querySelector(".dap-subtrace");
-			// 档位资源纪律（R-01-024/AC-05）：紧凑档不构建被隐藏的子卡时间线内容；
+			// 档位资源纪律（R-01-025/AC-05）：紧凑档不构建被隐藏的子卡时间线内容；
 			// 标题行内联模型上下文（R-01-012/AC-17）不受影响。
 			if (traceContainer !== null && densityLevel !== "compact") renderTimelineArea(traceContainer, entry, { lastOnly: true });
 			// 运行中呈现与运行卡同构的进度行；锚点空闲（暂停等待）时整行隐藏（R-01-009/AC-15）。
 			const progressRow = el.querySelector(".dap-progress");
-			// 档位资源纪律（R-01-024/AC-05）：进度行与统计行在中间/紧凑档不写入。
+			// 档位资源纪律（R-01-025/AC-05）：进度行与统计行在中间/紧凑档不写入。
 			if (progressRow !== null && densityLevel === "full") {
 				if (Number.isFinite(entry.progress)) {
 					renderProgressRow(el, entry.progress);
@@ -6044,17 +6044,17 @@ function apply(ctx) {
 					restoreTextField(text, previews[i]);
 				}
 			}
-			// 档位资源纪律（R-01-024/AC-05）：最近卡统计行在中间/紧凑档不写入。
+			// 档位资源纪律（R-01-025/AC-05）：最近卡统计行在中间/紧凑档不写入。
 			if (densityLevel === "full") renderTokenStats(el, entry);
 		}
 
 		if (entry.kind === "awaiting") {
 			const traceContainer = el.querySelector(".dap-trace");
-			// 档位资源纪律（R-01-024/AC-05）：紧凑档不构建被隐藏的时间线内容；
+			// 档位资源纪律（R-01-025/AC-05）：紧凑档不构建被隐藏的时间线内容；
 			// 中间档 lastOnly 单行语义不变（R-01-021/AC-08）。
 			if (traceContainer !== null && densityLevel !== "compact") renderTimelineArea(traceContainer, entry, { lastOnly: densityLevel === "medium" });
 			removeAwaitingHeadDuration(el);
-			// 档位资源纪律（R-01-024/AC-05）：等待卡统计行在中间/紧凑档不写入。
+			// 档位资源纪律（R-01-025/AC-05）：等待卡统计行在中间/紧凑档不写入。
 			if (densityLevel === "full") renderTokenStats(el, entry);
 			const confirm = el.querySelector(".dap-confirm");
 			if (confirm !== null) {
@@ -6126,7 +6126,7 @@ function apply(ctx) {
 			}
 			// 子代理事件流仅接受持久父地址：open 前先安装（T-151），否则宿主拒绝、窗口永不水合。
 			ensureSubagentAddress(id, session);
-			// 档位资源纪律（R-01-024/AC-01）：紧凑档主会话不发起 open 水合——轮内状态
+			// 档位资源纪律（R-01-025/AC-01）：紧凑档主会话不发起 open 水合——轮内状态
 			// 订阅（本函数职责，R-02-004）保留，liveness 记账与正常路径共用下方代码，
 			// 日志窗口水合在切回更高档位后经渲染期重试重建。子代理模型上下文依赖其
 			// 窗口，不裁剪（单点判定见 logWindowSuppressedFor）。
@@ -6938,7 +6938,7 @@ function apply(ctx) {
 		}
 		const detailIds = [...active, ...recent].map((entry) => entry.id);
 		detailIds.sort((a, b) => Number(String(b) === String(snapshot?.current)) - Number(String(a) === String(snapshot?.current)));
-		// 档位资源纪律（R-01-024/AC-01）：渲染期持续执法——进入紧凑档即拆主会话窗口；
+		// 档位资源纪律（R-01-025/AC-01）：渲染期持续执法——进入紧凑档即拆主会话窗口；
 		// 拆窗时被豁免的当前会话在切走后的下一轮渲染照常释放。幂等：主会话拆窗后
 		// 不在 logSourceSubs，重复执法为无操作。
 		enforceDensityDataDiscipline();

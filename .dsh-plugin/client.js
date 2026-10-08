@@ -4630,7 +4630,7 @@ function apply(ctx) {
 			// 档位资源纪律（R-01-024/AC-06）：紧凑档主会话的模型区域在头部行内、整体
 			// 隐藏——模型上下文无可见消费者，不订阅不 load；切回更高档位后经既有
 			// 一次性读取语义补齐。logWindowSuppressed 单点判定。
-			if (!subagent && !logWindowSuppressed(densityLevel, subagent)) {
+			if (!subagent && !logWindowSuppressedFor(id, byId)) {
 				if (e2eModelDelayMs === 0) {
 					subscribeModelDirectory(id, detail);
 					loadDirectoryOnce(id);
@@ -4667,6 +4667,10 @@ function apply(ctx) {
 					.then(async () => {
 						const { events, error } = await pagedHistoryEvents({
 							fetchPage: async (beforeSeq) => {
+								// 档位资源纪律（R-01-024/AC-03）：分页响应点用时重读档位——
+								// 切入紧凑档后，在途深翻不再发起下一页；中止时已取页不落地、
+								// 保持既有详情，切回后重新入队重取。子代理模型溯源读取不受影响。
+								if (logWindowSuppressed(densityLevel, subagent)) return null;
 								const value = remoteValue(
 									await sessionRemote.page({ address, throughSeq: lastSeq, beforeSeq, maxMessages: 50 }),
 								);
@@ -4674,6 +4678,10 @@ function apply(ctx) {
 								return { events: Array.isArray(value.records) ? value.records : [], hasMore: value.hasMore === true };
 							},
 						});
+						// 切档中止的在途深翻不落地、不标记完成——historyDeepReadDone 无复位
+						// 路径，中止即置位会让切回高档位后的预览/耗时补齐永久失效；中止时
+						// 保持既有详情不变，切回后经 deepReadNeeded 重新入队（R-01-024/AC-01）。
+						if (logWindowSuppressed(densityLevel, subagent)) return;
 						if (error) detail.historyError = error instanceof Error ? error.message : String(error);
 						detail.history = events;
 						detail.historyDeepReadDone = true;
@@ -4695,21 +4703,28 @@ function apply(ctx) {
 		}
 	}
 
+	/** 档位资源纪律单点判定（R-01-024）：档位谓词与子代理判定的唯一组合。
+	 *  byId 缺省时读当帧列表快照；调用方已持有快照时传入以免重复读取。 */
+	function logWindowSuppressedFor(id, byId = getSnapshot(sessions, "list")?.byId ?? {}) {
+		return logWindowSuppressed(densityLevel, isSubagentRow(byId[id], byId));
+	}
+
 	/** 档位资源纪律拆窗（R-01-024/AC-01）：对非当前主会话的日志窗口订阅先
 	 *  unsubscribe 再除名并清除窗口引用，并 dispose 会话运行时的 live 源
 	 *  （openState 归 cold，底层 session/follow 流终止）——订阅回调移除不终止
 	 *  共享传输流，dispose 才真正停带宽。当前会话的窗口由外壳会话视图持有，
 	 *  不 dispose、不拆订阅（由本函数在渲染期持续执法：其切走后的下一轮渲染
-	 *  照常释放）；子代理日志窗口承载标题行可见的模型上下文，保留。切回更高
-	 *  档位时经既有渐进路径（captureSessionLog 重订阅 + session.open 重新水合）
-	 *  就绪，不新增恢复机制。 */
+	 *  照常释放）；当前会话不可判定（列表快照未就绪）时整轮跳过，不误释放。
+	 *  子代理日志窗口承载标题行可见的模型上下文，保留。切回更高档位时经既有
+	 *  渐进路径（captureSessionLog 重订阅 + session.open 重新水合）就绪，
+	 *  不新增恢复机制。 */
 	function enforceDensityDataDiscipline() {
 		if (densityLevel !== "compact") return;
 		const listSnap = getSnapshot(sessions, "list");
-		const byId = listSnap?.byId ?? {};
+		if (listSnap?.current == null) return;
 		for (const [id, unsubscribe] of [...logSourceSubs]) {
-			if (isSubagentRow(byId[id], byId)) continue;
-			if (String(id) === String(listSnap?.current ?? "")) continue;
+			if (!logWindowSuppressedFor(id, listSnap?.byId ?? {})) continue;
+			if (String(id) === String(listSnap.current)) continue;
 			try {
 				unsubscribe?.();
 			} catch {
@@ -4766,9 +4781,8 @@ function apply(ctx) {
 		// 档位资源纪律（R-01-024/AC-01）：紧凑档主会话不建立或保持会话日志窗口——
 		// 不订阅事件流、不发起 open 水合、不读窗口快照。判定在函数入口用时重读，
 		// 切档在途的回调与重试不落地新窗口。子代理日志窗口承载标题行可见的
-		// 模型上下文（R-01-012/AC-17），恒不裁剪（logWindowSuppressed 单点判定）。
-		const densityListSnap = getSnapshot(sessions, "list");
-		if (logWindowSuppressed(densityLevel, isSubagentRow(densityListSnap?.byId?.[id], densityListSnap?.byId ?? {}))) return;
+		// 模型上下文（R-01-012/AC-17），恒不裁剪（单点判定见 logWindowSuppressedFor）。
+		if (logWindowSuppressedFor(id)) return;
 		// 日志窗口无效化订阅（事件驱动，不构成轮询，R-02-004）：等待/历史卡无会话状态
 		// 订阅（syncLiveness 只订阅运行中），窗口推进（回合收尾、流式尾）必须经此回调
 		// 重读快照并重绘；否则窗口更新只能靠渲染期重读兜底——渲染一旦静默（一次性
@@ -6113,26 +6127,17 @@ function apply(ctx) {
 			// 子代理事件流仅接受持久父地址：open 前先安装（T-151），否则宿主拒绝、窗口永不水合。
 			ensureSubagentAddress(id, session);
 			// 档位资源纪律（R-01-024/AC-01）：紧凑档主会话不发起 open 水合——轮内状态
-			// 订阅（本函数职责，R-02-004）保留，日志窗口水合在切回更高档位后经渲染期
-			// 重试重建。子代理模型上下文依赖其窗口，不裁剪。
-			const livenessListSnap = getSnapshot(sessions, "list");
-			if (logWindowSuppressed(densityLevel, isSubagentRow(livenessListSnap?.byId?.[id], livenessListSnap?.byId ?? {}))) {
-				const compactSnapshot = getSessionSnapshot(session);
-				livenessById.set(id, {
-					unsubscribe,
-					liveness: livenessFromSnapshot(compactSnapshot),
-					snapshot: compactSnapshot,
-				});
-				const compactDetail = sessionDetailsById.get(id) ?? {};
-				compactDetail.snapshot = compactSnapshot;
-				sessionDetailsById.set(id, compactDetail);
-				continue;
-			}
+			// 订阅（本函数职责，R-02-004）保留，liveness 记账与正常路径共用下方代码，
+			// 日志窗口水合在切回更高档位后经渲染期重试重建。子代理模型上下文依赖其
+			// 窗口，不裁剪（单点判定见 logWindowSuppressedFor）。
+			const livenessSuppressed = logWindowSuppressedFor(id);
 			let opening = null;
-			try {
-				opening = session.open?.();
-			} catch {
-				opening = null;
+			if (!livenessSuppressed) {
+				try {
+					opening = session.open?.();
+				} catch {
+					opening = null;
+				}
 			}
 			if (opening && typeof opening.then === "function") {
 				const tracked = Promise.resolve(opening).then(

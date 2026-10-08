@@ -385,8 +385,12 @@ flowchart LR
 - 定时器纪律：不使用服务发现/frame probe 或数据状态轮询；仅保留运行中可见时长的单一 1 秒时钟，以及用户点击触发的有限重试（R-02-001、R-02-004）。
 - 档位资源纪律（R-01-024）：数据面与渲染面的裁剪以档位为唯一输入，不探测设备或网络（东家闸口确认，全平台生效）。
   - 门控判定单点为 core 纯函数 `logWindowSuppressed(densityLevel, isSubagent)`：紧凑档且非子代理时为真；子代理日志窗口承载标题行可见的模型上下文（R-01-012/AC-17），恒不裁剪。
-  - 进入紧凑档时拆掉既有主会话日志窗口订阅（先 unsubscribe 再除名）并清除窗口引用（`detail.log` 置空）；非当前会话再 dispose 会话运行时 live 源终止底层 `session/follow` 流（当前会话由外壳持有不 dispose）——切回更高档位时经既有渐进路径重新水合并就绪，不额外新增恢复机制。
-  - 门控为「用时校验」：日志窗口订阅回调入口、`session.open()` 发起点、日志分页响应点均重读当前档位，切档在途的重试链与在途 promise 不落地新窗口。
+  - 进入紧凑档时拆掉既有主会话日志窗口订阅（先 unsubscribe 再除名）并清除窗口引用（`detail.log` 置空）。
+    - 非当前会话再 dispose 会话运行时 live 源，终止底层 `session/follow` 流——订阅回调移除不终止共享传输流，dispose 才停带宽。
+    - 当前会话的窗口由外壳会话视图持有，不 dispose、不拆订阅；其切走后的渲染期执法照常释放。
+    - 切回更高档位时经既有渐进路径重新水合并就绪，不额外新增恢复机制。
+  - 门控为「用时校验」：日志窗口订阅回调入口、`session.open()` 发起点与日志分页响应点（在途深翻的下一页发起前）均重读当前档位。
+    - 切档在途的重试链不落地新窗口；在途深翻不再续页，中止时已取页不落地、保持既有详情，切回后重新入队重取。
   - 紧凑档不为主会话发起日志分页深翻（预览/最近回合耗时兜底）与无可见消费者的一次性模型目录读取；最近历史排序与活动时间以既有可用时刻承载，不等待在途数据（R-01-010/AC-09 档位限定）。
   - 渲染面按档位跳写：中间/紧凑档不写进度行与 token 统计行，紧凑档不构建时间线内容；被跳写区域切回完整档后随档位重渲染（签名含档位分量）恢复。
   - 被跳写后 `querySelector` 就地更新器必须空安全——更新器不得假设被跳写区域已含内容节点（task 检查单项）。
@@ -839,7 +843,7 @@ flowchart LR
   - 档位经 `normalizeDensity` 归一（缺失/非法回退默认中间档）后存 localStorage，启动恢复，会话状态变化不翻转已选档位。
   - 桌面折叠窄条态随标题行隐藏，移动端抽屉形态同样适用；按钮随窗格骨架创建与移除（R-01-021、R-02-003）。
   - 档位资源纪律（R-01-024）：`onDensityClick` 翻转档位后调用 `enforceDensityDataDiscipline`——进入紧凑档时对主会话日志窗口先 unsubscribe 再除名（`logSourceSubs`）并清除窗口引用（`detail.log` 置空）；非当前会话再 `session.dispose()` 终止底层 `session/follow` 流（订阅回调移除不终止共享传输流），当前会话由外壳持有不 dispose；子代理窗口保留。
-  - `captureSessionLog` 入口经 core `logWindowSuppressed(densityLevel, isSubagent)` 用时校验：紧凑档主会话不订阅事件流、不发起 `session.open()`、不读窗口快照，回调与在途 open 竞态不落地新窗口。
+  - `captureSessionLog`/`syncLiveness`/`loadNativeDetails` 入口与日志分页响应点经渲染层单点判定 `logWindowSuppressedFor(id)`（core `logWindowSuppressed(densityLevel, isSubagent)` + 子代理判定）用时校验：紧凑档主会话不订阅事件流、不发起 `session.open()` 水合、不读窗口快照、不续翻在途深翻页；轮内状态订阅与 liveness 记账保留（与正常路径共用代码）。
   - `loadNativeDetails` 按同谓词门控：紧凑档主会话跳过日志分页深翻与模型目录订阅/一次性 load；子代理读取不受影响；切回更高档位后下一轮渲染经既有渐进路径重建就绪。
   - 渲染层档位跳写：`renderTimelineArea` 紧凑档跳过（中间档 lastOnly 不变）；进度行与 token 统计行仅在完整档写入；被跳写区域的就地更新器保持空安全。
   - 仓库入口：`.dap-repo` 为标题行最左端独立区的常显纯图标链接（T-144），与右侧工具区（`.dap-tools`）的档位切换按钮远离以防触屏误触，视觉强度弱于带描边的档位切换按钮（主次分明，R-01-022/AC-01）；与标题区的接缝间距（`margin-right: 12px`）对齐工具区的接缝间距（`.dap-tools` 的 `padding-left: 12px`），标题区悬停高亮两侧留白对称（T-146）：

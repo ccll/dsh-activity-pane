@@ -3751,23 +3751,33 @@ assert.ok(
 assert.ok(bundle.includes("writeStoredDensity(densityLevel)"), "显示档位切换持久化于 localStorage（R-01-021/AC-06）");
 // R-01-024 档位资源纪律：紧凑档数据面门控与渲染面跳写的 bundle 契约
 assert.ok(
-	clientSource.includes("logWindowSuppressed(densityLevel, isSubagentRow(densityListSnap?.byId?.[id], densityListSnap?.byId ?? {}))"),
-	"captureSessionLog 入口经档位谓词用时校验：紧凑档主会话不订阅事件流、不发起 open、不读窗口（R-01-024/AC-01）",
+	clientSource.includes("function logWindowSuppressedFor(id") &&
+		clientSource.includes("if (logWindowSuppressedFor(id)) return;"),
+	"captureSessionLog 入口经单点判定用时校验：紧凑档主会话不订阅事件流、不发起 open、不读窗口（R-01-024/AC-01）",
 );
 assert.ok(
-	clientSource.includes("(subagent || !logWindowSuppressed(densityLevel, subagent))"),
-	"紧凑档主会话跳过日志分页深翻，子代理模型溯源读取不受影响（R-01-024/AC-03）",
+	clientSource.includes("(subagent || !logWindowSuppressed(densityLevel, subagent)) &&") &&
+		clientSource.includes("if (logWindowSuppressed(densityLevel, subagent)) return null;") &&
+		clientSource.includes("if (logWindowSuppressed(densityLevel, subagent)) return;") &&
+		clientSource.includes("detail.historyDeepReadDone = true;"),
+	"紧凑档主会话跳过日志分页深翻且在途深翻不续页；切档中止的在途深翻不落地不标记完成，切回后可重新入队（R-01-024/AC-03）",
 );
 assert.ok(
-	clientSource.includes("if (!subagent && !logWindowSuppressed(densityLevel, subagent))"),
+	clientSource.includes("if (!subagent && !logWindowSuppressedFor(id, byId)) {"),
 	"紧凑档主会话跳过模型目录订阅与一次性 load，切回更高档位经既有语义补齐（R-01-024/AC-06）",
+);
+assert.ok(
+	clientSource.includes("const livenessSuppressed = logWindowSuppressedFor(id);") &&
+		clientSource.includes("if (!livenessSuppressed) {"),
+	"紧凑档主会话运行时不发起 open 水合，轮内状态订阅与 liveness 记账保留（R-01-024/AC-01、AC-02）",
 );
 assert.ok(
 	clientSource.includes("function enforceDensityDataDiscipline()") &&
 		clientSource.includes("enforceDensityDataDiscipline();") &&
 		clientSource.includes("logSourceSubs.delete(id);") &&
-		clientSource.includes("session?.dispose?.()"),
-	"进入紧凑档时对主会话日志窗口先 unsubscribe 再除名并 dispose 非当前会话的 live 源（当前会话豁免），子代理窗口保留（R-01-024/AC-01）",
+		clientSource.includes("session?.dispose?.()") &&
+		clientSource.includes("if (listSnap?.current == null) return;"),
+	"渲染期持续执法：对非当前主会话日志窗口先 unsubscribe 再除名并 dispose 其 live 源（当前会话豁免，快照未就绪整轮跳过），子代理窗口保留（R-01-024/AC-01）",
 );
 assert.ok(
 	clientSource.includes("if (traceContainer !== null && densityLevel !== \"compact\") renderTimelineArea(traceContainer, entry, { lastOnly: densityLevel === \"medium\" });"),
@@ -4172,7 +4182,7 @@ assert.ok(bundle.includes("renderTraceLoading"), "时间线区数据在途时显
 assert.ok(clientSource.includes('e2eParams.get("dap-e2e-model-delay")'), "detail 渐进 E2E 接缝由显式 URL fragment 启用");
 assert.ok(clientSource.includes("Math.min(requestedModelDelay, 1_000)"), "detail 渐进 E2E 延迟上限为 1 秒");
 assert.ok(
-	clientSource.includes("if (!subagent && !logWindowSuppressed(densityLevel, subagent)) {") &&
+	clientSource.includes("if (!subagent && !logWindowSuppressedFor(id, byId)) {") &&
 		clientSource.includes("subscribeModelDirectory(id, detail);") &&
 		clientSource.includes("loadDirectoryOnce(id);"),
 	"仅主会话建立 model directory 订阅与一次性 load（子代理目录不可用不订阅）；紧凑档主会话无可见消费者不订阅（R-01-024/AC-06）",

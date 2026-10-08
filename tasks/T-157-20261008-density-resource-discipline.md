@@ -30,7 +30,7 @@ id: T-157
 2. `src/client.mjs` 门控（用时校验，防切档在途竞态）：
    - `captureSessionLog` 入口：主会话且紧凑档直接返回——不订阅事件流、不发起 `session.open()`、不读窗口快照。
    - `loadNativeDetails`：紧凑档主会话跳过深翻与模型目录订阅/一次性 load（`ensureCatalogGroups` 部署级目录不裁剪——子代理溯源解析仍需）。
-   - `onDensityClick`：进入紧凑档时对既有主会话日志窗口先 unsubscribe 再除名（`logSourceSubs`）；`detail.log` 保留为冻结尾窗，切回更高档位时经既有渐进路径重订阅就绪。
+   - `onDensityClick`：进入紧凑档时对既有主会话日志窗口先 unsubscribe 再除名（`logSourceSubs`）；`detail.log` 置空、非当前会话 dispose 释放底层流；当前会话保留至其切走后的渲染期执法释放。
 3. `src/client.mjs` 渲染面跳写：
    - `renderTimelineArea` 调用在紧凑档跳过（running/awaiting/subagent 三处；中间档 lastOnly 语义不变）。
    - 进度行与 token 统计行仅在完整档写入（中间/紧凑档由 CSS 隐藏）。

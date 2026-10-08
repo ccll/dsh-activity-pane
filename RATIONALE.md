@@ -1592,10 +1592,20 @@ R-01-025、R-01-010/AC-09（档位限定注记） / 窗格渲染器、活动状�
 日期: 2026-10-08
 
 #### 上下文
-dsh 0.2.0-rc.2 客户端会话对象层重构：`sessions.list` 删除 `current`/`subagentsByParent`/`jobsBySession`/`currentAddress`，`uiSession.pendingInteractions` 替换为 `sessionStatus`，`binding()` 收紧为只借用已保留代际、显式打开与释放调用移出会话面、`sessions.open` 删除、子代理目录移入 `projectionsBySession` 投影。窗格六处消费点失去直接数据源；东家下达 staging 分支适配指令（T-159）。
+dsh 0.2.0-rc.2 重构了客户端会话对象层：
+- `sessions.list` 删除 `current`/`subagentsByParent`/`jobsBySession`/`currentAddress`。
+- `uiSession.pendingInteractions` 替换为 `sessionStatus`。
+- `binding()` 收紧为只借用已保留代际；显式打开与释放调用移出会话面；`sessions.open` 删除。
+- 子代理目录移入 `projectionsBySession` 投影。
+窗格六处消费点失去直接数据源。东家下达 staging 分支适配指令（T-159）。
 
 #### 决策
-当前会话以行上 `retainedBy.mainView > 0` 推导（宿主外壳同款口径）；子代理目录改读 `projectionsBySession.values.subagentCatalog` 并经 `refreshProjections` 按需拉取；后台任务经 `jobs` 服务 `watchRows`+`state.rows`；会话窗口与轮内订阅迁移到 `retain()/release()` 生命周期（独立 source `dsh-activity-pane`）；导航经 `uiWorkspace.openSession`（子代理以持久父地址寻址）；等待状态读 `sessionStatus.pendingInteraction`。
+- 当前会话以行上 `retainedBy.mainView > 0` 推导（宿主外壳同款口径）。
+- 子代理目录改读 `projectionsBySession.values.subagentCatalog`，经 `refreshProjections` 按需拉取。
+- 后台任务经 `jobs` 服务 `watchRows`+`state.rows`。
+- 会话窗口与轮内订阅迁移到 `retain()/release()` 生命周期（独立 source `dsh-activity-pane`）。
+- 导航经 `uiWorkspace.openSession`；子代理以持久父地址寻址。
+- 等待状态读 `sessionStatus.pendingInteraction`。
 
 #### 被否方案及原因
 - 读取 `uiSession.current` 私有面：非公开契约，随内部重构随时失效。

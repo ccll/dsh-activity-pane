@@ -198,7 +198,7 @@ flowchart LR
   - 预览提取（`messagePreviews`）对多页组合的事件按尾部反向扫描取最近命中。
   - 最近卡窗口缺用户或 agent 任一预览时补读一次日志，避免完成瞬间窗口中仅含用户消息而把 agent 预览永久留空（R-01-013/AC-03、AC-04）。
   - 运行中当前项由原生 `session.subscribe` 推送驱动 `captureSessionLog` 就地读取 eventSource 窗口（快照引用变化才重算，无轮询）（R-01-012）。
-  - 子代理会话的事件流仅接受持久父地址路由——宿主校验地址与会话归属的一致性，普通地址的 page/follow 被拒绝；持久地址经 `sessions.subagentAddress(childId)` 解析（0.2.0 起地址不再携带 mode 字段，路由校验由宿主对象层承接）。
+  - 子代理会话的事件流仅接受持久父地址路由——宿主校验地址与会话归属的一致性，普通地址的 page/follow 被拒绝；持久地址经 `sessions.subagentAddress(childId)` 解析（地址仍携带 `mode`，0.2.0 新增合法值 `'unknown'`；目录未提供时以 `'unknown'` 兜底并先经 `refreshProjections` 拉取目录再重试）。
   - 插件以 `sessions.retain(target, { source: "dsh-activity-pane" })` 持有可见卡片的会话代际（子代理 target 取上述持久地址；dsh 0.2.0 起旧地址安装与显式打开调用已随会话面重构移除）；母会话投影（子代理目录 `subagentCatalog`）未加载时经 `sessions.refreshProjections(parentId)` 单发拉取再重试（R-01-012/AC-03，T-151/T-159）。
   - 未点选的子代理卡时间线因此得以自动水合并随原生推送更新（R-01-012/AC-03）。
   - 活动卡时间线以 eventSource 窗口（`captureSessionLog` 的 V3 快照 `entries`）的日志派生为主源：transient `assistant/live-chunk` 条目（agent-stream 增量帧，seq 为插值小数，仅流式期间在窗）按 `attemptId` 原位累积为单个 running live assistant 行——运行卡 running 圆点与「agent 工作中」呈现的来源。
@@ -280,7 +280,9 @@ flowchart LR
   - 任务全部结束后子卡随 liveJobs 清空而消失（R-01-023/AC-03）。
   - 完成提醒与错误提醒在 liveJobs 非空期间被抑制、liveJobs 清空后按既有规则恢复（R-01-023/AC-02）。
   - 数量徽标分子（running 口径）将仅有 liveJobs 的主会话计入，job 子卡被 kind 过滤、不计入（R-01-023/AC-04）。
-  - 任务列表与状态变化由 `jobs` 客户端服务的 `state.rows` 快照（`Record<sessionId, JobView[]>`）承载：窗格经 `watchRows(sessionId)` 对列表全会话建立引用计数共享的 roster 订阅（随列表 prune 停流），订阅 `state` 快照变化重算，不新增轮询（dsh 0.2.0 起列表快照不再携带 `jobsBySession`，T-159）。
+  - 任务列表与状态变化由 `jobs` 客户端服务的 `state.rows` 快照（`Record<sessionId, JobView[]>`）承载。
+  - 窗格经 `watchRows(sessionId)` 对列表全会话建立引用计数共享的 roster 订阅，随列表 prune 停流。
+  - 订阅 `state` 快照变化重算，不新增轮询（dsh 0.2.0 起列表快照不再携带 `jobsBySession`，T-159）。
   - 完成提醒：`buildEntries` 以 `completions` 记账（id → `{ lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }`，经 SSE 通道注入）派生——主会话且 `lastTurnEnd > ackedAt` 时完成提醒成立。
   - 打开会话或切换当前会话不解除，仅显式确认（按钮写回 `ackedAt`）或新回合完成（`lastTurnEnd` 前移，旧提醒被新回合更替）改变成立性（R-01-002/AC-03、AC-05、AC-10、AC-11、AC-12、R-01-010/AC-06）。
   - 错误提醒：主会话且 `lastTurnEndKind === 'error'` 时成立，随新回合结束（`lastTurnEndKind` 被新 reason 覆盖）或活动条件（running/阻塞等待/委托周期）抑制解除，不消费 `ackedAt`、无确认按钮（R-01-002/AC-05、AC-12、AC-13）。
@@ -636,6 +638,8 @@ flowchart LR
 - 档位存 localStorage（键 `dsh-activity-pane:density`，与列宽键同冒号命名惯例；缺失/非法值经 `normalizeDensity` 归一为默认中间档）于启动时恢复。
 - 会话状态变化不解除已选档位（R-01-021）。
 - 档位资源纪律：紧凑档下主会话不建立或保持会话日志窗口（不水合、不订阅事件流、不派生）、不发起日志分页深翻与无可见消费者的一次性模型目录读取（R-01-025/AC-01、AC-03、AC-06）。
+  - 门控先于 retain（dsh 0.2.0 起 retain.ready 即共享初始历史打开，T-159）：被抑制会话不获取插件 retain 引用。
+  - 轮内状态订阅只借用既有引用的会话面；无引用的运行卡降级到 `sessionStatus` 统一状态面与 busy 记账 `openTurnStart`，不单独水合。
 - 非日志通道（轮内状态订阅、回合统计与完成确认通道、会话/工作区列表订阅、子代理日志窗口）不随裁剪停摆，标题行可见信息与累计运行时长照常更新（R-01-025/AC-02、AC-07）。
 - 渲染面按档位跳写，切回更高档位经档位签名重渲染恢复（R-01-025/AC-05）。
   - 中间/紧凑档不写进度行与 token 统计行。

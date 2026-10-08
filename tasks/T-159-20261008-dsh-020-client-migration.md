@@ -53,6 +53,16 @@ listEvents`、`SessionEventRecord`、`webServer.register`、`connection.requestR
 - navigation.mjs：`openSession` 改调 `uiWorkspace.openSession`（语义改为"已受理"，
   到达判定交由重试链的 currentId 判定）。
 - SOLUTION：数据源契约与生命周期段更新为 0.2.0 目标态；RATIONALE 记 C-086。
+- e2e mock 双线协议（459ae1f）：dsh 0.2.0 DeepSeek provider 改走 Messages API
+  （`${baseURL}/messages` SSE + tool_use 增量 + session-title LLM 起标题），
+  mock 按 URL 分流，chat/completions 引擎保留（0.1.5 基线不受影响）。
+- e2e 夹具模型 id（459ae1f/b5466ee）：0.2.0 宿主模型目录移除 deepseek-v4-flash，
+  boot.mjs 改用两代共有的 deepseek-flash，helpers MOCK_MODEL 同步
+  DeepSeek-V41-Flash（目录外 id 无显示名映射）。
+- 移动端聚焦抑制时机（b5466ee）：uiWorkspace.openSession 的外壳聚焦 effect 与
+  selection 同一提交周期，抑制从「到达判定后」前置到「发起导航时」武装。
+- 滚动条/调宽手柄重叠（b5466ee）：0.2.0 宿主 scrollbar-width token 收窄为 5px，
+  滚动区右缘 margin 取 `max(var(--dsh-scrollbar-width, 8px), 6px)` 下限=手柄宽。
 
 ## 测试影响
 

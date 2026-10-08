@@ -4128,8 +4128,13 @@ function apply(ctx) {
 	 *  重挂载后保留（R-01-021/AC-06）。 */
 	let densityLevel = readStoredDensity();
 	/** 待执行的锚定补偿：档位切换时登记当前选中卡片顶部的视口相对位置，本轮渲染
-	 *  提交后量测该卡新位置并补偿 scrollTop（R-01-021/AC-01）。 */
+	 *  提交后量测该卡新位置并补偿 scrollTop（R-01-021/AC-01）。
+	 *  dsh 0.2.0（T-159 审核）：切回更高档位时窗口经 retain→ready 异步重建，时间线
+	 *  内容分多帧长回——补偿在沉降窗内逐帧执行，位置稳定或超窗即撤（单帧补偿
+	 *  会漏掉后期增长，锚点漂移）。 */
 	let pendingDensityAnchor = null;
+	/** 锚定补偿沉降窗截止时刻：窗内逐帧补偿，位置稳定提前撤，超窗强制撤。 */
+	let densityAnchorDeadline = 0;
 	/** 用户最近一次激活的卡片 id；打开重试链被更新的激活意图取代即取消。 */
 	let lastActivatedId = null;
 	/** 最近一次已处理的当前卡片；同一卡片的运行时重绘不反复打断用户手动滚动。 */
@@ -5266,9 +5271,10 @@ function apply(ctx) {
 			enforceDensityDataDiscipline();
 			applyDensity();
 			// 档位已纳入渲染签名：触发一轮同步让时间线按新档位以 lastOnly 重建；
-			// 锚定补偿在本轮渲染提交后执行，此时量测才含新行高
+			// 锚定补偿在渲染提交后逐帧执行至沉降窗结束，此时量测才含新行高
 			//（R-01-021/AC-01、AC-08）。
 			pendingDensityAnchor = currentCard && anchorTop !== null ? anchorTop : null;
+			densityAnchorDeadline = Date.now() + 1500;
 			queueSync();
 		};
 		// 档位按钮位于标题行右侧的工具区（标题区折叠控件的兄弟节点），激活天然不会
@@ -7326,7 +7332,10 @@ function apply(ctx) {
 		}
 		// 锚定补偿（R-01-021/AC-01）：档位切换的渲染落地后量测当前选中卡的新位置并
 		// 补偿 scrollTop，使当前卡顶部回到切换前相对视口的位置；补偿量超滚动边界时
-		// 由浏览器钳制（以当前卡不滚出可视范围为准）。
+		// 由浏览器钳制（以当前卡不滚出可视范围为准）。沉降窗内逐帧补偿：dsh 0.2.0
+		// 起切回高档位的窗口经 retain→ready 异步重建，时间线内容分多帧长回，单帧
+		// 补偿会漏掉后期增长（T-159 审核修复回归）；位置稳定（残差 ≤1px）或超窗
+		// （1500ms）即撤，避免与用户手动滚动长期对抗。
 		if (pendingDensityAnchor !== null) {
 			const scrollEl = pane.querySelector(".dap-scroll");
 			// 补偿按当前 DOM 的 data-current 卡实时定位：跨区迁移等渲染可能重建卡片
@@ -7335,9 +7344,18 @@ function apply(ctx) {
 			if (scrollEl !== null && currentCard !== null) {
 				const viewportTop = scrollEl.getBoundingClientRect().top;
 				const shiftedTop = currentCard.getBoundingClientRect().top - viewportTop;
-				scrollEl.scrollTop += shiftedTop - pendingDensityAnchor;
+				const residual = shiftedTop - pendingDensityAnchor;
+				scrollEl.scrollTop += residual;
+				// 稳定判据 = 补偿前残差：本帧无需修正（内容相对锚未再增长）才撤；
+				// 仍在长回的帧保持补偿，直至沉降窗超时强制撤。
+				if (Math.abs(residual) <= 1 || Date.now() > densityAnchorDeadline) {
+					pendingDensityAnchor = null;
+					densityAnchorDeadline = 0;
+				}
+			} else {
+				pendingDensityAnchor = null;
+				densityAnchorDeadline = 0;
 			}
-			pendingDensityAnchor = null;
 		}
 	}
 

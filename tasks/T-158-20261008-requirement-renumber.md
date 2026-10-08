@@ -6,7 +6,7 @@ id: T-158
 
 # T-158 需求编号更正：档位资源纪律 R-01-024 改号 R-01-025
 
-状态: active
+状态: completed
 关联: C-085、R-01-025、T-157（terminal，保留旧号引用作审计链）
 风险等级: standard
 
@@ -62,7 +62,7 @@ id: T-158
 - 测试: `pnpm verify:fast` 全绿；`density-resource.mjs` 与 `compact-density.mjs` 通过；全量 `pnpm verify` 由本次 pre-push 门禁承载。
   - bundle diff 仅含编号字面量（`git diff .dsh-plugin/client.js` 非 ID 行为零），行为零变化独立证实。
 - SOLUTION 对照: 需求追溯索引恰一行 R-01-025、契约条目与实现注释同步；PRD 关联方案「窗格渲染器」与 SOLUTION 反向承接一致，编号改写零语义漂移。
-- commit: （终态时填写改号提交 hash）
+- commit: 084f618
 - review:
   - 审核方: code-review skill 合并轴子代理（agent 2928710a），基线 HEAD（e16eba9）
   - 目的理解: 本次变更目的为更正 T-157 的编号误用（R-01-024 曾属 T-154 删除的「后台任务输出查看」），纯编号迁移、零行为变化；约束：terminal T-157 与 RATIONALE C-084 历史文本保留旧号作审计链、测试锚点语义零漂移、tmp-rc-diff/ 无关产物不入提交。

@@ -149,8 +149,10 @@ const CSS = `
   -webkit-overflow-scrolling: touch;
   padding: 0 0 10px;
   /* Keep the native scrollbar just left of the edge handle, as in the host
-     sidebar; stable keeps the list geometry unchanged when overflow appears. */
-  margin-right: var(--dsh-scrollbar-width, 8px);
+     sidebar; stable keeps the list geometry unchanged when overflow appears.
+     max() 下限 = 调宽手柄宽度（6px）：dsh 0.2.0 起宿主 scrollbar-width token
+     收窄到 5px，裸 token 会让手柄压住滚动条命中区（T-159）。 */
+  margin-right: max(var(--dsh-scrollbar-width, 8px), 6px);
   scrollbar-gutter: stable;
 }
 /* 滚动条在滚动或鼠标进入窗格时显示（R-01-004/AC-03，与外壳侧栏一致）：thumb 默认透明，
@@ -4535,10 +4537,9 @@ function apply(ctx) {
 	}
 	function attemptOpen(sessionId, attempt) {
 		// 过期链条（目标已到达 / 已被新激活意图取代）不再发起 open，防止拽回会话；
-		// 到达（currentId 命中本目标）即视为导航成功，移动端抑制 composer 自动聚焦。
+		// 到达（currentId 命中本目标）即视为导航成功并收链。
 		const currentId = currentIdOf(getSnapshot(sessions, "list"));
 		if (shouldCancelOpenRetry({ targetId: sessionId, currentId, activatedId: lastActivatedId })) {
-			if (String(currentId) === String(sessionId) && !desktopQuery.matches) suppressComposerAutofocus(document);
 			cancelOpenRetry(sessionId);
 			return;
 		}
@@ -4550,7 +4551,12 @@ function apply(ctx) {
 		// 到达判定交给 currentId 驱动的取消链（同步循环每帧 cancelStaleOpenRetries
 		// 与本重试链共用 shouldCancelOpenRetry），data-opening 随取消/到达摘除；
 		// 未到达则 500ms 后重发导航（MAX_OPEN_ATTEMPTS 封顶）。
+		// 移动端抑制（R-01-005/AC-01）：宿主 composer 聚焦 effect 与 selection 同一
+		// 提交周期发生，抑制必须在发起导航时即武装（blur + 捕获期 focusin 拦截窗），
+		// 不能等到达判定——0.1.5 的「成功后抑制」时序在 0.2.0 会晚于宿主聚焦。
+		const suppressFocus = !desktopQuery.matches;
 		openSession(ctx.get("uiWorkspace"), openTargetFor(sessionId));
+		if (suppressFocus) suppressComposerAutofocus(document);
 		if (attempt < MAX_OPEN_ATTEMPTS) scheduleOpenRetry(sessionId, attempt + 1);
 		else cancelOpenRetry(sessionId);
 	}

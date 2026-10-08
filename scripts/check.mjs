@@ -4684,7 +4684,7 @@ assert.ok(bundle.includes("[data-dsh-activity-pane][data-pointer-inside] .dap-sc
 assert.ok(bundle.includes("[data-dsh-activity-pane][data-pointer-inside] .dap-scroll::-webkit-scrollbar-thumb:hover"), "鼠标悬停 native thumb 使用高 specificity hover 规则");
 assert.ok(bundle.includes("var(--dsh-scrollbar-thumb-hover"), "native thumb hover 读取 DSH 主题 hover token");
 assert.ok(bundle.includes("scrollbar-gutter: stable;"), "滚动区稳定预留 native scrollbar 槽位");
-assert.ok(bundle.includes("margin-right: var(--dsh-scrollbar-width, 8px);"), "滚动区右侧按 DSH scrollbar 宽度留出调宽边界");
+assert.ok(bundle.includes("margin-right: max(var(--dsh-scrollbar-width, 8px), 6px);"), "滚动区右侧按 DSH scrollbar 宽度留出调宽边界（下限=手柄宽，0.2.0 token 收窄后不重叠，T-159）");
 assert.ok(
 	bundle.includes("[data-dsh-activity-pane] .dap-resize {\n  position: absolute;\n  top: 0; right: 0; bottom: 0;"),
 	"调宽手柄保持在 pane 右缘",

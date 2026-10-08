@@ -2,7 +2,7 @@
 id: T-159
 doc-type: task
 mutation: lifecycle
-状态: active
+状态: completed
 ---
 
 # T-159 适配 dsh 0.2.0-rc.2 客户端数据面迁移（staging 分支）
@@ -97,4 +97,20 @@ listEvents`、`SessionEventRecord`、`webServer.register`、`connection.requestR
 
 ## 终态与证据
 
-（active 期间留空）
+- 实现: 客户端数据面六处换源全部落地（currentIdOf 推导、subagentCatalog 投影 + refreshProjections 按需拉取、jobs 服务 roster、sessionStatus 等待态、retain/release 生命周期、uiWorkspace.openSession 导航）；审核修复补齐档位门控前置（紧凑档不发起水合）、无引用运行卡降级 sessionStatus/busy、深翻投影预拉、锚定补偿沉降窗化、聚焦抑制时机前置与窗宽分档；e2e 基建双线协议（Messages API mock、模型目录共有 id、公告循环清除）。
+- 测试: pnpm verify:fast 全绿（agentmap lint + test-impact lint + check.mjs 全部断言）；`pnpm test:e2e` 带追踪全量 20/20 通过（E2E_TRACE=2，311318ms，/tmp/e2e-final8.log）；compact-density 单跑 4/4、session-lifecycle 单跑 3/3 复验；staging 长驻实例黄金路径 8/8（挂载/回合/完成提醒/确认写回/第二卡/激活跳转/控制台干净，stderr 无 bundle skip 告警）；生产零影响（PID 3936344 存活，~/.dsh 文件集合首尾零增删）。
+- SOLUTION 对照: 数据源契约、活动状态模型、retain 生命周期、导航、档位资源纪律（门控先于 retain、降级状态源）均已写入目标态；双轴独立审核确认 map 与 code 一致（mode 陈述纠偏、C-086 收敛）。
+- commit: 918fc77
+- commit: 459ae1f
+- commit: b5466ee
+- commit: 4199fde
+- commit: 387bfa5
+- commit: bc33a34
+- commit: c2257b9
+- review:
+  - 审核方: code-review skill 双轴并行子代理（Standards 轴 + Spec 轴，独立上下文）。
+  - 目的理解: staging 分支把窗格客户端数据面迁到 dsh 0.2.0-rc.2（current/目录/jobs/等待态/retain/导航六处换源），PRD 不变、SOLUTION 演进到目标态；预期行为 = 行为不变迁移（AC 全集等价），验证 = verify:fast + 全量 e2e + staging 黄金路径 + 生产零影响。
+  - 执行方式: code-review skill，评审基线 011db72（main merge-base），范围 011db72...HEAD 全部 7 commit；Standards 轴按 CONVENTIONS.md + AGENTS.md 工程原则 + Fowler 基线，Spec 轴按 task 差距评估/收敛方案 + SOLUTION 目标态，API 真实性经 0.2.0-rc.2 tarball d.ts 核实。
+  - 问题与修复: ①（高）紧凑档门控前 retain 触发水合且引用常驻（双轴一致发现）→ 门控前置 + peekSessionFace 只借用 + 降级 sessionStatus/busy + 拆窗兜底释放 + check 断言恢复强度（387bfa5）；②SOLUTION mode 陈述失实（SubagentAddress 仍含 mode）→ 纠偏（387bfa5）；③深翻路径缺投影预拉 → ensureParentProjections + 重试（387bfa5）；④task 清单未含 b5466ee 两项 → 收敛方案补录四条（387bfa5）；⑤抑制重复武装（失败链连续吞聚焦约 30s）→ 窗宽分档 1200/60ms（387bfa5）；⑥注释形状失配、缩进残留、C-086/SOLUTION 文风 → 修正（387bfa5）；⑦三处 Duplicated Code → 抽 releaseAllSessionRefs/stopAllJobWatches/parentSessionIdOf + mock 派发与 tool_result 抽取合一（387bfa5）；⑧新发现（复审 2/3 轮）：释放紧凑档引用使高档位窗口异步重建，单帧锚定补偿漏后期增长 → 沉降窗逐帧补偿、仅按超时撤除（bc33a34、c2257b9）；⑨commit 标题类型与内容错配（🧪 实含行为修复，轻）→ 记录不重写历史。
+  - 复审结论: Standards 轴「7/7 已修复，1 项新发现（轻，标题类型），判定通过」；Spec 轴两次复审均「全部已修复，无新问题，复审通过，无遗留阻塞项」（bc33a34 追加复审通过；c2257b9 两处均通过，两条不阻塞备注已处理/记录）。残余风险：紧凑档无引用运行卡不更新 detail.snapshot（取舍已声明，history 补读兜底）；e2e 偶发环境级抖动（宿主启动空白页/时序敏感断言，单跑均绿，已留失败截图证据链）；`.dsh-plugin/client.js` 为生成物不在审核范围。
+- 状态说明：任务在 staging 分支（adapt/dsh-0.2.0-rc.2）承载，合入 canonical 前为 provisional；commit 387bfa5 标题类型错配为已记录偏差，不在未推送分支重写历史。

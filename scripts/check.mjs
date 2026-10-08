@@ -102,32 +102,32 @@ import {
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
-// ---- R-01-005/AC-01 点击跳转回归：卡片快照变化不能拦截原生导航 ----
+// ---- R-01-005/AC-01 点击跳转回归（dsh 0.2.0 经 uiWorkspace.openSession 导航，T-159） ----
 let openedSession = null;
 assert.equal(
 	openSession(
 		{
-			list: { getSnapshot: () => ({ ids: [] }) },
-			open: (id) => {
-				openedSession = id;
+			openSession: (target) => {
+				openedSession = target;
 			},
 		},
 		"stale-card",
 	),
 	true,
-	"即使另一份 list 快照不含目标，点击仍直接调用 sessions.open",
+	"即使目标不在本端快照，导航意图仍直接交给 uiWorkspace.openSession",
 );
 assert.equal(openedSession, "stale-card");
 assert.equal(
 	openSession(
-		{ open: () => {
+		{ openSession: () => {
 			throw new Error("not ready");
 		} },
 		"not-ready",
 	),
 	false,
-	"sessions.open 失败时交给调用方进入 refresh/retry",
+	"导航发起抛错时交回调用方进入重试链",
 );
+assert.equal(openSession(null, "x"), false, "导航服务缺失时返回 false");
 
 // ---- R-01-006/AC-02 当前卡片最小滚动：只调整越界方向，不居中 ----
 const viewport = { top: 10, bottom: 110 };
@@ -191,8 +191,8 @@ const card = {
 	},
 };
 const cardOpened = [];
-const cardSessions = { open: (id) => cardOpened.push(id) };
-const unbindCard = bindCardActivation(card, (id) => openSession(cardSessions, id));
+const cardUiWorkspace = { openSession: (target) => cardOpened.push(target) };
+const unbindCard = bindCardActivation(card, (id) => openSession(cardUiWorkspace, id));
 const activateEvent = (type, key = undefined) => {
 	let prevented = false;
 	let stopped = false;
@@ -804,18 +804,23 @@ assert.ok(resolvedBackgrounds.every((slot) => slot >= 0 && slot < WORKSPACE_BACK
 
 
 // ---- R-01-001/AC-01 活动卡片逐条显示 ｜ R-01-003/AC-01 子代理嵌套 ｜ R-01-003/AC-02 子代理结束即消失 ｜ R-01-006/AC-01 当前会话 ----
+// dsh 0.2.0 快照形状（T-159）：current 移除，改由行上 retainedBy.mainView 推导；
+// 子代理目录移入 projectionsBySession[id].values.subagentCatalog。
 const snapshot = {
 	ids: ["sA", "sA-c1", "sA-c2", "sB", "sX"],
 	byId: {
-		sA: { id: "sA", displayTitle: "主A", running: true, completed: false },
+		sA: { id: "sA", displayTitle: "主A", running: true, retainedBy: { mainView: 1 } },
 		"sA-c1": { id: "sA-c1", displayTitle: "子1", running: true, parentId: "sA", origin: "subagent" },
-		"sA-c2": { id: "sA-c2", displayTitle: "子2", running: false, completed: true, parentId: "sA", origin: "subagent" },
-		sB: { id: "sB", displayTitle: "主B", running: false, completed: true },
-		sX: { id: "sX", displayTitle: "主X", running: false, completed: false },
+		"sA-c2": { id: "sA-c2", displayTitle: "子2", running: false, parentId: "sA", origin: "subagent" },
+		sB: { id: "sB", displayTitle: "主B", running: false },
+		sX: { id: "sX", displayTitle: "主X", running: false },
 	},
-	current: "sA",
-	subagentsByParent: {
-		sA: { entries: [{ id: "sA-c1", label: "子代理一号" }] },
+	projectionsBySession: {
+		sA: {
+			values: { subagentCatalog: [{ id: "sA-c1", label: "子代理一号", mode: "continuable", createdAt: 1 }] },
+			state: "ready",
+			error: null,
+		},
 	},
 };
 const entries = buildEntries(snapshot, workspaces, {}, new Map([["sB", { lastTurnEnd: 1000, ackedAt: null }]]));
@@ -3677,23 +3682,24 @@ assert.ok(
 	bundle.includes("historyInstructionAnchor") && bundle.includes("memoTimelineAnchor") && bundle.includes("foldedHistoryTimeline") && !bundle.includes("withInstructionAnchor"),
 	"history 锚行作为核心时间线输入且 client 不再二次裁剪（R-01-009/AC-11、R-01-012/AC-12、C-035）",
 );
-// 子代理事件流打开前置：自动加载路径在 open 前经 configureSubagent 安装持久父地址，
-// mode 取母会话目录条目、目录未加载先单发 refreshSubagents 拉取再安装（dsh 0.1.5 起
-// 宿主拒绝普通地址或不符 mode 的子代理事件流，未点选的子代理卡窗口否则永不水合、
-// 时间线恒空——R-01-012/AC-03，T-151 缺陷修复）。
+// 子代理事件流打开前置（dsh 0.2.0 retain 语义，T-159 承接 T-151）：retain 前先经
+// sessions.subagentAddress 解析持久父地址（宿主仍按地址校验子代理会话路由），地址
+// 不可得时先单发 refreshProjections 拉取母会话投影再重试；旧地址安装/显式打开路径
+// 已随 0.2.0 会话面重构移除（R-01-012/AC-03，T-151 缺陷修复的后继）。
 assert.ok(
-	clientSource.includes("function ensureSubagentAddress") &&
-		clientSource.includes("requestSubagentCatalog(parentId)") &&
-		[...clientSource.matchAll(/ensureSubagentAddress\(id, session\);/g)].length === 2 &&
-		clientSource.indexOf("ensureSubagentAddress(id, session);") <
-			clientSource.indexOf("Promise.resolve(session.open())") &&
-		clientSource.lastIndexOf("ensureSubagentAddress(id, session);") <
-			clientSource.indexOf("session.open?.()"),
-	"子代理自动加载先安装持久父地址（目录 mode）再打开事件流（R-01-012/AC-03，T-151）",
+	clientSource.includes("function liveSessionFace") &&
+		clientSource.indexOf("sessions?.subagentAddress?.(") >= 0 &&
+		clientSource.indexOf("sessions?.subagentAddress?.(") < clientSource.indexOf("sessions?.retain?.(") &&
+		clientSource.includes("ensureParentProjections(parentId)") &&
+		clientSource.includes("sessions.refreshProjections("),
+	"子代理 retain 前先解析持久父地址、投影未就绪先拉取再重试（R-01-012/AC-03，T-151/T-159）",
 );
 assert.ok(
-	bundle.includes("configureSubagent") && bundle.includes("refreshSubagents"),
-	"子代理地址安装与目录单发拉取进入 bundle（R-01-012/AC-03，T-151）",
+	!clientSource.includes("configureSubagent") &&
+		!clientSource.includes("refreshSubagents") &&
+		!clientSource.includes("session.open") &&
+		!clientSource.includes(".open()"),
+	"旧会话面 API（地址安装/目录单发/显式打开）在源码零残留（T-159）",
 );
 assert.ok(!bundle.includes("renderSlot") && !bundle.includes("dap-slot"), "指令槽位渲染无残留（C-019）");
 assert.ok(!bundle.includes("rememberLastUser") && !bundle.includes("lastUserFromEvents") && !bundle.includes("foldedTimelineWithSlot") && !bundle.includes("foldWorkGroupsWithSlot"), "槽位派生家族无残留（C-019）");
@@ -3767,17 +3773,18 @@ assert.ok(
 	"紧凑档主会话跳过模型目录订阅与一次性 load，切回更高档位经既有语义补齐（R-01-025/AC-06）",
 );
 assert.ok(
-	clientSource.includes("const livenessSuppressed = logWindowSuppressedFor(id);") &&
-		clientSource.includes("if (!livenessSuppressed) {"),
-	"紧凑档主会话运行时不发起 open 水合，轮内状态订阅与 liveness 记账保留（R-01-025/AC-01、AC-02）",
+	clientSource.includes("const face = liveSessionFace(id);") &&
+		clientSource.includes("if (logWindowSuppressedFor(id)) return;"),
+	"紧凑档主会话运行时不建立日志窗口，轮内状态订阅与 liveness 记账保留（R-01-025/AC-01、AC-02；T-159 起共享初始历史打开由宿主 retain 语义承载）",
 );
 assert.ok(
 	clientSource.includes("function enforceDensityDataDiscipline()") &&
 		clientSource.includes("enforceDensityDataDiscipline();") &&
 		clientSource.includes("logSourceSubs.delete(id);") &&
-		clientSource.includes("session?.dispose?.()") &&
-		clientSource.includes("if (listSnap?.current == null) return;"),
-	"渲染期持续执法：对非当前主会话日志窗口先 unsubscribe 再除名并 dispose 其 live 源（当前会话豁免，快照未就绪整轮跳过），子代理窗口保留（R-01-025/AC-01）",
+		clientSource.includes("releaseSessionRef(id);") &&
+		clientSource.includes("const currentId = currentIdOf(listSnap);") &&
+		clientSource.includes("if (currentId == null) return;"),
+	"渲染期持续执法：对非当前主会话日志窗口先 unsubscribe 再除名并释放其 retain 引用（当前会话豁免，快照未就绪整轮跳过），子代理窗口保留（R-01-025/AC-01）",
 );
 assert.ok(
 	clientSource.includes("if (traceContainer !== null && densityLevel !== \"compact\") renderTimelineArea(traceContainer, entry, { lastOnly: densityLevel === \"medium\" });"),
@@ -4132,12 +4139,12 @@ assert.ok(!bundle.includes('"Think"') && !bundle.includes('"Assistant"'), "bundl
 assert.ok(bundle.includes('"思考"') && bundle.includes('"助手"'), "bundle 含中文「思考」「助手」标签（R-01-012/AC-09、AC-10）");
 assert.ok(bundle.includes("session.subscribe"), "运行卡通过 native session subscribe 接收实时推送");
 assert.ok(
-	clientSource.includes('const inject = ["sessions", "workspaces", "uiSession", "remote.session"];'),
-	"sessions/workspaces/uiSession/remote.session 通过 client inject 注入，不依赖服务发现定时器",
+	clientSource.includes('const inject = ["sessions", "workspaces", "uiSession", "remote.session", "jobs", "uiWorkspace"];'),
+	"sessions/workspaces/uiSession/remote.session/jobs/uiWorkspace 通过 client inject 注入，不依赖服务发现定时器（T-159 增 jobs/uiWorkspace）",
 );
 assert.ok(
-	bundle.includes("uiSession?.pendingInteractions") && bundle.includes("pendingInteraction: interaction.kind"),
-	"0.1.5 等待行动经 uiSession.pendingInteractions 快照回填行副本（sessions 行不再承载 pendingInteraction）",
+	bundle.includes("uiSession?.sessionStatus") && bundle.includes("pendingInteraction: kind"),
+	"dsh 0.2.0 等待行动经 uiSession.sessionStatus 统一状态快照回填行副本（pendingInteractions 已移除，T-159）",
 );
 assert.ok(
 	bundle.includes("historyDeepReadDone = true") && bundle.includes("historyDeepReadDone !== true"),
@@ -4148,8 +4155,8 @@ assert.ok(
 	"深翻在途守卫：同一会话深翻在途不重复入队，防 page RPC 风暴与加载指示在途性高频抖动（R-01-014/AC-05）",
 );
 assert.ok(
-	clientSource.includes('!detail.log && detail.snapshot?.openState !== "open"'),
-	"open 仅在日志窗口缺席时发起：已水合会话不逐帧重发 open，防在途翻转驱动加载指示抖动",
+	clientSource.includes("const live = liveSessionFace(id);") && clientSource.includes("if (live === null) return;"),
+	"会话水合经 retain 引用计数收敛：引用在途不重复 retain，已就绪代际由宿主共享（防逐帧重复水合与加载指示抖动，T-159）",
 );
 assert.ok(!bundle.includes("serviceTimer"), "服务发现不得保留后台定时器");
 assert.ok(!bundle.includes("frameProbeTimer"), "宿主 frame 发现不得保留后台定时器");
@@ -4195,8 +4202,8 @@ assert.ok(clientSource.includes("Promise.resolve().then(call)"), "detail fixture
 assert.ok(clientSource.includes("e2eModelDelayWaiters.clear()"), "卸载时取消并结清 detail fixture 延迟，不残留 timer/promise");
 assert.ok(bundle.includes("promise.then(queueSync, queueSync)"), "补充数据逐个完成即重绘（先就绪先显示）");
 assert.ok(bundle.includes("LOAD_CONCURRENCY"), "冷数据读取经并发池限制慢网挤占");
-assert.ok(bundle.includes("session.open"), "运行卡通过 native session open hydrate 非当前会话");
-assert.ok(bundle.includes("sessionOpenLoads"), "session.open 请求与 cold history fallback 不重复");
+assert.ok(bundle.includes("sessions?.retain?.("), "运行卡经 retain 引用获取宿主会话代际并水合（T-159）");
+assert.ok(bundle.includes("sessionRefs") && bundle.includes("reference.ready"), "retain 在途记账与 ready 落定接线（引用与 cold history fallback 不重复，T-159）");
 // T-127 移动端常驻功耗收敛：屏外休眠、渲染节流与流式派生合并。
 // 机制行为由 e2e/specs/mobile-thermal.mjs 断言，bundle 断言只锚定契约组件存在。
 assert.ok(

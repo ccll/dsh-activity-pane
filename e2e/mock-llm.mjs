@@ -238,7 +238,9 @@ const SCENARIOS = {
 // ---- Messages API 引擎（dsh 0.2.0 起 DeepSeek provider 走 Anthropic 风格
 // `${baseURL}/messages` SSE：message_start → content_block_* → message_delta →
 // message_stop；tool 调用为 tool_use 块 + input_json_delta 增量，stop_reason
-// 'tool_use'；工具结果以 user 消息 tool_result 块回传）。----
+// 'tool_use'；工具结果以 user 消息 tool_result 块回传）。标题生成请求与普通
+// 请求同路：其 user 消息 JSON 数组内含会话用户文本，通用选路照常命中剧本，
+// 与 0.1.5 的「标题 = 剧本回复」语义一致（e2e spec 按此断言卡标题）。----
 
 /** 把一个 JSON 负载作为一条 Messages SSE data 帧写出（与旧引擎 send 同帧格式）。 */
 function sendEvent(res, payload) {
@@ -349,50 +351,6 @@ const MESSAGES_SCENARIOS = {
 	jobread: (res, model, messages) => playMessagesJobRead(res, model, messages),
 };
 
-/** 识别宿主的会话标题生成请求。两种变体：first-prompt 变体把指示放 system
- *  （"Create a concise title"）；JSON 数组变体把指示放 user 消息（"Generate the
- *  session title from this JSON array"）。mock 回显首条用户文本，使卡片标题与
- *  0.1.5 的首条用户消息语义一致（e2e spec 按消息文本断言卡标题）。 */
-function isTitleRequest(body) {
-	const system = body.system;
-	const systemText = typeof system === "string"
-		? system
-		: Array.isArray(system)
-			? system.map((block) => block?.text ?? "").join("\n")
-			: "";
-	if (systemText.includes("Create a concise title")) return true;
-	return messagesScenarioTexts(body).userTexts.some((text) => text.includes("Generate the session title"));
-}
-
-/** 从标题请求中提取应回显的标题文本：优先解析 JSON 数组变体的首条人类消息。 */
-function titleFromRequest(body) {
-	const { userTexts } = messagesScenarioTexts(body);
-	for (const text of userTexts) {
-		const marker = text.indexOf("messages:");
-		if (marker >= 0) {
-			try {
-				const list = JSON.parse(text.slice(marker + "messages:".length).trim());
-				const first = Array.isArray(list) ? list[0] : undefined;
-				if (typeof first === "string" && first.trim() !== "") return first;
-				if (first && typeof first.text === "string" && first.text.trim() !== "") return first.text;
-			} catch {
-				// 非 JSON 形状：回落原文
-			}
-		}
-	}
-	const plain = userTexts.find((text) => !text.includes("Generate the session title"));
-	return plain ?? userTexts[0] ?? "e2e 会话";
-}
-
-/** 标题剧本：单行回显（长文本截断，标题无需完整正文）。 */
-async function playMessagesTitle(res, model, body) {
-	const title = titleFromRequest(body).replace(/\s+/g, " ").trim().slice(0, 60) || "e2e 会话";
-	beginMessage(res);
-	playTextBlock(res, 0, title);
-	settleMessage(res, 8);
-	res.end();
-}
-
 /**
  * 启动 mock LLM 服务。
  * @returns Promise<{ url, port, scenarioLog, streamLog, close }>；scenarioLog 记录命中剧本，streamLog 记录 slow 已发送块。
@@ -434,8 +392,6 @@ export async function startMockLlm() {
 						: scenario === "jobread"
 							? SCENARIOS.jobread(res, model, body.messages ?? [])
 							: SCENARIOS[scenario](res, model));
-				} else if (isTitleRequest(body)) {
-					await playMessagesTitle(res, model, body);
 				} else {
 					await (scenario === "slow"
 						? playMessagesSlow(res, model, streamLog)

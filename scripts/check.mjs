@@ -21,6 +21,7 @@ import {
 	clampPaneWidth,
 	normalizeDensity,
 	nextDensity,
+	logWindowSuppressed,
 	chatLatestAssistantSettled,
 	pagedHistoryEvents,
 	delegationActive,
@@ -3548,6 +3549,16 @@ assert.equal(nextDensity("medium"), "full", "中间档的下一档为完整（R-
 assert.equal(nextDensity("compact"), "medium", "紧凑档的下一档为中间（R-01-021/AC-01）");
 assert.equal(nextDensity("junk"), "full", "非法值经归一视作默认中间档再循环（R-01-021/AC-01）");
 
+// ---- R-01-024 档位资源纪律：紧凑档主会话日志窗口裁剪谓词 ----
+// R-01-024/AC-01：紧凑档且非子代理时裁剪判定为真——主会话不建立或保持日志窗口。
+assert.equal(logWindowSuppressed("compact", false), true, "紧凑档主会话日志窗口裁剪（R-01-024/AC-01）");
+// R-01-024/AC-03：子代理日志窗口承载标题行可见的模型上下文，恒不裁剪。
+assert.equal(logWindowSuppressed("compact", true), false, "紧凑档子代理日志窗口不裁剪——模型上下文可见（R-01-024/AC-03）");
+assert.equal(logWindowSuppressed("medium", false), false, "中间档不裁剪数据面——预览行与时间线末行可见（R-01-024/AC-05）");
+assert.equal(logWindowSuppressed("full", false), false, "完整档不裁剪数据面");
+assert.equal(logWindowSuppressed("junk", false), false, "非法档位经归一视作中间档即不裁剪（R-01-024/AC-01）");
+assert.equal(logWindowSuppressed(null, undefined), false, "缺失档位不裁剪（R-01-024/AC-01）");
+
 // ---- R-01-023 在跑后台任务的活性派生、提醒抑制与徽标 ----
 // R-01-023/AC-01：liveJobs 非空的主会话保留活动区、归运行组并携带任务视图（startedAt 升序）。
 const jobbedSnapshot = {
@@ -3738,6 +3749,44 @@ assert.ok(
 	"中间档完成提醒卡末行经 data-wait 作用域 CSS 收合为单行——横向 foot、包裹层 display:contents、正文隐藏、按钮 margin-left:auto 居右（R-01-021/AC-08）",
 );
 assert.ok(bundle.includes("writeStoredDensity(densityLevel)"), "显示档位切换持久化于 localStorage（R-01-021/AC-06）");
+// R-01-024 档位资源纪律：紧凑档数据面门控与渲染面跳写的 bundle 契约
+assert.ok(
+	clientSource.includes("logWindowSuppressed(densityLevel, isSubagentRow(densityListSnap?.byId?.[id], densityListSnap?.byId ?? {}))"),
+	"captureSessionLog 入口经档位谓词用时校验：紧凑档主会话不订阅事件流、不发起 open、不读窗口（R-01-024/AC-01）",
+);
+assert.ok(
+	clientSource.includes("(subagent || !logWindowSuppressed(densityLevel, subagent))"),
+	"紧凑档主会话跳过日志分页深翻，子代理模型溯源读取不受影响（R-01-024/AC-03）",
+);
+assert.ok(
+	clientSource.includes("if (!subagent && !logWindowSuppressed(densityLevel, subagent))"),
+	"紧凑档主会话跳过模型目录订阅与一次性 load，切回更高档位经既有语义补齐（R-01-024/AC-06）",
+);
+assert.ok(
+	clientSource.includes("function enforceDensityDataDiscipline()") &&
+		clientSource.includes("enforceDensityDataDiscipline();") &&
+		clientSource.includes("logSourceSubs.delete(id);") &&
+		clientSource.includes("session?.dispose?.()"),
+	"进入紧凑档时对主会话日志窗口先 unsubscribe 再除名并 dispose 非当前会话的 live 源（当前会话豁免），子代理窗口保留（R-01-024/AC-01）",
+);
+assert.ok(
+	clientSource.includes("if (traceContainer !== null && densityLevel !== \"compact\") renderTimelineArea(traceContainer, entry, { lastOnly: densityLevel === \"medium\" });"),
+	"紧凑档不构建被隐藏的时间线内容，中间档 lastOnly 语义不变（R-01-024/AC-05）",
+);
+assert.equal(
+	(clientSource.match(/if \(traceContainer !== null && densityLevel !== "compact"\) renderTimelineArea/g) ?? []).length,
+	3,
+	"运行卡、等待卡与子代理卡三处时间线渲染均在紧凑档跳过（R-01-024/AC-05）",
+);
+assert.equal(
+	(clientSource.match(/if \(densityLevel === "full"\) renderTokenStats\(el, entry\);/g) ?? []).length,
+	4,
+	"运行卡、子代理卡、最近卡与等待卡的 token 统计行仅在完整档写入（R-01-024/AC-05）",
+);
+assert.ok(
+	clientSource.includes("if (progressRow !== null && densityLevel === \"full\")"),
+	"进度行仅在完整档写入，中间/紧凑档由 CSS 隐藏（R-01-024/AC-05）",
+);
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-tools {') &&
 		bundle.includes('[data-dsh-activity-pane] .dap-density {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: 22px;'),
@@ -4123,10 +4172,10 @@ assert.ok(bundle.includes("renderTraceLoading"), "时间线区数据在途时显
 assert.ok(clientSource.includes('e2eParams.get("dap-e2e-model-delay")'), "detail 渐进 E2E 接缝由显式 URL fragment 启用");
 assert.ok(clientSource.includes("Math.min(requestedModelDelay, 1_000)"), "detail 渐进 E2E 延迟上限为 1 秒");
 assert.ok(
-	clientSource.includes("if (!subagent) {") &&
+	clientSource.includes("if (!subagent && !logWindowSuppressed(densityLevel, subagent)) {") &&
 		clientSource.includes("subscribeModelDirectory(id, detail);") &&
 		clientSource.includes("loadDirectoryOnce(id);"),
-	"仅主会话建立 model directory 订阅与一次性 load（子代理目录不可用不订阅）",
+	"仅主会话建立 model directory 订阅与一次性 load（子代理目录不可用不订阅）；紧凑档主会话无可见消费者不订阅（R-01-024/AC-06）",
 );
 assert.ok(
 	clientSource.includes('delayedModelCall(() => (typeof directory.load === "function" ? directory.load() : null))'),

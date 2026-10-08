@@ -4558,11 +4558,10 @@ function apply(ctx) {
 			if (scrollEl !== null && currentCard !== null) {
 				const viewportTop = scrollEl.getBoundingClientRect().top;
 				const shiftedTop = currentCard.getBoundingClientRect().top - viewportTop;
-				const residual = shiftedTop - pendingDensityAnchor;
-				scrollEl.scrollTop += residual;
-				// 稳定判据 = 补偿前残差：本帧无需修正（内容相对锚未再增长）才撤；
-				// 仍在长回的帧保持补偿，直至沉降窗超时强制撤。
-				if (Math.abs(residual) <= 1 || Date.now() > densityAnchorDeadline) {
+				// 仅按沉降窗超时撤除（T-159）：窗口重建分多帧长回且成簇到达，帧间
+				// 空隙的「稳定帧」不可作为撤除依据——提前撤除会让后续突增失偿。
+				scrollEl.scrollTop += shiftedTop - pendingDensityAnchor;
+				if (Date.now() > densityAnchorDeadline) {
 					pendingDensityAnchor = null;
 					densityAnchorDeadline = 0;
 				}

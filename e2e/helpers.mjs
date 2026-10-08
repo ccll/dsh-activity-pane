@@ -63,10 +63,18 @@ export async function ensureFullDensity(page) {
 /** 首跑公告弹窗仅在首次出现，存在则关掉。 */
 export async function dismissNotice(page) {
 	// 公告按钮会先以 disabled 挂载再启用，也可能在水合时被替换；在一次 DOM 执行内查找并激活，避免 locator 自动等待竞态。
-	await page.evaluate(() => {
-		const button = [...document.querySelectorAll("button")].find((candidate) => candidate.textContent.trim() === "Continue");
-		if (button && !button.disabled) button.click();
-	});
+	// dsh 0.2.0（T-159）：公告模态挂载晚于 networkidle 且可晚于首轮 dismiss——
+	// 循环清除直到遮罩消失（上限 10 轮），消除「dismiss 后遮罩才挂载」的竞态。
+	for (let round = 0; round < 10; round += 1) {
+		const state = await page.evaluate(() => {
+			const mask = [...document.querySelectorAll("div")].some((candidate) => String(candidate.className).includes("_mask_"));
+			const button = [...document.querySelectorAll("button")].find((candidate) => candidate.textContent.trim() === "Continue" && !candidate.disabled && candidate.getBoundingClientRect().height > 0);
+			if (button) button.click();
+			return { mask, clicked: button !== undefined };
+		});
+		if (!state.mask && !state.clicked) return;
+		await page.waitForTimeout(400);
+	}
 }
 
 /** 打开应用并等待窗格数据就绪；列表状态转换由产品渲染签名保证即时落到 DOM，

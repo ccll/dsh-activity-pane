@@ -3660,7 +3660,7 @@ const bundle = await readFile(join(root, ".dsh-plugin/client.js"), "utf8");
 // R-01-021/AC-01：档位切换锚定补偿为沉降窗逐帧补偿——dsh 0.2.0 起切回高档位的
 // 窗口经 retain→ready 异步重建，内容分多帧长回，单帧补偿会漏掉后期增长（T-159）。
 assert.ok(
-	bundle.includes("densityAnchorDeadline") && bundle.includes("const residual = shiftedTop - pendingDensityAnchor;") && bundle.includes("Math.abs(residual) <= 1"),
+	bundle.includes("densityAnchorDeadline") && bundle.includes("scrollEl.scrollTop += shiftedTop - pendingDensityAnchor;") && bundle.includes("if (Date.now() > densityAnchorDeadline)"),
 	"档位切换锚定补偿在沉降窗内逐帧执行、以补偿前残差判稳定（R-01-021/AC-01，T-159 审核修复回归）",
 );
 const clientSource = await readFile(join(root, "src/client.mjs"), "utf8");

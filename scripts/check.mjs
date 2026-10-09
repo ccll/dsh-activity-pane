@@ -3987,6 +3987,24 @@ assert.ok(
 		"浅色主题任务子卡底色同样轻染任务蓝、与子代理卡可辨区分（R-01-023/AC-07）",
 	);
 }
+// R-01-023/AC-09（T-159）：任务子卡状态点活性脉冲——与运行中主会话卡标题状态点同源
+// 同节奏（dap-pulse 1.2s），光晕与着色同色相：运行中任务蓝、停止中琥珀不覆盖动画。
+{
+	const jobDot = bundle.indexOf("[data-dsh-activity-pane] .dap-job-dot {");
+	const jobDotBlock = bundle.slice(jobDot, bundle.indexOf("}", jobDot));
+	const jobStop = bundle.indexOf('[data-dsh-activity-pane] .dap-job-dot[data-status="stopping"] {');
+	const jobStopBlock = bundle.slice(jobStop, bundle.indexOf("}", jobStop));
+	assert.ok(
+		jobDot !== -1 && jobDotBlock.includes("animation: dap-pulse 1.2s ease-in-out infinite")
+			&& jobDotBlock.includes("box-shadow: 0 0 6px rgba(101, 160, 255, 0.8)"),
+		"任务子卡状态点带任务蓝光晕并以 dap-pulse 1.2s 固定节奏闪烁（R-01-023/AC-09）",
+	);
+	assert.ok(
+		jobStop !== -1 && jobStopBlock.includes("background: #f5a524")
+			&& jobStopBlock.includes("box-shadow: 0 0 6px rgba(245, 165, 36, 0.8)") && !jobStopBlock.includes("animation"),
+		"停止中状态点换琥珀色相与光晕、脉冲节奏沿用基态（R-01-023/AC-09）",
+	);
+}
 assert.ok(
 	bundle.includes("rec.el.getBoundingClientRect()") && !bundle.includes("rec.el.offsetTop"),
 	"轨道测量必须用浮点矩形：offsetTop/offsetHeight 是整数舍入值，与 CSS 全精度定位的横线会随机差 1~2px",

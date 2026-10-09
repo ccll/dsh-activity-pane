@@ -6,7 +6,7 @@ id: T-159
 
 # T-159 后台任务子卡状态点活性脉冲（光晕与闪烁）
 
-状态: active
+状态: completed
 关联: R-01-023（AC-09 新增）→ 活动状态模型、窗格渲染器
 风险等级: standard
 
@@ -76,4 +76,13 @@ id: T-159
 
 ## 终态与证据
 
-（active 期间留空，关闭时填写）
+- 实现: `src/client.mjs`——任务子卡状态点活性呈现全量按状态门控：基态只承载几何（6px 圆点），running 规则承载任务蓝 `#65a0ff` 着色与同色相光晕 `box-shadow: 0 0 6px rgba(101,160,255,.8)`，stopping 规则换琥珀 `#f5a524` 着色与琥珀光晕，running/stopping 分组规则承载 `animation: dap-pulse 1.2s ease-in-out infinite`（与运行中主会话卡标题状态点同关键帧同周期）；AC-09 的「运行中或停止中」条件由 CSS 显式表达，不依赖 liveJobs 过滤的跨层隐式前提。零 JS、零 host 改动。`scripts/check.mjs` 新增四段 bundle 契约锚点（基态无活性呈现、running 蓝、stopping 琥珀、分组脉冲，均纯选择器 needle + 块内 includes）；`e2e/specs/background-jobs.mjs` 新增运行态 computed 断言（animationName 为 dap-pulse、boxShadow 非 none）；`scripts/acceptance.mjs` 新增 AC-09 人工步骤（AC 原文口径）。PRD R-01-023 新增 AC-09、SOLUTION 任务子卡落点补活性呈现门控方案（ea3256a 同次演进，004c2ee 补门控措辞）；`.dsh-plugin/client.js` 每次变更同次重建。
+- 测试: 红绿序先行——先落 check.mjs 锚点跑 `node scripts/check.mjs` 证红（bundle 无动画），落 CSS 后证绿。`pnpm verify` 全量三轮通过（实现 ea3256a 工作树、修复 a712629 工作树、修复 004c2ee 工作树各一轮）：AgentMap lint（28 需求/178 AC 全锚定）、test impact（+R-01-023/AC-09 记账）、`scripts/check.mjs` 全部断言、20/20 浏览器 E2E（439665ms / 438805ms / 435911ms），热静默门禁 rAF 73/69 次均低于阈值 80。单 spec `node e2e/run.mjs background-jobs` 每轮随改复跑通过。隔离环境相位采样证据：任务子卡状态点 opacity 0.375→0.706→0.949 随 400ms 采样推进、animationName 恒为 dap-pulse、boxShadow rgba(101,160,255,.8)；另存两帧卡面截图与窗格全景（tmp-harness/job-dot-*.png，不入库）。
+- SOLUTION 对照: PRD R-01-023/AC-09 与实现逐条对应——活性呈现按状态门控、同色相光晕（运行中蓝/停止中琥珀）、dap-pulse 1.2s 与主卡状态点同源同周期；SOLUTION 落点（任务子卡呈现 bullet）与实现无差异；data-status 缺失帧、jobStatus 恒为 running/stopping、job 卡不跨 kind 复用等前提经评审员逐点核实；无残留差异。
+- commit: ea3256a 实现与 map 演进；a712629 复审修复一轮（动画门控、验收措辞收编）；004c2ee 复审修复二轮（活性呈现全量门控、锚点四段化、文档同步）
+- review:
+  - 审核方: code-review skill（Standards/Spec 双轴并行独立 reviewer 子代理，fixed point = ea3256a vs 011db72；修复轮由两轴原审核方分别复审 a712629 与 004c2ee hunks，共三轮）
+  - 目的理解: 把 R-01-023/AC-09（任务子卡状态点在运行中或停止中时固定脉冲闪烁 + 同色相光晕、着色随状态区分、节奏与主卡同源）落为可验证实现；约束——零 JS/零 host 改动、不引入相位同步机制、等待卡标题状态点静止纪律不受影响、AC 条件由 CSS 显式表达；验证方式 = check.mjs 四段契约 + background-jobs e2e computed 断言 + acceptance 人工步骤 + 全量 verify。
+  - 执行方式: code-review skill 双轴评审（Standards 轴对照 AGENTS 工程原则 + CONVENTIONS + Fowler smell 基线；Spec 轴对照 PRD R-01-023/AC-09 + T-159 收敛方案/测试计划 + SOLUTION 落点），两轴独立并行，每轮修复后同审核方复审。
+  - 问题与修复: ①【Spec·中低】animation 与蓝光晕无条件入基态、仅靠 LIVE_JOB_STATUSES 跨层隐式前提成立且无测试钉住 → animation 移入 running/stopping 分组规则（a712629），着色与光晕随后一并门控、基态只承载几何（004c2ee），check.mjs 四段锚点钉住门控形状；②【Spec·低】acceptance 人工步骤加塞 AC-09 外判据（时长逐秒推进属 AC-05、协调观感无规格出处）→ 措辞收编 AC-09 原文口径（a712629）；③【Spec·低】task 验证矩阵「异常」行残留「脉冲沿用基态」旧表述与收敛方案矛盾 → 004c2ee 同步为「非在跑状态无任何活性呈现」；④【Standards·低】check.mjs indexOf+slice 抽块惯例重复累积（全文件约 8 处）→ 属既有 bundle 契约惯例的累积债务，按聚焦修改不顺手重构、维持已记录；⑤【Standards·低】stopping 探针把首条声明并入选择器 needle 怕重排版 → 004c2ee 改为纯选择器 needle + 块内 includes，已消除。
+  - 复审结论: 两轴三轮复审均通过，全部发现闭环、无新增阻断。残余风险与测试缺口：e2e 光晕断言只判非 none、未判蓝色相（同色相由 check.mjs 字符串契约与 acceptance 人工步骤承载）；真实窗格观感（深浅主题、光晕与卡面蓝染协调）待东家按 acceptance 步骤验收，已附隔离环境相位采样与两帧截图；check.mjs 抽块惯例重复（既有累积债务，已记录）。

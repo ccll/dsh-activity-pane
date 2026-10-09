@@ -3987,25 +3987,32 @@ assert.ok(
 		"浅色主题任务子卡底色同样轻染任务蓝、与子代理卡可辨区分（R-01-023/AC-07）",
 	);
 }
-// R-01-023/AC-09（T-159）：任务子卡状态点活性脉冲——与运行中主会话卡标题状态点同源
-// 同节奏（dap-pulse 1.2s），光晕与着色同色相；动画按状态门控，不入基态（双轴复审修复）。
+// R-01-023/AC-09（T-159）：任务子卡状态点活性脉冲——着色、光晕与动画全部按状态门控，
+// 基态只承载几何；running/stopping 与主会话卡标题状态点同源同节奏（双轴复审修复）。
 {
 	const jobDot = bundle.indexOf("[data-dsh-activity-pane] .dap-job-dot {");
 	const jobDotBlock = bundle.slice(jobDot, bundle.indexOf("}", jobDot));
 	assert.ok(
-		jobDot !== -1 && jobDotBlock.includes("box-shadow: 0 0 6px rgba(101, 160, 255, 0.8)") && !jobDotBlock.includes("animation"),
-		"任务子卡状态点基态带任务蓝光晕、动画按状态门控不入基态（R-01-023/AC-09）",
+		jobDot !== -1 && jobDotBlock.includes("border-radius: 50%") && !jobDotBlock.includes("box-shadow") && !jobDotBlock.includes("animation"),
+		"任务子卡状态点基态只承载几何、活性呈现全部按状态门控（R-01-023/AC-09）",
+	);
+	const jobRun = bundle.indexOf('[data-dsh-activity-pane] .dap-job-dot[data-status="running"] {');
+	const jobRunBlock = bundle.slice(jobRun, bundle.indexOf("}", jobRun));
+	assert.ok(
+		jobRun !== -1 && jobRunBlock.includes("background: #65a0ff") && jobRunBlock.includes("box-shadow: 0 0 6px rgba(101, 160, 255, 0.8)"),
+		"运行中状态点带任务蓝着色与同色相光晕（R-01-023/AC-09）",
+	);
+	const jobStop = bundle.indexOf('[data-dsh-activity-pane] .dap-job-dot[data-status="stopping"] {');
+	const jobStopBlock = bundle.slice(jobStop, bundle.indexOf("}", jobStop));
+	assert.ok(
+		jobStop !== -1 && jobStopBlock.includes("background: #f5a524") && jobStopBlock.includes("box-shadow: 0 0 6px rgba(245, 165, 36, 0.8)"),
+		"停止中状态点换琥珀色相与光晕（R-01-023/AC-09）",
 	);
 	const jobPulse = bundle.indexOf('[data-dsh-activity-pane] .dap-job-dot[data-status="running"],');
 	const jobPulseBlock = bundle.slice(jobPulse, bundle.indexOf("}", jobPulse));
 	assert.ok(
 		jobPulse !== -1 && jobPulseBlock.includes('[data-status="stopping"]') && jobPulseBlock.includes("animation: dap-pulse 1.2s ease-in-out infinite"),
-		"任务子卡状态点仅 running/stopping 以 dap-pulse 1.2s 闪烁、与主卡状态点同源（R-01-023/AC-09）",
-	);
-	const jobStop = bundle.indexOf('[data-dsh-activity-pane] .dap-job-dot[data-status="stopping"] { background: #f5a524');
-	assert.ok(
-		jobStop !== -1 && bundle.slice(jobStop, bundle.indexOf("}", jobStop)).includes("box-shadow: 0 0 6px rgba(245, 165, 36, 0.8)"),
-		"停止中状态点换琥珀色相与光晕、脉冲由分组规则承载（R-01-023/AC-09）",
+		"状态点仅 running/stopping 以 dap-pulse 1.2s 闪烁、与主卡状态点同源（R-01-023/AC-09）",
 	);
 }
 assert.ok(

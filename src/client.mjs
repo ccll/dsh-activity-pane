@@ -748,12 +748,14 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 [data-dsh-activity-pane] .dap-job-dot {
   flex: none; width: 6px; height: 6px; border-radius: 50%;
+}
+[data-dsh-activity-pane] .dap-job-dot[data-status="running"] {
   background: #65a0ff;
   box-shadow: 0 0 6px rgba(101, 160, 255, 0.8);
 }
 [data-dsh-activity-pane] .dap-job-dot[data-status="stopping"] { background: #f5a524; box-shadow: 0 0 6px rgba(245, 165, 36, 0.8); }
-/* 活性门控（AC-09）：脉冲只作用于 running/stopping 两个在跑状态，AC 条件由 CSS 显式表达，
-   不依赖「liveJobs 只收 running/stopping」的跨层隐式前提（双轴复审修复，T-159）。 */
+/* 活性门控（AC-09）：着色、光晕与脉冲只作用于 running/stopping 两个在跑状态，AC 条件由
+   CSS 显式表达，不依赖「liveJobs 只收 running/stopping」的跨层隐式前提（双轴复审修复）。 */
 [data-dsh-activity-pane] .dap-job-dot[data-status="running"],
 [data-dsh-activity-pane] .dap-job-dot[data-status="stopping"] {
   animation: dap-pulse 1.2s ease-in-out infinite;

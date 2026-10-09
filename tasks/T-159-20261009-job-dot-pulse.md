@@ -38,10 +38,10 @@ id: T-159
 ## 收敛方案
 
 1. `src/client.mjs`（纯 CSS，零 JS 改动）：
-   - `.dap-job-dot` 增加同色相光晕 `box-shadow: 0 0 6px rgba(101,160,255,.8)`。
-   - 同一规则增加 `animation: dap-pulse 1.2s ease-in-out infinite`，复用主卡状态点的关键帧与周期。
-   - `[data-status="stopping"]` 分支换琥珀光晕 `rgba(245,165,36,.8)`，不覆盖 animation。
-   - 理由: liveJobs 以 stopping 亦为在跑（R-01-023/AC-01 同口径），活性表达一致。
+   - `.dap-job-dot` 基态只承载任务蓝着色与同色相光晕 `box-shadow: 0 0 6px rgba(101,160,255,.8)`，不带动画。
+   - 动画按状态门控：running 与 stopping 的分组规则承载 `animation: dap-pulse 1.2s ease-in-out infinite`。
+   - AC-09 的「运行中或停止中」条件由 CSS 显式表达，不依赖跨层隐式前提（双轴复审修复）。
+   - stopping 分支换琥珀着色与光晕，脉冲由分组规则承载、节奏复用主卡状态点关键帧与周期。
    - `prefers-reduced-motion` 不特判，沿既有纪律（reduced-motion 只关进度填充过渡，不关状态脉冲）。
 2. `scripts/check.mjs`: bundle 契约断言状态点动画与光晕声明，及 stopping 色相分支。
 3. `e2e/specs/background-jobs.mjs`: 黄金路径断言运行态状态点的 computed 动画与光晕。

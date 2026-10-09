@@ -981,8 +981,11 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 .dap-toggle .dap-toggle-count .dap-spinner {
   vertical-align: middle;
 }
-/* 移动端浮动开关按钮：仅在窄屏显示（桌面隐藏）。固定于会话头部左上角、
-   原生左边栏切换按钮（28px @ left:8px; top:12px）右侧（R-01-008/AC-04）。 */
+/* 移动端「活动」开关按钮：仅在窄屏显示（桌面隐藏）。常态嵌入宿主头部标题行
+   作为布局子项参与排布——浮层覆盖式呈现会随宿主几何演进而遮挡控件（T-029 后
+   再次失配），参与布局让宿主内容让位（R-01-008/AC-04，T-160）；宿主头部不可得
+   时由 placeToggle 回退为本条 fixed 兜底形态（left 经侧栏切换按钮实测右缘动态
+   覆写，缺省 44px）。 */
 .dap-toggle {
   position: fixed; top: 12px; left: 44px; z-index: 2147482991;
   display: none;
@@ -995,6 +998,13 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   font-size: 12px; font-weight: 600;
   cursor: pointer;
   box-shadow: 0 6px 16px rgba(0,0,0,.34);
+}
+/* 嵌入态：回归文档流参与标题行排布；flex:none 防拥挤下被压缩变形，
+   右缘 8px 与标题簇分隔。 */
+.dap-toggle[data-embedded] {
+  position: static;
+  margin-right: 8px;
+  flex: none;
 }
 .dap-toggle .dap-toggle-count {
   min-width: 16px; text-align: center; border-radius: 999px;
@@ -1065,6 +1075,9 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   .dap-backdrop[data-drawer-open] { display: block; }
   .dap-toggle { display: flex; }
   .dap-toggle[data-drawer-open] { display: none; }
+  /* 嵌入态打开抽屉改为留位隐藏：visibility 不可见且不可命中（满足 AC-05 隐藏），
+     标题行不因开合重排，遮罩未盖住的右缘无位移（T-160 闸口决策）。 */
+  .dap-toggle[data-embedded][data-drawer-open] { display: flex; visibility: hidden; }
 }
 /* 浅色主题适配：外壳以 body 上 data-ds-dark-theme 属性标记深色（缺省即浅色），
    并在两个作用域下翻转整套 --dsw-alias-* 变量。本块只覆盖上文暗色专用的硬编码
@@ -1435,6 +1448,39 @@ function apply(ctx) {
 	const backdrop = document.createElement("div");
 	backdrop.className = "dap-backdrop";
 	document.body.appendChild(backdrop);
+
+	// 移动端「活动」开关落位守卫（T-160，R-01-008/AC-04）：常态嵌入宿主头部标题行
+	// 参与布局；宿主头部不可得时回退 fixed 兜底形态。幂等：已处目标位置不动 DOM，
+	// 宿主重渲染丢弃嵌入节点后由下一轮渲染守卫重插（头部在 seat 子树内，
+	// conversationObserver 的 subtree 监听会经 queueSync 唤醒本守卫）。
+	function placeToggle() {
+		const seat = document.querySelector(CONVERSATION_SELECTOR);
+		const row = seat !== null ? (seat.querySelector("header")?.firstElementChild ?? null) : null;
+		if (row !== null) {
+			// 插入点取首个子簇内 crumb 导航所在的顶层簇之前：标题簇是行内首个内容簇，
+			// 宿主若把侧栏切换按钮放进行内也天然落在其右侧（相对顺序契约，不断言行首）。
+			const head = row.firstElementChild;
+			let cluster = head?.tagName === "NAV" ? head : (head?.querySelector("nav") ?? null);
+			while (cluster !== null && cluster.parentElement !== row) cluster = cluster.parentElement;
+			const settled = toggle.parentElement === row &&
+				(cluster !== null ? toggle.nextSibling === cluster : row.firstElementChild === toggle);
+			if (settled) return;
+			if (cluster !== null) row.insertBefore(toggle, cluster);
+			else row.prepend(toggle);
+			toggle.setAttribute("data-embedded", "");
+			if (toggle.style.left !== "") toggle.style.left = "";
+			return;
+		}
+		// 兜底形态：挂回 body、摘掉嵌入标记；兜底 left 随 sidebar 槽位首个按钮（当前宿主
+		// 即侧栏切换钮）实测右缘写入——右缘为 0（隐藏/未渲染）视同测不到，清回 CSS 缺省
+		// 44px，不再硬编码追赶宿主几何。
+		if (toggle.parentElement !== document.body) document.body.append(toggle);
+		toggle.removeAttribute("data-embedded");
+		const sidebarToggle = document.querySelector("[data-slot=sidebar] button");
+		const right = sidebarToggle?.getBoundingClientRect().right ?? NaN;
+		const left = Number.isFinite(right) && right > 0 ? `${Math.round(right + 8)}px` : "";
+		if (toggle.style.left !== left) toggle.style.left = left;
+	}
 
 	// 桌面判定与"真实参与布局"：中间列切为行方向，窗格固定宽、会话根弹性填充
 	// 剩余宽度（flex:1 + min-width:0），让会话内容（标题/tabs/滚动区/输入框）
@@ -2393,6 +2439,8 @@ function apply(ctx) {
 
 	// ---- 窗格容器（conversation 槽座的前置兄弟列；外壳重挂载后重插） ----
 	function ensurePane() {
+		// 开关落位守卫先于窗格守卫：头部行存在与否独立于窗格挂载态（T-160）。
+		placeToggle();
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
 		if (seat === null || seat.parentElement === null) return null;
 		// [data-slot="conversation"] 的父级是 AppFrame 的中间列（flex column）。

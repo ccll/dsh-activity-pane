@@ -1,4 +1,4 @@
-// R-01-023/AC-01、AC-02、AC-05、AC-08、R-01-003/AC-04 呈现与交互链路（浏览器黄金路径）：
+// R-01-023/AC-01、AC-02、AC-05、AC-08、AC-09、R-01-003/AC-04 呈现与交互链路（浏览器黄金路径）：
 // e2e:job 剧本让引擎真实启动后台任务并读取一次输出——窗格以 job 子卡呈现（与子代理
 // 同形：层级连接线 + 两行卡面）、第一行工具名称与随时钟时长、第二行任务内容原文（悬停
 // tooltip 完整原文）、卡面底色与子代理卡区分、紧凑档仅保留工具名行、母卡标题行「后台 ×N」
@@ -30,6 +30,17 @@ export default async function backgroundJobs({ page, url, assert }) {
 	assert.equal(jobCard.kind, "Bash", "job 子卡第一行显示工具名称友好映射（R-01-023/AC-05）");
 	assert.ok(jobCard.content.includes("e2e-job-tick-start"), "job 子卡第二行为任务内容原文（探针 echo 行在内，R-01-023/AC-05）");
 	assert.ok(jobCard.dotStatus === "running", "job 子卡状态点为运行态");
+
+	// R-01-023/AC-09：任务子卡状态点活性——运行态以 dap-pulse 固定节奏持续闪烁并带同色相光晕。
+	const dotMotion = await page.evaluate(() => {
+		const dot = document.querySelector('[data-dsh-activity-pane] .dap-card[data-kind="job"] .dap-job-dot');
+		if (!dot) return null;
+		const style = getComputedStyle(dot);
+		return { animationName: style.animationName, boxShadow: style.boxShadow };
+	});
+	assert.ok(dotMotion !== null, "前置：job 子卡状态点存在（R-01-023/AC-09）");
+	assert.equal(dotMotion.animationName, "dap-pulse", "任务子卡状态点以 dap-pulse 固定节奏闪烁（R-01-023/AC-09）");
+	assert.ok(dotMotion.boxShadow !== "none" && dotMotion.boxShadow !== "", "任务子卡状态点带同色相光晕（R-01-023/AC-09）");
 
 	// R-01-003/AC-04：后台任务子卡与子代理一视同仁——轨道层绘制母会话到任务子卡的连接线。
 	const tracks = await until("任务子卡连接线", async () => {

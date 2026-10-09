@@ -3489,8 +3489,10 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   border-color: rgba(255, 255, 255, 0.13);
   filter: none;
 }
-/* 任务卡行 1（R-01-023/AC-05）：状态点 + 工具名称 + 右缘随时钟时长；工具名不可得时
-   文本段隐藏，仅保留状态点与时长。 */
+/* 任务卡行 1（R-01-023/AC-05、AC-09）：状态点 + 工具名称 + 右缘随时钟时长；工具名不可得时
+   文本段隐藏，仅保留状态点与时长。状态点活性脉冲（AC-09）：与运行中主会话卡标题状态点
+   同源同节奏（dap-pulse 1.2s），光晕与着色同色相——运行中任务蓝、停止中琥珀；任务卡无
+   末行提示结构，状态点即闪烁载体（liveJobs 以 stopping 亦为在跑，活性表达同口径）。 */
 [data-dsh-activity-pane] .dap-card[data-kind="job"] .dap-job-kind {
   flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 11px; line-height: 15px;
@@ -3498,8 +3500,13 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 [data-dsh-activity-pane] .dap-job-dot {
   flex: none; width: 6px; height: 6px; border-radius: 50%;
   background: #65a0ff;
+  box-shadow: 0 0 6px rgba(101, 160, 255, 0.8);
+  animation: dap-pulse 1.2s ease-in-out infinite;
 }
-[data-dsh-activity-pane] .dap-job-dot[data-status="stopping"] { background: #f5a524; }
+[data-dsh-activity-pane] .dap-job-dot[data-status="stopping"] {
+  background: #f5a524;
+  box-shadow: 0 0 6px rgba(245, 165, 36, 0.8);
+}
 [data-dsh-activity-pane] .dap-job-elapsed {
   flex: none; margin-left: auto; font-size: 10px; line-height: 15px;
   color: color-mix(in srgb, currentColor 55%, transparent); font-variant-numeric: tabular-nums;

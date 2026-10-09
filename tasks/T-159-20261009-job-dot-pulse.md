@@ -38,10 +38,11 @@ id: T-159
 ## 收敛方案
 
 1. `src/client.mjs`（纯 CSS，零 JS 改动）：
-   - `.dap-job-dot` 基态只承载任务蓝着色与同色相光晕 `box-shadow: 0 0 6px rgba(101,160,255,.8)`，不带动画。
-   - 动画按状态门控：running 与 stopping 的分组规则承载 `animation: dap-pulse 1.2s ease-in-out infinite`。
+   - `.dap-job-dot` 基态只承载几何（尺寸与圆角），活性呈现全部按状态门控。
+   - running 与 stopping 的分组规则承载 `animation: dap-pulse 1.2s ease-in-out infinite`。
+   - running 规则承载任务蓝着色与同色相光晕 `box-shadow: 0 0 6px rgba(101,160,255,.8)`。
+   - stopping 规则换琥珀着色与光晕 `rgba(245,165,36,.8)`。
    - AC-09 的「运行中或停止中」条件由 CSS 显式表达，不依赖跨层隐式前提（双轴复审修复）。
-   - stopping 分支换琥珀着色与光晕，脉冲由分组规则承载、节奏复用主卡状态点关键帧与周期。
    - `prefers-reduced-motion` 不特判，沿既有纪律（reduced-motion 只关进度填充过渡，不关状态脉冲）。
 2. `scripts/check.mjs`: bundle 契约断言状态点动画与光晕声明，及 stopping 色相分支。
 3. `e2e/specs/background-jobs.mjs`: 黄金路径断言运行态状态点的 computed 动画与光晕。
@@ -69,7 +70,7 @@ id: T-159
 | 维度 | 适用性/理由 | 可执行证据 |
 |---|---|---|
 | 成功 | 适用：运行态任务子卡状态点闪烁并带同色相光晕 | `scripts/check.mjs#R-01-023/AC-09`、`e2e/specs/background-jobs.mjs#R-01-023/AC-09`、`src/client.mjs::dap-job-dot` |
-| 异常 | 适用：stopping 分支换琥珀色相与光晕，脉冲沿用基态不中断 | `scripts/check.mjs#R-01-023/AC-09`、`src/client.mjs::renderJobCardInto` |
+| 异常 | 适用：非在跑状态无任何活性呈现（基态只承载几何）；stopping 换琥珀色相与光晕 | `scripts/check.mjs#R-01-023/AC-09`、`src/client.mjs::renderJobCardInto` |
 | 边界配置 | 适用：明暗两主题光晕观感，紧凑档仅保留行 1 时脉冲照常 | `scripts/acceptance.mjs#R-01-023/AC-09`、`src/client.mjs::dap-job-dot` |
 | 副作用 | 适用：零 JS 与零 host 改动，签名与激活语义不变，等待卡静止纪律不受影响 | `package.json::verify` |
 

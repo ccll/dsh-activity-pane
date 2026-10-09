@@ -45,6 +45,9 @@ owner: agent 主笔，项目属主审批
 - 达标类性能收敛（不改变可观察行为、消除已确认重绘/耗电源）按 map 不变短路处理，不增设机制类 PRD 承诺；量化守恒由移动端热静默 E2E 的 rAF 请求次数阈值断言承载，task 终态须记录与该门禁的对照关系（C-082）。
 - `.d/` hook 统一使用 `NN-name.sh`，两位编号在同一目录内唯一；dispatcher 以 `LC_ALL=C` 按文件名顺序执行并在首个失败处停止。
 - `.githooks/pre-push`：先对 outgoing commits 重放 `.githooks/commit-msg`，再执行 `pre-push.d/`。
+- pre-push 全量 verify 约 7 分钟，期间 github.com SSH 连接空闲；须以应用层保活承载，防空闲掐断（C-086）。
+  - `~/.ssh/config` 在 `Host *` 之前设 `Host github.com` 块：`ServerAliveInterval 30`、`ServerAliveCountMax 10`。
+- 推送成败以 git 自身退出码判定；管道会掩码退出码，以 pipefail 或 ls-remote 复核，SIGPIPE（141）即传输中断。
 - 快速验证入口: `pnpm verify:fast`（AgentMap lint + 测试影响检查器 self-test/report + core 单测与 client bundle 契约）。
 - 权威验证入口: .githooks/pre-push
 - 完整验证命令: `pnpm verify`（快速入口 + 全量浏览器 E2E）；agent 任务结束与 pre-push 重放同一命令。

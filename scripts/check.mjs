@@ -4448,14 +4448,21 @@ assert.ok(
 );
 
 // R-01-008/AC-04
-// 移动端浮动开关固定在会话头部左上角、左边栏切换按钮（28px @ left:8px; top:12px）右侧，文案「活动」。
-assert.ok(bundle.includes("position: fixed; top: 12px; left: 44px;"), "浮动开关位于左上角左边栏切换按钮右侧（left:44px）");
+// 移动端「活动」开关常态嵌入宿主头部标题行参与布局（T-160）；宿主头部不可得时回退
+// fixed 左上角兜底形态（CSS 缺省 left:44px，运行时按侧栏切换按钮实测右缘覆写）。
+assert.ok(bundle.includes("position: fixed; top: 12px; left: 44px;"), "浮动开关兜底形态缺省位于左上角（left:44px）");
+assert.ok(bundle.includes(".dap-toggle[data-embedded] {"), "开关嵌入态回归文档流（data-embedded 规则存在）");
+assert.ok(bundle.includes("row.insertBefore(toggle, cluster)"), "开关落位插入宿主头部标题行（嵌入参与布局）");
+assert.ok(bundle.includes('toggle.setAttribute("data-embedded", "")'), "嵌入落位写入 data-embedded 标记");
+assert.ok(bundle.includes('"[data-slot=sidebar] button"'), "兜底 left 锚定侧栏切换按钮实测右缘");
 assert.ok(!bundle.includes(".dap-toggle {\n  position: fixed; top: 12px; right: 12px;"), "浮动开关不再位于右上角");
 assert.ok(bundle.includes('"<span>活动</span><span class=\\"dap-toggle-count\\"></span>"'), "浮动开关文案为「活动」并保留计数徽标");
 
 // R-01-008/AC-05
-// 抽屉打开时浮动开关隐藏，关闭后恢复；显隐随 togglePane 单点同步。
-assert.ok(bundle.includes(".dap-toggle[data-drawer-open] { display: none; }"), "抽屉打开时浮动开关隐藏");
+// 抽屉打开时开关隐藏、关闭后恢复；显隐随 togglePane 单点同步。兜底形态 display:none；
+// 嵌入态 visibility:hidden 留位，标题行不因开合重排（T-160 闸口决策）。
+assert.ok(bundle.includes(".dap-toggle[data-drawer-open] { display: none; }"), "兜底形态打开抽屉时隐藏");
+assert.ok(bundle.includes(".dap-toggle[data-embedded][data-drawer-open] { display: flex; visibility: hidden; }"), "嵌入态打开抽屉时留位隐藏（visibility:hidden）");
 assert.ok(bundle.includes('toggle.toggleAttribute("data-drawer-open", open)'), "开关显隐由 togglePane 单点同步");
 
 // R-01-002/AC-01、AC-02、AC-09、AC-13 等待三类胶囊（C-043）：末行首行为「圆底类型图标 + 类型

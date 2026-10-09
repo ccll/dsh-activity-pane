@@ -6,7 +6,7 @@ id: T-160
 
 # T-160 移动端「活动」开关嵌入宿主头部标题行
 
-状态: active
+状态: completed
 关联: R-01-008/AC-04、R-01-008/AC-05 / 窗格渲染器
 风险等级: standard
 
@@ -67,4 +67,13 @@ id: T-160
 
 ## 终态与证据
 
-（待实现完成后填写）
+- 实现: `src/client.mjs` 新增 `placeToggle()` 幂等落位守卫（挂 `ensurePane()` 首行）：常态嵌入宿主头部标题行（crumb 导航所在顶层簇之前，`data-embedded`），头部不可得回退 body fixed 兜底形态（兜底 left 按 sidebar 槽位首按钮实测右缘 + 8px，右缘为 0 或缺席清回 CSS 默认 44px）；CSS 新增 `.dap-toggle[data-embedded]`（static + margin-right:8px + flex:none）与 `.dap-toggle[data-embedded][data-drawer-open]`（visibility:hidden 留位）规则；卸载契约不变。commit: 72a612d
+- 测试: `pnpm check` 通过（bundle 契约断言改写为嵌入机制并全绿）；`pnpm verify` 全绿——agentmap lint、test impact lint、check 契约、20/20 e2e specs（含 mobile-drawer 新增嵌入/相对顺序/不遮挡/兜底落位与 AC-05 留位断言）；隔离环境 Playwright 探针复核嵌入几何（x=76、无相交）、留位（visibility:hidden、box 不变）、兜底（left=54px=46+8）。真实视觉结果经浏览器 E2E 与截图复核，真机观感留人工验收。
+- SOLUTION 对照: 「边界与对外契约」移动端开关段、「产品形态」608 行、「窗格渲染器」819 行段已同步嵌入机制与留位语义；R-01-008 需求追溯索引行不变且仍准确；DESIGN 与实现对照无差异。
+- commit: 72a612d
+- review:
+  - 审核方: Standards 子代理 `7be0ae85-ce74-43e9-93a7-545780351699`；Spec 子代理 `fa714f7b-0c31-4400-9269-0d16e07f932b`。
+  - 目的理解: 移动端「活动」开关 fixed 浮层遮住宿主头部会话标题 crumb 按钮（违背 R-01-008/AC-04「不遮挡」），经东家闸口确认改为嵌入宿主头部标题行参与布局、头部不可得回退 fixed 兜底、打开抽屉留位隐藏；约束为 R-01-008/AC-04～AC-05 承诺不变、SOLUTION 机制段同步、strict 测试锚定与 bundle 字节一致门禁。
+  - 执行方式: `code-review` skill；固定基线 HEAD=72cfc83，范围为工作树 diff（实现提交 72a612d）+ 新增 task；Standards/Spec 双轴并行审核，各复审一轮。
+  - 问题与修复: Standards 一轮 4 项——兜底分支缺自动化证据（hard，补 e2e 兜底落位与可操作断言）、sidebar 槽位首按钮假设未声明（注释显式化）、e2e 头注释未同步（同步）、SOLUTION 两处长句（拆子列表）；Spec 一轮 3 项——留位断言缺 y/height（补齐）、兜底 right=0 未回落默认（实现加 right>0 守卫并同步 task/SOLUTION）、临时产物残留（提交前清理）。复审新增共同低危——e2e 兜底 expected 未镜像「清空 inline left → CSS 44px」语义（改读 getComputedStyle 统一口径）、SOLUTION:164 锚定措辞未精化（精化）、task 测试计划未列兜底断言（补记）。全部消除。
+  - 复审结论: Standards 轴闭合（4 项原发现全消除，末项低危已修复）；Spec 轴闭合（3 项原发现全消除，3 条新发现全处置）；双轴均确认无新问题。

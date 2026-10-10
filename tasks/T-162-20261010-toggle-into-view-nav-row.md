@@ -6,7 +6,7 @@ id: T-162
 
 # T-162 移动端「活动」开关嵌入视图导航行
 
-状态: active
+状态: completed
 关联: R-01-008/AC-04 / 窗格渲染器
 风险等级: standard
 
@@ -65,4 +65,13 @@ id: T-162
 
 ## 终态与证据
 
-（待实现完成后填写）
+- 实现: `src/client.mjs` 开关骨架徽标单挂（撤销 `dap-toggle-icon` 与 `createDrawerIcon`）；`placeToggle` 落位目标改为视图导航行行尾（header 最后元素子行、flex、非标题行），行距按宿主 `columnGap` 量测后以负外边距抵消（自留 12px），插入前预检投影宽度（n−1 行距公式）、插入后实测仍溢出记 `tabsRowRefusedWidth` 防抖动，幂等守卫含行尾校验；导航行不可得或容纳不下回退兜底浮层；CSS 撤销图标规则、嵌入态钉宽保留并收 `min-height` 26px 与行高协调。落位守卫幂等与抽屉交互、卸载契约不变。commit: 1735701
+- 测试: `pnpm check` 通过（徽标单挂/导航行落位/行距抵消/溢出预检断言）；`pnpm verify:fast` 绿（agentmap lint、test impact ~R-01-008/AC-04、check）；`pnpm test:e2e mobile-drawer` 单 spec 绿（含「容纳不下→兜底→回嵌」行为级新用例）；`pnpm verify` 全量 19/20 绿、density-resource 并行负载下偶发失败而单跑复现通过（重跑全量复核中）；真实环境（东家运行实例 127.0.0.1:3080）chromium+webkit 双内核探针实测：行尾落位 46px、几何与导航行对齐（26px=行高）、无溢出、标题行无开关、兜底回退正常。真机最终观感留人工验收。
+- SOLUTION 对照: 「边界与对外契约」开关段、「产品形态」段、「窗格渲染器」段三处落位/形态描述与实现一致（含行距抵消、预检、防抖记忆）；PRD AC-04 修订由本 task 测试影响表承接；R-01-008 追溯索引行不变且仍准确。
+- commit: 1735701
+- review:
+  - 审核方: Standards 子代理 `16b7b5db-f39d-41f3-abaf-c1293f04bc28`；Spec 子代理 `e04ffd84-3d9a-4ac5-a34e-da73dfe2e866`。
+  - 目的理解: 东家明确指示开关嵌入其正下方的视图导航行参与布局、撤销被误读的面板图标；约束为 PRD R-01-008/AC-04 同次修订、strict 锚定、bundle 字节一致、幂等守卫与卸载契约不回退。
+  - 执行方式: `code-review` skill；固定基线 HEAD=3590200，范围为工作树 diff（实现提交 1735701）+ 新增 task；Standards/Spec 双轴并行审核，各复审一轮。
+  - 问题与修复: Standards 一轮 1 hard + 5 项——「行末端」无可判定断言（hard：e2e 补 `toggle === navRow.lastElementChild`，源码幂等守卫同步补行尾校验）、「容纳不下→回退」无行为级用例（补注入超宽子项的确定性用例 + acceptance 措辞）、C-089 决策段超体裁（收敛为一句话）、26px/1px 容差缺理由注释（补齐）、SOLUTION 长句拆分、navRow 命名统一与重复表达式合并；Spec 一轮 6 项——幂等守卫缺行尾校验（同 hard 修复）、min-height 超纲（收编进 task）、行距公式 n 改 n−1 并排除 toggle 自身宽度、插入-回退抖动残余路径（补 tabsRowRefusedWidth 记忆：仅插入后实测溢出记账、预检拒绝不记账、视口变化解锁）、四处注释漂移清理、C-088/C-089 间空行。全部闭合。
+  - 复审结论: Standards 轴闭合（残余「SOLUTION 未描述防抖状态」一条 judgement call 已随复审补齐 SOLUTION 一行并过 verify:fast）；Spec 轴闭合（中 1 低 5 全部闭合，无缺失无 scope creep）；双轴确认修复无新问题。

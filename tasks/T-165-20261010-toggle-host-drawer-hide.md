@@ -6,7 +6,7 @@ id: T-165
 
 # T-165 宿主侧栏抽屉打开期间隐藏「活动」开关
 
-状态: active
+状态: completed
 关联: R-01-008/AC-04 / 窗格渲染器
 风险等级: standard
 
@@ -53,4 +53,13 @@ id: T-165
 
 ## 终态与证据
 
-（待实现完成后填写）
+- 实现: `src/client.mjs` 新增 `syncHostDrawer`/`scheduleHostDrawerCheck`（sidebar 槽位 0 宽壳沿父链取首个非零宽实测、阈值 100px、移动断点门、pointer 合帧 + 400ms 延迟复检 + 注入初始同步 + ensurePane 公共出口 `placeToggle(); syncHostDrawer();` 每次同步复检）；抽屉打开期间 `.dap-toggle[data-host-drawer-open]` 以 `visibility:hidden + pointer-events:none` 隐藏；监听随 cleanup 对称摘除。DOMAIN 登记词条「宿主侧栏抽屉」。commit: 9304e86
+- 测试: `pnpm verify` 全绿（最终工作树单跑，20/20 e2e specs 含 recent-infinite-scroll 断点跨越场景复绿）；真实环境探针实测抽屉开→隐藏、关→恢复；东家真机截图（14:57）证实抽屉打开时胶囊浮于其上为本 task 缺陷现场。真机最终观感留人工验收。
+- SOLUTION 对照: 开关机制段补宿主抽屉隐藏一条（判据细节齐备）；DOMAIN 词条登记；PRD AC 正文未动（不遮挡条款的缺陷修复）。
+- commit: 9304e86
+- review:
+  - 审核方: Standards 子代理 `1da75520-9e4c-414c-8e85-80ecc08cff15`；Spec 子代理 `9402f6bc-8f64-4c3e-ae64-bf76ed60ebfa`。
+  - 目的理解: 东家真机抽屉打开时开关浮于宿主抽屉之上（兜底态 fixed 高层级逃逸覆盖层）；约束为判据不耦合宿主哈希类、监听 cleanup 对称、visibility 保留盒子可自行恢复、map 不变（缺陷修复短路）。
+  - 执行方式: `code-review` skill；固定基线 HEAD=5662875，范围为工作树 diff（实现提交 9304e86）+ 新增 task；Standards/Spec 双轴并行审核，各两轮（初审 + 补丁复审 + 终审）。
+  - 问题与修复: Standards 一轮 1 hard + 6 项——DOMAIN 词条未登记（hard，已登记「宿主侧栏抽屉」消歧）、CSS 注释动机不精确（改写为嵌入态免标题行重排）、rAF/timer 重复与 flag 名实偏差（统一回调、更名 hostDrawerFrameQueued）、SOLUTION 判据细节缺（补 0 宽壳/父链/阈值）、55/56px 数字漂移（统一 ~56px）、断言引号风格（改单引号）；Spec 一轮 5 项——验证矩阵异常行失真（改双向如实：加宽收起栏误判为开则开关常隐、槽位消失/变窄恢复常显）、无初始同步（补注入时一次调用）、判定函数断言只做一半（补裸选择器与 cleanup 摘除断言）、SOLUTION 未承载阈值关键量（补齐）、tmp-rc-diff/ 卫生（保持未跟踪）。全量验证暴露断点跨越真实回归（桌面侧栏列 280>100 恒判抽屉开、开关常隐致 recent-infinite-scroll 超时）——补断点门（桌面清标记）与公共出口复检，初审两轮迭代（兜底分支末尾不覆盖嵌入早退路径，上移 ensurePane 公共出口）后双轴终审通过。全部闭合。
+  - 复审结论: Standards 轴维持闭合（hard 1 项修复，judgement call 全部处置，调用点全量核对无冗余）；Spec 轴维持闭合（中 1 低 3 信息 1 全部核销，断点往返残留消除）；双轴确认补丁无新问题。

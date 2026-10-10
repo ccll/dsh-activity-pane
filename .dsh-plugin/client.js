@@ -5053,14 +5053,17 @@ function apply(ctx) {
 			toggle.removeAttribute("data-host-drawer-open");
 			return;
 		}
-		// 槽位本体处于 0 宽裁剪壳内，沿父链取首个非零宽宿主列实测
+		// 槽位本体处于 0 宽裁剪壳内，沿父链取首个非零宽宿主列实测；移动壳层的
+		// 抽屉列恒占宽（收起时整体移到屏外 x<0），须同时要求在屏内才判「抽屉打开」
 		let node = document.querySelector("[data-slot=sidebar]");
-		let width = 0;
-		while (node !== null && node !== document.body && width === 0) {
-			width = node.getBoundingClientRect().width;
+		let drawerRect = null;
+		while (node !== null && node !== document.body && drawerRect === null) {
+			const rect = node.getBoundingClientRect();
+			if (rect.width > 0) drawerRect = rect;
 			node = node.parentElement;
 		}
-		toggle.toggleAttribute("data-host-drawer-open", width > 100);
+		const open = drawerRect !== null && drawerRect.width > 100 && drawerRect.x > -10;
+		toggle.toggleAttribute("data-host-drawer-open", open);
 	}
 	let hostDrawerFrameQueued = false;
 	function scheduleHostDrawerCheck() {

@@ -6,7 +6,7 @@ id: T-163
 
 # T-163 移动端「活动」开关嵌入标题行行首
 
-状态: active
+状态: completed
 关联: R-01-008/AC-04 / 窗格渲染器
 风险等级: standard
 
@@ -58,4 +58,13 @@ id: T-163
 
 ## 终态与证据
 
-（待实现完成后填写）
+- 实现: `src/client.mjs` 落位目标收敛为头部标题行行首（簇前插入，簇判定简化为「head 内含 nav 即标题簇」并删不可达上溯循环）；导航行专用机制（columnGap 量测、投影预检、`tabsRowRefusedWidth` 防抖）全撤；兜底分支不变（挂 body、摘标记、动态 left、清 margin）；徽标单挂与钉宽维持，`[data-embedded]` 恢复 `margin-right: 8px`。commit: 54a59d8
+- 测试: `pnpm verify` 全绿（最终工作树，agentmap lint、test impact lint、check、20/20 e2e specs）；`e2e/specs/mobile-drawer.mjs` 行首嵌入断言（父行=标题行、`firstElementChild`、nav 之前、其余控件仍在行内）与兜底/留位断言全过；真实环境（东家运行实例 127.0.0.1:3080）chromium+webkit 双内核探针实测：46×26、x=76、行首、其余头部控件后挤，双内核几何一致。真机最终观感留人工验收。
+- SOLUTION 对照: 开关机制段、产品形态段、窗格渲染器段三处与实现一致（幂等措辞对齐 settled 判定）；PRD AC-04 修订（行首为承诺、侧栏按钮右侧降括注；回退条件收敛为标题行不存在）由本 task 测试影响表承接；R-01-008 追溯索引行不变且仍准确。
+- commit: 54a59d8
+- review:
+  - 审核方: Standards 子代理 `8dc2a2f2-085d-4828-92b7-8d790adf34b3`；Spec 子代理 `fe7779cd-f5fb-4de9-88ed-8ff7664e4e23`。
+  - 目的理解: 东家实测 T-162 导航行行尾后指示「改插入到左边栏弹出按钮的右侧，把其它按钮往后挤」——开关回到标题行行首参与布局；约束为 PRD 同次修订与测试证据同步、strict 锚定、bundle 字节一致、T-161/T-162 形态沉淀（徽标单挂 + 钉宽）不回退。
+  - 执行方式: `code-review` skill；固定基线 HEAD=c70db74，范围为工作树 diff（实现提交 54a59d8）+ 新增 task；Standards/Spec 双轴并行审核，各复审一轮。
+  - 问题与修复: Standards 一轮 1 hard + 4 项——SOLUTION 幂等条款「行未变化」无实现对应（hard：改「已处于插入点（标题簇之前，无簇时行首）」）、簇判定 while 上溯不可达（删循环并注释理由）、PRD 双几何承诺（行首为规范承诺、侧栏按钮右侧降括注）、e2e 类名子串锚定脆弱（改 nav 元素锚定）、check 幂等断言消息覆盖不完整（补簇前分支断言并限定无簇分支措辞）；Spec 一轮 3 项——「其余控件仍在行内」断言缺失（补 `others > 0`）、嵌入分支 marginLeft 清理为死代码（删，兜底分支保留）、tmp-rc-diff/ 卫生提示（保持未跟踪不入提交）。全部闭合。
+  - 复审结论: Standards 轴闭合（hard 1 项修复，judgement call 全部处置，bundle 同步验证）；Spec 轴闭合（低 1 极低 1 卫生 1 全部闭合，无缺失无 scope creep）；双轴确认修复无新问题。

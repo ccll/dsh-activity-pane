@@ -169,11 +169,24 @@ export default async function mobileDrawer({ page, url, assert }) {
 		return page.evaluate(() => {
 			const toggle = document.querySelector(".dap-toggle");
 			if (!toggle || toggle.parentElement !== document.body || toggle.hasAttribute("data-embedded")) return null;
-			const sidebar = document.querySelector("[data-slot=sidebar] button");
-			const right = sidebar?.getBoundingClientRect().right ?? NaN;
-			// 镜像实现的兜底守卫：右缘为 0（隐藏/未渲染）视同测不到，实现清空 inline left、
-			// CSS 默认 44px 生效；经 getComputedStyle 取生效 left，两条分支同一口径。
-			const expected = Number.isFinite(right) && right > 0 ? Math.round(right + 8) : 44;
+			// 镜像实现的兜底锚点两级选择（T-166）：sidebar 槽位内按钮 → 槽位祖先链
+			// 逐级首个直系可见 BUTTON；在屏判据 x > -10 与实现同源，均不可测时
+			// inline left 清空、CSS 默认 44px 生效。经 getComputedStyle 取生效 left。
+			const slot = document.querySelector("[data-slot=sidebar]");
+			const sidebarRect = slot?.querySelector("button")?.getBoundingClientRect();
+			let anchor = sidebarRect && sidebarRect.width > 0 && sidebarRect.x > -10 ? sidebarRect : null;
+			if (!anchor) {
+				let node = slot?.parentElement ?? null;
+				while (node && node !== document.body && !anchor) {
+					for (const child of node.children) {
+						if (child.tagName !== "BUTTON") continue;
+						const rect = child.getBoundingClientRect();
+						if (rect.width > 0 && rect.x > -10) { anchor = rect; break; }
+					}
+					node = node.parentElement;
+				}
+			}
+			const expected = anchor ? Math.round(anchor.right + 8) : 44;
 			const left = Number.parseFloat(getComputedStyle(toggle).left);
 			return Number.isFinite(left) && Math.abs(left - expected) <= 1 ? expected : null;
 		});

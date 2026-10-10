@@ -172,7 +172,11 @@ flowchart LR
   - 定位关键量（position/top/left）由落位守卫以内联样式钉死。
   - `max-width: 64px` 硬钳制引擎尺寸差异，徽标单挂内容宽不超钳值。
   - 宿主移动端侧栏抽屉打开期间开关隐藏，关闭后恢复；判据为 sidebar 槽位本体恒 0 宽，沿父链取首个非零宽宿主列实测，阈值 100px（收起栏 ~56px / 抽屉 ~280px）。
-  - 关闭后恢复的唤醒点（T-167）：pointer 事件驱动的首帧 + 400ms 复检各重跑落位守卫；键盘（Escape）与滑动手势关抽屉不派发 pointer 事件，另以 MutationObserver 观察宿主 frame 的 `data-sidebar-collapsed` 翻转（翻转即检 + 400ms 复检，按元素记挂、随 cleanup 摘除）承载恢复，回调仅在状态翻转时发生。
+  - 关闭后恢复的唤醒点（T-167）：pointer 事件驱动的首帧 + 400ms 复检各重跑落位守卫。
+  - 键盘（Escape）与滑动手势关抽屉不派发 pointer 事件，恢复由帧属性观察承载。
+  - 观察对象为宿主 frame 的 `data-sidebar-collapsed` 翻转（壳层抽屉状态机本体）。
+  - 观察回调翻转即检 + 400ms 复检：壳层重挂展开按钮晚于属性翻转，仅翻转即检会扑空。
+  - 观察器按元素记挂、随 cleanup 摘除；回调仅在状态翻转时发生，无轮询成本。
 - 抽屉打开时开关隐藏、关闭后恢复（R-01-008/AC-04、AC-05）。
   - 嵌入态与 hero 态统一以 `visibility:hidden` 留位隐藏，标题行不因开合重排，不可见盒不拦截点击（pointer-events 同步摘除）。
 - 页面契约：点击/键盘激活活动卡片 → 调用 `sessions.open` 切换当前会话；列表未就绪时以 `sessions.refresh` + 有限重试兜底（R-01-005）。

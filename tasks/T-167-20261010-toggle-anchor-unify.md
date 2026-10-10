@@ -14,7 +14,10 @@ id: T-167
 
 东家 iOS Safari 真机反馈：点开宿主左边栏抽屉时开关浮在抽屉上方，抽屉完全展开后才突然消失。探针复现（WebKit + iPhone UA + 触屏 + 390×844，临时 profile 加装 dsh-web-mobile@3.0.0）定位根因：
 
-- 层级逃逸：`.dap-toggle` 基规则声明 `z-index: 2147482991`；嵌入态仅覆盖 `position: static`，而按钮是标题行（flex 容器）子项——按 CSS Flexbox 规范 flex 子项的 z-index 即使 static 也生效并创建 stacking context，2147482991 压过移动壳层抽屉（dsh-web-mobile 抽屉列 z-index:1300、transform .28s 滑入）与遮罩（1250）。探针逐帧证实抽屉与按钮重叠后 `elementFromPoint` 仍命中按钮。
+- 层级逃逸：`.dap-toggle` 基规则声明 `z-index: 2147482991`；嵌入态仅覆盖 `position: static`。
+  - 按钮是标题行（flex 容器）子项：按 CSS Flexbox 规范 flex 子项的 z-index 即使 static 也生效并创建 stacking context。
+  - 2147482991 压过移动壳层抽屉（dsh-web-mobile 抽屉列 z-index:1300、transform .28s 滑入）与遮罩（1250）。
+  - 探针逐帧证实抽屉与按钮重叠后 `elementFromPoint` 仍命中按钮。
 - 显隐时序：T-165 的 `data-host-drawer-open` 隐藏依赖 pointer 事件触发的「rAF 首帧 + 400ms 复检」离散检测，判据 `x > -10` 在 transform 滑入最后约 3% 才为真；400ms 复检落在动画结束后，`visibility` 突变即东家看到的「完全展开后才突然消失」。
 - 兜底形态本身是 fixed 独立图层（T-166 贴靠成组仅改位置未改层级），且静默降级掩盖嵌入失败。
 
@@ -48,19 +51,27 @@ id: T-167
 - CSS：移动断点显示改为 `data-embedded`/`data-hero` 属性驱动。
 - CSS：`data-drawer-open` 统一 `visibility:hidden` 留位隐藏（pointer-events 同步摘除）。
 - 删除兜底锚点两级回退逻辑（sidebar 槽位按钮 → 祖先链按钮）。
-- PRD R-01-008/AC-04 回退子句改写（东家确认）；SOLUTION 开关机制段同步；RATIONALE 增 C-093；DOMAIN 视需要补词条。
+- PRD R-01-008/AC-04 回退子句改写（东家确认）。
+- SOLUTION 开关机制段同步。
+- RATIONALE 增 C-093。
+- DOMAIN 补词条「宿主侧栏展开按钮」。
 
 ## 测试计划
 
 - `scripts/check.mjs`：层级断言（嵌入态 z 低于宿主覆盖层、hero 态 z 同）、hero 锚断言（语义属性、右缘 +8、垂直居中）、不渲染断言、显隐统一断言。
 - `e2e/specs/mobile-drawer.mjs`：兜底段改写为不渲染断言；嵌入段断言保持。
 - `e2e/specs/loading-ready.mjs`：注入模拟 ⊡ 锚镜像部署环境（pending 加载指示覆盖保持）。
-- `e2e/specs/mobile-drawer.mjs`：补 hero 态摘除后经宿主抽屉检测路径恢复落位回归（Spec 审核发现的恢复缺口）。
-- 帧状态观察（恢复缺口修复的第二层）：键盘 Escape 与滑动手势关抽屉不派发 pointer 事件，pointer 检测覆盖不到；`armFrameObserver` 以 MutationObserver 观察 frame 的 `data-sidebar-collapsed` 翻转（壳层抽屉状态机本体），翻转即检 + 400ms 复检（壳层重挂 ⊡ 晚于属性翻转，仅翻转即检会扑空）；按元素记挂（外壳重挂载换挂）、随 cleanup 摘除，回调无轮询成本。部署壳层探针验证：抽屉打开期间开关摘除、Escape 关抽屉后恢复贴靠。
+- `e2e/specs/mobile-drawer.mjs`：补 hero 态摘除后恢复落位回归（Spec 审核发现的恢复缺口）。
+- 帧状态观察（恢复缺口修复的第二层）：键盘 Escape 与滑动手势关抽屉不派发 pointer 事件，pointer 检测覆盖不到。
+  - `armFrameObserver` 以 MutationObserver 观察 frame 的 `data-sidebar-collapsed` 翻转（壳层抽屉状态机本体）。
+  - 翻转即检 + 400ms 复检：壳层重挂 ⊡ 晚于属性翻转，仅翻转即检会扑空。
+  - 按元素记挂（外壳重挂载换挂）、随 cleanup 摘除，回调无轮询成本。
+  - 部署壳层探针验证：抽屉打开期间开关摘除、Escape 关抽屉后恢复贴靠。
 - `e2e/helpers.mjs`：新增 `injectMobileFabAnchor`（模拟 ⊡ 锚注入，幂等重试）。
 - 说明：模拟锚注入在 loading-ready 的浏览器 init script 上下文内联、在 mobile-drawer 经 helpers 共用——init script 无法引用 Node 侧函数，重复为结构性。
 - 说明：hero 分支不设嵌入式幂等早退——贴靠几何须随 ⊡ 实测刷新（窗口缩放/壳层重排），10Hz 渲染节流下重写同值成本可忽略。
-- `pnpm verify:fast`；全量 `pnpm verify`；探针复验（会话页滑入遮挡、hero 贴靠几何与遮挡、无锚不渲染）。
+- `pnpm verify:fast`；全量 `pnpm verify`。
+- 探针复验（会话页滑入遮挡、hero 贴靠几何与遮挡、无锚不渲染）。
 - 独立 Standards/Spec review（code-review skill）。
 
 ## 验证矩阵

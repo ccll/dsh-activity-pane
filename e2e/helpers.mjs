@@ -73,6 +73,19 @@ export async function injectMobileFabAnchor(page) {
 	});
 }
 
+/** 读写宿主 frame 抽屉状态属性：frame 为 [data-shell-overlay] 的 parentElement
+ *  （与插件落位守卫同源）；collapsed=true 置属性（壳层收起态语义），false 移除
+ *  （展开态语义）。overlay 或 frame 未就绪时静默跳过；连续异值调用保证至少一次
+ *  属性突变，可用作帧观察器的唤醒手段（T-168）。 */
+export async function setHostDrawerCollapsed(page, collapsed) {
+	await page.evaluate((collapsed) => {
+		const frame = document.querySelector("[data-shell-overlay]")?.parentElement ?? null;
+		if (frame === null) return;
+		if (collapsed) frame.setAttribute("data-sidebar-collapsed", "");
+		else frame.removeAttribute("data-sidebar-collapsed");
+	}, collapsed);
+}
+
 /** 将窗格切到完整呈现档：默认中间档的时间线只渲染最新一行（lastOnly），依赖用户指令
  *  锚行等完整时间线内容的断言需先切档（默认中间档见 R-01-021/AC-06）。 */
 export async function ensureFullDensity(page) {

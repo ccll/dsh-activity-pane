@@ -3739,22 +3739,23 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
    （data-embedded / data-hero 属性承载）；未落位的开关不进入 DOM（不可嵌即不
    渲染，C-093）。本基规则不再携带 fixed 定位与高层级 z-index：按钮处于 flex
    容器时其 z-index 即使 static 也生效（CSS Flexbox 规范），高层级声明曾使嵌入
-   态整体逃逸宿主抽屉之上（T-167 根因）。width:max-content + appearance:none +
-   max-width:64px 显式钉宽并钳硬上限：真机诊断实测自然排版宽 46px 与桌面
-   一致（拉伸不存在，此前「长胶囊」观感系与相邻宿主芯片融合），钳制防观感
-   融合与潜在引擎差异；徽标单挂内容宽 ≤ 60px（两位计数），钳值不裁内容。 */
+   态整体逃逸宿主抽屉之上（T-167 根因）。按钮本体无外层胶囊壳：不携带底色、
+   描边与投影（T-168，东家指示只留内部涂色的计数胶囊），可见形态即
+   .dap-toggle-count 徽标本体；border:none 与 background:none 显式压掉 UA
+   默认按钮壳——appearance:none 不摘除 UA 声明的边框与底色，WebKit 探针实测
+   漏出 2px 灰壳；padding 与 min-height 保留为触达面积，不改变盒几何。
+   width:max-content + appearance:none + max-width:64px 显式钉宽并钳
+   硬上限：真机诊断实测自然排版宽 46px 与桌面一致（拉伸不存在，此前「长胶囊」
+   观感系与相邻宿主芯片融合），钳制防观感融合与潜在引擎差异；徽标单挂内容宽
+   ≤ 60px（两位计数），钳值不裁内容。 */
 .dap-toggle {
   display: none;
   align-items: center; gap: 5px;
   min-height: 30px; padding: 0 9px;
   appearance: none; white-space: nowrap; width: max-content; max-width: 64px;
-  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
-  border-radius: 999px;
-  background: rgba(24, 28, 38, 0.94);
-  color: currentColor;
+  border: none; background: none;
   font-size: 12px; font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 6px 16px rgba(0,0,0,.34);
 }
 /* 嵌入态：回归文档流参与标题行排布；flex:none + width:max-content +
    max-width:64px 在此重复声明是特异度保险——宿主样式表的 (0,1,1) 级后代规则
@@ -3787,11 +3788,6 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   background: color-mix(in srgb, currentColor 16%, transparent);
   padding: 0 5px; font-size: 10px; font-weight: 700;
 }
-/* 宿主侧栏抽屉打开时隐藏开关：抽屉占据整屏，嵌入态被其覆盖、hero 态位于其
-   滑入路径上都会被遮挡，两种形态在抽屉打开期间都无保留意义。
-   visibility 而非 display：嵌入态避免标题行因开关消失而重排；pointer-events
-   同步摘除，不可见盒不拦截宿主抽屉点击。 */
-.dap-toggle[data-host-drawer-open] { visibility: hidden; pointer-events: none; }
 /* 徽标等待态：执行色底 + 呼吸动画（有待执行行动时点亮）。 */
 .dap-toggle[data-awaiting] .dap-toggle-count {
   background: rgba(46, 42, 26, 0.97);
@@ -3866,7 +3862,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 /* 浅色主题适配：外壳以 body 上 data-ds-dark-theme 属性标记深色（缺省即浅色），
    并在两个作用域下翻转整套 --dsw-alias-* 变量。本块只覆盖上文暗色专用的硬编码
-   颜色（卡片底色/描边/阴影、时间线文字与轨道、进度轨道、浮动开关），深色主题下
+   颜色（卡片底色/描边/阴影、时间线文字与轨道、进度轨道），深色主题下
    全部规则保持原值；状态色（绿/蓝/橙/红）与 currentColor 派生色两主题通用，不覆盖。
    ::before 状态圆点不覆盖：基色本就被各 data-status 规则接管，覆盖反而会以更高
    优先级压掉运行/完成/错误状态色。 */
@@ -3958,9 +3954,6 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item[data-ico
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-track {
   background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.08));
-}
-body:not([data-ds-dark-theme]) .dap-toggle {
-  background: var(--dsw-alias-button-floating-fill, rgba(255, 255, 255, 0.94));
 }
 /* 「回到顶部」与标题行档位按钮及左侧仓库入口的浅色覆盖：不透明层-2 底色与外壳描边别名
    （R-01-018/AC-05、R-01-021/AC-05、R-01-022/AC-01）；仓库入口无描边（T-139），只并入底色组。 */
@@ -4276,8 +4269,9 @@ function apply(ctx) {
 		}
 		// hero 形态：锚定宿主侧栏展开按钮（⊡）右侧。toggle/fab 属性值互斥（会话头
 		// toggle 挂 header.actions 槽、hero 页 header 为空壳不渲染槽内容），统一
-		// 寻址取首个在屏者；抽屉打开期间壳层移除 ⊡，锚不可测走不渲染分支，开关已
-		// 被 host-drawer-open 隐藏，几何残留无观感影响。
+		// 寻址取首个在屏者；抽屉打开期间壳层在 drawerOpen 翻转的同一 reconciler 遍
+		// 内移除 ⊡（overlay-backdrop-fab ensure），锚不可测走保留分支——开关已被
+		// 抽屉与遮罩在层级上盖住，保留原位即「一直在抽屉后面被挡住」（T-168）。
 		let fabRect = null;
 		for (const fab of document.querySelectorAll('button[data-mobile-nav="toggle"], button[data-mobile-nav="fab"]')) {
 			const rect = fab.getBoundingClientRect();
@@ -4288,9 +4282,13 @@ function apply(ctx) {
 		}
 		const frame = document.querySelector("[data-shell-overlay]")?.parentElement ?? null;
 		if (fabRect === null || frame === null) {
-			// 无处落位：摘除开关（不渲染）。remove() 对游离节点为 no-op；内联残留
-			// 随下次落位整体覆写，无需清理。
-			toggle.remove();
+			// 锚或挂载点不可得：已落位开关保留原位几何——宿主抽屉打开窗口内壳层移除
+			// ⊡，开关由抽屉（1300）与遮罩（1250）遮挡，摘除会在关抽屉后经复检凭空
+			// 重现（T-168 东家否决）；随失效行/旧 frame detach 的开关不可见，由下一
+			// 次成功落位回收。未落位开关不在此进入文档（不渲染，C-093）；壳层结构
+			// 缺失（frame 不可得）时仍摘除已挂载开关。宿主改版致锚长期缺失时开关
+			// 残留于最后有效位置，记录为边界（T-168 验证矩阵）。
+			if (frame === null && toggle.parentElement !== null) toggle.remove();
 			return;
 		}
 		if (toggle.parentElement !== frame) frame.appendChild(toggle);
@@ -5083,54 +5081,13 @@ function apply(ctx) {
 		toggle.toggleAttribute("data-drawer-open", open);
 		queueSync();
 	}
-	// 宿主侧栏抽屉开合不经过插件状态：抽屉打开时整屏被其占据，开关无论嵌入
-	// （被其覆盖）还是 hero 贴靠（位于滑入路径上）都无保留意义，隐藏。
-	// 判据：sidebar 槽位本体处于 0 宽裁剪壳内，沿父链取首个非零宽宿主列实测
-	// （收起栏 ~56px / 抽屉 ~280px，阈值 100px；宿主语义属性，不耦合哈希类，
-	// 宿主加宽收起栏超过阈值会误判，见 T-165 验证矩阵）。
-	function syncHostDrawer() {
-		if (disposed) return;
-		if (desktopQuery.matches) {
-			// 桌面断点外开关本就隐藏，清标记避免跨断点残留
-			toggle.removeAttribute("data-host-drawer-open");
-			return;
-		}
-		// 槽位本体处于 0 宽裁剪壳内，沿父链取首个非零宽宿主列实测；移动壳层的
-		// 抽屉列恒占宽（收起时整体移到屏外 x<0），须同时要求在屏内才判「抽屉打开」
-		let node = document.querySelector("[data-slot=sidebar]");
-		let drawerRect = null;
-		while (node !== null && node !== document.body && drawerRect === null) {
-			const rect = node.getBoundingClientRect();
-			if (rect.width > 0) drawerRect = rect;
-			node = node.parentElement;
-		}
-		const open = drawerRect !== null && drawerRect.width > 100 && drawerRect.x > -10;
-		toggle.toggleAttribute("data-host-drawer-open", open);
-	}
-	let hostDrawerFrameQueued = false;
-	function scheduleHostDrawerCheck() {
-		if (hostDrawerFrameQueued) return;
-		hostDrawerFrameQueued = true;
-		// 首帧 + 400ms 延迟各复检一次：抽屉开合带过渡动画，宽度在动画后才稳定。
-		// 复检同时重跑落位守卫（T-167）：抽屉打开期间壳层移除 ⊡、关闭后回归，
-		// hero 态开关可能在打开窗口内被摘除（抽屉内导航触发 sync 而锚不可测）。
-		requestAnimationFrame(() => {
-			hostDrawerFrameQueued = false;
-			if (disposed) return;
-			placeToggle();
-			syncHostDrawer();
-		});
-		setTimeout(() => {
-			if (disposed) return;
-			placeToggle();
-			syncHostDrawer();
-		}, 400);
-	}
-	// 帧状态观察（T-167）：键盘（Escape）与滑动手势关抽屉不派发 pointer 事件，
-	// pointer 检测路径覆盖不到；壳层抽屉状态机本体是 frame 的
-	// data-sidebar-collapsed 属性，观察其翻转是关抽屉后恢复 hero 落位的必然
-	// 唤醒点——回调仅在状态翻转时发生，无轮询成本。按元素记挂：frame 就绪前
-	// 延迟挂载，外壳重挂载出新 frame 时换挂。
+	// 帧状态观察（T-167）：键盘（Escape）与滑动手势关抽屉不派发 pointer 事件；
+	// 壳层抽屉状态机本体是 frame 的 data-sidebar-collapsed 属性，观察其翻转是
+	// 关抽屉后 ⊡ 重挂、hero 落位重锚的必然唤醒点——回调仅在状态翻转时发生，
+	// 无轮询成本。按元素记挂：frame 就绪前延迟挂载，外壳重挂载出新 frame 时换挂。
+	// 开关在锚缺失期间保留原位（T-168），翻转即检与 400ms 复检均为同值重写或
+	// 重锚，无显隐突变；宿主抽屉隐藏检测（T-165）随层级归位失去必要性，整体
+	// 摘除（T-168）。
 	let frameAttrObserver = null;
 	let observedFrame = null;
 	function armFrameObserver() {
@@ -5142,23 +5099,18 @@ function apply(ctx) {
 		frameAttrObserver = new MutationObserver(() => {
 			if (disposed) return;
 			// 翻转即检 + 400ms 复检：壳层重挂 ⊡ 晚于属性翻转（reconcile 异步），
-			// 仅翻转即检会扑空且再无唤醒点；复检节奏与 pointer 检测一致。
+			// 仅翻转即检会扑空且再无唤醒点；开关未摘除，复检为重锚同值。
 			placeToggle();
-			syncHostDrawer();
 			setTimeout(() => {
 				if (disposed) return;
 				placeToggle();
-				syncHostDrawer();
 			}, 400);
 		});
 		frameAttrObserver.observe(frame, { attributes: true, attributeFilter: ["data-sidebar-collapsed"] });
 		observedFrame = frame;
 	}
 	armFrameObserver();
-	document.addEventListener("pointerdown", scheduleHostDrawerCheck, true);
-	document.addEventListener("pointerup", scheduleHostDrawerCheck);
 	placeToggle();
-	syncHostDrawer();
 	function notifyLayoutChange() {
 		try {
 			window.dispatchEvent(new Event("resize"));
@@ -5341,9 +5293,6 @@ function apply(ctx) {
 		placeToggle();
 		// 帧观察器在 frame 就绪后补挂（外壳重挂载后 frame 为新元素，须重挂）。
 		armFrameObserver();
-		// 公共出口复检宿主抽屉态：覆盖嵌入早退/插入/hero 贴靠/摘除全部路径；断点
-		// 跨越经 onResize→queueSync 到达，不依赖点击
-		syncHostDrawer();
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
 		if (seat === null || seat.parentElement === null) return null;
 		// [data-slot="conversation"] 的父级是 AppFrame 的中间列（flex column）。
@@ -7607,8 +7556,6 @@ function apply(ctx) {
 		for (const el of [...shiftCleanups.keys()]) cancelShift(el);
 		observedCenter = null;
 		toggle.removeEventListener("click", onToggleClick);
-		document.removeEventListener("pointerdown", scheduleHostDrawerCheck, true);
-		document.removeEventListener("pointerup", scheduleHostDrawerCheck);
 		unbindBackdrop();
 		backdrop.remove();
 		desktopQuery.removeEventListener("change", onResize);

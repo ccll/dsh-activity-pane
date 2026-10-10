@@ -4470,11 +4470,18 @@ assert.ok(bundle.includes('toggle.setAttribute("data-hero", "")'), "hero 落位�
 assert.ok(bundle.includes('toggle.style.position = "absolute"'), "hero 态以内联样式钉死 position:absolute（T-164 策略）");
 assert.ok(bundle.includes("fabRect.right + 8"), "hero 贴靠锚点右侧 8px（与 C-091 算式同源）");
 assert.ok(bundle.includes("fabRect.height - pillHeight"), "hero 贴靠与锚点垂直居中");
-assert.ok(bundle.includes("\t\t\ttoggle.remove();\n\t\t\treturn;"), "两落位均不可得时摘除开关（不渲染，fail-visible；remove 对游离节点为 no-op）");
-assert.ok(bundle.includes("const ON_SCREEN_X = -10;"), "在屏判据阈值具名常量（锚点与抽屉判定共用）");
+assert.ok(bundle.includes("if (frame === null && toggle.parentElement !== null) toggle.remove();"), "开关摘除仅限壳层结构缺失且已挂载（锚缺失期间已落位开关保留原位，未落位不渲染，fail-visible，C-093、T-168）");
+assert.ok(bundle.includes("const ON_SCREEN_X = -10;"), "在屏判据阈值具名常量（hero 锚在屏判据）");
 assert.ok(bundle.includes('"<span class=\\"dap-toggle-count\\"></span>"'), "开关为徽标单挂骨架：仅计数徽标，无图标与文字标签");
 assert.ok(!bundle.includes("dap-toggle-icon"), "面板图标已撤销（东家反馈被误读为边栏按钮）");
 assert.ok(bundle.includes("appearance: none; white-space: nowrap; width: max-content; max-width: 64px;"), "开关显式钉宽并以 max-width:64px 钳制硬上限（真机 fixed 态恒定膨胀兜底）");
+// 开关外层胶囊壳去除（T-168，东家指示只留内部涂色的计数胶囊）：基规则不携带
+// 底色、描边与投影，浅色主题不再覆盖开关底色；可见形态即 .dap-toggle-count 本体。
+assert.ok(bundle.includes("border: none; background: none;"), "开关基规则显式压掉 UA 默认按钮壳（appearance:none 不摘 UA 声明的边框与底色，T-168）");
+assert.ok(!bundle.includes("border: 1px solid color-mix(in srgb, currentColor 18%, transparent)"), "开关基规则不再携带外层描边（T-168）");
+assert.ok(!bundle.includes("rgba(24, 28, 38, 0.94)"), "开关基规则不再携带外层深色底（T-168）");
+assert.ok(!bundle.includes("box-shadow: 0 6px 16px rgba(0,0,0,.34)"), "开关基规则不再携带外层投影（T-168）");
+assert.ok(!bundle.includes("body:not([data-ds-dark-theme]) .dap-toggle {"), "浅色主题不再覆盖开关底色（外层胶囊壳已去除，T-168）");
 
 // R-01-008/AC-05
 // 抽屉打开时开关隐藏、关闭后恢复；显隐随 togglePane 单点同步。嵌入态与 hero 态
@@ -4482,12 +4489,8 @@ assert.ok(bundle.includes("appearance: none; white-space: nowrap; width: max-con
 assert.ok(bundle.includes(".dap-toggle[data-drawer-open] { display: flex; visibility: hidden; pointer-events: none; }"), "插件抽屉打开时开关统一留位隐藏且不拦截点击");
 assert.ok(!bundle.includes(".dap-toggle { display: flex; }"), "移动断点不再无条件显示开关（落位属性驱动）");
 assert.ok(bundle.includes('toggle.toggleAttribute("data-drawer-open", open)'), "开关显隐由 togglePane 单点同步");
-assert.ok(bundle.includes("toggle.toggleAttribute(\"data-host-drawer-open\""), "宿主侧栏抽屉打开时开关隐藏（槽位宽度实测判定）");
-assert.ok(bundle.includes('.dap-toggle[data-host-drawer-open] { visibility: hidden; pointer-events: none; }'), "抽屉打开期间以 visibility 隐藏开关（盒子保留可自行恢复）");
-assert.ok(bundle.includes("width > 100"), "抽屉判定用槽位列实测宽度阈值 100px");
-assert.ok(bundle.includes('document.querySelector("[data-slot=sidebar]")'), "抽屉判定锚定 sidebar 槽位语义属性（裸查询，非 button 后缀）");
-assert.ok(bundle.includes('document.removeEventListener("pointerdown", scheduleHostDrawerCheck, true)'), "抽屉判定监听随 cleanup 对称摘除");
-assert.ok(bundle.includes('attributeFilter: ["data-sidebar-collapsed"]'), "帧状态观察承载键盘/手势关抽屉后的开关恢复（T-167 恢复缺口）");
+assert.ok(!bundle.includes("data-host-drawer-open"), "宿主侧栏抽屉隐藏检测已整体摘除（层级归位后遮挡由层级承载，T-168）");
+assert.ok(bundle.includes('attributeFilter: ["data-sidebar-collapsed"]'), "帧状态观察承载键盘/手势关抽屉后的落位重锚（T-167 恢复缺口）");
 assert.ok(bundle.includes("frameAttrObserver?.disconnect();"), "帧状态观察随 cleanup 摘除");
 
 // R-01-002/AC-01、AC-02、AC-09、AC-13 等待三类胶囊（C-043）：末行首行为「圆底类型图标 + 类型
@@ -4843,7 +4846,6 @@ assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pan
 assert.ok(bundle.includes("background: var(--dsw-alias-bg-layer-2, #ffffff);"), "浅色卡片底色取外壳 layer-2 别名");
 assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item,\nbody:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-label {"), "浅色时间线文字取外壳 label-secondary 别名");
 assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-track {"), "浅色进度轨道底色有覆盖");
-assert.ok(bundle.includes("body:not([data-ds-dark-theme]) .dap-toggle {"), "浅色移动端浮动开关底色取外壳浮动按钮填充");
 assert.ok(bundle.includes(".dap-card {\n  position: relative;\n  flex: none;\n  min-width: 0;\n  padding: 9px 11px;\n  border-radius: 14px;\n  background: rgba(29, 31, 37, 0.94);"), "深色卡片底色保持原值（浅色仅经覆盖块生效）");
 assert.ok(bundle.includes("color: #c7ced9; font-size: 10px; line-height: 14px;"), "深色时间线文字保持原值");
 assert.ok(!bundle.includes("@media (prefers-color-scheme"), "主题跟随外壳 data-ds-dark-theme 标记，不另读系统媒体查询（避免与外壳手动主题设置脱节）");

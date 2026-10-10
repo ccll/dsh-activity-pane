@@ -4449,40 +4449,46 @@ assert.ok(
 
 // R-01-008/AC-04
 // 移动端「活动」开关常态嵌入宿主头部标题行行首参与布局（T-163，C-090；视觉上
-// 位于左边栏切换按钮右侧）；标题行不可得时回退 fixed 左上角兜底形态（CSS 缺省
-// left:44px，运行时按侧栏切换按钮实测右缘覆写）。
-assert.ok(bundle.includes("position: fixed; top: 12px; left: 44px;"), "浮动开关兜底形态缺省位于左上角（left:44px）");
-assert.ok(bundle.includes(".dap-toggle[data-embedded] {"), "开关嵌入态回归文档流（data-embedded 规则存在）");
+// 位于左边栏切换按钮右侧）；标题行不可得且宿主侧栏展开按钮（dsh-web-mobile ⊡，
+// data-mobile-nav="toggle"/"fab"）在屏时落位 hero 贴靠形态（T-167，C-093）；
+// 两落位均不可得时不渲染。兜底浮层（fixed + z-index:2147482991）已去除：
+// flex 子项的 z-index 即使 static 也生效（CSS Flexbox 规范），高层级声明曾使
+// 嵌入态整体逃逸宿主抽屉之上（T-167 根因）。
+assert.ok(!bundle.includes("z-index: 2147482991"), "浮动开关不再携带顶层 z-index（层级逃逸根因已除）");
+assert.ok(!bundle.includes(".dap-toggle {\n  position: fixed;"), "浮动开关基规则不再携带 fixed 兜底定位");
 assert.ok(bundle.includes('toggle.style.position = "static"'), "嵌入态以内联样式钉死 position:static（不依赖样式表状态）");
-assert.ok(bundle.includes('toggle.style.position = "fixed"'), "兜底态以内联样式钉死 position:fixed");
-assert.ok(bundle.includes('toggle.style.top = "12px"'), "兜底态内联钉 top:12px（与样式表缺省同值承载）");
+assert.ok(bundle.includes(".dap-toggle[data-embedded] {\n  position: static;\n  margin-right: 8px;\n  flex: none;\n  width: max-content; max-width: 64px;\n  min-height: 26px;\n  z-index: 1;\n}"), "嵌入态整块钉宽并层级归位 z-index:1（flex 子项 z 生效，低于宿主覆盖层 1100/1250/1300）");
+assert.ok(bundle.includes(".dap-toggle[data-hero] {\n  position: absolute;\n  z-index: 1060;\n}"), "hero 态 absolute 页面层 z-index:1060（低于壳层遮罩 1250/抽屉 1300/菜单 1100）");
 assert.ok(bundle.includes("row.insertBefore(toggle, cluster)"), "开关落位插入标题行首个内容簇之前（行首参与布局）");
 assert.ok(bundle.includes("row.prepend(toggle)"), "无标题簇时开关落位标题行行首");
 assert.ok(bundle.includes("toggle.nextSibling === cluster"), "幂等判定：开关已处于标题簇之前时不动 DOM");
 assert.ok(bundle.includes("row.firstElementChild === toggle"), "幂等判定：无簇分支开关已是标题行首元素");
-assert.ok(!bundle.includes(".dap-toggle {\n  position: fixed; top: 12px; right: 12px;"), "浮动开关不再位于右上角");
 assert.ok(bundle.includes('toggle.setAttribute("data-embedded", "")'), "嵌入落位写入 data-embedded 标记");
-assert.ok(bundle.includes('sidebarSlot?.querySelector("button")'), "兜底锚点 1 为 sidebar 槽位内按钮（实测矩形）");
+assert.ok(bundle.includes('button[data-mobile-nav="toggle"], button[data-mobile-nav="fab"]'), "hero 锚为宿主侧栏展开按钮语义属性（toggle/fab 统一寻址）");
+assert.ok(bundle.includes('document.querySelector("[data-shell-overlay]")?.parentElement'), "hero 落位挂宿主 frame（data-shell-overlay 的 parentElement，与壳层 findFrame 同源）");
+assert.ok(bundle.includes('toggle.setAttribute("data-hero", "")'), "hero 落位写入 data-hero 标记");
+assert.ok(bundle.includes('toggle.style.position = "absolute"'), "hero 态以内联样式钉死 position:absolute（T-164 策略）");
+assert.ok(bundle.includes("fabRect.right + 8"), "hero 贴靠锚点右侧 8px（与 C-091 算式同源）");
+assert.ok(bundle.includes("fabRect.height - pillHeight"), "hero 贴靠与锚点垂直居中");
+assert.ok(bundle.includes("\t\t\ttoggle.remove();\n\t\t\treturn;"), "两落位均不可得时摘除开关（不渲染，fail-visible；remove 对游离节点为 no-op）");
 assert.ok(bundle.includes("const ON_SCREEN_X = -10;"), "在屏判据阈值具名常量（锚点与抽屉判定共用）");
 assert.ok(bundle.includes('"<span class=\\"dap-toggle-count\\"></span>"'), "开关为徽标单挂骨架：仅计数徽标，无图标与文字标签");
 assert.ok(!bundle.includes("dap-toggle-icon"), "面板图标已撤销（东家反馈被误读为边栏按钮）");
 assert.ok(bundle.includes("appearance: none; white-space: nowrap; width: max-content; max-width: 64px;"), "开关显式钉宽并以 max-width:64px 钳制硬上限（真机 fixed 态恒定膨胀兜底）");
-assert.ok(bundle.includes(".dap-toggle[data-embedded] {\n  position: static;\n  margin-right: 8px;\n  flex: none;\n  width: max-content; max-width: 64px;\n  min-height: 26px;\n}"), "嵌入态整块钉宽（特异度保险，防宿主后代规则拉伸）");
 
 // R-01-008/AC-05
-// 抽屉打开时开关隐藏、关闭后恢复；显隐随 togglePane 单点同步。兜底形态 display:none；
-// 嵌入态 visibility:hidden 留位，标题行不因开合重排（T-160 闸口决策）。
-assert.ok(bundle.includes(".dap-toggle[data-drawer-open] { display: none; }"), "兜底形态打开抽屉时隐藏");
-assert.ok(bundle.includes(".dap-toggle[data-embedded][data-drawer-open] { display: flex; visibility: hidden; }"), "嵌入态打开抽屉时留位隐藏（visibility:hidden）");
+// 抽屉打开时开关隐藏、关闭后恢复；显隐随 togglePane 单点同步。嵌入态与 hero 态
+// 统一 visibility:hidden 留位隐藏，标题行不因开合重排（T-160 闸口决策、T-167）。
+assert.ok(bundle.includes(".dap-toggle[data-drawer-open] { display: flex; visibility: hidden; pointer-events: none; }"), "插件抽屉打开时开关统一留位隐藏且不拦截点击");
+assert.ok(!bundle.includes(".dap-toggle { display: flex; }"), "移动断点不再无条件显示开关（落位属性驱动）");
 assert.ok(bundle.includes('toggle.toggleAttribute("data-drawer-open", open)'), "开关显隐由 togglePane 单点同步");
 assert.ok(bundle.includes("toggle.toggleAttribute(\"data-host-drawer-open\""), "宿主侧栏抽屉打开时开关隐藏（槽位宽度实测判定）");
 assert.ok(bundle.includes('.dap-toggle[data-host-drawer-open] { visibility: hidden; pointer-events: none; }'), "抽屉打开期间以 visibility 隐藏开关（盒子保留可自行恢复）");
 assert.ok(bundle.includes("width > 100"), "抽屉判定用槽位列实测宽度阈值 100px");
-assert.ok(bundle.includes("for (const child of node.children)"), "兜底锚点沿祖先链找框架直系可见按钮（移动壳层英雄页侧栏钮）");
-assert.ok(bundle.includes("anchorRect.right + 8"), "兜底贴靠锚点右侧 8px（C-091）");
-assert.ok(bundle.includes("anchorRect.height - pillHeight"), "兜底贴靠与锚点垂直居中");
 assert.ok(bundle.includes('document.querySelector("[data-slot=sidebar]")'), "抽屉判定锚定 sidebar 槽位语义属性（裸查询，非 button 后缀）");
 assert.ok(bundle.includes('document.removeEventListener("pointerdown", scheduleHostDrawerCheck, true)'), "抽屉判定监听随 cleanup 对称摘除");
+assert.ok(bundle.includes('attributeFilter: ["data-sidebar-collapsed"]'), "帧状态观察承载键盘/手势关抽屉后的开关恢复（T-167 恢复缺口）");
+assert.ok(bundle.includes("frameAttrObserver?.disconnect();"), "帧状态观察随 cleanup 摘除");
 
 // R-01-002/AC-01、AC-02、AC-09、AC-13 等待三类胶囊（C-043）：末行首行为「圆底类型图标 + 类型
 // 文字」胶囊（阻塞金/完成绿/错误红），胶囊与正文同频同相脉冲；「移入历史」按钮不闪，标题圆点静止。

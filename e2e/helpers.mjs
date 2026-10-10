@@ -49,6 +49,30 @@ export async function paneBox(page) {
 	return box;
 }
 
+/** 注入模拟 ⊡ 锚（T-167）：部署侧 hero 页由 dsh-web-mobile 挂侧栏展开按钮
+ *  （语义属性 data-mobile-nav="fab"），本 e2e 壳层无该插件，注入同位同形的
+ *  模拟锚承载开关 hero 贴靠落位。几何取壳层实现值（base.css.ts：left:10、
+ *  top:12、38×38；T-166 真机实测同值）。幂等：已存在则不动；frame 未就绪时
+ *  轮询重试，调用方无需处理时序。 */
+export async function injectMobileFabAnchor(page) {
+	await page.evaluate(() => {
+		const ensure = () => {
+			const frame = document.querySelector("[data-shell-overlay]")?.parentElement;
+			if (!frame) return false;
+			if (document.querySelector('button[data-mobile-nav="fab"]') !== null) return true;
+			const fab = document.createElement("button");
+			fab.dataset.mobileNav = "fab";
+			fab.style.cssText = "position:absolute;left:10px;top:12px;width:38px;height:38px;";
+			frame.appendChild(fab);
+			return true;
+		};
+		if (ensure()) return;
+		const timer = setInterval(() => {
+			if (ensure()) clearInterval(timer);
+		}, 100);
+	});
+}
+
 /** 将窗格切到完整呈现档：默认中间档的时间线只渲染最新一行（lastOnly），依赖用户指令
  *  锚行等完整时间线内容的断言需先切档（默认中间档见 R-01-021/AC-06）。 */
 export async function ensureFullDensity(page) {

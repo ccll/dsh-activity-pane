@@ -6,7 +6,7 @@ id: T-161
 
 # T-161 移动端「活动」开关紧凑形与尺寸加固
 
-状态: active
+状态: completed
 关联: R-01-008/AC-04 / 窗格渲染器
 风险等级: standard
 
@@ -67,4 +67,13 @@ id: T-161
 
 ## 终态与证据
 
-（待实现完成后填写）
+- 实现: `src/client.mjs` 开关骨架改紧凑形（`dap-toggle-icon` + `dap-toggle-count`，不再渲染文字标签，aria-label 保留）；新增 `createDrawerIcon`（14 盒圆角面板 + 左侧分隔竖线 stroke 字形）；`.dap-toggle` 加 `appearance:none; white-space:nowrap; width:max-content` 并收紧 padding 0 9px / gap 5px，`.dap-toggle[data-embedded]` 整块钉宽（特异度保险，注释点明 (0,1,1)/(0,2,0) 机制），图标 svg 块级化循仓库图标宿主惯例；落位守卫与抽屉交互不变。commit: 629f28b
+- 测试: `pnpm check` 通过（新骨架/钉宽/嵌入态整块断言）；`pnpm verify` 全绿——agentmap lint、test impact lint（~R-01-008/AC-04）、check、20/20 e2e specs（mobile-drawer 紧凑形断言：innerText 仅计数、图标 svg 存在；嵌入/相对顺序/不遮挡/兜底/留位断言沿用）；真实环境（东家运行实例 127.0.0.1:3080）Playwright 探针双主题实测：嵌入态 65px、图标垂直中心偏移 0.0px、兜底态 65px 钉宽生效（left 按侧栏按钮实测 54px）。真机最终观感留人工验收。
+- SOLUTION 对照: 「边界与对外契约」开关段、「产品形态」段、「窗格渲染器」段三处紧凑形描述与实现一致；PRD AC-04 修订由本 task 测试影响表承接（~R-01-008/AC-04）；R-01-008 需求追溯索引行不变且仍准确。
+- commit: 629f28b
+- review:
+  - 审核方: Standards 子代理 `1b761d92-85f3-4b34-8ede-9ec5de0fe38e`；Spec 子代理 `fef8f12a-172d-4957-9a82-a61cd86412d6`。
+  - 目的理解: 东家真机反馈胶囊太大太长（真机 ~160pt、内容占半、iOS WebKit 按钮内在尺寸差异 + 「活动」文字标签固有宽 80px 挤压标题），经东家指示确认为需求变更：AC-04 文案条款修订为紧凑形态，开关改图标+徽标并以 width:max-content/appearance:none 显式钉宽；约束为 PRD 同次修订与测试证据同步、strict 锚定、bundle 字节一致。
+  - 执行方式: `code-review` skill；固定基线 HEAD=4e89882，范围为工作树 diff（实现提交 629f28b）+ 新增 task；Standards/Spec 双轴并行审核，各复审一轮。
+  - 问题与修复: Standards 一轮 2 项——嵌入态 width 重复声明缺机制注释（补 (0,1,1)/(0,2,0) 特异度理由；兜底态同口径残口经真实环境全量规则扫描仅 (0,0,1) 级命中，按 YAGNI 记残余风险不加属性管线）、SOLUTION 三处重复（既有 map 结构，不处理）；Spec 一轮 3 项——图标 svg 无对齐规则（补 display:block 定宽高，真机实测中心偏移 0.0px）、check.mjs 缺嵌入态钉宽断言（补整块断言）、e2e 计数正则对加载态敏感（维持现状，记残余风险）。全部闭合。
+  - 复审结论: Standards 轴闭合（无 hard，2 项 judgement call 处置完毕）；Spec 轴闭合（无缺失、无 scope creep，3 条低危处置完毕）；双轴确认修复无新问题。

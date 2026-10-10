@@ -981,16 +981,19 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 .dap-toggle .dap-toggle-count .dap-spinner {
   vertical-align: middle;
 }
-/* 移动端「活动」开关按钮：仅在窄屏显示（桌面隐藏）。常态嵌入宿主头部标题行
-   作为布局子项参与排布——浮层覆盖式呈现会随宿主几何演进而遮挡控件（T-029 后
-   再次失配），参与布局让宿主内容让位（R-01-008/AC-04，T-160）；宿主头部不可得
-   时由 placeToggle 回退为本条 fixed 兜底形态（left 经侧栏切换按钮实测右缘动态
-   覆写，缺省 44px）。 */
+/* 移动端「活动」开关按钮：仅在窄屏显示（桌面隐藏）。呈紧凑形态（面板图标 +
+   计数徽标，无文字标签，T-161）——文字标签使胶囊固有宽 ~80px，真机上持续
+   挤压会话标题。常态嵌入宿主头部标题行作为布局子项参与排布（R-01-008/AC-04，
+   T-160）；宿主头部不可得时由 placeToggle 回退为本条 fixed 兜底形态（left 经
+   侧栏切换按钮实测右缘动态覆写，缺省 44px）。width:max-content + appearance:
+   none 显式钉宽：真机（iOS WebKit）曾把 auto 宽按钮拉伸到内容两倍，不依赖
+   引擎的按钮内在尺寸。 */
 .dap-toggle {
   position: fixed; top: 12px; left: 44px; z-index: 2147482991;
   display: none;
-  align-items: center; gap: 6px;
-  min-height: 30px; padding: 0 11px;
+  align-items: center; gap: 5px;
+  min-height: 30px; padding: 0 9px;
+  appearance: none; white-space: nowrap; width: max-content;
   border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
   border-radius: 999px;
   background: rgba(24, 28, 38, 0.94);
@@ -999,18 +1002,22 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   cursor: pointer;
   box-shadow: 0 6px 16px rgba(0,0,0,.34);
 }
-/* 嵌入态：回归文档流参与标题行排布；flex:none 防拥挤下被压缩变形，
-   右缘 8px 与标题簇分隔。 */
+/* 嵌入态：回归文档流参与标题行排布；flex:none + width:max-content 在此重复声明
+   是特异度保险——宿主样式表的 (0,1,1) 级后代规则可压过 0-1-0 的基规则，嵌入态
+   处于宿主子树内必须自带 (0,2,0) 钉宽，右缘 8px 与标题簇分隔。 */
 .dap-toggle[data-embedded] {
   position: static;
   margin-right: 8px;
   flex: none;
+  width: max-content;
 }
 .dap-toggle .dap-toggle-count {
   min-width: 16px; text-align: center; border-radius: 999px;
   background: color-mix(in srgb, currentColor 16%, transparent);
   padding: 0 5px; font-size: 10px; font-weight: 700;
 }
+/* 图标 svg 摆放：块级化避免行内盒基线偏移（与既有图标宿主同惯例）。 */
+.dap-toggle .dap-toggle-icon svg { display: block; width: 14px; height: 14px; }
 .dap-toggle[data-awaiting] .dap-toggle-count {
   background: rgba(46, 42, 26, 0.97);
   animation: dap-await-pulse 1.2s ease-in-out infinite;
@@ -1435,13 +1442,15 @@ function apply(ctx) {
 	style.textContent = CSS;
 	document.head.appendChild(style);
 
-	// 移动端浮动开关按钮（桌面隐藏见 CSS）。
+	// 移动端浮动开关按钮（桌面隐藏见 CSS）：紧凑形骨架——面板图标 + 计数徽标，
+	// 不渲染文字标签（R-01-008/AC-04，T-161）；可访问名称由 aria-label 承担。
 	const toggle = document.createElement("button");
 	toggle.className = "dap-toggle";
 	toggle.type = "button";
 	toggle.setAttribute("aria-label", "切换活动会话窗格");
 	toggle.innerHTML =
-		"<span>活动</span><span class=\"dap-toggle-count\"></span>";
+		"<span class=\"dap-toggle-icon\"></span><span class=\"dap-toggle-count\"></span>";
+	toggle.querySelector(".dap-toggle-icon").append(createDrawerIcon());
 	document.body.appendChild(toggle);
 
 	// 移动端抽屉透明遮罩：仅窄屏且抽屉打开时显示，点击收起抽屉（R-01-008/AC-03）。
@@ -2670,6 +2679,21 @@ function apply(ctx) {
 			parts: [
 				{ attrs: { d: "M7 12.5V2", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
 				{ attrs: { d: "m2.5 6.5 4.5-4.5 4.5 4.5", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
+			],
+		});
+	}
+
+	/** 移动端开关紧凑形的「侧栏面板」图标（canonical 图标集无现成字形，14 盒
+	 *  stroke 风格与 createTopIcon 一致，T-161）：圆角面板 + 左侧分隔竖线，
+	 *  指代活动会话抽屉窗格。 */
+	function createDrawerIcon() {
+		return createInlineIcon({
+			viewBox: "0 0 14 14",
+			width: 14,
+			height: 14,
+			parts: [
+				{ tag: "rect", attrs: { x: "1.75", y: "2.75", width: "10.5", height: "8.5", rx: "2", stroke: "currentColor", "stroke-width": "1.5" } },
+				{ attrs: { d: "M5.25 2.75v8.5", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round" } },
 			],
 		});
 	}

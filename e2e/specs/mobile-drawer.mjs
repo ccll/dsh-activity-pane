@@ -1,4 +1,4 @@
-// R-01-008/AC-01、AC-02（点击/键盘）、AC-03（鼠标）、AC-04（文案/嵌入参与布局/相对顺序/不遮挡几何/兜底落位）、AC-05（显隐/嵌入态留位）、AC-06（点击/键盘）；R-01-015/AC-03
+// R-01-008/AC-01、AC-02（点击/键盘）、AC-03（鼠标）、AC-04（紧凑形/嵌入参与布局/相对顺序/不遮挡几何/兜底落位）、AC-05（显隐/嵌入态留位）、AC-06（点击/键盘）；R-01-015/AC-03
 // 移动端抽屉：默认隐藏、开关展开、标题/外部点击收起、开关随状态显隐，
 // 键盘激活当前卡只收起抽屉、激活其它卡仍切换会话；真触摸、嵌入观感与真机头部拥挤度保留人工。
 
@@ -44,11 +44,13 @@ export default async function mobileDrawer({ page, url, assert }) {
 	assert.ok(hiddenBox.x + hiddenBox.width <= 1, `窗格默认隐藏在屏外（右缘 ${Math.round(hiddenBox.x + hiddenBox.width)} ≤ 1）`);
 	assert.equal(await page.locator("[data-dsh-activity-pane] .dap-resize").isVisible(), false, "移动端抽屉不提供拖拽调宽手柄（R-01-015/AC-03）");
 
-	// R-01-008/AC-04：浮动开关文案、嵌入宿主头部标题行参与布局、不遮挡宿主控件（T-160）。
+	// R-01-008/AC-04：浮动开关紧凑形（图标+计数徽标、无文字标签）、嵌入宿主头部
+	// 标题行参与布局、不遮挡宿主控件（T-160、T-161）。
 	const toggle = await toggleButton(page);
 	const toggleBox = await until("浮动开关可见", () => toggle.boundingBox());
 	const text = (await toggle.innerText()).trim();
-	assert.ok(text.startsWith("活动"), `浮动开关文案以「活动」开头，实际：${text}`);
+	assert.ok(/^\d+\/\d+$/.test(text), `浮动开关为紧凑形（仅计数徽标，无文字标签），实际：${text}`);
+	assert.equal(await toggle.locator(".dap-toggle-icon svg").count(), 1, "浮动开关含面板图标（R-01-008/AC-04 紧凑形）");
 	assert.ok(toggleBox.x >= 0 && toggleBox.x + toggleBox.width <= MOBILE_VIEWPORT.width, "浮动开关在移动视口内");
 	const embedded = await page.evaluate(() => {
 		const toggle = document.querySelector(".dap-toggle");

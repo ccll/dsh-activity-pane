@@ -4456,7 +4456,10 @@ assert.ok(bundle.includes("row.insertBefore(toggle, cluster)"), "开关落位插
 assert.ok(bundle.includes('toggle.setAttribute("data-embedded", "")'), "嵌入落位写入 data-embedded 标记");
 assert.ok(bundle.includes('"[data-slot=sidebar] button"'), "兜底 left 锚定侧栏切换按钮实测右缘");
 assert.ok(!bundle.includes(".dap-toggle {\n  position: fixed; top: 12px; right: 12px;"), "浮动开关不再位于右上角");
-assert.ok(bundle.includes('"<span>活动</span><span class=\\"dap-toggle-count\\"></span>"'), "浮动开关文案为「活动」并保留计数徽标");
+assert.ok(bundle.includes('"<span class=\\"dap-toggle-icon\\"></span><span class=\\"dap-toggle-count\\"></span>"'), "开关为紧凑形骨架：面板图标 + 计数徽标，无文字标签");
+assert.ok(bundle.includes("appearance: none; white-space: nowrap; width: max-content;"), "开关显式钉宽（width:max-content + appearance:none），不依赖引擎按钮内在尺寸");
+assert.ok(bundle.includes(".dap-toggle[data-embedded] {\n  position: static;\n  margin-right: 8px;\n  flex: none;\n  width: max-content;\n}"), "嵌入态整块钉宽（特异度保险，防宿主后代规则拉伸）");
+assert.ok(bundle.includes("function createDrawerIcon()"), "紧凑形面板图标字形存在");
 
 // R-01-008/AC-05
 // 抽屉打开时开关隐藏、关闭后恢复；显隐随 togglePane 单点同步。兜底形态 display:none；

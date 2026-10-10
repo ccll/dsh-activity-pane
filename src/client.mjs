@@ -1021,6 +1021,11 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   background: color-mix(in srgb, currentColor 16%, transparent);
   padding: 0 5px; font-size: 10px; font-weight: 700;
 }
+/* 宿主侧栏抽屉打开时隐藏开关：抽屉占据整屏，嵌入态被其覆盖、兜底态因
+   fixed 高层级会浮在抽屉之上，两种形态在抽屉打开期间都无保留意义。
+   visibility 而非 display：嵌入态避免标题行因开关消失而重排；pointer-events
+   同步摘除，不可见盒不拦截宿主抽屉点击。 */
+.dap-toggle[data-host-drawer-open] { visibility: hidden; pointer-events: none; }
 /* 徽标等待态：执行色底 + 呼吸动画（有待执行行动时点亮）。 */
 .dap-toggle[data-awaiting] .dap-toggle-count {
   background: rgba(46, 42, 26, 0.97);
@@ -2286,6 +2291,41 @@ function apply(ctx) {
 		toggle.toggleAttribute("data-drawer-open", open);
 		queueSync();
 	}
+	// 宿主侧栏抽屉开合不经过插件状态：抽屉打开时整屏被其占据，开关无论嵌入
+	// （被其覆盖）还是兜底（fixed 高层级会浮在其上）都无保留意义，隐藏。
+	// 判据：sidebar 槽位本体处于 0 宽裁剪壳内，沿父链取首个非零宽宿主列实测
+	// （收起栏 ~56px / 抽屉 ~280px，阈值 100px；宿主语义属性，不耦合哈希类，
+	// 宿主加宽收起栏超过阈值会误判，见 T-165 验证矩阵）。
+	function syncHostDrawer() {
+		if (disposed) return;
+		if (desktopQuery.matches) {
+			// 桌面断点外开关本就隐藏，清标记避免跨断点残留
+			toggle.removeAttribute("data-host-drawer-open");
+			return;
+		}
+		// 槽位本体处于 0 宽裁剪壳内，沿父链取首个非零宽宿主列实测
+		let node = document.querySelector("[data-slot=sidebar]");
+		let width = 0;
+		while (node !== null && node !== document.body && width === 0) {
+			width = node.getBoundingClientRect().width;
+			node = node.parentElement;
+		}
+		toggle.toggleAttribute("data-host-drawer-open", width > 100);
+	}
+	let hostDrawerFrameQueued = false;
+	function scheduleHostDrawerCheck() {
+		if (hostDrawerFrameQueued) return;
+		hostDrawerFrameQueued = true;
+		// 首帧 + 400ms 延迟各复检一次：抽屉开合带过渡动画，宽度在动画后才稳定
+		requestAnimationFrame(() => {
+			hostDrawerFrameQueued = false;
+			syncHostDrawer();
+		});
+		setTimeout(syncHostDrawer, 400);
+	}
+	document.addEventListener("pointerdown", scheduleHostDrawerCheck, true);
+	document.addEventListener("pointerup", scheduleHostDrawerCheck);
+	syncHostDrawer();
 	function notifyLayoutChange() {
 		try {
 			window.dispatchEvent(new Event("resize"));
@@ -2466,6 +2506,9 @@ function apply(ctx) {
 	function ensurePane() {
 		// 开关落位守卫先于窗格守卫：头部行存在与否独立于窗格挂载态（T-160）。
 		placeToggle();
+		// 公共出口复检宿主抽屉态：覆盖嵌入早退/插入/兜底全部路径；断点跨越经
+		// onResize→queueSync 到达，不依赖点击
+		syncHostDrawer();
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
 		if (seat === null || seat.parentElement === null) return null;
 		// [data-slot="conversation"] 的父级是 AppFrame 的中间列（flex column）。
@@ -4726,6 +4769,8 @@ function apply(ctx) {
 		for (const el of [...shiftCleanups.keys()]) cancelShift(el);
 		observedCenter = null;
 		toggle.removeEventListener("click", onToggleClick);
+		document.removeEventListener("pointerdown", scheduleHostDrawerCheck, true);
+		document.removeEventListener("pointerup", scheduleHostDrawerCheck);
 		unbindBackdrop();
 		backdrop.remove();
 		desktopQuery.removeEventListener("change", onResize);

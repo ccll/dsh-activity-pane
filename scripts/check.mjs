@@ -4474,6 +4474,11 @@ assert.ok(bundle.includes(".dap-toggle[data-embedded] {\n  position: static;\n  
 assert.ok(bundle.includes(".dap-toggle[data-drawer-open] { display: none; }"), "兜底形态打开抽屉时隐藏");
 assert.ok(bundle.includes(".dap-toggle[data-embedded][data-drawer-open] { display: flex; visibility: hidden; }"), "嵌入态打开抽屉时留位隐藏（visibility:hidden）");
 assert.ok(bundle.includes('toggle.toggleAttribute("data-drawer-open", open)'), "开关显隐由 togglePane 单点同步");
+assert.ok(bundle.includes("toggle.toggleAttribute(\"data-host-drawer-open\""), "宿主侧栏抽屉打开时开关隐藏（槽位宽度实测判定）");
+assert.ok(bundle.includes('.dap-toggle[data-host-drawer-open] { visibility: hidden; pointer-events: none; }'), "抽屉打开期间以 visibility 隐藏开关（盒子保留可自行恢复）");
+assert.ok(bundle.includes("width > 100"), "抽屉判定用槽位列实测宽度阈值 100px");
+assert.ok(bundle.includes('document.querySelector("[data-slot=sidebar]")'), "抽屉判定锚定 sidebar 槽位语义属性（裸查询，非 button 后缀）");
+assert.ok(bundle.includes('document.removeEventListener("pointerdown", scheduleHostDrawerCheck, true)'), "抽屉判定监听随 cleanup 对称摘除");
 
 // R-01-002/AC-01、AC-02、AC-09、AC-13 等待三类胶囊（C-043）：末行首行为「圆底类型图标 + 类型
 // 文字」胶囊（阻塞金/完成绿/错误红），胶囊与正文同频同相脉冲；「移入历史」按钮不闪，标题圆点静止。

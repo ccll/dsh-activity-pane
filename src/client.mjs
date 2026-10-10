@@ -981,13 +981,14 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 .dap-toggle .dap-toggle-count .dap-spinner {
   vertical-align: middle;
 }
-/* 移动端「活动」开关按钮：仅在窄屏显示（桌面隐藏）。呈紧凑形态（面板图标 +
-   计数徽标，无文字标签，T-161）——文字标签使胶囊固有宽 ~80px，真机上持续
-   挤压会话标题。常态嵌入宿主头部标题行作为布局子项参与排布（R-01-008/AC-04，
-   T-160）；宿主头部不可得时由 placeToggle 回退为本条 fixed 兜底形态（left 经
-   侧栏切换按钮实测右缘动态覆写，缺省 44px）。width:max-content + appearance:
-   none 显式钉宽：真机（iOS WebKit）曾把 auto 宽按钮拉伸到内容两倍，不依赖
-   引擎的按钮内在尺寸。 */
+/* 移动端「活动」开关按钮：仅在窄屏显示（桌面隐藏）。呈紧凑形态（仅计数徽标，
+   无图标与文字标签，T-162）——面板图标与宿主侧栏切换按钮同形，被东家误读为
+   边栏按钮（T-161 引入后撤销）。常态嵌入宿主头部的视图导航行（对话/轨迹/
+   上下文）行尾作为布局子项参与排布（R-01-008/AC-04，T-162）；导航行不可得或
+   容纳不下时由 placeToggle 回退为本条 fixed 兜底形态（left 经侧栏切换按钮实测
+   右缘动态覆写，缺省 44px）。width:max-content + appearance:none 显式钉宽：
+   真机（iOS WebKit）曾把 fixed 态 auto 宽按钮拉伸到内容两倍，不依赖引擎的
+   按钮内在尺寸。 */
 .dap-toggle {
   position: fixed; top: 12px; left: 44px; z-index: 2147482991;
   display: none;
@@ -1002,22 +1003,22 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   cursor: pointer;
   box-shadow: 0 6px 16px rgba(0,0,0,.34);
 }
-/* 嵌入态：回归文档流参与标题行排布；flex:none + width:max-content 在此重复声明
-   是特异度保险——宿主样式表的 (0,1,1) 级后代规则可压过 0-1-0 的基规则，嵌入态
-   处于宿主子树内必须自带 (0,2,0) 钉宽，右缘 8px 与标题簇分隔。 */
+/* 嵌入态：回归文档流参与视图导航行排布；flex:none + width:max-content 在此重复
+   声明是特异度保险——宿主样式表的 (0,1,1) 级后代规则可压过 0-1-0 的基规则，
+   嵌入态处于宿主子树内必须自带 (0,2,0) 钉宽；min-height 收为 26px 与宿主导航
+   行行高（~25px）协调，避免胶囊悬挂出行；与行尾的间距由 placeToggle 量测宿主
+   行距后经行内 margin-left 承担。 */
 .dap-toggle[data-embedded] {
   position: static;
-  margin-right: 8px;
   flex: none;
   width: max-content;
+  min-height: 26px;
 }
 .dap-toggle .dap-toggle-count {
   min-width: 16px; text-align: center; border-radius: 999px;
   background: color-mix(in srgb, currentColor 16%, transparent);
   padding: 0 5px; font-size: 10px; font-weight: 700;
 }
-/* 图标 svg 摆放：块级化避免行内盒基线偏移（与既有图标宿主同惯例）。 */
-.dap-toggle .dap-toggle-icon svg { display: block; width: 14px; height: 14px; }
 .dap-toggle[data-awaiting] .dap-toggle-count {
   background: rgba(46, 42, 26, 0.97);
   animation: dap-await-pulse 1.2s ease-in-out infinite;
@@ -1442,15 +1443,14 @@ function apply(ctx) {
 	style.textContent = CSS;
 	document.head.appendChild(style);
 
-	// 移动端浮动开关按钮（桌面隐藏见 CSS）：紧凑形骨架——面板图标 + 计数徽标，
-	// 不渲染文字标签（R-01-008/AC-04，T-161）；可访问名称由 aria-label 承担。
+	// 移动端浮动开关按钮（桌面隐藏见 CSS）：紧凑形骨架——仅计数徽标，无图标与
+	// 文字标签（R-01-008/AC-04，T-162；面板图标被东家误读为边栏按钮，撤销）；
+	// 可访问名称由 aria-label 承担。
 	const toggle = document.createElement("button");
 	toggle.className = "dap-toggle";
 	toggle.type = "button";
 	toggle.setAttribute("aria-label", "切换活动会话窗格");
-	toggle.innerHTML =
-		"<span class=\"dap-toggle-icon\"></span><span class=\"dap-toggle-count\"></span>";
-	toggle.querySelector(".dap-toggle-icon").append(createDrawerIcon());
+	toggle.innerHTML = "<span class=\"dap-toggle-count\"></span>";
 	document.body.appendChild(toggle);
 
 	// 移动端抽屉透明遮罩：仅窄屏且抽屉打开时显示，点击收起抽屉（R-01-008/AC-03）。
@@ -1458,33 +1458,50 @@ function apply(ctx) {
 	backdrop.className = "dap-backdrop";
 	document.body.appendChild(backdrop);
 
-	// 移动端「活动」开关落位守卫（T-160，R-01-008/AC-04）：常态嵌入宿主头部标题行
-	// 参与布局；宿主头部不可得时回退 fixed 兜底形态。幂等：已处目标位置不动 DOM，
-	// 宿主重渲染丢弃嵌入节点后由下一轮渲染守卫重插（头部在 seat 子树内，
-	// conversationObserver 的 subtree 监听会经 queueSync 唤醒本守卫）。
+	// 移动端「活动」开关落位守卫（T-162，R-01-008/AC-04）：常态嵌入宿主头部的
+	// 视图导航行（对话/轨迹/上下文）行尾参与布局——东家指示（胶囊正下方的导航栏）；
+	// 行距按宿主 columnGap 量测后以负外边距抵消（自留 12px），不硬编码宿主几何；
+	// 插入前预检投影宽度，放不下不插入、直接回退；插入后实测仍溢出则记下该视口
+	// 宽度、同宽度内不再重试，堵住预检低估导致的插入-回退抖动。导航行不可得
+	// （欢迎页/会话视图未挂载窗口期）时回退 fixed 兜底形态。幂等：已在行尾且行
+	// 未溢出时不动 DOM；宿主重渲染丢弃嵌入节点后由下一轮渲染守卫重插（头部在
+	// seat 子树内，conversationObserver 的 subtree 监听会经 queueSync 唤醒本守卫）。
+	let tabsRowRefusedWidth = 0;
 	function placeToggle() {
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
-		const row = seat !== null ? (seat.querySelector("header")?.firstElementChild ?? null) : null;
-		if (row !== null) {
-			// 插入点取首个子簇内 crumb 导航所在的顶层簇之前：标题簇是行内首个内容簇，
-			// 宿主若把侧栏切换按钮放进行内也天然落在其右侧（相对顺序契约，不断言行首）。
-			const head = row.firstElementChild;
-			let cluster = head?.tagName === "NAV" ? head : (head?.querySelector("nav") ?? null);
-			while (cluster !== null && cluster.parentElement !== row) cluster = cluster.parentElement;
-			const settled = toggle.parentElement === row &&
-				(cluster !== null ? toggle.nextSibling === cluster : row.firstElementChild === toggle);
-			if (settled) return;
-			if (cluster !== null) row.insertBefore(toggle, cluster);
-			else row.prepend(toggle);
-			toggle.setAttribute("data-embedded", "");
-			if (toggle.style.left !== "") toggle.style.left = "";
-			return;
+		const header = seat !== null ? (seat.querySelector("header") ?? null) : null;
+		const navRow = header !== null ? header.lastElementChild : null;
+		const rowDisplay = navRow !== null ? getComputedStyle(navRow).display : "";
+		const navUsable = navRow !== null && navRow !== header.firstElementChild &&
+			rowDisplay.includes("flex");
+		// 1px 容差吸收子项宽取整误差，不把舍入当作溢出
+		const rowOverflow = navUsable && navRow.scrollWidth > navRow.clientWidth + 1;
+		if (navUsable && !rowOverflow && toggle.parentElement === navRow &&
+			navRow.lastElementChild === toggle)
+			return; // 已在导航行行尾且行未溢出：不动 DOM
+		if (navUsable && !rowOverflow && window.innerWidth !== tabsRowRefusedWidth) {
+			// 预检投影宽度：行内既有子项宽 + 子项间行距(n-1) + 行尾有效间距
+			// (gap + 负外边距 = 12px) + 开关宽 ≤ 行宽才插入
+			const gap = Number.parseFloat(getComputedStyle(navRow).columnGap) || 0;
+			const children = [...navRow.children].filter((node) => node !== toggle);
+			const widths = children.reduce((sum, node) => sum + node.getBoundingClientRect().width, 0);
+			const projected = widths + Math.max(0, children.length - 1) * gap +
+				toggle.getBoundingClientRect().width + 12;
+			if (projected <= navRow.clientWidth + 1) {
+				navRow.appendChild(toggle);
+				toggle.style.marginLeft = `${Math.round(12 - gap)}px`;
+				toggle.setAttribute("data-embedded", "");
+				if (toggle.style.left !== "") toggle.style.left = "";
+				if (navRow.scrollWidth <= navRow.clientWidth + 1) return;
+				tabsRowRefusedWidth = window.innerWidth; // 预检低估：本宽度内不再重试
+			}
 		}
 		// 兜底形态：挂回 body、摘掉嵌入标记；兜底 left 随 sidebar 槽位首个按钮（当前宿主
 		// 即侧栏切换钮）实测右缘写入——右缘为 0（隐藏/未渲染）视同测不到，清回 CSS 缺省
 		// 44px，不再硬编码追赶宿主几何。
 		if (toggle.parentElement !== document.body) document.body.append(toggle);
 		toggle.removeAttribute("data-embedded");
+		toggle.style.marginLeft = "";
 		const sidebarToggle = document.querySelector("[data-slot=sidebar] button");
 		const right = sidebarToggle?.getBoundingClientRect().right ?? NaN;
 		const left = Number.isFinite(right) && right > 0 ? `${Math.round(right + 8)}px` : "";
@@ -2679,21 +2696,6 @@ function apply(ctx) {
 			parts: [
 				{ attrs: { d: "M7 12.5V2", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
 				{ attrs: { d: "m2.5 6.5 4.5-4.5 4.5 4.5", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" } },
-			],
-		});
-	}
-
-	/** 移动端开关紧凑形的「侧栏面板」图标（canonical 图标集无现成字形，14 盒
-	 *  stroke 风格与 createTopIcon 一致，T-161）：圆角面板 + 左侧分隔竖线，
-	 *  指代活动会话抽屉窗格。 */
-	function createDrawerIcon() {
-		return createInlineIcon({
-			viewBox: "0 0 14 14",
-			width: 14,
-			height: 14,
-			parts: [
-				{ tag: "rect", attrs: { x: "1.75", y: "2.75", width: "10.5", height: "8.5", rx: "2", stroke: "currentColor", "stroke-width": "1.5" } },
-				{ attrs: { d: "M5.25 2.75v8.5", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round" } },
 			],
 		});
 	}

@@ -4453,6 +4453,9 @@ assert.ok(
 // left:44px，运行时按侧栏切换按钮实测右缘覆写）。
 assert.ok(bundle.includes("position: fixed; top: 12px; left: 44px;"), "浮动开关兜底形态缺省位于左上角（left:44px）");
 assert.ok(bundle.includes(".dap-toggle[data-embedded] {"), "开关嵌入态回归文档流（data-embedded 规则存在）");
+assert.ok(bundle.includes('toggle.style.position = "static"'), "嵌入态以内联样式钉死 position:static（不依赖样式表状态）");
+assert.ok(bundle.includes('toggle.style.position = "fixed"'), "兜底态以内联样式钉死 position:fixed");
+assert.ok(bundle.includes('toggle.style.top = "12px"'), "兜底态内联钉 top:12px（与样式表缺省同值承载）");
 assert.ok(bundle.includes("row.insertBefore(toggle, cluster)"), "开关落位插入标题行首个内容簇之前（行首参与布局）");
 assert.ok(bundle.includes("row.prepend(toggle)"), "无标题簇时开关落位标题行行首");
 assert.ok(bundle.includes("toggle.nextSibling === cluster"), "幂等判定：开关已处于标题簇之前时不动 DOM");
@@ -4462,8 +4465,8 @@ assert.ok(bundle.includes('toggle.setAttribute("data-embedded", "")'), "嵌入�
 assert.ok(bundle.includes('"[data-slot=sidebar] button"'), "兜底 left 锚定侧栏切换按钮实测右缘");
 assert.ok(bundle.includes('"<span class=\\"dap-toggle-count\\"></span>"'), "开关为徽标单挂骨架：仅计数徽标，无图标与文字标签");
 assert.ok(!bundle.includes("dap-toggle-icon"), "面板图标已撤销（东家反馈被误读为边栏按钮）");
-assert.ok(bundle.includes("appearance: none; white-space: nowrap; width: max-content;"), "开关显式钉宽（width:max-content + appearance:none），不依赖引擎按钮内在尺寸");
-assert.ok(bundle.includes(".dap-toggle[data-embedded] {\n  position: static;\n  margin-right: 8px;\n  flex: none;\n  width: max-content;\n  min-height: 26px;\n}"), "嵌入态整块钉宽（特异度保险，防宿主后代规则拉伸）");
+assert.ok(bundle.includes("appearance: none; white-space: nowrap; width: max-content; max-width: 64px;"), "开关显式钉宽并以 max-width:64px 钳制硬上限（真机 fixed 态恒定膨胀兜底）");
+assert.ok(bundle.includes(".dap-toggle[data-embedded] {\n  position: static;\n  margin-right: 8px;\n  flex: none;\n  width: max-content; max-width: 64px;\n  min-height: 26px;\n}"), "嵌入态整块钉宽（特异度保险，防宿主后代规则拉伸）");
 
 // R-01-008/AC-05
 // 抽屉打开时开关隐藏、关闭后恢复；显隐随 togglePane 单点同步。兜底形态 display:none；

@@ -6,7 +6,7 @@ id: T-168
 
 # T-168 开关去外层胶囊壳 + 宿主抽屉打开期间保留原位被遮挡
 
-状态: active
+状态: completed
 关联: R-01-008/AC-04 / 窗格渲染器
 风险等级: standard
 
@@ -63,7 +63,8 @@ id: T-168
 
 - `scripts/check.mjs`：外层壳断言——基规则显式压掉 UA 默认按钮壳、无旧描边/底色/投影、浅色覆盖删除。
   - 宿主抽屉隐藏断言组删除，改为宿主抽屉隐藏检测整体摘除断言。
-  - hero 摘除收窄断言（remove 仅限壳层结构缺失且已挂载）替代原摘除断言；锚缺失保留原位由 e2e 行为断言承载。
+  - hero 摘除收窄断言（remove 仅限壳层结构缺失且已挂载）替代原摘除断言。
+  - 锚缺失保留原位由 e2e 行为断言承载。
 - `e2e/specs/mobile-drawer.mjs`：「摘除后恢复」段改写为「锚缺失期间开关保留原位几何、锚回归后重锚同值」；新增外层壳去除的计算样式断言（无描边/底色/投影、内胶囊保留涂色）。
 - `scripts/acceptance.mjs`：R-01-008/AC-04 人工条目同步（徽标本体呈现、抽屉开合全程遮挡与原位复现；清除 T-167 已删除兜底浮层的陈旧描述）。
 - `pnpm verify:fast`；全量 `pnpm verify`。
@@ -92,4 +93,13 @@ id: T-168
 
 ## 终态与证据
 
-（实现提交后由关闭提交填写）
+- 实现: `src/client.mjs` CSS——`.dap-toggle` 基规则去除外层胶囊壳（border/background/box-shadow），并以 `border:none; background:none` 显式压掉 UA 默认按钮壳（appearance:none 不摘除 UA 声明的边框与底色，WebKit 探针实测漏出 2px 灰壳）；删除浅色主题 `.dap-toggle` 底色覆盖；可见形态即 `.dap-toggle-count` 计数徽标本体，padding 与 min-height 保留为触达面积，盒几何不变。JS——`placeToggle` hero 分支锚或 frame 不可得时已落位开关保留原位几何（摘除收窄为壳层结构缺失且开关已挂载），宿主抽屉打开窗口（壳层于 drawerOpen 翻转同遍移除 ⊡）开关不离文档、由抽屉与遮罩（1300/1250）在层级上遮挡；T-165 宿主抽屉隐藏检测整体摘除（syncHostDrawer、scheduleHostDrawerCheck、pointer 监听及其清理、`data-host-drawer-open` CSS 与属性写入），关抽屉后的落位重锚由帧属性观察（`data-sidebar-collapsed` 翻转即检 + 400ms 复检）承载；cleanup 对称。PRD R-01-008/AC-04 子句演进（东家确认）；SOLUTION 开关机制段同步；RATIONALE 增 C-094。commit: 8ce0ebf
+- 测试: `pnpm verify:fast` 多轮全绿；`pnpm verify` 两轮 20/20 e2e specs 全绿（含 CSS 修正后 bundle 轮，mobile-thermal rAF 74/69 < 80 阈值）；`scripts/check.mjs` 断言全绿（外层壳显式压掉 UA 壳、旧壳值清零、浅色覆盖删除、宿主抽屉检测摘除、摘除收窄）；`e2e/specs/mobile-drawer.mjs` 新增外层壳计算样式断言（无描边/底色/投影、内胶囊保留涂色）与「锚缺失期间开关保留摘锚前原位（与 heroBox 逐值 ±1 比对）、锚回归后重锚同位」回归；`scripts/acceptance.mjs` R-01-008/AC-04 人工条目同步并清除 T-167 已删兜底浮层陈旧描述。WebKit 移动壳层探针（iPhone 13 描述符 + 触屏 + 390×844，dsh-web-mobile 生效壳层，与东家同实例）14/14 通过：外层壳计算样式清零、内胶囊涂色在场、hero 贴靠几何（x=56 y=16）、抽屉打开期间开关在 DOM/未被隐藏/elementFromPoint 命中抽屉内容（被遮挡）/几何不变、关抽屉全程 25 次采样开关持续在场且几何稳定、关闭后原位可命中；hero/开/关三态截图人工复核。真机最终观感留东家人工验收。
+- SOLUTION 对照: 开关机制段（外层壳去除、锚缺失保留原位、摘除收窄、宿主抽屉检测摘除、帧观察重锚、插件抽屉 AC-05 消歧）与实现一致；PRD AC-04 六子句与 check/e2e/acceptance 断言一一对应；C-094 与实现一致，被否方案均未落地。
+- commit: 8ce0ebf
+- review:
+  - 审核方: Standards 子代理 `71c01276-dd0e-4ecd-8a42-aa827f51e913`；Spec 子代理 `9d5f3f62-5386-4a99-ae61-eeff37747daa`。
+  - 目的理解: 东家两项指示——开关外层胶囊壳去除、只留内部涂色计数胶囊；hero 页宿主抽屉开合时开关从「摘除后延迟重现」改为「常驻抽屉后被遮挡」；约束为外层壳彻底去除（含 UA 默认按钮壳）、已落位开关保留不摘除、摘除仅限壳层结构缺失、AC-05 插件抽屉显隐不变、无死引用、cleanup 对称、无新增 rAF。
+  - 执行方式: `code-review` skill 双轴并行（Standards/Spec），基线 HEAD=c48a5dd，范围为工作树 diff；两轴各一轮修复后复审。
+  - 问题与修复: Standards 一轮 2 硬 + 5 判——PRD AC-04 两子句一行多规则（拆分）、紧凑形态子句一行三规则且同义复述（拆分删复述）、SOLUTION 多余抽屉状态条件（删）、C-094 决策段超长句（短句化）、含糊量词（SOLUTION 改可判定措辞；东家原话引述豁免）、check.mjs 注释匹配断言脆弱且与相邻断言重复（删，留 remove 条件断言）、e2e frame 属性操作形状重复（提 helper）；复审另报 helper 归一化缺陷（`?.parentElement` 得 undefined 时守卫失效，补 `?? null`）、check.mjs 断言重复行（删）、e2e 断言消息与注释措辞不一致及文件头覆盖清单缺项（改）。Spec 一轮 4 LOW——e2e kept 断言弱于测试计划（改 heroBox 逐值 ±1 比对）、task 收敛方案 remove 范围条目过宽（对齐实现）、SOLUTION:188 误引 AC-04（收窄 AC-05 并新增 AC-04 条目消歧）、e2e 陈旧注释描述已删机制（如实改写）。
+  - 复审结论: 两轴复审均确认全部发现关闭、无新问题、无修复不当；残余风险记录在案——宿主 reconciler 在抽屉打开窗口重建 frame 子树可连带丢弃开关且保留分支不回挂（e2e 未模拟子树 churn）、宿主改版后锚不再回归时开关残留最后有效位置（SOLUTION 记录为边界）、真机最终观感留东家人工验收。

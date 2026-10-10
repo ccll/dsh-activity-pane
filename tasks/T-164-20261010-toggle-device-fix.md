@@ -6,7 +6,7 @@ id: T-164
 
 # T-164 真机落位失效与宽度观感修复（诊断闭环）
 
-状态: active
+状态: completed
 关联: R-01-008/AC-04 / 窗格渲染器
 风险等级: standard
 
@@ -57,4 +57,13 @@ id: T-164
 
 ## 终态与证据
 
-（待实现完成后填写）
+- 实现: `src/client.mjs` 开关宽度 `max-width: 64px` 硬钳制（基规则与嵌入态同口径）；`placeToggle` 以行内样式钉死定位关键量（嵌入 `position:static` 并清 top/left，兜底 `position:fixed; top:12px` 与动态 left），样式表只承担外观；临时自诊断设施（8px 状态码、1.5s 独立周期、cleanup 清理）与命中测试式宿主覆盖隐藏（YAGNI，英雄态误判会常驻隐藏）全部撤除，不进提交。commit: d3f5275
+- 测试: `pnpm verify` 全绿（干净现场单跑，agentmap lint、test impact lint、check、20/20 e2e specs）；`scripts/check.mjs` 新增三条内联钉位断言与钳制断言；真实环境探针（chromium+webkit）+ 东家真机诊断截图三态回报：英雄页 `F:H:P1:w64n46`（无头部回退兜底，约定行为）、会话态 `E:P1:w64n49ps`（嵌入成功、position=static、自然排版宽 49px）。真机最终观感留人工验收。
+- SOLUTION 对照: 开关机制段补「内联钉位 + max-width 钳制」两条与实现一致（兜底 left 不可测时回退样式表缺省 44px 的语义已收敛）；PRD AC-04 正文本 task 未动（实现加固，语义不变），测试影响行如实记录。
+- commit: d3f5275
+- review:
+  - 审核方: Standards 子代理 `b22e3ab5-3a8f-4217-b10f-015fe940247f`；Spec 子代理 `d885e657-bbce-43a1-a6b2-f84b63793467`。
+  - 目的理解: 东家真机反馈与桌面复现结果矛盾，需在拿不到真机调试通道的约束下取得真机事实并交付可持续的加固；约束为诊断设施一次性使用后撤除、map 不变（缺陷修复短路）、strict 锚定、bundle 字节一致。
+  - 执行方式: `code-review` skill；固定基线 HEAD=1c7e12e，范围为工作树 diff（实现提交 d3f5275）+ 新增 task；Standards/Spec 双轴并行审核，各复审一轮。
+  - 问题与修复: Standards 一轮 1 hard + 3 项——撤除残留的死注释引用已不存在的 syncHostCovered（hard，整条删除并改写为真实语义注释）、兜底几何双处承载缺互指（两处注释互指同值）、特异度保险注释滞后（补 max-width 入清单）、left 短路删除后每轮重写（接受并记录）；Spec 一轮 5 项——同死引用（同修复）、内联钉位无机械证据（补三条 check 断言 + 验证矩阵空指引改指 placeToggle）、SOLUTION 措辞张力（补 44px 回退语义）、task「内容被裁」实为溢出绘制（改措辞）、tmp-rc-diff/ 卫生提示（保持未跟踪）。全部闭合。
+  - 复审结论: Standards 轴闭合（hard 1 项修复，judgement call 全部处置）；Spec 轴闭合（高 1 中 1 低 2 提示 1 全部核销，净效果与 spec 一致，无 scope creep）；双轴确认修复无新问题。

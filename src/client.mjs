@@ -1472,9 +1472,10 @@ function apply(ctx) {
 	// 幂等：已是行首元素时不动 DOM；宿主重渲染丢弃嵌入节点后由下一轮渲染守卫重插
 	// （头部在 seat 子树内，conversationObserver 的 subtree 监听会经 queueSync
 	// 唤醒本守卫）。标题行不可得（欢迎页/会话视图未挂载窗口期）时回退 fixed 兜底
-	// 形态：挂回 body、摘掉嵌入标记；兜底 left 随 sidebar 槽位首个按钮（当前宿主
-	// 即侧栏切换钮）实测右缘写入——右缘为 0（隐藏/未渲染）视同测不到，清回 CSS
-	// 缺省 44px，不再硬编码追赶宿主几何。
+	// 形态：挂回 body、摘掉嵌入标记；兜底几何按两级锚点实测贴靠（见分支内注释，
+	// C-091），不再硬编码追赶宿主几何。
+	// 在屏判据阈值：元素 x 超过 -10px 视为在屏内（移动壳层屏外收起抽屉 x 约 -300）
+	const ON_SCREEN_X = -10;
 	function placeToggle() {
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
 		const row = seat !== null ? (seat.querySelector("header")?.firstElementChild ?? null) : null;
@@ -1503,13 +1504,40 @@ function apply(ctx) {
 		if (toggle.parentElement !== document.body) document.body.append(toggle);
 		toggle.removeAttribute("data-embedded");
 		toggle.style.marginLeft = "";
+		// 兜底贴靠宿主侧栏切换按钮成组（C-091）。锚点次序：sidebar 槽位内按钮
+		// （桌面壳层收起栏钮）→ 槽位祖先链逐级首个直系 BUTTON（移动壳层英雄页
+		// 侧栏钮，匿名无 class，中间隔 0 宽壳故须沿链上溯）。两锚点同一判据
+		// ON_SCREEN_X：移动壳层抽屉列收起时整体在屏外（x<0），在屏内且非零宽
+		// 才可作锚；均不可测时回退左上角缺省。
+		let anchorRect = null;
+		const sidebarSlot = document.querySelector("[data-slot=sidebar]");
+		const sidebarRect = sidebarSlot?.querySelector("button")?.getBoundingClientRect();
+		if (sidebarRect && sidebarRect.width > 0 && sidebarRect.x > ON_SCREEN_X) anchorRect = sidebarRect;
+		if (anchorRect === null) {
+			let node = sidebarSlot?.parentElement ?? null;
+			while (node !== null && node !== document.body && anchorRect === null) {
+				for (const child of node.children) {
+					if (child.tagName !== "BUTTON") continue;
+					const rect = child.getBoundingClientRect();
+					if (rect.width > 0 && rect.x > ON_SCREEN_X) {
+						anchorRect = rect;
+						break;
+					}
+				}
+				node = node.parentElement;
+			}
+		}
 		// top 与样式表缺省 12px 同值承载（调整兜底几何两处同步），left 缺省同理
 		toggle.style.position = "fixed";
-		toggle.style.top = "12px";
-		const sidebarToggle = document.querySelector("[data-slot=sidebar] button");
-		const right = sidebarToggle?.getBoundingClientRect().right ?? NaN;
-		const left = Number.isFinite(right) && right > 0 ? `${Math.round(right + 8)}px` : "";
-		toggle.style.left = left;
+		if (anchorRect !== null) {
+			// 30 为样式表 min-height 缺省，量测失败时保底
+			const pillHeight = toggle.offsetHeight || 30;
+			toggle.style.top = `${Math.round(anchorRect.top + (anchorRect.height - pillHeight) / 2)}px`;
+			toggle.style.left = `${Math.round(anchorRect.right + 8)}px`;
+		} else {
+			toggle.style.top = "12px";
+			toggle.style.left = "";
+		}
 	}
 
 	// 桌面判定与"真实参与布局"：中间列切为行方向，窗格固定宽、会话根弹性填充

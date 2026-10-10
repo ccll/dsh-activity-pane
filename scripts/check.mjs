@@ -4462,7 +4462,8 @@ assert.ok(bundle.includes("toggle.nextSibling === cluster"), "幂等判定：开
 assert.ok(bundle.includes("row.firstElementChild === toggle"), "幂等判定：无簇分支开关已是标题行首元素");
 assert.ok(!bundle.includes(".dap-toggle {\n  position: fixed; top: 12px; right: 12px;"), "浮动开关不再位于右上角");
 assert.ok(bundle.includes('toggle.setAttribute("data-embedded", "")'), "嵌入落位写入 data-embedded 标记");
-assert.ok(bundle.includes('"[data-slot=sidebar] button"'), "兜底 left 锚定侧栏切换按钮实测右缘");
+assert.ok(bundle.includes('sidebarSlot?.querySelector("button")'), "兜底锚点 1 为 sidebar 槽位内按钮（实测矩形）");
+assert.ok(bundle.includes("const ON_SCREEN_X = -10;"), "在屏判据阈值具名常量（锚点与抽屉判定共用）");
 assert.ok(bundle.includes('"<span class=\\"dap-toggle-count\\"></span>"'), "开关为徽标单挂骨架：仅计数徽标，无图标与文字标签");
 assert.ok(!bundle.includes("dap-toggle-icon"), "面板图标已撤销（东家反馈被误读为边栏按钮）");
 assert.ok(bundle.includes("appearance: none; white-space: nowrap; width: max-content; max-width: 64px;"), "开关显式钉宽并以 max-width:64px 钳制硬上限（真机 fixed 态恒定膨胀兜底）");
@@ -4477,6 +4478,9 @@ assert.ok(bundle.includes('toggle.toggleAttribute("data-drawer-open", open)'), "
 assert.ok(bundle.includes("toggle.toggleAttribute(\"data-host-drawer-open\""), "宿主侧栏抽屉打开时开关隐藏（槽位宽度实测判定）");
 assert.ok(bundle.includes('.dap-toggle[data-host-drawer-open] { visibility: hidden; pointer-events: none; }'), "抽屉打开期间以 visibility 隐藏开关（盒子保留可自行恢复）");
 assert.ok(bundle.includes("width > 100"), "抽屉判定用槽位列实测宽度阈值 100px");
+assert.ok(bundle.includes("for (const child of node.children)"), "兜底锚点沿祖先链找框架直系可见按钮（移动壳层英雄页侧栏钮）");
+assert.ok(bundle.includes("anchorRect.right + 8"), "兜底贴靠锚点右侧 8px（C-091）");
+assert.ok(bundle.includes("anchorRect.height - pillHeight"), "兜底贴靠与锚点垂直居中");
 assert.ok(bundle.includes('document.querySelector("[data-slot=sidebar]")'), "抽屉判定锚定 sidebar 槽位语义属性（裸查询，非 button 后缀）");
 assert.ok(bundle.includes('document.removeEventListener("pointerdown", scheduleHostDrawerCheck, true)'), "抽屉判定监听随 cleanup 对称摘除");
 

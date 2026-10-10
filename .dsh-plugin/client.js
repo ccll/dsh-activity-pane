@@ -3735,16 +3735,18 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
    无图标与文字标签，T-162）——面板图标与宿主侧栏切换按钮同形，被东家误读为
    边栏按钮（T-161 引入后撤销）。常态嵌入宿主头部的标题行行首作为布局子项参
    与排布（R-01-008/AC-04，T-163；视觉上位于左边栏切换按钮右侧，其余头部控件
-   被真实后挤）；标题行不可得时由 placeToggle 回退为本条 fixed 兜底形态（left
-   经侧栏切换按钮实测右缘动态覆写，缺省 44px）。width:max-content +
-   appearance:none 显式钉宽：真机（iOS WebKit）曾把 fixed 态 auto 宽按钮拉伸
-   到内容两倍，不依赖引擎的按钮内在尺寸。 */
+   被真实后挤）；标题行不可得时由 placeToggle 回退为本条 fixed 兜底形态（top
+   与 left 缺省值与 placeToggle 内联钉位同值承载，调整兜底几何两处同步；left
+   经侧栏切换按钮实测右缘动态覆写）。width:max-content + appearance:none +
+   max-width:64px 显式钉宽并钳硬上限：真机诊断实测自然排版宽 46px 与桌面
+   一致（拉伸不存在，此前「长胶囊」观感系与相邻宿主芯片融合），钳制防观感
+   融合与潜在引擎差异；徽标单挂内容宽 ≤ 60px（两位计数），钳值不裁内容。 */
 .dap-toggle {
   position: fixed; top: 12px; left: 44px; z-index: 2147482991;
   display: none;
   align-items: center; gap: 5px;
   min-height: 30px; padding: 0 9px;
-  appearance: none; white-space: nowrap; width: max-content;
+  appearance: none; white-space: nowrap; width: max-content; max-width: 64px;
   border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
   border-radius: 999px;
   background: rgba(24, 28, 38, 0.94);
@@ -3753,15 +3755,15 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   cursor: pointer;
   box-shadow: 0 6px 16px rgba(0,0,0,.34);
 }
-/* 嵌入态：回归文档流参与标题行排布；flex:none + width:max-content 在此重复
-   声明是特异度保险——宿主样式表的 (0,1,1) 级后代规则可压过 0-1-0 的基规则，
-   嵌入态处于宿主子树内必须自带 (0,2,0) 钉宽；min-height 收为 26px 与标题行
-   控件高度协调；右缘 8px 与标题簇分隔。 */
+/* 嵌入态：回归文档流参与标题行排布；flex:none + width:max-content +
+   max-width:64px 在此重复声明是特异度保险——宿主样式表的 (0,1,1) 级后代规则
+   可压过 0-1-0 的基规则，嵌入态处于宿主子树内必须自带 (0,2,0) 钉宽；min-height
+   收为 26px 与标题行控件高度协调；右缘 8px 与标题簇分隔。 */
 .dap-toggle[data-embedded] {
   position: static;
   margin-right: 8px;
   flex: none;
-  width: max-content;
+  width: max-content; max-width: 64px;
   min-height: 26px;
 }
 .dap-toggle .dap-toggle-count {
@@ -3769,6 +3771,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   background: color-mix(in srgb, currentColor 16%, transparent);
   padding: 0 5px; font-size: 10px; font-weight: 700;
 }
+/* 徽标等待态：执行色底 + 呼吸动画（有待执行行动时点亮）。 */
 .dap-toggle[data-awaiting] .dap-toggle-count {
   background: rgba(46, 42, 26, 0.97);
   animation: dap-await-pulse 1.2s ease-in-out infinite;
@@ -4234,17 +4237,24 @@ function apply(ctx) {
 			if (cluster !== null) row.insertBefore(toggle, cluster);
 			else row.prepend(toggle);
 			toggle.setAttribute("data-embedded", "");
-			if (toggle.style.left !== "") toggle.style.left = "";
+			// 定位关键量内联钉死：嵌入态回归文档流不依赖样式表状态（东家真机
+			// 疑似样式与脚本状态失配，T-164）；样式表只承担外观。
+			toggle.style.position = "static";
+			toggle.style.top = "";
+			toggle.style.left = "";
 			return;
 		}
 		// 兜底形态：挂回 body、摘掉嵌入标记。
 		if (toggle.parentElement !== document.body) document.body.append(toggle);
 		toggle.removeAttribute("data-embedded");
 		toggle.style.marginLeft = "";
+		// top 与样式表缺省 12px 同值承载（调整兜底几何两处同步），left 缺省同理
+		toggle.style.position = "fixed";
+		toggle.style.top = "12px";
 		const sidebarToggle = document.querySelector("[data-slot=sidebar] button");
 		const right = sidebarToggle?.getBoundingClientRect().right ?? NaN;
 		const left = Number.isFinite(right) && right > 0 ? `${Math.round(right + 8)}px` : "";
-		if (toggle.style.left !== left) toggle.style.left = left;
+		toggle.style.left = left;
 	}
 
 	// 桌面判定与"真实参与布局"：中间列切为行方向，窗格固定宽、会话根弹性填充

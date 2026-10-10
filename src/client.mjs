@@ -983,12 +983,12 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 /* 移动端「活动」开关按钮：仅在窄屏显示（桌面隐藏）。呈紧凑形态（仅计数徽标，
    无图标与文字标签，T-162）——面板图标与宿主侧栏切换按钮同形，被东家误读为
-   边栏按钮（T-161 引入后撤销）。常态嵌入宿主头部的视图导航行（对话/轨迹/
-   上下文）行尾作为布局子项参与排布（R-01-008/AC-04，T-162）；导航行不可得或
-   容纳不下时由 placeToggle 回退为本条 fixed 兜底形态（left 经侧栏切换按钮实测
-   右缘动态覆写，缺省 44px）。width:max-content + appearance:none 显式钉宽：
-   真机（iOS WebKit）曾把 fixed 态 auto 宽按钮拉伸到内容两倍，不依赖引擎的
-   按钮内在尺寸。 */
+   边栏按钮（T-161 引入后撤销）。常态嵌入宿主头部的标题行行首作为布局子项参
+   与排布（R-01-008/AC-04，T-163；视觉上位于左边栏切换按钮右侧，其余头部控件
+   被真实后挤）；标题行不可得时由 placeToggle 回退为本条 fixed 兜底形态（left
+   经侧栏切换按钮实测右缘动态覆写，缺省 44px）。width:max-content +
+   appearance:none 显式钉宽：真机（iOS WebKit）曾把 fixed 态 auto 宽按钮拉伸
+   到内容两倍，不依赖引擎的按钮内在尺寸。 */
 .dap-toggle {
   position: fixed; top: 12px; left: 44px; z-index: 2147482991;
   display: none;
@@ -1003,13 +1003,13 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   cursor: pointer;
   box-shadow: 0 6px 16px rgba(0,0,0,.34);
 }
-/* 嵌入态：回归文档流参与视图导航行排布；flex:none + width:max-content 在此重复
+/* 嵌入态：回归文档流参与标题行排布；flex:none + width:max-content 在此重复
    声明是特异度保险——宿主样式表的 (0,1,1) 级后代规则可压过 0-1-0 的基规则，
-   嵌入态处于宿主子树内必须自带 (0,2,0) 钉宽；min-height 收为 26px 与宿主导航
-   行行高（~25px）协调，避免胶囊悬挂出行；与行尾的间距由 placeToggle 量测宿主
-   行距后经行内 margin-left 承担。 */
+   嵌入态处于宿主子树内必须自带 (0,2,0) 钉宽；min-height 收为 26px 与标题行
+   控件高度协调；右缘 8px 与标题簇分隔。 */
 .dap-toggle[data-embedded] {
   position: static;
+  margin-right: 8px;
   flex: none;
   width: max-content;
   min-height: 26px;
@@ -1458,47 +1458,36 @@ function apply(ctx) {
 	backdrop.className = "dap-backdrop";
 	document.body.appendChild(backdrop);
 
-	// 移动端「活动」开关落位守卫（T-162，R-01-008/AC-04）：常态嵌入宿主头部的
-	// 视图导航行（对话/轨迹/上下文）行尾参与布局——东家指示（胶囊正下方的导航栏）；
-	// 行距按宿主 columnGap 量测后以负外边距抵消（自留 12px），不硬编码宿主几何；
-	// 插入前预检投影宽度，放不下不插入、直接回退；插入后实测仍溢出则记下该视口
-	// 宽度、同宽度内不再重试，堵住预检低估导致的插入-回退抖动。导航行不可得
-	// （欢迎页/会话视图未挂载窗口期）时回退 fixed 兜底形态。幂等：已在行尾且行
-	// 未溢出时不动 DOM；宿主重渲染丢弃嵌入节点后由下一轮渲染守卫重插（头部在
-	// seat 子树内，conversationObserver 的 subtree 监听会经 queueSync 唤醒本守卫）。
-	let tabsRowRefusedWidth = 0;
+	// 移动端「活动」开关落位守卫（T-163，R-01-008/AC-04）：常态嵌入宿主头部的
+	// 标题行行首参与布局——东家指示（左边栏弹出按钮的右侧，其余控件被真实后挤）。
+	// 插入点取行内首个内容簇（标题 crumb 导航所在顶层簇）之前，无簇时行首 prepend；
+	// 幂等：已是行首元素时不动 DOM；宿主重渲染丢弃嵌入节点后由下一轮渲染守卫重插
+	// （头部在 seat 子树内，conversationObserver 的 subtree 监听会经 queueSync
+	// 唤醒本守卫）。标题行不可得（欢迎页/会话视图未挂载窗口期）时回退 fixed 兜底
+	// 形态：挂回 body、摘掉嵌入标记；兜底 left 随 sidebar 槽位首个按钮（当前宿主
+	// 即侧栏切换钮）实测右缘写入——右缘为 0（隐藏/未渲染）视同测不到，清回 CSS
+	// 缺省 44px，不再硬编码追赶宿主几何。
 	function placeToggle() {
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
-		const header = seat !== null ? (seat.querySelector("header") ?? null) : null;
-		const navRow = header !== null ? header.lastElementChild : null;
-		const rowDisplay = navRow !== null ? getComputedStyle(navRow).display : "";
-		const navUsable = navRow !== null && navRow !== header.firstElementChild &&
-			rowDisplay.includes("flex");
-		// 1px 容差吸收子项宽取整误差，不把舍入当作溢出
-		const rowOverflow = navUsable && navRow.scrollWidth > navRow.clientWidth + 1;
-		if (navUsable && !rowOverflow && toggle.parentElement === navRow &&
-			navRow.lastElementChild === toggle)
-			return; // 已在导航行行尾且行未溢出：不动 DOM
-		if (navUsable && !rowOverflow && window.innerWidth !== tabsRowRefusedWidth) {
-			// 预检投影宽度：行内既有子项宽 + 子项间行距(n-1) + 行尾有效间距
-			// (gap + 负外边距 = 12px) + 开关宽 ≤ 行宽才插入
-			const gap = Number.parseFloat(getComputedStyle(navRow).columnGap) || 0;
-			const children = [...navRow.children].filter((node) => node !== toggle);
-			const widths = children.reduce((sum, node) => sum + node.getBoundingClientRect().width, 0);
-			const projected = widths + Math.max(0, children.length - 1) * gap +
-				toggle.getBoundingClientRect().width + 12;
-			if (projected <= navRow.clientWidth + 1) {
-				navRow.appendChild(toggle);
-				toggle.style.marginLeft = `${Math.round(12 - gap)}px`;
-				toggle.setAttribute("data-embedded", "");
-				if (toggle.style.left !== "") toggle.style.left = "";
-				if (navRow.scrollWidth <= navRow.clientWidth + 1) return;
-				tabsRowRefusedWidth = window.innerWidth; // 预检低估：本宽度内不再重试
-			}
+		const row = seat !== null ? (seat.querySelector("header")?.firstElementChild ?? null) : null;
+		if (row !== null) {
+			// 插入点取行内首个内容簇（标题簇）之前：行首即视觉上位于左侧边栏切换按钮
+			// 的右侧，其余头部控件被真实后挤（相对顺序契约，不断言行首）。簇内含 crumb
+			// 导航即认定标题簇（nav 必在 head 子树内，顶层簇即 head 本身）。
+			const head = row.firstElementChild;
+			const cluster = head !== null && (head.tagName === "NAV" || head.querySelector("nav") !== null)
+				? head
+				: null;
+			const settled = toggle.parentElement === row && toggle.hasAttribute("data-embedded") &&
+				(cluster !== null ? toggle.nextSibling === cluster : row.firstElementChild === toggle);
+			if (settled) return;
+			if (cluster !== null) row.insertBefore(toggle, cluster);
+			else row.prepend(toggle);
+			toggle.setAttribute("data-embedded", "");
+			if (toggle.style.left !== "") toggle.style.left = "";
+			return;
 		}
-		// 兜底形态：挂回 body、摘掉嵌入标记；兜底 left 随 sidebar 槽位首个按钮（当前宿主
-		// 即侧栏切换钮）实测右缘写入——右缘为 0（隐藏/未渲染）视同测不到，清回 CSS 缺省
-		// 44px，不再硬编码追赶宿主几何。
+		// 兜底形态：挂回 body、摘掉嵌入标记。
 		if (toggle.parentElement !== document.body) document.body.append(toggle);
 		toggle.removeAttribute("data-embedded");
 		toggle.style.marginLeft = "";

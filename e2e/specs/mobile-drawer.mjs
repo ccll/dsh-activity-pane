@@ -1,6 +1,6 @@
-// R-01-008/AC-01、AC-02（点击/键盘）、AC-03（鼠标）、AC-04（徽标单挂/嵌入视图导航行/不遮挡几何/兜底落位）、AC-05（显隐/嵌入态留位）、AC-06（点击/键盘）；R-01-015/AC-03
+// R-01-008/AC-01、AC-02（点击/键盘）、AC-03（鼠标）、AC-04（徽标单挂/嵌入标题行行首/不遮挡几何/兜底落位）、AC-05（显隐/嵌入态留位）、AC-06（点击/键盘）；R-01-015/AC-03
 // 移动端抽屉：默认隐藏、开关展开、标题/外部点击收起、开关随状态显隐，
-// 键盘激活当前卡只收起抽屉、激活其它卡仍切换会话；真触摸、导航行观感与真机残留保留人工。
+// 键盘激活当前卡只收起抽屉、激活其它卡仍切换会话；真触摸、行首观感与真机残留保留人工。
 
 import {activateCard, ensureFullDensity, mainAreaHas, newSessionWithMessage, openApp, paneBox, sendHeroMessage, until} from "../helpers.mjs";
 
@@ -44,8 +44,8 @@ export default async function mobileDrawer({ page, url, assert }) {
 	assert.ok(hiddenBox.x + hiddenBox.width <= 1, `窗格默认隐藏在屏外（右缘 ${Math.round(hiddenBox.x + hiddenBox.width)} ≤ 1）`);
 	assert.equal(await page.locator("[data-dsh-activity-pane] .dap-resize").isVisible(), false, "移动端抽屉不提供拖拽调宽手柄（R-01-015/AC-03）");
 
-	// R-01-008/AC-04：浮动开关徽标单挂（无图标与文字标签）、嵌入头部视图导航行
-	// 行尾参与布局、不遮挡宿主控件（T-162）。
+	// R-01-008/AC-04：浮动开关徽标单挂（无图标与文字标签）、嵌入头部标题行行首
+	// 参与布局（视觉上位于左边栏切换按钮右侧）、不遮挡宿主控件（T-163）。
 	const toggle = await toggleButton(page);
 	const toggleBox = await until("浮动开关可见", () => toggle.boundingBox());
 	const text = (await toggle.innerText()).trim();
@@ -55,14 +55,17 @@ export default async function mobileDrawer({ page, url, assert }) {
 		const toggle = document.querySelector(".dap-toggle");
 		const seat = document.querySelector('#root [data-slot="main"]');
 		const header = seat?.querySelector("header") ?? null;
-		const navRow = header?.lastElementChild ?? null;
 		const titleRow = header?.firstElementChild ?? null;
-		if (!toggle || navRow === null) return null;
+		if (!toggle || titleRow === null) return null;
 		const box = toggle.getBoundingClientRect();
-		// 嵌入守卫：开关为视图导航行布局子项且位于行末端，标题行不再含开关。
-		const inRow = toggle.parentElement === navRow && toggle.hasAttribute("data-embedded") &&
-			toggle === navRow.lastElementChild &&
-			(titleRow === null || !titleRow.contains(toggle));
+		// 嵌入守卫：开关为标题行布局子项且位于行首（位于标题簇 nav 之前）。
+		const nav = titleRow.querySelector("nav") ?? null;
+		const inRow = toggle.parentElement === titleRow && toggle.hasAttribute("data-embedded") &&
+			toggle === titleRow.firstElementChild &&
+			(nav === null || (toggle.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
+		// 其余头部控件仍在行内：宿主不得以删控件方式为开关腾位。
+		const others = [...titleRow.querySelectorAll("button, [role='button']")]
+			.filter((el) => el !== toggle && !toggle.contains(el)).length;
 		// 不遮挡回归：视口内任何其它可交互元素的矩形不得与开关相交。
 		const overlapped = [...document.querySelectorAll("button, [role='button'], a, input, textarea, select")]
 			.filter((el) => el !== toggle && !toggle.contains(el) && !el.contains(toggle))
@@ -71,42 +74,14 @@ export default async function mobileDrawer({ page, url, assert }) {
 				return r.width > 0 && r.height > 0 &&
 					r.left < box.right && r.right > box.left && r.top < box.bottom && r.bottom > box.top;
 			});
-		return { inRow, overlapped };
+		return { inRow, others, overlapped };
 	});
-	assert.notEqual(embedded, null, "宿主头部视图导航行可寻址（嵌入锚点存在）");
-	assert.equal(embedded.inRow, true, "浮动开关嵌入头部视图导航行行尾、标题行无开关（R-01-008/AC-04）");
+	assert.notEqual(embedded, null, "宿主头部标题行可寻址（嵌入锚点存在）");
+	assert.equal(embedded.inRow, true, "浮动开关嵌入头部标题行行首且位于 crumb 之前（R-01-008/AC-04）");
 	assert.equal(embedded.overlapped, false, "浮动开关不与视口内其它可交互元素相交（R-01-008/AC-04 不遮挡）");
+	assert.ok(embedded.others > 0, "标题行内其余头部控件仍在行内（R-01-008/AC-04 后挤不删减）");
 
-	// R-01-008/AC-04 容纳不下回退：向导航行注入超宽子项令行放不下（窄视口下宿主
-	// 可能直接隐藏头部，故用确定性注入而非仅缩视口），开关应回退兜底浮层；移除
-	// 超宽子项后重新嵌入行尾。
-	await page.evaluate(() => {
-		const seat = document.querySelector('#root [data-slot="main"]');
-		const navRow = seat?.querySelector("header")?.lastElementChild;
-		if (navRow) {
-			const wide = document.createElement("div");
-			wide.className = "dap-test-wide";
-			wide.style.cssText = "width: 400px; height: 10px; flex: none;";
-			navRow.prepend(wide);
-		}
-	});
-	const narrow = await until("导航行容纳不下回退兜底", () => page.evaluate(() => {
-		const toggle = document.querySelector(".dap-toggle");
-		return toggle !== null && toggle.parentElement === document.body &&
-			!toggle.hasAttribute("data-embedded") && getComputedStyle(toggle).position === "fixed";
-	}));
-	assert.equal(narrow, true, "导航行容纳不下时浮动开关回退兜底浮层（R-01-008/AC-04）");
-	const rebound = await until("行宽恢复重新嵌入", () => page.evaluate(() => {
-		document.querySelector(".dap-test-wide")?.remove();
-		const toggle = document.querySelector(".dap-toggle");
-		const seat = document.querySelector('#root [data-slot="main"]');
-		const navRow = seat?.querySelector("header")?.lastElementChild ?? null;
-		return toggle !== null && navRow !== null && toggle.parentElement === navRow &&
-			toggle.hasAttribute("data-embedded") && navRow.lastElementChild === toggle;
-	}));
-	assert.equal(rebound, true, "行宽恢复后浮动开关重新嵌入视图导航行行尾（R-01-008/AC-04）");
-
-	// R-01-008/AC-02、AC-05：开关展开，打开期间开关隐藏（嵌入态留位、视图导航行不重排）；
+	// R-01-008/AC-02、AC-05：开关展开，打开期间开关隐藏（嵌入态留位、标题行不重排）；
 	// Space 激活标题行收起后恢复。
 	await openDrawer(page);
 	assert.equal(await toggle.isVisible().catch(() => false), false, "抽屉打开时浮动开关隐藏");
@@ -183,7 +158,7 @@ export default async function mobileDrawer({ page, url, assert }) {
 		return box && box.x >= -1 ? box : null;
 	});
 
-	// R-01-008/AC-04 兜底分支（T-162）：宿主导航行不可得时开关回退 body fixed 兜底形态，
+	// R-01-008/AC-04 兜底分支（T-163）：宿主标题行不可得时开关回退 body fixed 兜底形态，
 	// left 随侧栏切换按钮实测右缘 + 8px 写入（无侧栏按钮时清回 CSS 默认 44px）。
 	// 宿主可能自发重建头部令兜底态回嵌：每轮先重摘 header（不派发 resize，避免宿主
 	// 重渲染抢先回嵌），守卫经 conversationObserver 唤醒后回退，轮询捕获兜底态。

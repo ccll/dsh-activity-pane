@@ -6,7 +6,7 @@ id: T-169
 
 # T-169 移动端活动开关尺度对齐
 
-状态: active
+状态: completed
 关联: R-01-008/AC-07 / 窗格渲染器
 风险等级: standard
 出处: C-095
@@ -94,7 +94,7 @@ id: T-169
   - 点击后为 hidden，收起后为 visible。
 - SOLUTION 对照: 已同步 R-01-008/AC-07、C-095 与当前 CSS 契约。
   - 嵌入态和 hero 态共用 38px 高度。
-- commit: 未创建；当前请求保留工作树改动。
+- commit: 503a9ea2c6978d4a08ca2478a7c7d977c19e1891
 - review:
   - 审核方: daf7b0c7-00c4-4899-9d60-6441f75c65f9（Standards）；2424c775-c11e-408d-9f39-bf48fccabe11（Spec）。
   - 目的理解: 放大移动活动入口的可见尺度，保持嵌入/hero 落位、抽屉显隐、层级与 64px 上限不变。

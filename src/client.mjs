@@ -993,24 +993,24 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
    描边与投影（T-168，东家指示只留内部涂色的计数胶囊），可见形态即
    .dap-toggle-count 徽标本体；border:none 与 background:none 显式压掉 UA
    默认按钮壳——appearance:none 不摘除 UA 声明的边框与底色，WebKit 探针实测
-   漏出 2px 灰壳；padding 与 min-height 保留为触达面积，不改变盒几何。
-   width:max-content + appearance:none + max-width:64px 显式钉宽并钳
-   硬上限：真机诊断实测自然排版宽 46px 与桌面一致（拉伸不存在，此前「长胶囊」
-   观感系与相邻宿主芯片融合），钳制防观感融合与潜在引擎差异；徽标单挂内容宽
-   ≤ 60px（两位计数），钳值不裁内容。 */
+   漏出 2px 灰壳；外层命中盒最小 44×38px，内层计数徽标最小 36×24px，
+    计数文字 12px、水平 padding 8px（R-01-008/AC-07、C-095）。
+   width:max-content + appearance:none + max-width:64px 显式钉宽并钳硬上限；
+   两位计数时外层命中盒保持至少 44px 宽，较长计数沿既有上限处理。 */
 .dap-toggle {
   display: none;
   align-items: center; gap: 5px;
-  min-height: 30px; padding: 0 9px;
+  min-width: 44px; height: 38px; min-height: 38px; padding: 0;
   appearance: none; white-space: nowrap; width: max-content; max-width: 64px;
+  box-sizing: border-box;
   border: none; background: none;
   font-size: 12px; font-weight: 600;
   cursor: pointer;
 }
 /* 嵌入态：回归文档流参与标题行排布；flex:none + width:max-content +
    max-width:64px 在此重复声明是特异度保险——宿主样式表的 (0,1,1) 级后代规则
-   可压过 0-1-0 的基规则，嵌入态处于宿主子树内必须自带 (0,2,0) 钉宽；min-height
-   收为 26px 与标题行控件高度协调；右缘 8px 与标题簇分隔。z-index:1 为层级归位
+   可压过 0-1-0 的基规则，嵌入态处于宿主子树内必须自带 (0,2,0) 钉宽；min-width
+   44px、height 38px 与宿主移动控件对齐；右缘 8px 与标题簇分隔。z-index:1 为层级归位
    （T-167）：flex 子项的 z-index 即使 static 也生效，置 1 使按钮略高于行内
    兄弟、仍远低于宿主任何覆盖层（移动壳层抽屉 1300 / 遮罩 1250 / 菜单 1100），
    抽屉滑入即被正常遮挡；同时免疫宿主 header 内 absolute 装饰的意外覆盖。 */
@@ -1018,8 +1018,8 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   position: static;
   margin-right: 8px;
   flex: none;
-  width: max-content; max-width: 64px;
-  min-height: 26px;
+  width: max-content; max-width: 64px; min-width: 44px;
+  height: 38px; min-height: 38px;
   z-index: 1;
 }
 /* hero 形态（T-167）：标题行不可得（宿主 data-phase="hero"，英雄页/空白会话）
@@ -1034,9 +1034,12 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   z-index: 1060;
 }
 .dap-toggle .dap-toggle-count {
-  min-width: 16px; text-align: center; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  box-sizing: border-box; min-width: 36px; max-width: 64px; height: 24px;
+  line-height: 24px; text-align: center; border-radius: 999px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   background: color-mix(in srgb, currentColor 16%, transparent);
-  padding: 0 5px; font-size: 10px; font-weight: 700;
+  padding: 0 8px; font-size: 12px; font-weight: 700;
 }
 /* 徽标等待态：执行色底 + 呼吸动画（有待执行行动时点亮）。 */
 .dap-toggle[data-awaiting] .dap-toggle-count {
@@ -1545,10 +1548,10 @@ function apply(ctx) {
 		toggle.removeAttribute("data-embedded");
 		toggle.setAttribute("data-hero", "");
 		// 定位关键量内联钉死（T-164 策略）：absolute 几何不依赖样式表状态；
-		// 30 为样式表 min-height 缺省，量测失败时保底。
-		const pillHeight = toggle.offsetHeight || 30;
+		// 38 为样式表 height 缺省，量测失败时保底。
+		const toggleHeight = toggle.offsetHeight || 38;
 		toggle.style.position = "absolute";
-		toggle.style.top = `${Math.round(fabRect.top + (fabRect.height - pillHeight) / 2)}px`;
+		toggle.style.top = `${Math.round(fabRect.top + (fabRect.height - toggleHeight) / 2)}px`;
 		toggle.style.left = `${Math.round(fabRect.right + 8)}px`;
 	}
 

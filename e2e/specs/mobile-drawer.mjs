@@ -1,4 +1,4 @@
-// R-01-008/AC-01、AC-02（点击/键盘）、AC-03（鼠标）、AC-04（徽标单挂/嵌入标题行行首/不遮挡几何/层级归位/hero 贴靠与不渲染/锚缺失保留原位）、AC-05（显隐/统一留位隐藏）、AC-06（点击/键盘）；R-01-015/AC-03
+// R-01-008/AC-01、AC-02（点击/键盘）、AC-03（鼠标）、AC-04（徽标单挂/嵌入标题行行首/不遮挡几何/层级归位/hero 贴靠与不渲染/锚缺失保留原位）、AC-05（显隐/统一留位隐藏）、AC-06（点击/键盘）、AC-07（入口尺寸）；R-01-015/AC-03
 // 移动端抽屉：默认隐藏、开关展开、标题/外部点击收起、开关随状态显隐，
 // 键盘激活当前卡只收起抽屉、激活其它卡仍切换会话；真触摸、行首观感与真机残留保留人工。
 
@@ -58,6 +58,10 @@ export default async function mobileDrawer({ page, url, assert }) {
 		const titleRow = header?.firstElementChild ?? null;
 		if (!toggle || titleRow === null) return null;
 		const box = toggle.getBoundingClientRect();
+		const count = toggle.querySelector(".dap-toggle-count");
+		const countBox = count?.getBoundingClientRect() ?? null;
+		const toggleStyle = getComputedStyle(toggle);
+		const countStyle = count ? getComputedStyle(count) : null;
 		// 嵌入守卫：开关为标题行布局子项且位于行首（位于标题簇 nav 之前）。
 		const nav = titleRow.querySelector("nav") ?? null;
 		const inRow = toggle.parentElement === titleRow && toggle.hasAttribute("data-embedded") &&
@@ -74,12 +78,50 @@ export default async function mobileDrawer({ page, url, assert }) {
 				return r.width > 0 && r.height > 0 &&
 					r.left < box.right && r.right > box.left && r.top < box.bottom && r.bottom > box.top;
 			});
-		return { inRow, others, overlapped };
+		return {
+			inRow,
+			others,
+			overlapped,
+			toggleWidth: box.width,
+			toggleHeight: box.height,
+			countWidth: countBox?.width ?? 0,
+			countHeight: countBox?.height ?? 0,
+			countFontSize: countStyle?.fontSize ?? null,
+		};
 	});
 	assert.notEqual(embedded, null, "宿主头部标题行可寻址（嵌入锚点存在）");
 	assert.equal(embedded.inRow, true, "浮动开关嵌入头部标题行行首且位于 crumb 之前（R-01-008/AC-04）");
 	assert.equal(embedded.overlapped, false, "浮动开关不与视口内其它可交互元素相交（R-01-008/AC-04 不遮挡）");
 	assert.ok(embedded.others > 0, "标题行内其余头部控件仍在行内（R-01-008/AC-04 后挤不删减）");
+	assert.ok(
+		Math.abs(embedded.toggleHeight - 38) <= 1 && embedded.toggleWidth >= 44,
+		`嵌入态入口命中盒为至少 44×38px（实测 ${embedded.toggleWidth}×${embedded.toggleHeight}，R-01-008/AC-07）`,
+	);
+	assert.ok(
+		Math.abs(embedded.countHeight - 24) <= 1 && embedded.countWidth >= 36 && embedded.countFontSize === "12px",
+		`嵌入态计数徽标为至少 36×24px 且文字 12px（实测 ${embedded.countWidth}×${embedded.countHeight}、${embedded.countFontSize}，R-01-008/AC-07）`,
+	);
+	const countClamp = await page.evaluate(() => {
+		const count = document.querySelector(".dap-toggle-count");
+		if (!count) return null;
+		const previous = count.textContent;
+		count.textContent = "12345678901234567890/12345678901234567890";
+		const rect = count.getBoundingClientRect();
+		const style = getComputedStyle(count);
+		const result = {
+			width: rect.width,
+			maxWidth: style.maxWidth,
+			overflow: style.overflow,
+			textOverflow: style.textOverflow,
+		};
+		count.textContent = previous;
+		return result;
+	});
+	assert.ok(
+		countClamp && countClamp.width <= 64 + 1 && countClamp.maxWidth === "64px" &&
+		countClamp.overflow === "hidden" && countClamp.textOverflow === "ellipsis",
+		`长计数徽标不突破 64px 上限（实测 ${JSON.stringify(countClamp)}，R-01-008/AC-07）`,
+	);
 	const embeddedZ = await page.evaluate(() => {
 		const el = document.querySelector(".dap-toggle");
 		return el ? Number(getComputedStyle(el).zIndex) : null;
@@ -216,10 +258,11 @@ export default async function mobileDrawer({ page, url, assert }) {
 			// 镜像实现算式：left = fab.right + 8、top 垂直居中（T-167）。
 			const left = Math.round(fr.right + 8);
 			const top = Math.round(fr.top + (fr.height - tr.height) / 2);
-			return Math.abs(tr.x - left) <= 1 && Math.abs(tr.y - top) <= 1 ? { left, top } : null;
+			return Math.abs(tr.x - left) <= 1 && Math.abs(tr.y - top) <= 1 ? { left, top, height: tr.height } : null;
 		});
 	});
 	assert.ok(heroBox !== null, `hero 态开关贴靠 ⊡ 右侧 8px 并垂直居中（实测 ${JSON.stringify(heroBox)}）`);
+	assert.ok(Math.abs(heroBox.height - 38) <= 1, `hero 态入口高度为 38px（实测 ${heroBox.height}，R-01-008/AC-07）`);
 	const heroZ = await page.evaluate(() => {
 		const toggle = document.querySelector(".dap-toggle");
 		return toggle ? Number(getComputedStyle(toggle).zIndex) : null;

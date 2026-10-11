@@ -4457,7 +4457,7 @@ assert.ok(
 assert.ok(!bundle.includes("z-index: 2147482991"), "浮动开关不再携带顶层 z-index（层级逃逸根因已除）");
 assert.ok(!bundle.includes(".dap-toggle {\n  position: fixed;"), "浮动开关基规则不再携带 fixed 兜底定位");
 assert.ok(bundle.includes('toggle.style.position = "static"'), "嵌入态以内联样式钉死 position:static（不依赖样式表状态）");
-assert.ok(bundle.includes(".dap-toggle[data-embedded] {\n  position: static;\n  margin-right: 8px;\n  flex: none;\n  width: max-content; max-width: 64px;\n  min-height: 26px;\n  z-index: 1;\n}"), "嵌入态整块钉宽并层级归位 z-index:1（flex 子项 z 生效，低于宿主覆盖层 1100/1250/1300）");
+assert.ok(bundle.includes(".dap-toggle[data-embedded] {\n  position: static;\n  margin-right: 8px;\n  flex: none;\n  width: max-content; max-width: 64px; min-width: 44px;\n  height: 38px; min-height: 38px;\n  z-index: 1;\n}"), "嵌入态钉住 44px 最小宽与 38px 高并层级归位 z-index:1（R-01-008/AC-07）");
 assert.ok(bundle.includes(".dap-toggle[data-hero] {\n  position: absolute;\n  z-index: 1060;\n}"), "hero 态 absolute 页面层 z-index:1060（低于壳层遮罩 1250/抽屉 1300/菜单 1100）");
 assert.ok(bundle.includes("row.insertBefore(toggle, cluster)"), "开关落位插入标题行首个内容簇之前（行首参与布局）");
 assert.ok(bundle.includes("row.prepend(toggle)"), "无标题簇时开关落位标题行行首");
@@ -4469,12 +4469,14 @@ assert.ok(bundle.includes('document.querySelector("[data-shell-overlay]")?.paren
 assert.ok(bundle.includes('toggle.setAttribute("data-hero", "")'), "hero 落位写入 data-hero 标记");
 assert.ok(bundle.includes('toggle.style.position = "absolute"'), "hero 态以内联样式钉死 position:absolute（T-164 策略）");
 assert.ok(bundle.includes("fabRect.right + 8"), "hero 贴靠锚点右侧 8px（与 C-091 算式同源）");
-assert.ok(bundle.includes("fabRect.height - pillHeight"), "hero 贴靠与锚点垂直居中");
+assert.ok(bundle.includes("fabRect.height - toggleHeight"), "hero 贴靠与锚点垂直居中");
 assert.ok(bundle.includes("if (frame === null && toggle.parentElement !== null) toggle.remove();"), "开关摘除仅限壳层结构缺失且已挂载（锚缺失期间已落位开关保留原位，未落位不渲染，fail-visible，C-093、T-168）");
 assert.ok(bundle.includes("const ON_SCREEN_X = -10;"), "在屏判据阈值具名常量（hero 锚在屏判据）");
 assert.ok(bundle.includes('"<span class=\\"dap-toggle-count\\"></span>"'), "开关为徽标单挂骨架：仅计数徽标，无图标与文字标签");
 assert.ok(!bundle.includes("dap-toggle-icon"), "面板图标已撤销（东家反馈被误读为边栏按钮）");
 assert.ok(bundle.includes("appearance: none; white-space: nowrap; width: max-content; max-width: 64px;"), "开关显式钉宽并以 max-width:64px 钳制硬上限（真机 fixed 态恒定膨胀兜底）");
+assert.ok(bundle.includes(".dap-toggle {\n  display: none;\n  align-items: center; gap: 5px;\n  min-width: 44px; height: 38px; min-height: 38px; padding: 0;"), "开关命中盒为至少 44px 宽与 38px 高（R-01-008/AC-07）");
+assert.ok(bundle.includes(".dap-toggle .dap-toggle-count {\n  display: inline-flex; align-items: center; justify-content: center;\n  box-sizing: border-box; min-width: 36px; max-width: 64px; height: 24px;\n  line-height: 24px; text-align: center; border-radius: 999px;\n  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;\n  background: color-mix(in srgb, currentColor 16%, transparent);\n  padding: 0 8px; font-size: 12px; font-weight: 700;\n}"), "计数徽标为至少 36px 宽与 24px 高、文字 12px（R-01-008/AC-07）");
 // 开关外层胶囊壳去除（T-168，东家指示只留内部涂色的计数胶囊）：基规则不携带
 // 底色、描边与投影，浅色主题不再覆盖开关底色；可见形态即 .dap-toggle-count 本体。
 assert.ok(bundle.includes("border: none; background: none;"), "开关基规则显式压掉 UA 默认按钮壳（appearance:none 不摘 UA 声明的边框与底色，T-168）");

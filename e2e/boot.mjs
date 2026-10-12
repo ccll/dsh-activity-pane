@@ -63,7 +63,9 @@ function settingsYaml(mockUrl) {
 		"  apiKeyEnv: DEEPSEEK_API_KEY",
 		"agent-default-model:",
 		"  provider: deepseek-official",
-		"  model: deepseek-v4-flash",
+		// deepseek-flash：0.1.5 与 0.2.0 宿主模型目录共有的 id（0.2.0 移除了
+		// deepseek-v4-flash，目录外 id 无显示名映射，卡面回落原始 id，T-159）。
+		"  model: deepseek-flash",
 		// 预置欢迎内测声明确认（dsh 0.1.5 宿主 OnboardingModal）：不预置则宿主会在运行
 		// 途中弹出带遮罩的模态，拦截 spec 的指针操作（环境噪声，非被测行为）。
 		"ui-onboarding:",

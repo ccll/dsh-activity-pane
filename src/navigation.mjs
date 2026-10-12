@@ -34,13 +34,16 @@ export function shouldDismissDrawerOnActivation({ targetId, currentId, mobile, d
 }
 
 /**
- * 调用 DSH 原生会话导航；由调用方决定失败后的 refresh/retry 策略。
- * 不读取 sessions.list，避免用另一份可能已过期的快照拦截跳转。
+ * 调用 DSH 原生会话导航（dsh 0.2.0，T-159）：经 uiWorkspace.openSession 发起
+ * 「选中会话并显示其 Conversation」的导航动作（内部以 source "mainView" retain
+ * 并驱动外壳 selection；替代 0.2.0 已删除的 sessions.open）。发起为 void 且可被
+ * 后续导航取代，是否到达由调用方的 currentId 重试链判定；target 亦接受子代理
+ * 持久父地址（SessionTarget）。服务缺失返回 false，由调用方决定重试策略。
  */
-export function openSession(sessions, sessionId) {
-	if (typeof sessions?.open !== "function") return false;
+export function openSession(uiWorkspace, target) {
+	if (typeof uiWorkspace?.openSession !== "function") return false;
 	try {
-		sessions.open(sessionId);
+		uiWorkspace.openSession(target);
 		return true;
 	} catch {
 		return false;

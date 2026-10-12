@@ -2,7 +2,8 @@
 //
 // 流程：启动 mock LLM → 创建临时 $DSH_HOME 并写入指向 mock 的
 // settings.yaml → `dsh plugin --profile web add` 脚手架 profile 并以
-// link: 装入本仓库 → `dsh web --port 0` 启动并轮询就绪。cleanup() 终止
+// link: 装入本仓库 → （可选 mobileShell=true 时按名另装 dsh-web-mobile
+// 手机壳层）→ `dsh web --port 0` 启动并轮询就绪。cleanup() 终止
 // dsh web 进程组、关闭 mock、删除临时目录。
 //
 // 用法：`node e2e/boot.mjs` 启动并打印 JSON 就绪信息（调试用，Ctrl+C 清理）；
@@ -20,6 +21,9 @@ const execFileAsync = promisify(execFile);
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const BOOT_TIMEOUT_MS = 60_000;
+
+// spec 环境性缺席（如移动壳层包不可安装）的跳过信号：boot 抛出、run 捕获记账。
+export const E2E_SKIP = "E2E_SKIP";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -76,10 +80,14 @@ function settingsYaml(mockUrl) {
 
 /**
  * 启动一套隔离测试环境。
+ * @param {{ mobileShell?: boolean }} options mobileShell=true 时按名安装
+ *   dsh-web-mobile 手机壳层（真实壳层刺激：hero 空 header 隐藏规则、header 左座
+ *   目录开关、hero ⊡）；registry 不可达或包不可得时以 code=E2E_SKIP 抛错，
+ *   runner 将该 spec 记为显式 SKIP，避免壳层覆盖静默消失。
  * @returns Promise<{ home, url, mock, timings, cleanup }>
- *   timings 记录各阶段毫秒耗时（mock/settings/plugin/webReady/total）。
+ *   timings 记录各阶段毫秒耗时（mock/settings/plugin/shell/webReady/total）。
  */
-export async function bootE2e() {
+export async function bootE2e({ mobileShell = false } = {}) {
 	const t0 = Date.now();
 	const timings = {};
 	const mark = (name) => {
@@ -133,6 +141,18 @@ export async function bootE2e() {
 	try {
 		await execFileAsync("dsh", ["plugin", "--profile", "web", "add", repoRoot], { env });
 		mark("plugin");
+
+		if (mobileShell) {
+			try {
+				await execFileAsync("dsh", ["plugin", "--profile", "web", "add", "dsh-web-mobile"], { env });
+			} catch (error) {
+				const detail = String(error?.stderr ?? error?.message ?? error).split("\n").filter(Boolean).slice(-3).join(" ");
+				const skip = new Error(`移动壳层 dsh-web-mobile 不可安装，spec 跳过：${detail}`);
+				skip.code = E2E_SKIP;
+				throw skip;
+			}
+			mark("shell");
+		}
 
 		web = spawn("dsh", ["web", "--port", "0"], { env, stdio: ["ignore", "pipe", "pipe"], detached: true });
 		// 保留 web stderr 尾部供 spec 失败时取证（宿主侧错误不在浏览器控制台出现）。

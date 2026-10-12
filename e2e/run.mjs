@@ -3,6 +3,8 @@
 // 每个 spec 默认导出 async ({ browser, page, url, mock, assert })：browser/page
 // 属于该次隔离环境；runner 负责环境、浏览器与 context 生命周期。spec 固定顺序
 // 执行，保持单机门禁的资源上限与日志顺序稳定。
+// spec 可具名导出 mobileShell=true（隔离环境按名另装 dsh-web-mobile 手机壳层，
+// 装不上记显式 SKIP）与 contextOptions（传给 newContext，如移动视口+触屏+UA）。
 // 浏览器二进制为项目内安装（PLAYWRIGHT_BROWSERS_PATH=0）。
 //
 // 用法：`node e2e/run.mjs`（全量）或 `node e2e/run.mjs mobile-drawer`（指定 spec）。
@@ -15,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 process.env.PLAYWRIGHT_BROWSERS_PATH ??= "0";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const { bootE2e, formatPassTimings, settleCleanupSteps } = await import("./boot.mjs");
+const { bootE2e, formatPassTimings, settleCleanupSteps, E2E_SKIP } = await import("./boot.mjs");
 const { chromium } = await import("playwright");
 const MAX_CONCURRENCY = 1;
 
@@ -39,25 +41,29 @@ async function clearFailureArtifact(name) {
 }
 
 async function runSpec(name) {
-	const spec = (await import(pathToFileURL(join(specDir, name)).href)).default;
+	// spec 具名导出（可选）：mobileShell=true 请求隔离环境另装 dsh-web-mobile
+	// 手机壳层；contextOptions 传给 newContext（移动壳层档用移动视口+触屏+UA）。
+	const mod = await import(pathToFileURL(join(specDir, name)).href);
+	const spec = mod.default;
 	let env;
 	let browser;
 	let context;
 	let page;
 	let result = 0;
+	let skipped = false;
 	let bootMs = 0;
 	let browserMs = 0;
 	let specMs = 0;
 	let cleanupMs = 0;
 	const start = Date.now();
 	try {
-		env = await bootE2e();
+		env = await bootE2e({ mobileShell: mod.mobileShell === true });
 		bootMs = Date.now() - start;
 		const browserStart = Date.now();
 		// Native scrollbar hit-testing is part of the UI contract; Playwright's
 		// headless default adds --hide-scrollbars, so keep the real gutter.
 		browser = await chromium.launch({ ignoreDefaultArgs: ["--hide-scrollbars"] });
-		context = await browser.newContext();
+		context = await browser.newContext(mod.contextOptions ?? {});
 		page = await context.newPage();
 		browserMs = Date.now() - browserStart;
 		const specStart = Date.now();
@@ -65,10 +71,16 @@ async function runSpec(name) {
 		await clearFailureArtifact(name);
 		specMs = Date.now() - specStart;
 	} catch (error) {
-		result = 1;
-		console.error(`e2e: FAIL ${name}\n${error?.stack ?? error}`);
-		if (env?.webStderr.length > 0) console.error(`e2e: dsh web stderr 尾部：\n${env.webStderr.slice(-20).join("")}`);
-		await captureFailure(page, name);
+		if (error?.code === E2E_SKIP) {
+			// 环境性缺席（如 registry 不可达）不是被测行为失败：显式记账，不让覆盖静默消失。
+			skipped = true;
+			console.error(`e2e: SKIP ${name}（${error.message}）`);
+		} else {
+			result = 1;
+			console.error(`e2e: FAIL ${name}\n${error?.stack ?? error}`);
+			if (env?.webStderr.length > 0) console.error(`e2e: dsh web stderr 尾部：\n${env.webStderr.slice(-20).join("")}`);
+			await captureFailure(page, name);
+		}
 	} finally {
 		const cleanupStart = Date.now();
 		const cleanupErrors = await settleCleanupSteps([
@@ -82,28 +94,31 @@ async function runSpec(name) {
 			console.error(`e2e: FAIL ${name} cleanup\n${cleanupErrors.join("\n")}`);
 		}
 	}
-	if (result === 0) {
+	if (result === 0 && !skipped) {
 		console.error(formatPassTimings(name, { boot: bootMs, browser: browserMs, spec: specMs, cleanup: cleanupMs, total: Date.now() - start }));
 	}
-	return result;
+	return skipped ? "skip" : result;
 }
 
 const suiteStart = Date.now();
 let nextSpec = 0;
 let failed = 0;
+let skippedCount = 0;
 async function worker() {
 	for (;;) {
 		const index = nextSpec;
 		nextSpec += 1;
 		if (index >= specFiles.length) return;
-		failed += await runSpec(specFiles[index]);
+		const outcome = await runSpec(specFiles[index]);
+		if (outcome === 1) failed += 1;
+		else if (outcome === "skip") skippedCount += 1;
 	}
 }
 await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENCY, specFiles.length) }, () => worker()));
 
 const elapsed = Date.now() - suiteStart;
 if (failed > 0) {
-	console.error(`e2e: ${failed} 个 spec 失败（${elapsed}ms）`);
+	console.error(`e2e: ${failed} 个 spec 失败${skippedCount > 0 ? `（另 ${skippedCount} 个 SKIP）` : ""}（${elapsed}ms）`);
 	process.exit(1);
 }
-console.error(`e2e: 全部 ${specFiles.length} 个 spec 通过（${elapsed}ms）`);
+console.error(`e2e: 全部 ${specFiles.length} 个 spec 通过${skippedCount > 0 ? `（其中 ${skippedCount} 个 SKIP）` : ""}（${elapsed}ms）`);

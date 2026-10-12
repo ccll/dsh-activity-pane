@@ -4466,7 +4466,9 @@ assert.ok(
 // 移动端「活动」开关常态嵌入宿主头部标题行行首参与布局（T-163，C-090；视觉上
 // 位于左边栏切换按钮右侧）；标题行不可得且宿主侧栏展开按钮（dsh-web-mobile ⊡，
 // data-mobile-nav="toggle"/"fab"）在屏时落位 hero 贴靠形态（T-167，C-093）；
-// 两落位均不可得时不渲染。兜底浮层（fixed + z-index:2147482991）已去除：
+// 两落位均不可得时不渲染。T-171 起落位几何感知：header 可见才嵌入（0.2.0 hero 页
+// header.firstElementChild 存在但被壳层隐藏）；壳层目录开关占左座时改嵌会话头
+// 标题行。兜底浮层（fixed + z-index:2147482991）已去除：
 // flex 子项的 z-index 即使 static 也生效（CSS Flexbox 规范），高层级声明曾使
 // 嵌入态整体逃逸宿主抽屉之上（T-167 根因）。
 assert.ok(!bundle.includes("z-index: 2147482991"), "浮动开关不再携带顶层 z-index（层级逃逸根因已除）");
@@ -4474,10 +4476,15 @@ assert.ok(!bundle.includes(".dap-toggle {\n  position: fixed;"), "浮动开关�
 assert.ok(bundle.includes('toggle.style.position = "static"'), "嵌入态以内联样式钉死 position:static（不依赖样式表状态）");
 assert.ok(bundle.includes(".dap-toggle[data-embedded] {\n  position: static;\n  margin-right: 8px;\n  flex: none;\n  width: max-content; max-width: 64px; min-width: 44px;\n  height: 38px; min-height: 38px;\n  z-index: 1;\n}"), "嵌入态钉住 44px 最小宽与 38px 高并层级归位 z-index:1（R-01-008/AC-07）");
 assert.ok(bundle.includes(".dap-toggle[data-hero] {\n  position: absolute;\n  z-index: 1060;\n}"), "hero 态 absolute 页面层 z-index:1060（低于壳层遮罩 1250/抽屉 1300/菜单 1100）");
-assert.ok(bundle.includes("row.insertBefore(toggle, cluster)"), "开关落位插入标题行首个内容簇之前（行首参与布局）");
-assert.ok(bundle.includes("row.prepend(toggle)"), "无标题簇时开关落位标题行行首");
+assert.ok(bundle.includes("target.insertBefore(toggle, cluster)"), "开关落位插入嵌入行首个内容簇之前（行首参与布局；嵌入靶点为 headerLeading 或会话头标题行，T-171）");
+assert.ok(bundle.includes("target.prepend(toggle)"), "无标题簇时开关落位嵌入行行首");
 assert.ok(bundle.includes("toggle.nextSibling === cluster"), "幂等判定：开关已处于标题簇之前时不动 DOM");
-assert.ok(bundle.includes("row.firstElementChild === toggle"), "幂等判定：无簇分支开关已是标题行首元素");
+assert.ok(bundle.includes("target.firstElementChild === toggle"), "幂等判定：无簇分支开关已是嵌入行首元素");
+// T-171 几何感知与壳层左座检测：行存在不等于行可见（0.2.0 hero 页 headerLeading
+// 存在但 header 被壳层 display:none）；壳层目录开关占座时改嵌会话头标题行。
+assert.ok(bundle.includes("headerRect.width > 0 && headerRect.height > 0"), "嵌入可见性判据取 header 包围盒（headerLeading 自身可塌缩为 0 宽，T-171）");
+assert.ok(bundle.includes("header.querySelectorAll('button[data-mobile-nav=\"toggle\"]')"), "壳层左座检测寻址 data-mobile-nav=toggle 语义属性（不耦合宿主哈希类，T-171）");
+assert.ok(bundle.includes("header.querySelector('[data-slot=\"conversation.session.header\"]')?.firstElementChild ?? null"), "壳层占座时嵌入会话头标题行首子（槽语义属性锚点，T-171）");
 assert.ok(bundle.includes('toggle.setAttribute("data-embedded", "")'), "嵌入落位写入 data-embedded 标记");
 assert.ok(bundle.includes('button[data-mobile-nav="toggle"], button[data-mobile-nav="fab"]'), "hero 锚为宿主侧栏展开按钮语义属性（toggle/fab 统一寻址）");
 assert.ok(bundle.includes('document.querySelector("[data-shell-overlay]")?.parentElement'), "hero 落位挂宿主 frame（data-shell-overlay 的 parentElement，与壳层 findFrame 同源）");
@@ -4507,8 +4514,8 @@ assert.ok(bundle.includes(".dap-toggle[data-drawer-open] { display: flex; visibi
 assert.ok(!bundle.includes(".dap-toggle { display: flex; }"), "移动断点不再无条件显示开关（落位属性驱动）");
 assert.ok(bundle.includes('toggle.toggleAttribute("data-drawer-open", open)'), "开关显隐由 togglePane 单点同步");
 assert.ok(!bundle.includes("data-host-drawer-open"), "宿主侧栏抽屉隐藏检测已整体摘除（层级归位后遮挡由层级承载，T-168）");
-assert.ok(bundle.includes('attributeFilter: ["data-sidebar-collapsed"]'), "帧状态观察承载键盘/手势关抽屉后的落位重锚（T-167 恢复缺口）");
-assert.ok(bundle.includes("frameAttrObserver?.disconnect();"), "帧状态观察随 cleanup 摘除");
+assert.ok(bundle.includes('attributeFilter: ["data-sidebar-collapsed"], childList: true'), "锚出现的确定唤醒：frame 观察承载抽屉翻转与直系子节点变动（⊡/开关挂载摘除即检，T-171）");
+assert.ok(bundle.includes("frameObserver?.disconnect();"), "帧状态观察随 cleanup 摘除");
 
 // R-01-002/AC-01、AC-02、AC-09、AC-13 等待三类胶囊（C-043）：末行首行为「圆底类型图标 + 类型
 // 文字」胶囊（阻塞金/完成绿/错误红），胶囊与正文同频同相脉冲；「移入历史」按钮不闪，标题圆点静止。
@@ -4973,7 +4980,8 @@ assert.ok(
 // ---- E2E runner 浏览器生命周期契约（C-046、C-047，T-085）----
 const e2eRunnerSource = await readFile(join(root, "e2e/run.mjs"), "utf8");
 assert.equal(e2eRunnerSource.match(/chromium\.launch\(/g)?.length, 1, "runner 只有一条 Chromium 启动路径");
-assert.ok(e2eRunnerSource.includes("context = await browser.newContext()"), "每次隔离环境创建独立 browser context");
+assert.ok(e2eRunnerSource.includes("context = await browser.newContext(mod.contextOptions ?? {})"), "每次隔离环境创建独立 browser context（spec 可声明 contextOptions，T-171 移动壳层档）");
+assert.ok(e2eRunnerSource.includes("bootE2e({ mobileShell: mod.mobileShell === true })") && e2eRunnerSource.includes("error?.code === E2E_SKIP"), "移动壳层档由 spec 具名导出声明，壳层不可得按 SKIP 计（T-171，跳过信号常量与 boot.mjs 共享）");
 assert.ok(e2eRunnerSource.includes("browser?.close()"), "每个 spec 都关闭浏览器进程");
 assert.ok(!e2eRunnerSource.includes("sharedBrowser"), "不保留未使用或跨环境共享的浏览器进程");
 assert.ok(e2eRunnerSource.includes("const MAX_CONCURRENCY = 1") && e2eRunnerSource.includes("Math.min(MAX_CONCURRENCY, specFiles.length)"), "E2E 固定顺序执行，保持资源上限与日志顺序稳定");

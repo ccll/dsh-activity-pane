@@ -1510,8 +1510,11 @@ function apply(ctx) {
 	backdrop.className = "dap-backdrop";
 	document.body.appendChild(backdrop);
 
-	// 移动端「活动」开关落位守卫（T-163/T-167，R-01-008/AC-04）：常态嵌入宿主头部
-	// 的标题行行首参与布局——东家指示（左边栏弹出按钮的右侧，其余控件被真实后挤）。
+	// 移动端「活动」开关落位守卫（T-163/T-167/T-171，R-01-008/AC-04）：常态嵌入宿主
+	// 头部参与布局——东家指示（左边栏弹出按钮的右侧，其余控件被真实后挤）。0.2.0 起
+	// 头部结构代差：header.firstElementChild 只是左侧窄条 headerLeading；无壳层开关
+	// 占座时仍嵌该行行首；移动壳层开关（data-mobile-nav="toggle"）占座时改嵌会话头
+	// 标题行行首（座位右缘）。hero 页头部被壳层隐藏时几何感知回落 hero 形态。
 	// 插入点取行内首个内容簇（标题 crumb 导航所在顶层簇）之前，无簇时行首 prepend；
 	// 幂等：已是行首元素时不动 DOM；宿主重渲染丢弃嵌入节点后由下一轮渲染守卫重插
 	// （头部在 seat 子树内，conversationObserver 的 subtree 监听会经 queueSync
@@ -1526,20 +1529,43 @@ function apply(ctx) {
 	const ON_SCREEN_X = -10;
 	function placeToggle() {
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
-		const row = seat !== null ? (seat.querySelector("header")?.firstElementChild ?? null) : null;
-		if (row !== null) {
+		const header = seat !== null ? (seat.querySelector("header") ?? null) : null;
+		const row = header !== null ? (header.firstElementChild ?? null) : null;
+		// 几何感知（T-171）：0.2.0 起 hero 页 header.firstElementChild 存在（左侧窄条
+		// headerLeading），但移动壳层对 headerBlank/headerHidden 头部整条 display:none
+		// ——行存在不等于行可见，嵌入其中会被连带隐藏（0.2.0 移动空白页入口消失根因）。
+		// 可见性判据取 header 包围盒：headerLeading 自身可为 0 宽（未嵌入时槽内容被壳
+		// 层隐藏，列宽塌缩），header 可见即行可嵌。宽高归零即回落 hero 形态贴靠 ⊡。
+		const headerRect = header !== null ? header.getBoundingClientRect() : null;
+		const headerVisible = headerRect !== null && headerRect.width > 0 && headerRect.height > 0;
+		if (row !== null && headerVisible) {
+			// 壳层左座检测（T-171）：移动壳层在头部左缘 absolute 挂自己的目录开关
+			// （data-mobile-nav="toggle"，实测 [8,6,28,28]），嵌入 headerLeading 行首
+			// 会与之同位叠置（0.2.0 active 页双开关冲突根因）。检出在屏壳层开关时改嵌
+			// 会话头标题行（conversation.session.header 槽渲染的 titleRow，壳层以
+			// padding-left:32 让出座位）行首——开关落座位右缘，标题被真实后挤；
+			// 标题行不可得时维持 headerLeading 旧落位（叠置边界记录 T-171）。
+			const shellToggle = [...header.querySelectorAll('button[data-mobile-nav="toggle"]')].find((el) => {
+				const rect = el.getBoundingClientRect();
+				return rect.width > 0 && rect.x > ON_SCREEN_X;
+			});
+			let target = row;
+			if (shellToggle !== undefined) {
+				const titleRow = header.querySelector('[data-slot="conversation.session.header"]')?.firstElementChild ?? null;
+				if (titleRow !== null) target = titleRow;
+			}
 			// 插入点取行内首个内容簇（标题簇）之前：行首即视觉上位于左侧边栏切换按钮
 			// 的右侧，其余头部控件被真实后挤（相对顺序契约，不断言行首）。簇内含 crumb
 			// 导航即认定标题簇（nav 必在 head 子树内，顶层簇即 head 本身）。
-			const head = row.firstElementChild;
+			const head = target.firstElementChild;
 			const cluster = head !== null && (head.tagName === "NAV" || head.querySelector("nav") !== null)
 				? head
 				: null;
-			const settled = toggle.parentElement === row && toggle.hasAttribute("data-embedded") &&
-				(cluster !== null ? toggle.nextSibling === cluster : row.firstElementChild === toggle);
+			const settled = toggle.parentElement === target && toggle.hasAttribute("data-embedded") &&
+				(cluster !== null ? toggle.nextSibling === cluster : target.firstElementChild === toggle);
 			if (settled) return;
-			if (cluster !== null) row.insertBefore(toggle, cluster);
-			else row.prepend(toggle);
+			if (cluster !== null) target.insertBefore(toggle, cluster);
+			else target.prepend(toggle);
 			toggle.setAttribute("data-embedded", "");
 			toggle.removeAttribute("data-hero");
 			// 定位关键量内联钉死：嵌入态回归文档流不依赖样式表状态（东家真机
@@ -2472,22 +2498,23 @@ function apply(ctx) {
 		toggle.toggleAttribute("data-drawer-open", open);
 		queueSync();
 	}
-	// 帧状态观察（T-167）：键盘（Escape）与滑动手势关抽屉不派发 pointer 事件；
+	// 帧状态观察（T-167/T-171）：键盘（Escape）与滑动手势关抽屉不派发 pointer 事件；
 	// 壳层抽屉状态机本体是 frame 的 data-sidebar-collapsed 属性，观察其翻转是
-	// 关抽屉后 ⊡ 重挂、hero 落位重锚的必然唤醒点——回调仅在状态翻转时发生，
-	// 无轮询成本。按元素记挂：frame 就绪前延迟挂载，外壳重挂载出新 frame 时换挂。
+	// 关抽屉后 ⊡ 重挂、hero 落位重锚的必然唤醒点——回调仅在状态翻转与 frame
+	// 直系子节点变动（锚/开关挂载摘除，T-171）时发生，无轮询成本。按元素记挂：
+	// frame 就绪前延迟挂载，外壳重挂载出新 frame 时换挂。
 	// 开关在锚缺失期间保留原位（T-168），翻转即检与 400ms 复检均为同值重写或
 	// 重锚，无显隐突变；宿主抽屉隐藏检测（T-165）随层级归位失去必要性，整体
 	// 摘除（T-168）。
-	let frameAttrObserver = null;
+	let frameObserver = null;
 	let observedFrame = null;
 	function armFrameObserver() {
 		if (disposed) return;
 		const frame = document.querySelector("[data-shell-overlay]")?.parentElement;
 		if (frame == null) return;
-		if (frameAttrObserver !== null && observedFrame === frame) return;
-		frameAttrObserver?.disconnect();
-		frameAttrObserver = new MutationObserver(() => {
+		if (frameObserver !== null && observedFrame === frame) return;
+		frameObserver?.disconnect();
+		frameObserver = new MutationObserver(() => {
 			if (disposed) return;
 			// 翻转即检 + 400ms 复检：壳层重挂 ⊡ 晚于属性翻转（reconcile 异步），
 			// 仅翻转即检会扑空且再无唤醒点；开关未摘除，复检为重锚同值。
@@ -2497,7 +2524,11 @@ function apply(ctx) {
 				placeToggle();
 			}, 400);
 		});
-		frameAttrObserver.observe(frame, { attributes: true, attributeFilter: ["data-sidebar-collapsed"] });
+		// childList（T-171）：锚（⊡/壳层开关）与开关自身的挂载摘除都是 frame 直接
+		// 子节点变动——锚在静默页面上出现（壳层延迟挂 ⊡、e2e 注入）没有任何其它
+		// 唤醒点（seat 突变、抽屉翻转、订阅均不发生），落位会悬到下一个任意时钟。
+		// 观察直系子节点变动即检，落位从事件驱动变为确定；回调幂等无反馈环。
+		frameObserver.observe(frame, { attributes: true, attributeFilter: ["data-sidebar-collapsed"], childList: true });
 		observedFrame = frame;
 	}
 	armFrameObserver();
@@ -4931,8 +4962,8 @@ function apply(ctx) {
 
 	const cleanup = () => {
 		disposed = true;
-		frameAttrObserver?.disconnect();
-		frameAttrObserver = null;
+		frameObserver?.disconnect();
+		frameObserver = null;
 		observedFrame = null;
 		sessionUnsubscribe?.();
 		workspaceUnsubscribe?.();

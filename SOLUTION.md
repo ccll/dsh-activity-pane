@@ -160,13 +160,29 @@ flowchart LR
 - 抽屉打开时显示透明全屏遮罩，z-index 介于主会话与抽屉之间，点击遮罩收起抽屉；遮罩完全透明、不占布局（R-01-008/AC-03）。
 - 「活动」开关常态嵌入宿主头部的标题行，作为布局子项位于该行行首（R-01-008/AC-04）。
   - 视觉位置即左边栏切换按钮的右侧（东家指示，T-163）。
+  - 嵌入前提为会话 header 可呈现：包围盒宽高均非零（T-171）。
+    - 移动壳层对 hero 空 header 与抽屉态 header 施加 `display:none`。
+    - 被隐藏的 header 视同标题行不存在。
+  - 0.2.0 宿主 header 首子是 headerLeading 窄条（T-171）。
+    - 真标题行为会话头槽（`[data-slot="conversation.session.header"]`）首子 titleRow。
+    - 移动壳层把 header 左座（absolute left:8）留给自身在屏目录开关 `button[data-mobile-nav="toggle"]`。
+    - 左座被占用时嵌入靶点改 titleRow 行首，落在壳层开关右侧。
+    - 壳层开关不可得时靶点维持 header 首子（桌面壳层）。
   - 插入点为行内首个内容簇（标题 crumb 导航所在顶层簇）之前，无簇时行首 prepend。
   - 幂等判定：开关已处于插入点（标题簇之前，无簇时行首）时不动 DOM。
   - 嵌入态 `z-index: 1`：flex 子项的 z-index 即使 static 也生效（CSS Flexbox 规范），置 1 略高于行内兄弟、远低于宿主任何覆盖层，宿主抽屉滑入即被正常遮挡（T-167）。
-  - 标题行不存在且宿主侧栏展开按钮在屏时落位 hero 贴靠形态（T-167，C-093）：锚为 dsh-web-mobile 侧栏展开按钮语义属性 `data-mobile-nav="toggle"`/`"fab"`（互斥，取首个在屏者），挂载点为宿主 frame（`[data-shell-overlay]` 的 parentElement，与壳层 findFrame 同源），absolute 内联钉位锚右缘 + 8px 并垂直居中。
+  - 标题行不可呈现且宿主侧栏展开按钮在屏时，落位 hero 贴靠形态（T-167，C-093）。
+    - 不可呈现即不存在，或 header 被隐藏（T-171）。
+    - 锚为 dsh-web-mobile 侧栏展开按钮语义属性 `data-mobile-nav="toggle"`/`"fab"`，互斥，取首个在屏者。
+    - 挂载点为宿主 frame：`[data-shell-overlay]` 的 parentElement，与壳层 findFrame 同源。
+    - 形态为 absolute 内联钉位：锚右缘 + 8px，垂直居中。
   - hero 态 `z-index: 1060` 等同页面内容层：低于壳层遮罩（1250）、宿主抽屉（1300）与宿主菜单（1100），抽屉滑入被逐步遮挡；数值耦合壳层层契约，壳层改版会漂移，记录为边界。
   - 标题行与侧栏展开按钮均不可得时，未落位开关不渲染（不可嵌即不渲染，fail-visible）。
   - 已落位开关在锚缺失期间保留原位（T-168）。
+  - 锚出现的确定唤醒：观察宿主 frame 的 `data-sidebar-collapsed` 翻转与直系子节点变动（T-171）。
+    - 子节点变动即 ⊡ 与开关自身的挂载与摘除。
+    - 静默页面上锚出现没有任何其它唤醒点：seat 突变与订阅均不发生。
+    - 仅靠时钟时落位会悬置到下一个任意唤醒。
   - 开关不预挂 DOM，落位时才进入文档。
   - 在屏判据（具名阈值常量）：移动壳层抽屉列收起时整体在屏外，在屏内且非零宽方可作锚。
   - 呈紧凑形态：仅计数徽标，不显示图标与文字标签（东家反馈面板图标被误读为边栏按钮，T-162）。

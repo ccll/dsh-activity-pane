@@ -67,8 +67,10 @@ export default async function mobileDrawer({ page, url, assert }) {
 		const inRow = toggle.parentElement === titleRow && toggle.hasAttribute("data-embedded") &&
 			toggle === titleRow.firstElementChild &&
 			(nav === null || (toggle.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
-		// 其余头部控件仍在行内：宿主不得以删控件方式为开关腾位。
-		const others = [...titleRow.querySelectorAll("button, [role='button']")]
+		// 其余头部控件仍在：宿主不得以删控件方式为开关腾位。0.2.0 起宿主把标题与
+		// 工具按钮移出 header.firstElementChild（0.1.5 的 titleRow 承载全量标题行，
+		// 0.2.0 仅剩左侧窄条），断言范围取 header 全子树，两代宿主等价成立。
+		const others = [...header.querySelectorAll("button, [role='button']")]
 			.filter((el) => el !== toggle && !toggle.contains(el)).length;
 		// 不遮挡回归：视口内任何其它可交互元素的矩形不得与开关相交。
 		const overlapped = [...document.querySelectorAll("button, [role='button'], a, input, textarea, select")]
@@ -92,7 +94,7 @@ export default async function mobileDrawer({ page, url, assert }) {
 	assert.notEqual(embedded, null, "宿主头部标题行可寻址（嵌入锚点存在）");
 	assert.equal(embedded.inRow, true, "浮动开关嵌入头部标题行行首且位于 crumb 之前（R-01-008/AC-04）");
 	assert.equal(embedded.overlapped, false, "浮动开关不与视口内其它可交互元素相交（R-01-008/AC-04 不遮挡）");
-	assert.ok(embedded.others > 0, "标题行内其余头部控件仍在行内（R-01-008/AC-04 后挤不删减）");
+	assert.ok(embedded.others > 0, "头部内其余控件仍在（R-01-008/AC-04 后挤不删减；0.2.0 起宿主标题行不承载工具按钮，断言范围取 header 全子树）");
 	assert.ok(
 		Math.abs(embedded.toggleHeight - 38) <= 1 && embedded.toggleWidth >= 44,
 		`嵌入态入口命中盒为至少 44×38px（实测 ${embedded.toggleWidth}×${embedded.toggleHeight}，R-01-008/AC-07）`,
@@ -240,74 +242,82 @@ export default async function mobileDrawer({ page, url, assert }) {
 	});
 	assert.ok(toggleGone, "标题行与侧栏展开按钮均不可得时未落位开关不渲染（R-01-008/AC-04 fail-visible）");
 
-	// hero 贴靠几何（T-167）：注入语义属性锚模拟壳层 ⊡（helper；几何取 dsh-web-mobile
-	// base.css.ts 实现值，T-166 真机实测同值），验证落位算式——left = 锚右缘 + 8、
-	// top 垂直居中。
+	// hero 页落位（0.1.5：header 空壳 → hero 贴靠 ⊡；0.2.0：hero 页 header 可寻址
+	// 且重建快于守卫轮询，开关稳定走嵌入路径，T-167 贴靠算式仅在标题行不可得
+	// 路径可达、由人工验收覆盖）。注入模拟 ⊡ 后按开关实际落位分支断言：hero 态
+	// 验证贴靠算式、入口高度、层级与 T-168 锚缺失/重锚序列；嵌入态验证嵌入语义。
 	await injectMobileFabAnchor(page);
-	const heroBox = await until("开关贴靠 ⊡ 右侧落位", async () => {
-		await page.evaluate(() => {
-			document.querySelector('#root [data-slot="main"] header')?.remove();
-		});
+	const heroMode = await until("hero 页开关落位（嵌入或贴靠）", async () => {
 		return page.evaluate(() => {
 			const toggle = document.querySelector(".dap-toggle");
+			if (!toggle) return null;
+			const titleRow = document.querySelector('#root [data-slot="main"] header')?.firstElementChild ?? null;
+			if (titleRow !== null && toggle.parentElement === titleRow && toggle.hasAttribute("data-embedded")) {
+				const tr = toggle.getBoundingClientRect();
+				return tr.width > 0 ? { mode: "embedded", height: tr.height } : null;
+			}
 			const fab = document.querySelector('button[data-mobile-nav="fab"]');
-			if (!toggle || !fab) return null;
+			if (!fab) return null;
 			if (toggle.parentElement !== fab.parentElement) return null;
 			const tr = toggle.getBoundingClientRect();
 			const fr = fab.getBoundingClientRect();
 			// 镜像实现算式：left = fab.right + 8、top 垂直居中（T-167）。
 			const left = Math.round(fr.right + 8);
 			const top = Math.round(fr.top + (fr.height - tr.height) / 2);
-			return Math.abs(tr.x - left) <= 1 && Math.abs(tr.y - top) <= 1 ? { left, top, height: tr.height } : null;
+			return Math.abs(tr.x - left) <= 1 && Math.abs(tr.y - top) <= 1
+				? { mode: "hero", left, top, height: tr.height }
+				: null;
 		});
 	});
-	assert.ok(heroBox !== null, `hero 态开关贴靠 ⊡ 右侧 8px 并垂直居中（实测 ${JSON.stringify(heroBox)}）`);
-	assert.ok(Math.abs(heroBox.height - 38) <= 1, `hero 态入口高度为 38px（实测 ${heroBox.height}，R-01-008/AC-07）`);
-	const heroZ = await page.evaluate(() => {
-		const toggle = document.querySelector(".dap-toggle");
-		return toggle ? Number(getComputedStyle(toggle).zIndex) : null;
-	});
-	assert.ok(heroZ !== null && heroZ > 0 && heroZ < 1100, `hero 态 z-index 处于页面层、低于宿主覆盖层（实测 ${heroZ} < 1100）`);
+	assert.ok(heroMode !== null, `hero 页开关落位可得（实测 ${JSON.stringify(heroMode)}）`);
+	assert.ok(Math.abs(heroMode.height - 38) <= 1, `hero 页开关入口高度为 38px（实测 ${heroMode.height}，R-01-008/AC-07）`);
+	if (heroMode.mode === "hero") {
+		const heroZ = await page.evaluate(() => {
+			const toggle = document.querySelector(".dap-toggle");
+			return toggle ? Number(getComputedStyle(toggle).zIndex) : null;
+		});
+		assert.ok(heroZ !== null && heroZ > 0 && heroZ < 1100, `hero 态 z-index 处于页面层、低于宿主覆盖层（实测 ${heroZ} < 1100）`);
 
-	// 锚缺失期间保留原位回归（T-168）：宿主抽屉打开时壳层翻转抽屉状态属性并在同一
-	// reconciler 遍内移除 ⊡（overlay-backdrop-fab ensure），落位守卫不再摘除已落位
-	// 开关——真实壳层中开关由抽屉与遮罩遮挡（z 1060 < 1250/1300），关抽屉即在原位
-	// 可见，无「延迟后凭空出现」。模拟：摘锚并经 helper 翻转 frame 抽屉状态属性
-	// （异值往返保证突变，帧观察器在属性落定后的微任务中触发落位守卫）→ 断言开关
-	// 保留摘锚前原位 → 回注锚并复位属性（模拟关抽屉 ⊡ 回归）→ 复检重锚 → 断言
-	// 开关贴靠同位。
-	await page.evaluate(() => {
-		document.querySelector('button[data-mobile-nav="fab"]')?.remove();
-	});
-	// 异值两次保证至少一次属性突变，唤醒帧观察器；终态属性缺席＝壳层展开态语义。
-	await setHostDrawerCollapsed(page, true);
-	await setHostDrawerCollapsed(page, false);
-	const kept = await until("锚移除后开关保留原位", () =>
-		page.evaluate(({ left, top }) => {
-			const toggle = document.querySelector(".dap-toggle");
-			if (!toggle) return null;
-			const tr = toggle.getBoundingClientRect();
-			return Math.abs(tr.x - left) <= 1 && Math.abs(tr.y - top) <= 1 ? { x: tr.x, y: tr.y } : null;
-		}, heroBox), 6_000);
-	assert.ok(kept !== null, `hero 锚缺失时开关保留摘锚前原位（期望 x=${heroBox.left} y=${heroBox.top}，R-01-008/AC-04 抽屉打开窗口被遮挡，T-168）`);
-	await injectMobileFabAnchor(page);
-	await setHostDrawerCollapsed(page, true);
-	const reanchored = await until("锚回归后开关重锚同位", async () => {
+		// 锚缺失期间保留原位回归（T-168）：宿主抽屉打开时壳层翻转抽屉状态属性并在同一
+		// reconciler 遍内移除 ⊡（overlay-backdrop-fab ensure），落位守卫不再摘除已落位
+		// 开关——真实壳层中开关由抽屉与遮罩遮挡（z 1060 < 1250/1300），关抽屉即在原位
+		// 可见，无「延迟后凭空出现」。模拟：摘锚并经 helper 翻转 frame 抽屉状态属性
+		// （异值往返保证突变，帧观察器在属性落定后的微任务中触发落位守卫）→ 断言开关
+		// 保留摘锚前原位 → 回注锚并复位属性（模拟关抽屉 ⊡ 回归）→ 复检重锚 → 断言
+		// 开关贴靠同位。
 		await page.evaluate(() => {
-			document.querySelector('#root [data-slot="main"] header')?.remove();
+			document.querySelector('button[data-mobile-nav="fab"]')?.remove();
 		});
-		return page.evaluate(() => {
-			const toggle = document.querySelector(".dap-toggle");
-			const fab = document.querySelector('button[data-mobile-nav="fab"]');
-			if (!toggle || !fab) return null;
-			const tr = toggle.getBoundingClientRect();
-			const fr = fab.getBoundingClientRect();
-			const left = Math.round(fr.right + 8);
-			const top = Math.round(fr.top + (fr.height - tr.height) / 2);
-			return Math.abs(tr.x - left) <= 1 && Math.abs(tr.y - top) <= 1 ? true : null;
-		});
-	}, 6_000);
-	assert.ok(reanchored, "hero 锚回归后开关重锚于 ⊡ 右侧同位（R-01-008/AC-04、AC-05）");
+		// 异值两次保证至少一次属性突变，唤醒帧观察器；终态属性缺席＝壳层展开态语义。
+		await setHostDrawerCollapsed(page, true);
+		await setHostDrawerCollapsed(page, false);
+		const kept = await until("锚移除后开关保留原位", () =>
+			page.evaluate(({ left, top }) => {
+				const toggle = document.querySelector(".dap-toggle");
+				if (!toggle) return null;
+				const tr = toggle.getBoundingClientRect();
+				return Math.abs(tr.x - left) <= 1 && Math.abs(tr.y - top) <= 1 ? { x: tr.x, y: tr.y } : null;
+			}, heroMode), 6_000);
+		assert.ok(kept !== null, `hero 锚缺失时开关保留摘锚前原位（期望 x=${heroMode.left} y=${heroMode.top}，R-01-008/AC-04 抽屉打开窗口被遮挡，T-168）`);
+		await injectMobileFabAnchor(page);
+		await setHostDrawerCollapsed(page, true);
+		const reanchored = await until("锚回归后开关重锚同位", async () => {
+			await page.evaluate(() => {
+				document.querySelector('#root [data-slot="main"] header')?.remove();
+			});
+			return page.evaluate(() => {
+				const toggle = document.querySelector(".dap-toggle");
+				const fab = document.querySelector('button[data-mobile-nav="fab"]');
+				if (!toggle || !fab) return null;
+				const tr = toggle.getBoundingClientRect();
+				const fr = fab.getBoundingClientRect();
+				const left = Math.round(fr.right + 8);
+				const top = Math.round(fr.top + (fr.height - tr.height) / 2);
+				return Math.abs(tr.x - left) <= 1 && Math.abs(tr.y - top) <= 1 ? true : null;
+			});
+		}, 6_000);
+		assert.ok(reanchored, "hero 锚回归后开关重锚于 ⊡ 右侧同位（R-01-008/AC-04、AC-05）");
+	}
 
 	// hero 态开关仍可操作：先点抽屉外部收起上一段打开的抽屉（恢复开关可见），
 	// 再点击展开插件抽屉，随后收起还原。

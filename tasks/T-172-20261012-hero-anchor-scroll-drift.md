@@ -3,7 +3,7 @@ id: T-172
 doc-type: task
 mutation: lifecycle
 风险等级: standard
-状态: active
+状态: completed
 ---
 
 # T-172 修复空白页滚动期开关位移放大与顿挫（T-172 贴靠几何坐标基）
@@ -72,4 +72,35 @@ offsetParent 同为 frame（`position: relative`，探针实证），视口 rect
 
 ## 终态与证据
 
-（待实现完成后填写）
+- 实现: `src/client.mjs` placeToggle hero 分支贴靠几何改取锚布局坐标
+  `offsetLeft/Top/Width/Height`（锚选择仍用视口 rect 在屏判据；`fabRect`
+  改名 `fabEl`，注释记录根因）；`scripts/check.mjs` 契约断言同步（offset
+  算式三条 + 视口 rect 烘几何反断言）；`e2e/specs/mobile-shell.mjs` 新增
+  位移耦合回归（frame translateY(40px) + 摘开关守卫唤醒重落位，断言相对
+  ⊡ 几何不变）；SOLUTION 落位机制段补坐标基一行。
+- 测试: 探针实证（WebKit + iPhone 13 + dsh-web-mobile 3.0.6 staging）：
+  缺陷态 frame 位移 40px 重落位开关总位移 80px、相对 ⊡ 漂 40px；修复后
+  总位移 40px、相对 ⊡ 几何不变。`pnpm verify` 全绿（verify:fast +
+  e2e 21/21，307774ms）；mobile-shell 复跑 PASS（8127ms）。
+- SOLUTION 对照: SOLUTION 贴靠段已补布局坐标基（主句 + 4 子项），与实现
+  一致；PRD 未动（短路路径）。
+- commit: 683e6e5
+- review:
+  - 审核方: 双轴独立子代理（Standards d24600c4、Spec a9608b3c）
+  - 目的理解: hero 贴靠几何坐标基缺陷——视口 rect 烘进 frame 内 absolute
+    坐标，frame 合成层位移期重落位重复计入位移；修复改锚布局坐标使重落位
+    幂等；关联 R-01-008/AC-04 贴靠语义、C-091/C-093、T-164/T-168/T-171
+    既有边界；验证方式为探针实证、位移耦合回归与 `pnpm verify`。
+  - 执行方式: code-review 双轴并行，基线 b349186、工作区全 diff；复审为
+    同轴二轮。
+  - 问题与修复: Standards 三项 Low——tmp-probe2/ 探针残留（已删除）、
+    SOLUTION 长句超 40 字（已拆主句 + 4 子项）、e2e frame 查找重复且裸
+    TypeError（已提 frameEl evaluateHandle 助手 + 「frame 在场」断言）。
+    Spec F1 Low——位移回归等待谓词 Promise 未 await 致轮询恒真（三目移入
+    evaluate 回调内，轮询语义恢复）。F2/F3 落点为本矩阵兼容性行与本终态。
+  - 复审结论: 两轴复审均通过，无新发现。
+- 边界与残余风险（审核确认非阻断）: 贴靠几何前提为锚与开关 offsetParent
+  同为 frame（壳层 3.0.6 实证，宿主改版由绑定壳层版本的 e2e 兜底）；在屏
+  锚选择仍用视口 rect，横向位移瞬间选择判据与几何基可瞬时不一致（下次重
+  落位自愈）；`scripts/check.mjs` 的 `fabRect` 全 bundle 反断言遇同名标识
+  符会误红（既定锚点模式）。

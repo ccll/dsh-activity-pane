@@ -2,7 +2,7 @@
 id: T-171
 doc-type: task
 mutation: lifecycle
-状态: active
+状态: completed
 ---
 
 # T-171 修复 dsh 0.2.0 移动壳层开关落位代差与 e2e 壳层覆盖缺口
@@ -78,4 +78,43 @@ mutation: lifecycle
 
 ## 终态与证据
 
-（待实现完成后填写）
+- 实现: placeToggle 嵌入前提加 header 包围盒宽高非零判据、不可呈现回落 hero 贴靠；
+  壳层左座在屏检出（`button[data-mobile-nav="toggle"]`）时嵌入靶点改会话头槽首子
+  titleRow 行首、不可得维持旧行为；frame 观察增 childList 使锚出现确定唤醒
+  （frameObserver）；e2e mobileShell 档（boot 装配 + E2E_SKIP 常量 + runner SKIP 记账
+  + spec 具名导出档位声明）；新增 e2e/specs/mobile-shell.mjs；check.mjs 落位契约断言
+  同步六条；SOLUTION 落位机制段同步；TODO 三条已甄别条目迁出。
+- 测试: `pnpm verify:fast` 全绿（agentmap lint + test-impact lint + check.mjs 全部断言）；
+  `pnpm verify` 全绿且全量 e2e 21/21 通过（311469ms，最终代码态）；mobile-drawer 单跑
+  ×3 PASS、resize 单跑 ×2 PASS（回归期两例失败均收敛）；mobile-shell spec 重构后单跑
+  PASS；SKIP 路径实证（`dsh plugin add <不存在包>` exit 1 且不污染 profile package.json）；
+  真机触感与软键盘行为保留人工验收（CONVENTIONS 移动端验证纪律）。
+- SOLUTION 对照: 落位机制段与实现一致（嵌入前提=header 可呈现、左座占用时靶点=
+  会话头槽首子、hero 触发=标题行不可呈现且锚在屏、锚出现=frame childList+属性翻转
+  确定唤醒）；PRD 不动，R-01-008/AC-04 措辞「嵌入标题行行首、位于左边栏切换按钮右
+  侧」已容纳新语义；双轴独立审核确认 map 与 code 一致。
+- commit: d94d6f8
+- review:
+  - 审核方: code-review skill 双轴并行子代理（Standards 轴 + Spec 轴，独立上下文）。
+  - 目的理解: dsh 0.2.0 移动壳层代差回归修复——空白页入口按钮不可见与 active 页双开关
+    同位叠置两例实证缺陷，加 e2e 壳层覆盖缺口；预期行为 = 真壳层下 hero 贴靠 ⊡ 右侧
+    8px 垂直居中、active 嵌 titleRow 行首不叠置、桌面行为不变；验证 = verify:fast +
+    全量 e2e + 真壳层 spec + SKIP 路径实证。
+  - 执行方式: code-review skill，评审基线 HEAD（1311d96），范围=工作区全部改动；
+    Standards 轴按 AGENTS.md + CONVENTIONS.md + Fowler smell 基线，Spec 轴按 task
+    收敛方案 + PRD R-01-008/AC-04 + SOLUTION 落位机制段。
+  - 问题与修复: ①SOLUTION 新增条目单句超 40 字（硬伤低危）→ 拆子列表（含复审后顺手
+    拆除 174 残余长行）；②frameAttrObserver 名不达意 → 改名 frameObserver；③spec 隐藏
+    链两现与 frame 链三现 → 本地 helper hiddenByDisplayNone/drawerState；④E2E_SKIP 三
+    处字面量 → boot.mjs 具名导出常量；⑤check.mjs:4487 弱断言 → 收紧为完整语句；⑥
+    check 缺 childList 断言（spec 轴发现）→ 完整子串断言 `attributeFilter:
+    ["data-sidebar-collapsed"], childList: true`；⑦hero 几何断言困于 if(headerHidden)、
+    壳层改版时静默失效（spec 轴发现）→ else 分支补 inHeader 兜底；⑧drawerState 空值
+    守卫 `frame === null` 永不命中（nit）→ 改 `frame == null`。
+  - 复审结论: Spec 轴「两条处理项均已核实修复，等值重构核对通过，除低危 nit 外无剩余
+    问题」（nit 已修）；Standards 轴「五项处置逐项核实全部落实，未引入新问题，复审结
+    论：通过」。残余风险：mobile-shell spec 依赖 registry 提供 dsh-web-mobile，不可达
+    时该档 SKIP（显式记账，门禁硬化的取舍呈东家）；SKIP 记 exit 0 与 CONVENTIONS 完
+    整门禁的张力呈东家定夺；真机触感保留人工验收。
+- 范围外记录: SKIP 静默放行与完整 e2e 门禁的张力（CONVENTIONS.md:66）已呈东家，处置
+  待定夺；不构成本 task 缺口。

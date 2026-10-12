@@ -1580,16 +1580,16 @@ function apply(ctx) {
 		// 寻址取首个在屏者；抽屉打开期间壳层在 drawerOpen 翻转的同一 reconciler 遍
 		// 内移除 ⊡（overlay-backdrop-fab ensure），锚不可测走保留分支——开关已被
 		// 抽屉与遮罩在层级上盖住，保留原位即「一直在抽屉后面被挡住」（T-168）。
-		let fabRect = null;
+		let fabEl = null;
 		for (const fab of document.querySelectorAll('button[data-mobile-nav="toggle"], button[data-mobile-nav="fab"]')) {
 			const rect = fab.getBoundingClientRect();
 			if (rect.width > 0 && rect.x > ON_SCREEN_X) {
-				fabRect = rect;
+				fabEl = fab;
 				break;
 			}
 		}
 		const frame = document.querySelector("[data-shell-overlay]")?.parentElement ?? null;
-		if (fabRect === null || frame === null) {
+		if (fabEl === null || frame === null) {
 			// 锚或挂载点不可得：已落位开关保留原位几何——宿主抽屉打开窗口内壳层移除
 			// ⊡，开关由抽屉（1300）与遮罩（1250）遮挡，摘除会在关抽屉后经复检凭空
 			// 重现（T-168 东家否决）；随失效行/旧 frame detach 的开关不可见，由下一
@@ -1604,10 +1604,16 @@ function apply(ctx) {
 		toggle.setAttribute("data-hero", "");
 		// 定位关键量内联钉死（T-164 策略）：absolute 几何不依赖样式表状态；
 		// 38 为样式表 height 缺省，量测失败时保底。
+		// 几何取锚的布局坐标（offsetLeft/Top/Width/Height）而非视口 rect（T-172）：
+		// 两者同为 frame 直系子项、offsetParent 同为 frame，布局坐标即 frame 内
+		// absolute 坐标本身；视口 rect 含 frame 自身位移（iOS rubber-band/滚动期
+		// 合成层位移），烘进 frame 内坐标等于把该位移重复计入一次——位移期间每次
+		// 重落位都让开关相对 ⊡ 多漂一份位移（实测 40px 位移重落位后总位移 80px），
+		// 且离散重落位呈顿挫。布局坐标不受祖先 transform 影响，重落位幂等稳定。
 		const toggleHeight = toggle.offsetHeight || 38;
 		toggle.style.position = "absolute";
-		toggle.style.top = `${Math.round(fabRect.top + (fabRect.height - toggleHeight) / 2)}px`;
-		toggle.style.left = `${Math.round(fabRect.right + 8)}px`;
+		toggle.style.top = `${Math.round(fabEl.offsetTop + (fabEl.offsetHeight - toggleHeight) / 2)}px`;
+		toggle.style.left = `${Math.round(fabEl.offsetLeft + fabEl.offsetWidth + 8)}px`;
 	}
 
 	// 桌面判定与"真实参与布局"：中间列切为行方向，窗格固定宽、会话根弹性填充

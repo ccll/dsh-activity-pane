@@ -4490,8 +4490,10 @@ assert.ok(bundle.includes('button[data-mobile-nav="toggle"], button[data-mobile-
 assert.ok(bundle.includes('document.querySelector("[data-shell-overlay]")?.parentElement'), "hero 落位挂宿主 frame（data-shell-overlay 的 parentElement，与壳层 findFrame 同源）");
 assert.ok(bundle.includes('toggle.setAttribute("data-hero", "")'), "hero 落位写入 data-hero 标记");
 assert.ok(bundle.includes('toggle.style.position = "absolute"'), "hero 态以内联样式钉死 position:absolute（T-164 策略）");
-assert.ok(bundle.includes("fabRect.right + 8"), "hero 贴靠锚点右侧 8px（与 C-091 算式同源）");
-assert.ok(bundle.includes("fabRect.height - toggleHeight"), "hero 贴靠与锚点垂直居中");
+assert.ok(bundle.includes("fabEl.offsetWidth + 8"), "hero 贴靠锚点右侧 8px（与 C-091 算式同源）");
+assert.ok(bundle.includes("fabEl.offsetHeight - toggleHeight"), "hero 贴靠与锚点垂直居中");
+assert.ok(bundle.includes("fabEl.offsetTop + (fabEl.offsetHeight - toggleHeight) / 2"), "hero 贴靠几何取锚布局坐标（offsetLeft/Top，T-172：视口 rect 含 frame 自身位移，烘进 frame 内坐标会把位移重复计入）");
+assert.ok(!bundle.includes("fabRect"), "hero 贴靠不再使用视口 rect 烘几何（T-172 位移重复计入根因）");
 assert.ok(bundle.includes("if (frame === null && toggle.parentElement !== null) toggle.remove();"), "开关摘除仅限壳层结构缺失且已挂载（锚缺失期间已落位开关保留原位，未落位不渲染，fail-visible，C-093、T-168）");
 assert.ok(bundle.includes("const ON_SCREEN_X = -10;"), "在屏判据阈值具名常量（hero 锚在屏判据）");
 assert.ok(bundle.includes('"<span class=\\"dap-toggle-count\\"></span>"'), "开关为徽标单挂骨架：仅计数徽标，无图标与文字标签");

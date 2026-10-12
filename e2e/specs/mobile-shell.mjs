@@ -27,6 +27,10 @@ const hiddenByDisplayNone = (page, selector) => page.evaluate((selector) => {
 }, selector);
 
 // 宿主 frame：壳层抽屉状态机本体（[data-shell-overlay] 的 parentElement）。
+// evaluate 返回元素在本仓 Playwright 中被序列化为字符串而非句柄，取句柄须 evaluateHandle。
+const frameEl = (page) => page.evaluateHandle(() =>
+	document.querySelector("[data-shell-overlay]")?.parentElement ?? null);
+
 const drawerState = (page) => page.evaluate(() => {
 	const frame = document.querySelector("[data-shell-overlay]")?.parentElement;
 	return frame == null ? null : frame.hasAttribute("data-sidebar-collapsed");
@@ -73,6 +77,36 @@ export default async function mobileShellSpec({ page, url, assert }) {
 			Math.abs(tx - Math.round(fx + fw + 8)) <= 2 && Math.abs(ty - Math.round(fy + (fh - th) / 2)) <= 2,
 			`hero 开关贴靠 ⊡ 右侧 8px 垂直居中（开关 [${[tx, ty].map(Math.round)}] vs ⊡ [${[fx, fy, fw, fh].map(Math.round)}]，R-01-008/AC-04）`,
 		);
+		// 位移耦合回归（T-172）：视口层位移（iOS rubber-band 同类，布局不变）期间
+		// 摘除开关并唤醒守卫重落位，重落位几何必须取锚布局坐标——视口 rect 烘进
+		// frame 内坐标会把 frame 自身位移重复计入（缺陷态：40px 位移重落位后总位
+		// 移 80px、相对 ⊡ 漂 40px）。断言位移后相对几何不变。
+		const baseRelX = tx - fx;
+		const baseRelY = ty - fy;
+		const frame = await frameEl(page);
+		assert.ok(await frame.evaluate((el) => el !== null), "宿主 frame 在场（壳层前提，T-172 位移回归前置）");
+		await page.evaluate((el) => {
+			el.style.transform = "translateY(40px)";
+			document.querySelector(".dap-toggle")?.remove();
+		}, frame);
+		await until("位移后开关经守卫唤醒重落位", () =>
+			page.evaluate(() =>
+				document.querySelector(".dap-toggle[data-hero]") !== null ? true : null));
+		const shifted = await page.evaluate(() => {
+			const toggle = document.querySelector(".dap-toggle[data-hero]");
+			const fab = document.querySelector('button[data-mobile-nav="fab"]');
+			if (toggle === null || fab === null) return null;
+			const tr = toggle.getBoundingClientRect();
+			const fr = fab.getBoundingClientRect();
+			return { relX: tr.x - fr.x, relY: tr.y - fr.y };
+		});
+		assert.ok(
+			shifted !== null && Math.abs(shifted.relX - baseRelX) <= 1 && Math.abs(shifted.relY - baseRelY) <= 1,
+			`层位移 40px 后重落位仍贴靠 ⊡（相对几何不变，T-172；实测 rel=[${shifted === null ? "?" : [shifted.relX, shifted.relY].map(Math.round)}] 基线 [${[baseRelX, baseRelY]}]）`,
+		);
+		await page.evaluate((el) => {
+			el.style.transform = "";
+		}, frame);
 	} else {
 		// 壳层不再隐藏 hero header 时的兜底：贴靠分支退场，开关应回归嵌入形态。
 		assert.equal(hero.inHeader, true, "hero header 可见时开关嵌入 header（壳层改版兜底，T-171）");

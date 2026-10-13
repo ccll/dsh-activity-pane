@@ -1231,7 +1231,18 @@ def ref_decision_entry(root: Path, ref: str) -> tuple[str, str] | None:
     return None
 
 
-def check_history_transition(root: Path, result: Result, parent: str, commit: str, check_additions: bool) -> None:
+def check_history_transition(
+    root: Path,
+    result: Result,
+    parent: str,
+    commit: str,
+    check_additions: bool,
+    check_task_creation: bool | None = None,
+) -> None:
+    # 合并提交的分支侧任务生命周期在同一次待推集合内已被逐提交校验；
+    # 相对第一父级的「新增即终态」误报不成立，仅对非合并提交检查。
+    if check_task_creation is None:
+        check_task_creation = check_additions
     old_entry = ref_decision_entry(root, parent)
     new_entry = ref_decision_entry(root, commit)
     if check_additions and old_entry and old_entry[1]:
@@ -1261,7 +1272,7 @@ def check_history_transition(root: Path, result: Result, parent: str, commit: st
             continue
         result.errors.append(f"{commit[:12]}: {path} changed after reaching a terminal state")
 
-    if not check_additions:
+    if not check_task_creation:
         return
     reverse_renames = {new: old for old, new in renamed_paths.items()}
     for path, text in new_tasks.items():
@@ -1279,7 +1290,14 @@ def check_outgoing_history(root: Path, result: Result, input_text: str) -> None:
             continue
         parents = commit_parents(root, commit)
         for index, parent in enumerate(parents):
-            check_history_transition(root, result, parent, commit, check_additions=index == 0)
+            check_history_transition(
+                root,
+                result,
+                parent,
+                commit,
+                check_additions=index == 0,
+                check_task_creation=index == 0 and len(parents) == 1,
+            )
 
 
 def check_merge_task_renumbering(
@@ -2310,6 +2328,114 @@ def self_test_merge_task_renumbering() -> None:
         assert not resolved.errors, resolved.errors
 
 
+def self_test_merge_task_lifecycle() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        write_fixture(root)
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.email", "agentmap@example.invalid"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.name", "AgentMap"], cwd=root, check=True)
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "initial"],
+            cwd=root,
+            check=True,
+        )
+        base = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+        ).stdout.strip()
+        main_branch = subprocess.run(
+            ["git", "branch", "--show-current"], cwd=root, check=True, capture_output=True, text=True
+        ).stdout.strip()
+        task = (root / "tasks/T-001-20260801-search.md").read_text(encoding="utf-8")
+
+        # 分支内任务走完 active → completed 生命周期
+        subprocess.run(["git", "switch", "-qc", "adapt"], cwd=root, check=True)
+        branch_task = root / "tasks/T-002-20260802-branch.md"
+        branch_task.write_text(
+            task.replace("id: T-001", "id: T-002").replace("# Search", "# Branch"),
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "add", "tasks"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "branch task active"],
+            cwd=root,
+            check=True,
+        )
+        branch_commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+        ).stdout.strip()
+        branch_task.write_text(
+            branch_task.read_text(encoding="utf-8").replace("状态: active", "状态: completed")
+            + f"""
+- 实现: merged
+- 测试: passed
+- SOLUTION 对照: SOLUTION 与实现一致
+- review:
+  - 审核方: reviewer-agent
+  - 目的理解: 验证合并携带终态任务
+  - 执行方式: code-review skill
+  - 问题与修复: 无
+  - 复审结论: pass
+- commit: {branch_commit}
+""",
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "add", "tasks"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "branch task completed"],
+            cwd=root,
+            check=True,
+        )
+
+        # 主侧分叉后再前进，保证合并为真合并
+        subprocess.run(["git", "switch", "-q", main_branch], cwd=root, check=True)
+        prd = root / "PRD.md"
+        prd.write_text(prd.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        subprocess.run(["git", "add", "PRD.md"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "main side work"],
+            cwd=root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", "merge", "--no-ff", "-m", "Merge branch 'adapt'", "adapt"],
+            cwd=root,
+            check=True,
+        )
+        merge_tip = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+        # 合并携带分支内走完生命周期的终态任务：不得报「新增即终态」
+        merged = Result()
+        check_outgoing_history(root, merged, f"refs/heads/main {merge_tip} refs/heads/main {base}")
+        assert not merged.errors, merged.errors
+
+        # 线性提交直接新增终态任务：检查保持有效
+        linear_task = root / "tasks/T-003-20260803-linear.md"
+        linear_task.write_text(
+            task.replace("id: T-001", "id: T-003")
+            .replace("# Search", "# Linear")
+            .replace("状态: active", "状态: completed"),
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "add", "tasks"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "linear terminal task"],
+            cwd=root,
+            check=True,
+        )
+        linear_tip = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+        ).stdout.strip()
+        linear = Result()
+        check_outgoing_history(root, linear, f"refs/heads/main {linear_tip} refs/heads/main {base}")
+        assert any(
+            "was created directly in a terminal state" in error for error in linear.errors
+        ), linear.errors
+
+
 def self_test() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -2576,6 +2702,7 @@ def self_test() -> None:
         )
         assert "T-002" in historical_task_ids(root)
     self_test_merge_task_renumbering()
+    self_test_merge_task_lifecycle()
     print("agentmap lint self-test passed")
 
 

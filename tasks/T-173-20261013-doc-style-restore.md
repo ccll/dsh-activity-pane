@@ -6,7 +6,7 @@ id: T-173
 
 # T-173 活文档格式化批次文风还原与内容增量移植
 
-状态: active
+状态: completed
 关联: 1c6994f 格式化批次的逆向内容保持重写（无 R/AC 语义变化、无 AC 增删）
 风险等级: standard
 
@@ -99,5 +99,21 @@ id: T-173
 
 ## 终态与证据
 
-- 实现: 活文档格式化前文风还原与内容增量移植进行中（见收敛方案）。
-  - 双轴评审（Standards 轴与 Spec 轴独立子代理）已通过：无硬性违规；评审指出的 SOLUTION.md 三空格缩进残留随本提交修正，其余判断性发现经底稿/HEAD 原文比对确系固有形态予以保留。
+- 实现: 五活文档以 1c6994f^ 底稿恢复文风，1c6994f..HEAD 内容增量逐 hunk 移植。
+  - PRD/SOLUTION：实现提交 4bdfa9f；DOMAIN/CONVENTIONS/TODO：实现提交 92b9ce3。
+  - 纯格式 hunk（拆条/断句/同义改写，含 75e2de8 的 T-167 拆句与 DOMAIN「宿主侧栏展开按钮」拆分）不移植；HEAD 误粘的「页面契约/卸载契约」单行按底稿拆回两行。
+  - T-167 档案还原 75e2de8^ 形态并移植 c48a5dd 关闭记录后与 HEAD 逐字一致，无需单独提交；T-156 等批次后新建档案不适用底稿还原，未动。
+- 测试: pre-commit 四 hook 全绿（agentmap lint、test impact、`node scripts/check.mjs` 全部断言、staged client bundle 校验）。
+  - 引用 ID（R/AC/C/T/NG/F）多重集机检：逐文件 Counter 等值，仅 HEAD 有/仅新稿有均为空；AC added=0/deleted=0，modified 48 个均为措辞还原，以本 task 测试影响 none 行豁免。
+  - agentmap lint report：requirements=28、acceptance-criteria=179、solution-covered=28、test-anchored=179 与开工基线一致；tasks completed 172→173（本 task 入档）。
+  - 全量 `pnpm verify` 由 pre-push 重门禁承载。
+- SOLUTION 对照: 28 条需求追溯一一对应。
+  - 追溯索引表格、canonical commit block、本地参数与全部阈值字面量未动。
+  - 内容与 HEAD 完全等价，仅列表形状与行文形态回到底稿旧式。
+- commit: 4bdfa9f 与 92b9ce3 实现，8f8c44a 评审缩进修复；本提交关闭 task。
+- review:
+  - 审核方: code-review skill 双轴并行评审（Standards 轴与 Spec 轴各一独立子代理，评审基线 7b851aa...92b9ce3）。
+  - 目的理解: 在东家「内容保持重写」指示下，把 1c6994f 电报体改写还原为旧文风并保留其后全部内容增量；内容以 HEAD 为唯一事实源，引用 ID 多重集逐文件等值，lint 四项计数不变，RATIONALE.md 不动。
+  - 执行方式: Standards 轴对照全局/项目 AGENTS.md 与 CONVENTIONS.md 及气味基线机检（去标点全量比对 40 处 AC 措辞变化全部落在本 task 测试影响 none 行内，方向安全）；Spec 轴逐条核证任务规格 1–5（多重集等值、AC 行还原边界、内容增量在位、提交三节齐备、lint 计数一致）。
+  - 问题与修复: Standards 轴指出 SOLUTION.md:217 三空格缩进残留，已修正并单独提交（详见该提交）；其余判断性发现（SOLUTION.md 游离空行、DOMAIN.md 并句、SOLUTION.md:238 双层括号、TODO.md 空行）经与底稿 1c6994f^ 与 HEAD 原文逐字比对确系底稿或 HEAD 固有形态，按忠实恢复原则保留；AGENTS.md:84 写作风格条款与 TODO.md 中 T-152 条目的方向冲突属范围外遗留，已作为后续同步建议上报。
+  - 复审结论: 双轴均无硬性违规；Spec 轴结论「受审范围内符合规格」；评审后复核引用 ID 多重集逐文件平衡、lint 四项计数与基线一致。

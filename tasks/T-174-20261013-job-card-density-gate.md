@@ -6,7 +6,7 @@ id: T-174
 
 # T-174 后台任务子卡档位门控与资源纪律
 
-状态: active
+状态: completed
 关联: R-01-023、R-01-025
 风险等级: standard
 
@@ -64,4 +64,34 @@ id: T-174
 
 ## 终态与证据
 
-（active 期间编辑，终态后补全）
+- 实现: 后台任务子卡档位门控与时长时钟停摆（R-01-023/AC-10、R-01-025/AC-08）。
+  - 提交 816515e（实现）：src/core.mjs 新增 `runningClockWanted(entries, runLikeIds)` 时钟需求判定纯函数（job → 驱动；running → 自身回合运行或非仅 liveJobs 支撑运行呈现；runLike 子代理命中 → 驱动；委托周期母会话保留驱动语义）；src/client.mjs 渲染主循环在中间/紧凑档单点过滤 job 子条目（门控注释锚双 AC）、时钟调用收口 `syncLiveness(runLikeIds, runningClockWanted(active, runLikeIds))`、移除紧凑档 `.dap-job-content` 死规则并同步 job 卡结构注释；e2e/specs/background-jobs.mjs 重写为门控与零逐秒重绘断言；scripts/check.mjs 增 runningClockWanted 六态断言并更新 bundle 契约断言（clientSource 单文件断言收口调用形态，子代理字面量改查 bundle 段）；PRD R-01-025/AC-08 措辞精确化与 SOLUTION 四处落点同提交。
+- 测试: 快速门禁与全量门禁逐项通过。
+  - `pnpm verify:fast` 全绿（agentmap lint 28 需求/181 AC 全锚定、测试影响记账 +R-01-023/AC-10 +R-01-025/AC-08、check.mjs 161 断言）。
+  - `pnpm verify` 全量 21 spec 通过（两轮：复审收敛前后各一轮，均全绿）；e2e/specs/background-jobs.mjs 隔离连跑两次 PASS（~20s）。
+  - 观测结构：静默闸（连续静默 ≥1.3s 达成前置，吸收回合收口竞态）+ 基线后 0.9s 零新增（合计 ≥2.2s ≥ 2 时钟周期），紧凑/中间两档各自独立收取；恢复断言轮询「非空且异于首读」防空转假通过。
+- SOLUTION 对照: SOLUTION 与实现一致。
+  - 产品契约「job 子条目为完整档专属呈现」子 bullet、渲染纪律「任务子卡不构建与时长时钟门控」子 bullet（含 `活动状态模型#runningClockWanted(entries, runLikeIds)` 伪锚）、任务子卡呈现 bullet 与两条需求追溯行均与实现对照无差异。
+  - 需求追溯索引含 R-01-023 行（主责 活动状态模型）与 R-01-025 行（主责 窗格渲染器），主责子系统反向承接成立。
+  - 测试锚点：`scripts/check.mjs#R-01-025/AC-08`（六态判定）、`scripts/check.mjs#R-01-023/AC-04`、`#R-01-023/AC-07`（契约层）；`e2e/specs/background-jobs.mjs#R-01-023/AC-01`、`#R-01-023/AC-02`、`#R-01-023/AC-05`、`#R-01-023/AC-08`、`#R-01-023/AC-09`、`#R-01-023/AC-10`、`#R-01-025/AC-08`、`#R-01-003/AC-04`。
+- commit: 816515e
+- review:
+  - 审核方: code-review skill 双轴并行独立子代理（Standards agent 179c2fe8、Spec agent 6d28fdff），基线 54b311d
+  - 目的理解: 本变更目的为中间/紧凑档「只看概要」时不呈现后台任务子卡、不为其占用后台资源（重绘与逐秒时钟），仅完整档承载子卡呈现；子卡存在性由母会话数量注承载。
+    - 约束：裁剪以档位为唯一输入；任务视图订阅、徽标计数、完成提醒抑制与活动区保留语义不受门控影响；委托周期母会话时钟语义不回退（client.mjs 运行卡时钟注释既有红线）。
+    - 预期行为：低档位 job 子条目在渲染主循环被剔除、随钟时长不注入渲染签名、无自身回合运行中会话与运行中子代理时不维持逐秒时钟；切回完整档随档位签名重渲染恢复子卡与时长推进。
+  - 执行方式: code-review skill 双轴并行评审。
+    - Standards 轴对照 AGENTS/CONVENTIONS 写作与过程规范；Spec 轴对照 T-174 与 PRD R-01-023、R-01-025，SOLUTION 落点与实现。
+    - 两轮：首轮发现逐条处置 → 同审核方复审闭环；复审覆盖工作树与实现提交 816515e。
+  - 问题与修复: 首轮六项发现逐条修复并经同一审核方复审闭环（明细如下）。
+    - （Spec）「不为在跑后台任务维持逐秒渲染时钟」与实现偏差：clockWanted 计入 kind==="running"，仅 liveJobs 支撑运行呈现的母卡仍驱动时钟 → 收口 core 纯函数 runningClockWanted + 六态 unit 断言 + PRD/SOLUTION 措辞精确化（EARS 可判定：逐秒周期性工作由 unit 判定，持续重绘窗格由 E2E 零 DOM 变更判定）。
+    - （Spec）完整档恢复断言可空转假通过 → 轮询「非空且异于首读」。
+    - （Spec）task 测试计划锚点过度承诺（AC-04/AC-07 实为 check.mjs 契约层）与验证矩阵边界配置行虚述合取 → 锚点列实、实述两 spec 各证一半。
+    - （Standards）SOLUTION 契约 bullet 追加整句致超长单行 → 拆嵌套子 bullet（既有超长主体拆分已有 T-152 登记，不在本次扩面）。
+    - （Standards）E2E observer 探针块逐字重复两段 → 提取 armJobClockObserver/observeQuietWindow helper。
+    - （Standards）门控复核断言与 until 谓词重复、core 双否定可读性 → 断言并入前置 assert 文案、改清晰写法（语义等价）。
+  - 复审结论: Standards 轴复审通过（轻微残留两处已修，新增面无发现）；Spec 轴复审通过、无阻塞发现（谓词语义、调用点、观测窗可信性与 PRD EARS 可判定性均核验确认）。
+- 残余风险与测试缺口:
+  - 低档位内母会话数量注 1→2 动态更新无直接断言（在场断言与数据层签名含 liveJobs 间接承载）。
+  - 「刷新持久化恢复」与「低档位门控」并存的合取场景无单点断言（compact-density.mjs 与 background-jobs.mjs 各证一半）。
+  - 观测窗恰逢探针任务收尾时可能误报（探针 ~60s 覆盖全 spec 时长，风险低）；静默闸超时失败附变更归因日志，误报可辨。

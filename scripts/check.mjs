@@ -41,6 +41,7 @@ import {
 	fmtTokens,
 	isActiveRow,
 	shouldSubscribeToSession,
+	runningClockWanted,
 	liveJobsOf,
 	jobKindLabel,
 	activeSessionIds,
@@ -3649,6 +3650,39 @@ const emptyLabelEntry = buildEntries(jobbedSnapshot, [], {}, null, null, [], nul
 assert.ok(emptyLabelEntry !== undefined, "R-01-023/AC-06 前置：内容不可得的在跑任务仍产出子卡");
 assert.equal(emptyLabelEntry.title, "", "R-01-023/AC-06 任务内容不可得时条目内容为空串");
 
+// ---- R-01-025 任务子卡不构建与时长时钟门控（T-174） ----
+// R-01-025/AC-08：运行卡逐秒时钟需求判定 runningClockWanted——仅由在跑后台任务支撑
+// 运行呈现的母会话（selfRunning 为假且 liveJobs 非空）自身无逐秒推进分量，低档位
+// （job 子条目被剔除后）不驱动时钟；job 子条目、开放回合会话、委托周期母会话与
+// 运行中子代理照常驱动。
+const jobOnlyMother = [{ id: "solo", kind: "running", selfRunning: false, liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] }];
+assert.equal(
+	runningClockWanted(jobOnlyMother, new Set()),
+	false,
+	"R-01-025/AC-08 仅由在跑后台任务支撑运行呈现的母会话不驱动逐秒时钟（低档位 job 子条目被剔除后的形态）",
+);
+assert.equal(
+	runningClockWanted([...jobOnlyMother, { id: "job:solo:job-1", kind: "job", jobStatus: "running" }], new Set()),
+	true,
+	"R-01-025/AC-08 job 子条目在场（完整档）时驱动逐秒时钟——切回完整档恢复任务时长推进",
+);
+assert.equal(
+	runningClockWanted([{ id: "live", kind: "running", selfRunning: true }], new Set()),
+	true,
+	"R-01-025/AC-08 自身回合运行中的会话照常驱动逐秒时钟（累计运行时长逐秒推进，R-01-020）",
+);
+assert.equal(
+	runningClockWanted([{ id: "deleg", kind: "running", selfRunning: false }], new Set()),
+	true,
+	"R-01-025/AC-08 委托周期运行呈现的母会话照常驱动逐秒时钟（既有语义保持）",
+);
+assert.equal(
+	runningClockWanted([{ id: "sub1", kind: "subagent" }], new Set(["sub1"])),
+	true,
+	"R-01-025/AC-08 运行中子代理照常驱动逐秒时钟（R-01-009/AC-14）",
+);
+assert.equal(runningClockWanted([], new Set()), false, "R-01-025/AC-08 空活动区不维持逐秒时钟");
+
 // ---- 重建 client bundle 并校验产物契约 ----
 await mkdir(join(root, ".dsh-plugin"), { recursive: true });
 execFileSync(process.execPath, [join(root, "scripts/build-client.mjs")], {
@@ -4942,8 +4976,9 @@ assert.ok(
 	"运行中子代理卡按与运行卡相同的锚点口径现算进度（R-01-009/AC-14）",
 );
 assert.ok(
-	clientSource.includes("entry.kind === \"subagent\" && runLikeIds.has(entry.id)"),
-	"运行卡时钟条件纳入运行中子代理卡（R-01-009/AC-14）",
+	clientSource.includes("syncLiveness(runLikeIds, runningClockWanted(active, runLikeIds))") &&
+		bundle.includes('entry?.kind === "subagent" && runLikeIds.has(entry.id)'),
+	"运行卡时钟条件纳入运行中子代理卡（R-01-009/AC-14；判定收口 runningClockWanted，R-01-025/AC-08，T-174）",
 );
 // 非运行子代理卡：进度条整行隐藏、统计与最近回合耗时冻结。
 assert.ok(

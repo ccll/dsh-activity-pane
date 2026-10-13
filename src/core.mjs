@@ -1987,6 +1987,23 @@ export function shouldSubscribeToSession(entry, byId = {}) {
 	return entry?.id != null && byId?.[entry.id]?.running === true;
 }
 
+/** 运行卡逐秒时钟需求判定（R-01-025/AC-08，T-174）：入参为渲染层已按档位过滤后的活动条目
+ *  与轮内订阅集合。条目自身呈现含逐秒推进分量才需要时钟——job 子条目承载任务时长（低档位
+ *  已被剔除出列表，天然只在完整档出现）；kind "running" 中开放回合会话（累计运行时长逐秒
+ *  推进，R-01-020）与委托周期母会话照常驱动，仅由在跑后台任务支撑运行呈现的母会话
+ *  （selfRunning 为假且 liveJobs 非空）自身无逐秒分量不计入；运行中子代理照常驱动。 */
+export function runningClockWanted(entries = [], runLikeIds = new Set()) {
+	const list = Array.isArray(entries) ? entries : [];
+	return list.some(
+		(entry) =>
+			entry?.kind === "job" ||
+			(entry?.kind === "running"
+				? entry.selfRunning === true || (entry?.liveJobs?.length ?? 0) === 0
+				: false) ||
+			(entry?.kind === "subagent" && runLikeIds.has(entry.id)),
+	);
+}
+
 /** 会话行是否满足活动区显示判定（自身活动或存在活动后代）。 */
 export function isActiveRow(row, byId = {}, activeIds = null) {
 	if (isOwnActiveRow(row, byId)) return true;

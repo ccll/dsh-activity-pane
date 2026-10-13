@@ -7,15 +7,26 @@
 //
 // 数据来源：DSH 原生 `sessions` / `workspaces` 客户端服务（推送式快照）+ `remote`
 // 服务的部署级模型目录（session/modelCatalog）与会话日志分页（session/page，
-// Session 格式 V3——dsh 0.1.5 起快照不再携带会话内容、connection.api 门面移除）+
-// 运行中会话的原生订阅（binding().session，运行状态面）+ 可选 `modelDirectories`
-// 目录 store 订阅（模型选择实时更新），不依赖任何第三方插件数据路由，也不做状态轮询。
+// Session 格式 V3——快照不再携带会话内容、connection.api 门面移除）+ `jobs` 服务的
+// 会话任务 roster（watchRows/state.rows，0.2.0 起 jobsBySession 自列表快照移除）+
+// `uiSession.sessionStatus` 统一状态面（running/pendingInteraction/completionUnread，
+// 0.2.0 取代 pendingInteractions）+ 运行中会话的原生订阅（retain 引用的 binding，
+// 运行状态面与 eventSource 日志窗口）+ 可选 `modelDirectories` 目录 store 订阅
+// （模型选择实时更新），不依赖任何第三方插件数据路由，也不做状态轮询。
+//
+// 会话代际生命周期（dsh 0.2.0，T-170）：`binding()` 只借用已保留代际，插件经
+// `sessions.retain(target, { source: "dsh-activity-pane" })` 显式持有可见卡片的
+// 会话引用（子代理以 `sessions.subagentAddress()` 解析的持久父地址为 target），
+// `reference.ready` 落定后接线 binding.eventSource 日志窗口与 session 运行态订阅；
+// 引用随可见性 prune、紧凑档拆窗、服务代际更替与卸载释放。
 
 const name = "dsh-activity-pane";
-// remote.session：dsh 0.1.5 起会话 RPC（目录/日志分页）经 api-remotes 的点分命名空间
-// 注入（cordis 代理对未注入属性直接抛错，父服务声明不代表子命名空间可用；仅声明
-// 子命名空间即可解析，无需再注入父面）。
-const inject = ["sessions", "workspaces", "uiSession", "remote.session"];
+// remote.session：会话 RPC（目录/日志分页）经 api-remotes 的点分命名空间注入
+// （cordis 代理对未注入属性直接抛错，父服务声明不代表子命名空间可用；仅声明
+// 子命名空间即可解析，无需再注入父面）。jobs/uiWorkspace：0.2.0 起后台任务
+// roster 与会话导航分别由 jobs 服务（dsh-api-job-controller client 半面）与
+// uiWorkspace.openSession（dsh-client-ui-workspace）承载。
+const inject = ["sessions", "workspaces", "uiSession", "remote.session", "jobs", "uiWorkspace"];
 
 const CONVERSATION_SELECTOR = "#root [data-slot=\"main\"]";
 const PANE_ATTR = "data-dsh-activity-pane";
@@ -138,8 +149,10 @@ const CSS = `
   -webkit-overflow-scrolling: touch;
   padding: 0 0 10px;
   /* Keep the native scrollbar just left of the edge handle, as in the host
-     sidebar; stable keeps the list geometry unchanged when overflow appears. */
-  margin-right: var(--dsh-scrollbar-width, 8px);
+     sidebar; stable keeps the list geometry unchanged when overflow appears.
+     max() 下限 = 调宽手柄宽度（6px）：dsh 0.2.0 起宿主 scrollbar-width token
+     收窄到 5px，裸 token 会让手柄压住滚动条命中区（T-170）。 */
+  margin-right: max(var(--dsh-scrollbar-width, 8px), 6px);
   scrollbar-gutter: stable;
 }
 /* 滚动条在滚动或鼠标进入窗格时显示（R-01-004/AC-03，与外壳侧栏一致）：thumb 默认透明，
@@ -1333,9 +1346,11 @@ function apply(ctx) {
 	let sessions = null;
 	let workspaces = null;
 	let uiSession = null;
+	let jobs = null;
 	let sessionUnsubscribe = null;
 	let workspaceUnsubscribe = null;
 	let pendingUnsubscribe = null;
+	let jobsUnsubscribe = null;
 	let clockTimer = null;
 	let recentTimeTimer = null;
 	let syncScheduled = false;
@@ -1381,8 +1396,13 @@ function apply(ctx) {
 	 *  重挂载后保留（R-01-021/AC-06）。 */
 	let densityLevel = readStoredDensity();
 	/** 待执行的锚定补偿：档位切换时登记当前选中卡片顶部的视口相对位置，本轮渲染
-	 *  提交后量测该卡新位置并补偿 scrollTop（R-01-021/AC-01）。 */
+	 *  提交后量测该卡新位置并补偿 scrollTop（R-01-021/AC-01）。
+	 *  dsh 0.2.0（T-170 审核）：切回更高档位时窗口经 retain→ready 异步重建，时间线
+	 *  内容分多帧长回——补偿在沉降窗内逐帧执行，位置稳定或超窗即撤（单帧补偿
+	 *  会漏掉后期增长，锚点漂移）。 */
 	let pendingDensityAnchor = null;
+	/** 锚定补偿沉降窗截止时刻：窗内逐帧补偿，位置稳定提前撤，超窗强制撤。 */
+	let densityAnchorDeadline = 0;
 	/** 用户最近一次激活的卡片 id；打开重试链被更新的激活意图取代即取消。 */
 	let lastActivatedId = null;
 	/** 最近一次已处理的当前卡片；同一卡片的运行时重绘不反复打断用户手动滚动。 */
@@ -1436,7 +1456,6 @@ function apply(ctx) {
 	let catalogGroups = [];
 	/** 部署级 modelCatalog 一次性读取的在途 Promise：成功即缓存、失败允许重试。 */
 	let catalogPromise = null;
-	/** native session.open() requests in flight; avoid duplicate cold history reads. */
 	/** 冷数据读取并发池：队列顺序即优先级（调用方已排序），逐个完成逐个重绘。 */
 	const loadQueue = [];
 	let loadInflight = 0;
@@ -1457,9 +1476,19 @@ function apply(ctx) {
 		pumpDetailLoads();
 		return promise;
 	}
-	const sessionOpenLoads = new Map();
-	/** 子代理目录按需拉取记账（T-151）：parentId → 已触发；失败不热重试（行为有界）。 */
-	const subagentCatalogRequests = new Set();
+	/** 插件持有的会话引用登记（dsh 0.2.0 retain 生命周期，T-170）：String(id) →
+	 *  { reference, session, eventSource, pending }。retain 以独立
+	 *  source `dsh-activity-pane` 持有可见卡片的会话代际（binding 只借用已保留代际，
+	 *  旧打开/释放调用已移出会话面）；释放点 = 可见性 prune / 紧凑档拆窗 /
+	 *  服务代际更替 / 卸载。 */
+	const sessionRefs = new Map();
+	/** 插件 retain source：与宿主 mainView/workspaceOperation 并列的独立消费方标识。 */
+	const PLUGIN_RETAIN_SOURCE = "dsh-activity-pane";
+	/** jobs 服务按会话 roster 订阅（dsh 0.2.0 起 jobsBySession 移除，R-01-023）：
+	 *  String(id) → stop()；对列表内全会话订 roster，随列表 prune。 */
+	const jobWatchById = new Map();
+	/** 母会话投影按需拉取记账（T-151 后继）：parentId 在途记账，完成即除名允许重试。 */
+	const projectionRefreshes = new Set();
 
 	const style = document.createElement("style");
 	style.id = STYLE_ID;
@@ -1870,34 +1899,37 @@ function apply(ctx) {
 		throw response?.error ?? new Error("remote request failed");
 	}
 
-	/** 母会话子代理目录条目查找（T-151 单源）：open 地址与深翻分页地址共用同一取法，
-	 *  防条目形状或键名演化时两处漂移。 */
-	function subagentCatalogEntry(subagentsByParent, parentId, id) {
-		const entries = subagentsByParent?.[String(parentId)]?.entries;
-		return Array.isArray(entries)
-			? entries.find((candidate) => String(candidate?.id) === String(id))
-			: undefined;
+	/** 母会话子代理目录条目查找（T-151 单源；T-170 改读 0.2.0 投影）：open 地址与
+	 *  深翻分页地址共用同一取法，防条目形状或键名演化时两处漂移。 */
+	function subagentCatalogEntry(projectionsBySession, parentId, id) {
+		const entries = subagentCatalogOf(projectionsBySession, parentId);
+		return entries?.find((candidate) => String(candidate?.id) === String(id));
 	}
 
 	/** 会话日志分页地址（R-01-012）：主会话 `{kind:"session", sessionId}`；子代理
-	 *  `{kind:"subagent", parentSessionId, childSessionId, mode}`——母会话 id 兼容
-	 *  `parentSessionId` / `parentId` 两种条目键名。mode 必须与子代理描述符一致，
-	 *  不一致被宿主以 subagent/unauthorized 拒绝（T-151）：优先取母会话目录条目的
-	 *  mode，目录条目缺失（未加载、在途空窗或无该子条目）时回退行 `continuable`
-	 *  启发（读取失败由 pagedHistoryEvents 以 null 收敛为空白详情，R-01-013）。 */
-	function sessionPageAddress(id, byId, subagentsByParent = null) {
+	 *  `{kind:"subagent", parentSessionId, childSessionId, mode}`。mode 必须与子代理
+	 *  描述符一致，不一致被宿主以 subagent/unauthorized 拒绝（T-151）：优先取母会话
+	 *  目录条目的 mode；目录条目缺失（未加载、在途空窗或无该子条目）时以 `unknown`
+	 *  兜底——0.2.0 SessionAddress 新增该合法值（旧行 `continuable` 字段已随 0.2.0
+	 *  行形状移除，启发不再可靠；读取失败仍由 pagedHistoryEvents 以 null 收敛为空白
+	 *  详情，R-01-013）。 */
+	/** 子代理行的母会话 id（T-170 审核发现 7）：0.2.0 行形状 parentSessionId，
+	 *  兼容旧 parentId 键，单点解析避免三处漂移。 */
+	function parentSessionIdOf(row) {
+		return row?.parentSessionId ?? row?.parentId;
+	}
+
+	function sessionPageAddress(id, byId, projectionsBySession = null) {
 		const row = byId[id] ?? {};
 		if (row?.origin === "subagent") {
-			const parentId = row.parentSessionId ?? row.parentId;
+			const parentId = parentSessionIdOf(row);
 			if (parentId !== undefined && parentId !== null) {
-				const entry = subagentCatalogEntry(subagentsByParent, String(parentId), id);
+				const entry = subagentCatalogEntry(projectionsBySession, String(parentId), id);
 				return {
 					kind: "subagent",
 					parentSessionId: String(parentId),
 					childSessionId: String(id),
-					mode: typeof entry?.mode === "string" && entry.mode !== ""
-						? entry.mode
-						: row.continuable === true ? "continuable" : "one-shot",
+					mode: typeof entry?.mode === "string" && entry.mode !== "" ? entry.mode : "unknown",
 				};
 			}
 		}
@@ -2041,7 +2073,21 @@ function apply(ctx) {
 			if (deepReadNeeded && !historyLoads.has(id)) {
 				detail.previewFallbackLoaded = true;
 				detail.durationFallbackLoaded = true;
-				const address = sessionPageAddress(id, byId, listSnap?.subagentsByParent ?? null);
+				// 子代理目录未加载时先拉母会话投影再重试（T-170 审核）：0.2.0 起
+				// 子代理分页地址的 mode 取自 projectionsBySession 目录，缺目录时
+				// 以 mode:"unknown" 贸然翻页可能被宿主拒绝、首读收敛为空白；
+				// 与 retain 路径同款单发拉取（ensureParentProjections），下一轮
+				// 渲染目录就位后按真实 mode 重试。
+				const rowById = byId[id] ?? {};
+				if (rowById?.origin === "subagent") {
+					const rowParentId = parentSessionIdOf(rowById);
+					if (rowParentId != null && subagentCatalogOf(listSnap?.projectionsBySession ?? null, String(rowParentId)) === undefined) {
+						ensureParentProjections(String(rowParentId));
+						queueSync();
+						continue;
+					}
+				}
+				const address = sessionPageAddress(id, byId, listSnap?.projectionsBySession ?? null);
 				const promise = enqueueDetailLoad(() => Promise.resolve()
 					.then(async () => {
 						const { events, error } = await pagedHistoryEvents({
@@ -2095,15 +2141,16 @@ function apply(ctx) {
 	 *  不 dispose、不拆订阅（由本函数在渲染期持续执法：其切走后的下一轮渲染
 	 *  照常释放）；当前会话不可判定（列表快照未就绪）时整轮跳过，不误释放。
 	 *  子代理日志窗口承载标题行可见的模型上下文，保留。切回更高档位时经既有
-	 *  渐进路径（captureSessionLog 重订阅 + session.open 重新水合）就绪，
+	 *  渐进路径（captureSessionLog 重订阅 + retain 重新水合）就绪，
 	 *  不新增恢复机制。 */
 	function enforceDensityDataDiscipline() {
 		if (densityLevel !== "compact") return;
 		const listSnap = getSnapshot(sessions, "list");
-		if (listSnap?.current == null) return;
+		const currentId = currentIdOf(listSnap);
+		if (currentId == null) return;
 		for (const [id, unsubscribe] of [...logSourceSubs]) {
 			if (!logWindowSuppressedFor(id, listSnap?.byId ?? {})) continue;
-			if (String(id) === String(listSnap.current)) continue;
+			if (String(id) === String(currentId)) continue;
 			try {
 				unsubscribe?.();
 			} catch {
@@ -2112,11 +2159,18 @@ function apply(ctx) {
 			logSourceSubs.delete(id);
 			const detail = sessionDetailsById.get(id) ?? null;
 			if (detail !== null) detail.log = null;
-			try {
-				sessions?.binding?.(id)?.session?.dispose?.();
-			} catch {
-				/* dispose 不可用：订阅已断即达成本档位纪律的可用部分 */
-			}
+			// dsh 0.2.0 retain 生命周期（T-170）：拆窗即释放插件引用——旧
+			// sessions.binding(id).session.dispose() 随 open/dispose 移出会话面而删除。
+			releaseSessionRef(id);
+		}
+		// 无窗口引用的兜底释放（T-170 审核）：引用可先于窗口存在（轮内状态订阅
+		// 借用、切档在途），被抑制且非当前会话的残留引用一并释放，不留常驻
+		// retain（R-01-025/AC-01）。
+		for (const id of [...sessionRefs.keys()]) {
+			if (logSourceSubs.has(id)) continue;
+			if (!logWindowSuppressedFor(id, listSnap?.byId ?? {})) continue;
+			if (String(id) === String(currentId)) continue;
+			releaseSessionRef(id);
 		}
 	}
 
@@ -2144,33 +2198,149 @@ function apply(ctx) {
 		// 当前选择），不可得时保持空白，不以日志历史取值或部署默认冒充（R-01-012/AC-18）。
 	}
 
-	/** 绑定会话并水合事件源（dsh 0.1.5 起会话内容经 eventSource 流式下发：打开即收
-	 *  完整日志窗口 + 实时尾，原生 Conversation 同源）。冷会话补一次 open()，日志窗口
-	 *  快照引用变化即重派生详情（时间线/预览/模型），窗口由宿主按消息对齐分页。 */
-	function captureSessionLog(id, { cwd } = {}) {
-		const detail = sessionDetailsById.get(id) ?? {};
-		sessionDetailsById.set(id, detail);
-		let session = null;
-		try {
-			session = sessions?.binding?.(id)?.session ?? null;
-		} catch {
-			session = null;
+	/** 会话引用获取（dsh 0.2.0 retain 生命周期，T-170）：为可见卡片以独立 source
+	 *  持有会话代际。子代理行先经 sessions.subagentAddress 解析持久父地址（旧
+	 *  会话面地址安装路径随重构删除）；地址不可得时先拉取母会话投影
+	 *  并返回 null 下轮重试。reference.ready 落定后接线 binding.eventSource 与
+	 *  session 面（ObservableSnapshot 半面）。返回 { session, eventSource } 或
+	 *  null（在途/不可得——调用方下轮渲染重试）。 */
+	function liveSessionFace(id) {
+		const key = String(id);
+		const existing = sessionRefs.get(key);
+		if (existing !== undefined) return existing.pending ? null : existing;
+		const listSnap = getSnapshot(sessions, "list");
+		const byId = listSnap?.byId ?? {};
+		let target = id;
+		if (isSubagentRow(byId[id], byId)) {
+			const parentId = String(parentSessionIdOf(byId[id]));
+			let address = null;
+			try {
+				address = sessions?.subagentAddress?.(String(id)) ?? null;
+			} catch {
+				address = null;
+			}
+			if (address === null || address === undefined) {
+				ensureParentProjections(parentId);
+				return null;
+			}
+			target = address;
 		}
-		if (session === null) return;
+		let reference = null;
+		try {
+			reference = sessions?.retain?.(target, { source: PLUGIN_RETAIN_SOURCE }) ?? null;
+		} catch {
+			reference = null;
+		}
+		if (reference === null) return null;
+		const record = { reference, session: null, eventSource: null, pending: true };
+		sessionRefs.set(key, record);
+		Promise.resolve(reference.ready)
+			.then(() => {
+				if (disposed) {
+					try {
+						reference.release();
+					} catch {
+						/* 已卸载：引用兜底释放 */
+					}
+					return;
+				}
+				let binding = null;
+				try {
+					binding = reference.binding ?? null;
+				} catch {
+					binding = null; // 代际已终结：下次渲染重新 retain
+				}
+				if (binding !== null) {
+					record.session = binding.session ?? null;
+					record.eventSource = binding.eventSource ?? null;
+				}
+				record.pending = false;
+				queueSync();
+			})
+			.catch(() => {
+				record.pending = false;
+				if (!disposed) queueSync();
+			});
+		return null;
+	}
+
+	/** 只借用已接线会话面，不发起 retain（T-170 审核发现 1）：运行状态订阅的
+	 *  面必须来自既有引用（日志窗口或外壳主视图 retain 的会话）。无引用时返回
+	 *  null，调用方降级到统一状态面（sessionStatus）与 busy 记账，不得为
+	 *  轮内状态订阅单独水合紧凑档非当前主会话（R-01-025/AC-01）。 */
+	function peekSessionFace(id) {
+		const record = sessionRefs.get(String(id));
+		if (record === undefined || record.pending) return null;
+		const session = record.session;
+		const eventSource = record.eventSource;
+		if ((session === null || session === undefined) && (eventSource === null || eventSource === undefined)) return null;
+		return record;
+	}
+
+	/** 释放一个会话引用：release retain 引用（dsh 0.2.0），断流由宿主随引用计数收敛。 */
+	function releaseSessionRef(id) {
+		const key = String(id);
+		const record = sessionRefs.get(key);
+		if (record === undefined) return;
+		sessionRefs.delete(key);
+		try {
+			record.reference?.release?.();
+		} catch {
+			/* 引用已释放 */
+		}
+	}
+
+	/** 母会话投影按需拉取（T-170）：0.2.0 起子代理目录随列表快照的
+	 *  projectionsBySession 下发，未加载时经 refreshProjections 拉取后重试。 */
+	function ensureParentProjections(parentId) {
+		if (typeof sessions?.refreshProjections !== "function") return;
+		const key = String(parentId);
+		if (projectionRefreshes.has(key)) return;
+		projectionRefreshes.add(key);
+		try {
+			Promise.resolve(sessions.refreshProjections(key))
+				.catch(() => {})
+				.finally(() => {
+					projectionRefreshes.delete(key);
+					if (!disposed) queueSync();
+				});
+		} catch {
+			projectionRefreshes.delete(key);
+		}
+	}
+
+	// 绑定会话并水合事件源（dsh 0.2.0 retain 生命周期，T-170）：retain 的 ready
+	// 承载共享初始历史打开（旧显式会话打开调用随 open 移出会话面而删除），
+	// binding.eventSource 打开即收完整日志窗口 + 实时尾（原生 Conversation 同源）。
+	// 日志窗口快照引用变化即重派生详情（时间线/预览/模型），窗口由宿主按消息对齐分页。
+	function captureSessionLog(id, { cwd } = {}) {
 		// 档位资源纪律（R-01-025/AC-01）：紧凑档主会话不建立或保持会话日志窗口——
-		// 不订阅事件流、不发起 open 水合、不读窗口快照。判定在函数入口用时重读，
+		// 不订阅事件流、不发起水合、不读窗口快照。判定必须先于 liveSessionFace：
+		// dsh 0.2.0 起 retain.ready 承载共享初始历史打开，先 retain 后判档会让
+		// 紧凑档非当前主会话被水合（T-170 审核发现 1）。判定在函数入口用时重读，
 		// 切档在途的回调与重试不落地新窗口。子代理日志窗口承载标题行可见的
 		// 模型上下文（R-01-012/AC-17），恒不裁剪（单点判定见 logWindowSuppressedFor）。
 		if (logWindowSuppressedFor(id)) return;
+		const detail = sessionDetailsById.get(id) ?? {};
+		sessionDetailsById.set(id, detail);
+		const live = liveSessionFace(id);
+		if (live === null) return; // retain 在途/子代理地址未就绪：下轮渲染重试
+		const session = live.session;
+		const eventSource = live.eventSource;
+		if ((session === null || session === undefined) && (eventSource === null || eventSource === undefined)) {
+			// 代际已终结（binding 访问失败）：释放登记，下轮渲染重新 retain。
+			releaseSessionRef(id);
+			return;
+		}
 		// 日志窗口无效化订阅（事件驱动，不构成轮询，R-02-004）：等待/历史卡无会话状态
 		// 订阅（syncLiveness 只订阅运行中），窗口推进（回合收尾、流式尾）必须经此回调
 		// 重读快照并重绘；否则窗口更新只能靠渲染期重读兜底——渲染一旦静默（一次性
 		// load 修复后），完成提醒耗时等窗口派生数据将永久停摆。随可见性 prune。
-		if (typeof session.eventSource?.subscribe === "function" && !logSourceSubs.has(id)) {
+		if (typeof eventSource?.subscribe === "function" && !logSourceSubs.has(id)) {
 			try {
 				logSourceSubs.set(
 					id,
-					session.eventSource.subscribe(() => {
+					eventSource.subscribe(() => {
 						if (disposed) return;
 						const listSnap = getSnapshot(sessions, "list");
 						captureSessionLog(id, { cwd: listSnap?.byId?.[id]?.cwd ?? "" });
@@ -2181,24 +2351,7 @@ function apply(ctx) {
 				// 订阅不可用：回退渲染期重读。
 			}
 		}
-		try {
-			// 日志窗口缺席才发起 open：非订阅会话（等待/历史卡）无快照推送，openState 永远
-			// 不可知，只以 openState 把关会对已水合会话逐帧重发 open，settle→delete→重发
-			// 的在途翻转同样驱动加载指示抖动（docsim 卡闪烁根因之一）。
-			if (!detail.log && detail.snapshot?.openState !== "open" && !sessionOpenLoads.has(id) && typeof session.open === "function") {
-				// 子代理事件流仅接受持久父地址：open 前先安装（T-151），否则宿主拒绝、窗口永不水合。
-				ensureSubagentAddress(id, session);
-				const opening = Promise.resolve(session.open()).catch(() => {});
-				sessionOpenLoads.set(id, opening);
-				opening.finally(() => {
-					if (sessionOpenLoads.get(id) === opening) sessionOpenLoads.delete(id);
-					queueSync();
-				});
-			}
-		} catch {
-			// open 不可用：保持当前窗口。
-		}
-		const log = session.eventSource?.getSnapshot?.() ?? null;
+		const log = eventSource?.getSnapshot?.() ?? null;
 		if (log === detail.log) return;
 		detail.log = log;
 		// 流式派生合并（T-127）：事件到达只更新引用并标脏，applyLogEvents 的 O(日志窗口)
@@ -2227,53 +2380,6 @@ function apply(ctx) {
 		queueSync();
 	}
 
-	/** 触发母会话子代理目录单发读取（T-151）：目录条目是地址 mode 的唯一可靠来源，
-	 *  未加载时先拉取，目录随下一轮快照到达；每次拉取经原生 sessions.refreshSubagents
-	 *  走既有 remote 通道，单父会话单飞、不重试，不构成轮询（R-02-004）。 */
-	function requestSubagentCatalog(parentId) {
-		if (typeof sessions?.refreshSubagents !== "function") return;
-		if (subagentCatalogRequests.has(parentId)) return;
-		subagentCatalogRequests.add(parentId);
-		try {
-			Promise.resolve(sessions?.refreshSubagents?.(parentId))
-				.catch(() => {})
-				.finally(() => {
-					if (!disposed) queueSync();
-				});
-		} catch {
-			subagentCatalogRequests.delete(parentId);
-		}
-	}
-
-	/** 子代理会话事件流打开前置（T-151 缺陷修复）：dsh 0.1.5 起宿主按地址校验会话事件
-	 *  流路由——子代理会话仅接受持久父地址，且地址 mode 必须与其描述符一致（不一致被
-	 *  subagent/unauthorized 拒绝），持久地址仅经原生导航留存。mode 唯一可靠来源是母
-	 *  会话的子代理目录条目：在册即经 configureSubagent 安装（与原生 selectSubagent
-	 *  同构，但不切换当前会话）；目录未加载时先单发拉取并跳过本轮安装，避免装入必被
-	 *  拒绝的错误 mode 地址；目录拉取失败沿用既有空白详情路径（深翻以 null 收敛），
-	 *  不阻断其余卡片。非子代理行或会话对象缺 configureSubagent 时为无操作。 */
-	function ensureSubagentAddress(id, session) {
-		const listSnap = getSnapshot(sessions, "list");
-		const byId = listSnap?.byId ?? {};
-		if (!isSubagentRow(byId[id], byId)) return;
-		if (typeof session?.configureSubagent !== "function") return;
-		const parentId = String(byId[id].parentSessionId ?? byId[id].parentId);
-		const catalog = isRecord(listSnap?.subagentsByParent) ? listSnap.subagentsByParent[parentId] : null;
-		const entry = subagentCatalogEntry(listSnap?.subagentsByParent ?? null, parentId, id);
-		if (!isRecord(entry) || typeof entry.mode !== "string" || entry.mode === "") {
-			requestSubagentCatalog(parentId);
-			return;
-		}
-		try {
-			session.configureSubagent(
-				{ kind: "subagent", parentSessionId: parentId, childSessionId: String(id), mode: entry.mode },
-				typeof catalog?.parentAvailable === "boolean" ? catalog.parentAvailable : undefined,
-			);
-		} catch {
-			// 安装失败沿用既有空白详情路径，不阻断其余卡片。
-		}
-	}
-
 	/** 部署级模型目录一次性读取（R-01-012/AC-01）：dsh 0.1.5 起 per-session models
 	 *  RPC 移除，目录经 `remote.session.modelCatalog()` 无参数读取；成功即缓存不再
 	 *  重发，失败留待下轮详情读取重试。 */
@@ -2290,18 +2396,43 @@ function apply(ctx) {
 			});
 	}
 
+	/** 释放全部会话引用并停流 jobs roster 订阅（T-170 审核发现 5）：服务代际更替
+	 *  与卸载两个释放点共用同一形状，抽单点避免漂移。 */
+	function releaseAllSessionRefs() {
+		for (const id of [...sessionRefs.keys()]) releaseSessionRef(id);
+	}
+
+	function stopAllJobWatches() {
+		for (const [, stop] of jobWatchById) {
+			try {
+				stop?.();
+			} catch {
+				/* 流已随旧代际关闭或已卸载 */
+			}
+		}
+		jobWatchById.clear();
+	}
+
 	function installServiceSubscriptions() {
 		const nextSessions = ctx.get("sessions");
 		const nextWorkspaces = ctx.get("workspaces");
 		const nextUiSession = ctx.get("uiSession");
-		if (nextSessions === sessions && nextWorkspaces === workspaces && nextUiSession === uiSession) return;
+		const nextJobs = ctx.get("jobs");
+		if (nextSessions === sessions && nextWorkspaces === workspaces && nextUiSession === uiSession && nextJobs === jobs) return;
+
+		// 服务代际更替：旧代际上登记的 retain 引用与 jobs roster 订阅一并释放——
+		// 引用的 binding 在代际终结后访问即失败（dsh 0.2.0 retain 语义）。
+		releaseAllSessionRefs();
+		stopAllJobWatches();
 
 		sessionUnsubscribe?.();
 		workspaceUnsubscribe?.();
 		pendingUnsubscribe?.();
+		jobsUnsubscribe?.();
 		sessions = nextSessions ?? null;
 		workspaces = nextWorkspaces ?? null;
 		uiSession = nextUiSession ?? null;
+		jobs = nextJobs ?? null;
 		try {
 			sessionUnsubscribe = sessions?.list?.subscribe?.(queueSync) ?? null;
 		} catch {
@@ -2313,12 +2444,19 @@ function apply(ctx) {
 			workspaceUnsubscribe = null;
 		}
 		try {
-			// 0.1.5 起 sessions 行不再承载 pendingInteraction：待确认/待审查/待回复改由
-			// uiSession.pendingInteractions（Map<sessionId, interaction>）独立承载，
+			// dsh 0.2.0（T-170）：统一会话状态面 sessionStatus 取代 pendingInteractions
+			// （Map<sessionId, {running, pendingInteraction, completionUnread}>），
 			// 订阅其快照变化驱动等待卡重算（R-01-002/AC-03）。
-			pendingUnsubscribe = uiSession?.pendingInteractions?.subscribe?.(queueSync) ?? null;
+			pendingUnsubscribe = uiSession?.sessionStatus?.subscribe?.(queueSync) ?? null;
 		} catch {
 			pendingUnsubscribe = null;
+		}
+		try {
+			// dsh 0.2.0（T-170）：后台任务 roster 经 jobs 服务的 state 快照推送
+			// （rows: Record<sessionId, JobView[]>），订阅驱动在跑任务卡重算（R-01-023）。
+			jobsUnsubscribe = jobs?.state?.subscribe?.(queueSync) ?? null;
+		} catch {
+			jobsUnsubscribe = null;
 		}
 
 		queueSync();
@@ -2506,9 +2644,10 @@ function apply(ctx) {
 			enforceDensityDataDiscipline();
 			applyDensity();
 			// 档位已纳入渲染签名：触发一轮同步让时间线按新档位以 lastOnly 重建；
-			// 锚定补偿在本轮渲染提交后执行，此时量测才含新行高
+			// 锚定补偿在渲染提交后逐帧执行至沉降窗结束，此时量测才含新行高
 			//（R-01-021/AC-01、AC-08）。
 			pendingDensityAnchor = currentCard && anchorTop !== null ? anchorTop : null;
+			densityAnchorDeadline = Date.now() + 1500;
 			queueSync();
 		};
 		// 档位按钮位于标题行右侧的工具区（标题区折叠控件的兄弟节点），激活天然不会
@@ -3508,72 +3647,65 @@ function apply(ctx) {
 	}
 
 	// ---- 轮内状态订阅生命周期（R-01-009、R-02-004） ----
+	// dsh 0.2.0（T-170 审核发现 1）：状态订阅只借用既有引用的会话面——日志窗口
+	// 豁免（高档位/当前/子代理）与外壳主视图已 retain 的会话免费获得；紧凑档
+	// 非当前主会话不 retain（retain.ready 即共享初始历史打开，等价水合，
+	// R-01-025/AC-01），其运行呈现降级到统一状态面 sessionStatus（running，
+	// 宿主级单订阅已随 installServiceSubscriptions 建立）与 busy 记账
+	// openTurnStart（回合起点，供运行卡时钟）。
 	function syncLiveness(runningIds, clockWanted) {
 		for (const id of runningIds) {
-			if (livenessById.has(id)) continue;
-			let session = null;
-			try {
-				session = sessions?.binding?.(id)?.session ?? null;
-			} catch {
-				session = null;
-			}
-			if (session === null) continue; // 下次渲染再试
-			let unsubscribe = null;
-			try {
-				unsubscribe = session.subscribe(() => {
-					if (disposed) return;
-					const snapshot = getSessionSnapshot(session);
-					const live = livenessFromSnapshot(snapshot);
-					livenessById.set(id, { unsubscribe, liveness: live, snapshot });
+			const existing = livenessById.get(id);
+			const face = peekSessionFace(id);
+			// 幂等调和：已订阅的记录不动；降级记录（无订阅无快照）在引用出现时
+			// 升级为会话订阅，引用缺席时保持降级。
+			if (existing !== undefined && ((existing.unsubscribe ?? null) !== null || existing.snapshot !== null || face === null)) continue;
+			if (face !== null) {
+				const session = face.session;
+				let unsubscribe = null;
+				if (session !== null && session !== undefined) {
+					try {
+						unsubscribe = session.subscribe(() => {
+							if (disposed) return;
+							const snapshot = getSessionSnapshot(session);
+							const live = livenessFromSnapshot(snapshot);
+							livenessById.set(id, { unsubscribe, liveness: live, snapshot });
+							const detail = sessionDetailsById.get(id) ?? {};
+							detail.snapshot = snapshot;
+							sessionDetailsById.set(id, detail);
+							// dsh 0.1.5 起快照不再携带会话内容：时间线经 eventSource 日志窗口
+							// 就地重派生（R-01-009）。
+							const listSnap = getSnapshot(sessions, "list");
+							captureSessionLog(id, { cwd: listSnap?.byId?.[id]?.cwd ?? "" });
+							queueSync();
+						});
+					} catch {
+						unsubscribe = null; // 订阅不可用：降级到统一状态面路径
+					}
+				}
+				const snapshot = face.session ? getSessionSnapshot(face.session) : null;
+				if (snapshot !== null) {
+					livenessById.set(id, {
+						unsubscribe,
+						liveness: livenessFromSnapshot(snapshot),
+						snapshot,
+					});
 					const detail = sessionDetailsById.get(id) ?? {};
 					detail.snapshot = snapshot;
 					sessionDetailsById.set(id, detail);
-					// dsh 0.1.5 起快照不再携带会话内容：时间线经 eventSource 日志窗口
-					// 就地重派生（R-01-009）。
-					const listSnap = getSnapshot(sessions, "list");
-					captureSessionLog(id, { cwd: listSnap?.byId?.[id]?.cwd ?? "" });
-					queueSync();
-				});
-			} catch {
-				continue; // 订阅失败：本次跳过，下次渲染重试
-			}
-			// 子代理事件流仅接受持久父地址：open 前先安装（T-151），否则宿主拒绝、窗口永不水合。
-			ensureSubagentAddress(id, session);
-			// 档位资源纪律（R-01-025/AC-01）：紧凑档主会话不发起 open 水合——轮内状态
-			// 订阅（本函数职责，R-02-004）保留，liveness 记账与正常路径共用下方代码，
-			// 日志窗口水合在切回更高档位后经渲染期重试重建。子代理模型上下文依赖其
-			// 窗口，不裁剪（单点判定见 logWindowSuppressedFor）。
-			const livenessSuppressed = logWindowSuppressedFor(id);
-			let opening = null;
-			if (!livenessSuppressed) {
-				try {
-					opening = session.open?.();
-				} catch {
-					opening = null;
+				} else {
+					livenessById.set(id, { unsubscribe: null, liveness: { startTime: null }, snapshot: null });
 				}
+			} else {
+				// 无引用（紧凑档非当前主会话）：不 retain、不订阅。运行起点由消费点
+				// 逐帧从 busy 记账现取（hostStartTime 回退链既有路径），起点不落记录
+				// 冻结；快照派生退回 history 补读路径（既有 fallback）。
+				livenessById.set(id, {
+					unsubscribe: null,
+					liveness: { startTime: null },
+					snapshot: null,
+				});
 			}
-			if (opening && typeof opening.then === "function") {
-				const tracked = Promise.resolve(opening).then(
-					() => {
-						sessionOpenLoads.delete(id);
-						queueSync();
-					},
-					() => {
-						sessionOpenLoads.delete(id);
-						queueSync();
-					},
-				);
-				sessionOpenLoads.set(id, tracked);
-			}
-			const snapshot = getSessionSnapshot(session);
-			livenessById.set(id, {
-				unsubscribe,
-				liveness: livenessFromSnapshot(snapshot),
-				snapshot,
-			});
-			const detail = sessionDetailsById.get(id) ?? {};
-			detail.snapshot = snapshot;
-			sessionDetailsById.set(id, detail);
 		}
 		for (const [id, rec] of livenessById) {
 			if (runningIds.has(id)) continue;
@@ -3598,6 +3730,33 @@ function apply(ctx) {
 		} else if (!wanted && recentTimeTimer !== null) {
 			clearInterval(recentTimeTimer);
 			recentTimeTimer = null;
+		}
+	}
+
+	/** jobs roster 订阅同步（R-01-023，T-170）：dsh 0.2.0 起任务 roster 经 jobs 服务
+	 *  按会话 watchRows 拉取（引用计数共享流），不再随列表快照推送。对列表全会话
+	 *  建立订阅（与旧 jobsBySession 全量推送同覆盖），离开列表即停流；幂等，每帧
+	 *  重入只处理差集。服务缺失时整轮跳过。 */
+	function syncJobsWatches(listSnapshot) {
+		if (typeof jobs?.watchRows !== "function") return;
+		const ids = Array.isArray(listSnapshot?.ids) ? listSnapshot.ids : [];
+		const wanted = new Set(ids.map((id) => String(id)));
+		for (const [key, stop] of [...jobWatchById]) {
+			if (wanted.has(key)) continue;
+			jobWatchById.delete(key);
+			try {
+				stop?.();
+			} catch {
+				/* 流已断 */
+			}
+		}
+		for (const id of wanted) {
+			if (jobWatchById.has(id)) continue;
+			try {
+				jobWatchById.set(id, jobs.watchRows(id));
+			} catch {
+				/* 单会话订流失败：下帧重试 */
+			}
 		}
 	}
 
@@ -3774,7 +3933,7 @@ function apply(ctx) {
 			// 按条目 id 复用，同一 card 元素不会跨 kind 复用——创建时按 entry.kind 一次性
 			// 决定是否绑激活是安全的；若 id 规则变化须同步复核此处。
 			const unbind = entry.kind === "job" ? null : bindCardActivation(el, (sessionId) => {
-				if (typeof sessions?.open !== "function") return;
+				if (typeof ctx.get("uiWorkspace")?.openSession !== "function") return;
 				lastActivatedId = sessionId;
 				// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标；
 				// 收起抽屉的分支同样是最新意图，必须先取消挂起链条再 return。
@@ -3784,7 +3943,7 @@ function apply(ctx) {
 				if (
 					shouldDismissDrawerOnActivation({
 						targetId: sessionId,
-						currentId: getSnapshot(sessions, "list")?.current ?? null,
+						currentId: currentIdOf(getSnapshot(sessions, "list")),
 						mobile: window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`).matches,
 						drawerOpen:
 							document.querySelector(`[${PANE_ATTR}]`)?.getAttribute("data-open") === "true",
@@ -4080,16 +4239,18 @@ function apply(ctx) {
 			}
 		}
 		const listState = listLoadState(snapshot);
-		// 0.1.5 sessions 行不再承载 pendingInteraction：从 uiSession.pendingInteractions
-		// 快照（Map<sessionId, interaction>，kind ∈ approval/plan-review/question）回填到
-		// 行副本上，等待卡分类（awaiting/blocked/提问中）保持既有单一口径（R-01-002/AC-03）。
-		const pendingSnapshot = uiSession?.pendingInteractions?.getSnapshot?.() ?? null;
-		if (pendingSnapshot instanceof Map && pendingSnapshot.size > 0 && snapshot?.byId) {
+		// dsh 0.2.0（T-170）：统一会话状态面 sessionStatus（Map<sessionId,
+		// {running, pendingInteraction, completionUnread}>）取代 pendingInteractions：
+		// 从状态快照把 pendingInteraction.kind 回填到行副本上，等待卡分类
+		// （awaiting/blocked/提问中）保持既有单一口径（R-01-002/AC-03）。
+		const statusSnapshot = uiSession?.sessionStatus?.getSnapshot?.() ?? null;
+		if (statusSnapshot instanceof Map && statusSnapshot.size > 0 && snapshot?.byId) {
 			const byId = { ...snapshot.byId };
-			for (const [id, interaction] of pendingSnapshot) {
+			for (const [id, status] of statusSnapshot) {
 				const row = byId[id];
-				if (!isRecord(row) || typeof interaction?.kind !== "string") continue;
-				byId[id] = { ...row, pendingInteraction: interaction.kind };
+				const kind = status?.pendingInteraction?.kind;
+				if (!isRecord(row) || typeof kind !== "string") continue;
+				byId[id] = { ...row, pendingInteraction: kind };
 			}
 			snapshot = { ...snapshot, byId };
 		}
@@ -4111,9 +4272,12 @@ function apply(ctx) {
 		for (const [id, record] of busyById) {
 			if (typeof record?.openWaitStart === "number") waitingStarts.set(String(id), record.openWaitStart);
 		}
-		// 在跑后台任务（R-01-023）：jobsBySession 快照注入 buildEntries/buildRecent——
-		// liveJobs 非空的主会话保留活动区、归运行组并抑制完成/错误提醒。
-		const jobsBySession = isRecord(snapshot) && isRecord(snapshot.jobsBySession) ? snapshot.jobsBySession : null;
+		// 在跑后台任务（R-01-023，T-170）：dsh 0.2.0 起 jobsBySession 自列表快照移除，
+		// 改由 jobs 服务的 state.rows（Record<sessionId, JobView[]>）注入
+		// buildEntries/buildRecent——liveJobs 非空的主会话保留活动区、归运行组并抑制
+		// 完成/错误提醒；roster 订阅经 syncJobsWatches 对列表全会话建立。
+		syncJobsWatches(snapshot);
+		const jobsBySession = jobs?.state?.getSnapshot?.()?.rows ?? null;
 		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById, completeAcksById, delegatingIds, archivedSessionIds, waitingStarts, jobsBySession);
 		// 轮内订阅仅对"运行中"会话建立（主会话 + 运行中的子代理），保持在运行中的订阅
 		// 数量 == 运行中会话数量（R-02-004/AC-01）；暂停等待的子代理只显示标题。
@@ -4221,7 +4385,7 @@ function apply(ctx) {
 			entry.loadingModel = !detail?.model && (modelLoads.has(entry.id) || (entry.kind === "subagent" && historyLoads.has(entry.id)));
 			entry.loadingTimeline =
 				entry.timeline.length === 0 &&
-				(historyLoads.has(entry.id) || sessionOpenLoads.has(entry.id) || (runLikeIds.has(entry.id) && !liveRecord));
+				(historyLoads.has(entry.id) || sessionRefs.get(String(entry.id))?.pending === true || (runLikeIds.has(entry.id) && !liveRecord));
 			// token/速率取自 sessions.list 条目的投影（tokenUsage/sessionStats），
 			// 复用既有列表订阅，无新增轮询（R-01-009/AC-05、R-02-004/AC-02）。
 			const projection = snapshot?.byId?.[entry.id]?.projectionValues;
@@ -4350,7 +4514,8 @@ function apply(ctx) {
 			if (chatLatestAssistantSettled(detailSnapshot)) subagentModelReadIds.add(entry.id);
 		}
 		const detailIds = [...active, ...recent].map((entry) => entry.id);
-		detailIds.sort((a, b) => Number(String(b) === String(snapshot?.current)) - Number(String(a) === String(snapshot?.current)));
+		const currentId = currentIdOf(snapshot);
+		detailIds.sort((a, b) => Number(String(b) === String(currentId)) - Number(String(a) === String(currentId)));
 		// 档位资源纪律（R-01-025/AC-01）：渲染期持续执法——进入紧凑档即拆主会话窗口；
 		// 拆窗时被豁免的当前会话在切走后的下一轮渲染照常释放。幂等：主会话拆窗后
 		// 不在 logSourceSubs，重复执法为无操作。
@@ -4363,12 +4528,17 @@ function apply(ctx) {
 		// 详情与 loads 记账同生命周期：离开可见集合即放行，重回可见时允许重拉/重试。
 		// 锚点记账不随可见性 prune：瞬时 loading 空帧不得误清（进度重置）；陈旧条目靠
 		// 耗尽宽限与 turnStart 不匹配自校正，仅在 dispose 时整体清除。
-		pruneInvisibleEntries([sessionDetailsById, modelLoads, historyLoads, sessionOpenLoads], visibleIds);
+		pruneInvisibleEntries([sessionDetailsById, modelLoads, historyLoads], visibleIds);
 		// 模型目录订阅同生命周期：不可见即先 unsubscribe 再除名，监听器不残留（R-01-012/AC-16）。
 		pruneSubscriptions(modelDirectorySubs, visibleIds);
 		pruneSubscriptions(logSourceSubs, visibleIds);
+		// 会话引用同生命周期（T-170）：离开可见集合即 release retain 引用——retain 的
+		// 共享代际与流随引用计数收敛，对应旧 dispose 语义。
+		for (const refId of [...sessionRefs.keys()]) {
+			if (!visibleIds.has(refId)) releaseSessionRef(refId);
+		}
 		// 重试链目标已成为当前会话（他途到达）即取消，避免过期链条拽回会话。
-		cancelStaleOpenRetries({ currentId: snapshot?.current ?? null, activatedId: lastActivatedId });
+		cancelStaleOpenRetries({ currentId, activatedId: lastActivatedId });
 
 		const visibleEntries = [...active, ...recent];
 		const pulseSurface = desktopQuery.matches
@@ -4466,7 +4636,7 @@ function apply(ctx) {
 		}
 		runMoveGhosts(movePlans);
 		if (shiftRects !== null) runShiftAnimations(shiftRects);
-		ensureCurrentCardVisible(pane.querySelector(".dap-scroll"), snapshot?.current ?? null);
+		ensureCurrentCardVisible(pane.querySelector(".dap-scroll"), currentIdOf(snapshot));
 		if (focusAfterMigrationId !== null) cardsById.get(focusAfterMigrationId)?.el.focus();
 		// 区域已有条目但列表仍在途时，在区头部显示行内加载指示（R-01-014/AC-01）。
 		const headerEl = pane.querySelector(".dap-titlebar");
@@ -4539,7 +4709,10 @@ function apply(ctx) {
 		}
 		// 锚定补偿（R-01-021/AC-01）：档位切换的渲染落地后量测当前选中卡的新位置并
 		// 补偿 scrollTop，使当前卡顶部回到切换前相对视口的位置；补偿量超滚动边界时
-		// 由浏览器钳制（以当前卡不滚出可视范围为准）。
+		// 由浏览器钳制（以当前卡不滚出可视范围为准）。沉降窗内逐帧补偿：dsh 0.2.0
+		// 起切回高档位的窗口经 retain→ready 异步重建，时间线内容分多帧长回，单帧
+		// 补偿会漏掉后期增长（T-170 审核修复回归）；位置稳定（残差 ≤1px）或超窗
+		// （1500ms）即撤，避免与用户手动滚动长期对抗。
 		if (pendingDensityAnchor !== null) {
 			const scrollEl = pane.querySelector(".dap-scroll");
 			// 补偿按当前 DOM 的 data-current 卡实时定位：跨区迁移等渲染可能重建卡片
@@ -4548,13 +4721,21 @@ function apply(ctx) {
 			if (scrollEl !== null && currentCard !== null) {
 				const viewportTop = scrollEl.getBoundingClientRect().top;
 				const shiftedTop = currentCard.getBoundingClientRect().top - viewportTop;
+				// 仅按沉降窗超时撤除（T-170）：窗口重建分多帧长回且成簇到达，帧间
+				// 空隙的「稳定帧」不可作为撤除依据——提前撤除会让后续突增失偿。
 				scrollEl.scrollTop += shiftedTop - pendingDensityAnchor;
+				if (Date.now() > densityAnchorDeadline) {
+					pendingDensityAnchor = null;
+					densityAnchorDeadline = 0;
+				}
+			} else {
+				pendingDensityAnchor = null;
+				densityAnchorDeadline = 0;
 			}
-			pendingDensityAnchor = null;
 		}
 	}
 
-	// ---- 打开会话（让 sessions.open 自己校验列表，失败时 refresh + 重试） ----
+	// ---- 打开会话（dsh 0.2.0 经 uiWorkspace.openSession 导航，currentId 驱动重试链） ----
 	const MAX_OPEN_ATTEMPTS = 60;
 	function cardElFor(sessionId) {
 		return document.querySelector(`[${PANE_ATTR}] [data-session-id="${escapeCssString(sessionId)}"]`);
@@ -4597,31 +4778,44 @@ function apply(ctx) {
 				}, 500);
 			});
 	}
+	// dsh 0.2.0 导航目标（T-170）：子代理行以持久父地址寻址（T-151 语义后继——宿主
+	// 仍按地址校验子代理会话路由）；地址不可得（母会话投影未拉取）时以裸 id 发起，
+	// 重试链在投影到达后自然命中。
+	function openTargetFor(sessionId) {
+		const listSnap = getSnapshot(sessions, "list");
+		const byId = listSnap?.byId ?? {};
+		if (!isSubagentRow(byId[sessionId], byId)) return sessionId;
+		try {
+			return sessions?.subagentAddress?.(String(sessionId)) ?? sessionId;
+		} catch {
+			return sessionId;
+		}
+	}
 	function attemptOpen(sessionId, attempt) {
-		// 过期链条（目标已到达 / 已被新激活意图取代）不再发起 open，防止拽回会话。
-		if (
-			shouldCancelOpenRetry({
-				targetId: sessionId,
-				currentId: getSnapshot(sessions, "list")?.current ?? null,
-				activatedId: lastActivatedId,
-			})
-		) {
+		// 过期链条（目标已到达 / 已被新激活意图取代）不再发起 open，防止拽回会话；
+		// 到达（currentId 命中本目标）即视为导航成功并收链。
+		const currentId = currentIdOf(getSnapshot(sessions, "list"));
+		if (shouldCancelOpenRetry({ targetId: sessionId, currentId, activatedId: lastActivatedId })) {
 			cancelOpenRetry(sessionId);
 			return;
 		}
 		const el = cardElFor(sessionId);
 		if (el !== null) el.setAttribute("data-opening", "");
 
-		if (openSession(sessions, sessionId)) {
-			// 移动视口下抑制原生 composer 在 sessionId 变化后的自动聚焦，
-			// 避免切换会话弹出软键盘（桌面保持原生自动聚焦）。
-			if (!desktopQuery.matches) suppressComposerAutofocus(document);
-			// 到达新目标后取消全部剩余链条：任何旧链成功都会把会话从新目标拽走。
-			cancelStaleOpenRetries({ activatedId: sessionId });
-			cancelOpenRetry(sessionId);
-			el?.removeAttribute("data-opening");
-			return;
-		}
+		// dsh 0.2.0（T-170）：导航经 uiWorkspace.openSession（内部以 source "mainView"
+		// retain 并驱动外壳 selection，替代已删除的 sessions.open）。发起不等于到达：
+		// 到达判定交给 currentId 驱动的取消链（同步循环每帧 cancelStaleOpenRetries
+		// 与本重试链共用 shouldCancelOpenRetry），data-opening 随取消/到达摘除；
+		// 未到达则 500ms 后重发导航（MAX_OPEN_ATTEMPTS 封顶）。
+		// 移动端抑制（R-01-005/AC-01）：宿主 composer 聚焦 effect 与 selection 同一
+		// 提交周期发生，抑制必须在发起导航时即武装（blur + 捕获期 focusin 拦截窗），
+		// 不能等到达判定——0.1.5 的「成功后抑制」时序在 0.2.0 会晚于宿主聚焦。
+		// 窗宽分档（T-170 审核发现 5）：首发沿用 1200ms 全窗；重试只武装 60ms
+		// 窄窗——失败的尝试不触发 selection 变更、宿主不聚焦，宽窗只会在失败链
+		// 期间连续吞掉用户聚焦；窄窗仍覆盖成功尝试的同一提交周期聚焦 effect。
+		const suppressFocus = !desktopQuery.matches;
+		openSession(ctx.get("uiWorkspace"), openTargetFor(sessionId));
+		if (suppressFocus) suppressComposerAutofocus(document, setTimeout, attempt === 0 ? 1200 : 60);
 		if (attempt < MAX_OPEN_ATTEMPTS) scheduleOpenRetry(sessionId, attempt + 1);
 		else cancelOpenRetry(sessionId);
 	}
@@ -4779,8 +4973,12 @@ function apply(ctx) {
 		// 卸载即全量退订：空可见集合驱动 pruneSubscriptions 先 unsubscribe 再除名。
 		pruneSubscriptions(modelDirectorySubs, new Set());
 		pruneSubscriptions(logSourceSubs, new Set());
+		// 会话引用与 jobs roster 订阅随卸载全量释放（dsh 0.2.0 retain/流语义，T-170）。
+		releaseAllSessionRefs();
+		stopAllJobWatches();
+		jobsUnsubscribe?.();
+		jobsUnsubscribe = null;
 		progressAnchorById.clear();
-		sessionOpenLoads.clear();
 		loadQueue.length = 0;
 		loadInflight = 0;
 		for (const rec of cardsById.values()) rec.unbind?.();

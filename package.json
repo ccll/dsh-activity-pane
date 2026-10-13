@@ -27,7 +27,7 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@deepseek-ai/dsh-storage-domain": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-storage-domain": "0.2.0-rc.2",
     "zod": "^4.4.3"
   },
   "scripts": {

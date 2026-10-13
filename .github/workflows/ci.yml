@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      DSH_RUNTIME_PATH: ${{ github.workspace }}/.cache/dsh-015
+      DSH_RUNTIME_PATH: ${{ github.workspace }}/.cache/dsh-020
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.cache/ms-playwright
     steps:
       - uses: actions/checkout@v4
@@ -44,11 +44,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.DSH_RUNTIME_PATH }}
-          key: dsh-015rc1-before-2026-09-10t18-${{ runner.os }}-${{ runner.arch }}
+          key: dsh-020rc2-before-2026-10-13t00-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install coherent DSH runtime
         if: steps.dsh-cache.outputs.cache-hit != 'true'
-        run: npm install --global --prefix "$DSH_RUNTIME_PATH" --before=2026-09-10T18:00:00Z @deepseek-ai/dsh@0.1.5-rc.1
+        run: npm install --global --prefix "$DSH_RUNTIME_PATH" --before=2026-10-13T00:00:00Z @deepseek-ai/dsh@0.2.0-rc.2
 
       - name: Add DSH runtime to PATH
         run: echo "$DSH_RUNTIME_PATH/bin" >> "$GITHUB_PATH"

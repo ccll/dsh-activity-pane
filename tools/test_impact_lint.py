@@ -241,6 +241,11 @@ def pre_push(root, report, remote):
         if local_sha == "0" * 40:
             continue
         for commit in outgoing_commits(root, local_sha, remote_sha, remote):
+            fields = run_git(root, "rev-list", "--parents", "-n", "1", commit).stdout.split()
+            if len(fields) > 2:
+                # 合并提交不承载变更义务：两侧线性提交在同一待推集合内已各自受检，
+                # 任一父级视角都会把另一侧的既有变更重复计入。
+                continue
             current = evaluate(root, commit_parent(root, commit), commit, report)
             errors.extend(["%s: %s" % (commit[:8], error) for error in current])
     return errors

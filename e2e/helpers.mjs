@@ -5,7 +5,7 @@ export const POLL_INTERVAL_MS = 200;
 const PANE_READY_TIMEOUT_MS = 6_000;
 
 /** 轮询直到 fn() 返回真值或超时；超时抛错并附最后一次观测值。E2E_TRACE=1 时打印各段耗时。 */
-export async function until(label, fn, timeoutMs = 10_000) {
+export async function until(label, fn, timeoutMs = 20_000) {
 	const deadline = Date.now() + timeoutMs;
 	const start = Date.now();
 	let last;

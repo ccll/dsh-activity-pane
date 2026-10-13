@@ -1993,6 +1993,23 @@ function shouldSubscribeToSession(entry, byId = {}) {
 	return entry?.id != null && byId?.[entry.id]?.running === true;
 }
 
+/** 运行卡逐秒时钟需求判定（R-01-025/AC-08，T-174）：入参为渲染层已按档位过滤后的活动条目
+ *  与轮内订阅集合。条目自身呈现含逐秒推进分量才需要时钟——job 子条目承载任务时长（低档位
+ *  已被剔除出列表，天然只在完整档出现）；kind "running" 中开放回合会话（累计运行时长逐秒
+ *  推进，R-01-020）与委托周期母会话照常驱动，仅由在跑后台任务支撑运行呈现的母会话
+ *  （selfRunning 为假且 liveJobs 非空）自身无逐秒分量不计入；运行中子代理照常驱动。 */
+function runningClockWanted(entries = [], runLikeIds = new Set()) {
+	const list = Array.isArray(entries) ? entries : [];
+	return list.some(
+		(entry) =>
+			entry?.kind === "job" ||
+			(entry?.kind === "running"
+				? entry.selfRunning === true || (entry?.liveJobs?.length ?? 0) === 0
+				: false) ||
+			(entry?.kind === "subagent" && runLikeIds.has(entry.id)),
+	);
+}
+
 /** 会话行是否满足活动区显示判定（自身活动或存在活动后代）。 */
 function isActiveRow(row, byId = {}, activeIds = null) {
 	if (isOwnActiveRow(row, byId)) return true;
@@ -3075,8 +3092,7 @@ const CSS = `
     .dap-token-stats,
     .dap-foot,
     .dap-history-line,
-    .dap-note,
-    .dap-job-content
+    .dap-note
   ) {
   display: none;
 }
@@ -5698,7 +5714,8 @@ function apply(ctx) {
 		}
 		if (kind === "job") {
 			// 后台任务子卡（R-01-023/AC-05）：行 1 = 状态点 + 工具名称 + 随时钟时长；
-			// 行 2 = 任务内容原文（mono 省略 + tooltip）。
+			// 行 2 = 任务内容原文（mono 省略 + tooltip）。仅完整档构建（R-01-023/AC-10、
+			// R-01-025/AC-08，T-174）：低档位条目在渲染主循环即被剔除。
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-job-dot"), makeEl("span", "dap-job-kind"), makeEl("span", "dap-job-elapsed"));
 			const content = makeEl("div", "dap-job-content");
@@ -7101,17 +7118,20 @@ function apply(ctx) {
 		// 完成/错误提醒；roster 订阅经 syncJobsWatches 对列表全会话建立。
 		syncJobsWatches(snapshot);
 		const jobsBySession = jobs?.state?.getSnapshot?.()?.rows ?? null;
-		const active = buildEntries(snapshot, workspaceItems, sessionDetailsById, completeAcksById, delegatingIds, archivedSessionIds, waitingStarts, jobsBySession);
+		const builtActive = buildEntries(snapshot, workspaceItems, sessionDetailsById, completeAcksById, delegatingIds, archivedSessionIds, waitingStarts, jobsBySession);
+		// 任务子卡档位门控（R-01-023/AC-10、R-01-025/AC-08，T-174）：中间/紧凑档不呈现
+		// 后台任务子卡——剔除 job 子条目后其随钟时长不再注入渲染签名；任务视图订阅
+		// （syncJobsWatches）与母会话 liveJobs（数量注、活动区保留、提醒抑制）不受影响。
+		const active = densityLevel === "full" ? builtActive : builtActive.filter((entry) => entry.kind !== "job");
 		// 轮内订阅仅对"运行中"会话建立（主会话 + 运行中的子代理），保持在运行中的订阅
 		// 数量 == 运行中会话数量（R-02-004/AC-01）；暂停等待的子代理只显示标题。
 		const runLikeIds = new Set(
 			active.filter((entry) => shouldSubscribeToSession(entry, snapshot?.byId ?? {})).map((entry) => entry.id),
 		);
-		// 运行卡时钟：运行中子代理卡同样承载逐秒推进的进度与时长（R-01-009/AC-14）。
-		syncLiveness(
-			runLikeIds,
-			active.some((entry) => entry.kind === "running" || entry.kind === "job" || (entry.kind === "subagent" && runLikeIds.has(entry.id))),
-		);
+		// 运行卡时钟：需求判定收口在 core（runningClockWanted，R-01-025/AC-08，T-174）——
+		// 仅由在跑后台任务支撑运行呈现的母会话自身无逐秒推进分量，低档位不为其维持
+		// 逐秒时钟；开放回合会话、委托周期母会话与运行中子代理照常驱动（R-01-009/AC-14）。
+		syncLiveness(runLikeIds, runningClockWanted(active, runLikeIds));
 		for (const entry of active) {
 			const liveRecord = livenessById.get(entry.id);
 			const live = liveRecord?.liveness ?? null;

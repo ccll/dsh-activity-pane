@@ -100,10 +100,18 @@ export async function ensureFullDensity(page) {
 /** 首跑公告弹窗仅在首次出现，存在则关掉。 */
 export async function dismissNotice(page) {
 	// 公告按钮会先以 disabled 挂载再启用，也可能在水合时被替换；在一次 DOM 执行内查找并激活，避免 locator 自动等待竞态。
-	await page.evaluate(() => {
-		const button = [...document.querySelectorAll("button")].find((candidate) => candidate.textContent.trim() === "Continue");
-		if (button && !button.disabled) button.click();
-	});
+	// dsh 0.2.0（T-159）：公告模态挂载晚于 networkidle 且可晚于首轮 dismiss——
+	// 循环清除直到遮罩消失（上限 10 轮），消除「dismiss 后遮罩才挂载」的竞态。
+	for (let round = 0; round < 10; round += 1) {
+		const state = await page.evaluate(() => {
+			const mask = [...document.querySelectorAll("div")].some((candidate) => String(candidate.className).includes("_mask_"));
+			const button = [...document.querySelectorAll("button")].find((candidate) => candidate.textContent.trim() === "Continue" && !candidate.disabled && candidate.getBoundingClientRect().height > 0);
+			if (button) button.click();
+			return { mask, clicked: button !== undefined };
+		});
+		if (!state.mask && !state.clicked) return;
+		await page.waitForTimeout(400);
+	}
 }
 
 /** 打开应用并等待窗格数据就绪；列表状态转换由产品渲染签名保证即时落到 DOM，
@@ -179,8 +187,9 @@ export function sessionComposer(page) {
 /** mock LLM 固定输出（与 e2e/mock-llm.mjs 剧本一致），spec 断言复用避免多处硬编码。 */
 export const MOCK_FAST_REPLY = "E2E 快速回合已完成。";
 export const MOCK_ERROR_MESSAGE = "E2E 模型故障探针";
-/** 隔离环境卡面显示的模型名（boot.mjs 种子为小写 id，显示名经宿主模型目录映射）。 */
-export const MOCK_MODEL = "DeepSeek-V4-Flash";
+/** 隔离环境卡面显示的模型名（boot.mjs 种子 deepseek-flash，显示名经宿主模型目录映射；
+ *  DeepSeek-V41-Flash 为 0.1.5/0.2.0 宿主目录共有条目，T-159）。 */
+export const MOCK_MODEL = "DeepSeek-V41-Flash";
 /** 等待卡状态年龄的相对时间分级文案（R-01-002/AC-14）：与历史卡 fmtRelativeAge 分级一致。 */
 export const RELATIVE_AGE_PATTERN = /^(?:刚刚|\d+分钟前|\d+小时前|\d+天前|\d+周前|\d+个月前|\d+年前)$/;
 

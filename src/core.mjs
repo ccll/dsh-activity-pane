@@ -1,13 +1,16 @@
 // dsh-activity-pane 核心纯函数：把 DSH 原生 sessions/workspaces 客户端服务
 // 快照映射成窗格里的"活动会话条目"。这一层不触碰 DOM，可单测。
 //
-// 数据源约定（来自 @deepseek-ai/dsh-client-runtime 的 sessions.list 快照）：
+// 数据源约定（来自 @deepseek-ai/dsh-api-session-controller 0.2.0 的 sessions.list 快照）：
 //   ids: SessionId[]                     —— 宿主列表顺序（祖先在前的 lineage 顺序）
-//   byId[id]: { id, displayTitle, title?, cwd?, parentId?, origin?, running, completed?,
-//              pendingInteraction?: 'approval'|'plan-review'|'question', blank, ... }
-//   current: SessionId | undefined
-//   subagentsByParent: { [parentId]: { entries: [{ id, label, ... }] } }
-//   jobsBySession: { [sessionId]: JobView[] }
+//   byId[id]: { id, displayTitle, title?, cwd?, parentId?, origin?, running,
+//              retainedBy: { [source]: count }, blank, updatedAt, ... }
+//   current                              —— 0.2.0 起不再携带：以行上 retainedBy.mainView > 0
+//                                           推导（宿主外壳 DocumentTitle / UiSession
+//                                           .publishMain / isMain 同款口径，currentIdOf）
+//   projectionsBySession[id]: { values: { subagentCatalog?: SubagentCatalogEntry[] },
+//                                state: 'idle'|'loading'|'ready'|'error' }
+//   jobsBySession: { [sessionId]: JobView[] }（来自 jobs 服务 state.rows，watchRows 订阅）
 // 以及 workspaces.list 的 items: [{ title, path, sessionIds }]。
 //
 // 展示规则：
@@ -1520,12 +1523,42 @@ function instructionTime(row) {
 	return Number.isFinite(time) ? time : -1;
 }
 
-/** 子代理的展示标题：优先目录 label，其次 displayTitle，兜底 "子任务"。 */
-export function subagentTitle(parentId, id, byId, subagentsByParent = {}) {
-	const entries = subagentsByParent[parentId]?.entries;
-	const entry = Array.isArray(entries)
-		? entries.find((candidate) => String(candidate?.id) === String(id))
-		: undefined;
+/**
+ * 当前会话 id 推导（dsh 0.2.0 起 sessions.list 不再携带 current）：取行上
+ * `retainedBy.mainView` 引用计数 > 0 的首行。与宿主外壳同款口径——client-ui-layout
+ * DocumentTitle、client-ui-session publishMain/isMain 均以该判定取当前会话。
+ * 快照非记录、行缺 retainedBy 或计数非有限数字均按未命中处理，不抛错。
+ */
+export function currentIdOf(list) {
+	const byId = isRecord(list) && isRecord(list.byId) ? list.byId : {};
+	for (const row of Object.values(byId)) {
+		if (!isRecord(row) || !isRecord(row.retainedBy)) continue;
+		const count = Number(row.retainedBy.mainView);
+		if (Number.isFinite(count) && count > 0) return typeof row?.id === "string" ? row.id : null;
+	}
+	return null;
+}
+
+/**
+ * 母会话子代理目录条目读取（dsh 0.2.0 起 subagentsByParent 移除）：取列表快照
+ * `projectionsBySession[parentId].values.subagentCatalog`（SubagentCatalogEntry[]
+ * —— `{ id, createdAt, mode: 'one-shot'|'continuable'|'unknown', label? }`）。
+ * 投影未加载（无该键、state 非就绪或 values 缺键）按目录不可得返回 undefined，
+ * 调用方经 sessions.refreshProjections(parentId) 拉取后重试。
+ */
+export function subagentCatalogOf(projectionsBySession, parentId) {
+	if (!isRecord(projectionsBySession)) return undefined;
+	const snapshot = projectionsBySession[String(parentId)];
+	const entries = isRecord(snapshot) ? snapshot.values?.subagentCatalog : undefined;
+	return Array.isArray(entries) ? entries : undefined;
+}
+
+/** 子代理的展示标题：优先目录 label，其次 displayTitle，兜底 "子任务"。
+ *  第 4 参为 0.2.0 的列表快照 `projectionsBySession`（旧 subagentsByParent 移除）。 */
+export function subagentTitle(parentId, id, byId, projectionsBySession = {}) {
+	const entry = subagentCatalogOf(projectionsBySession, parentId)?.find(
+		(candidate) => String(candidate?.id) === String(id),
+	);
 	const label = cleanText(entry?.label);
 	if (label) return label;
 	const display = cleanText(byId[id]?.displayTitle);
@@ -1574,9 +1607,9 @@ export function mainTitle(byId, id) {
 export function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null, archivedIds = [], waitingStarts = null, jobsBySession = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
-	const current = snapshot?.current ?? null;
-	const subagentsByParent = isRecord(snapshot?.subagentsByParent)
-		? snapshot.subagentsByParent
+	const current = currentIdOf(snapshot);
+	const projectionsBySession = isRecord(snapshot?.projectionsBySession)
+		? snapshot.projectionsBySession
 		: {};
 	const archived = archivedIds instanceof Set
 		? new Set([...archivedIds].map((id) => String(id)))
@@ -1710,7 +1743,7 @@ export function buildEntries(snapshot, workspaceItems, detailsById = {}, complet
 							: "awaiting",
 				descendantActive: m.descendantActive,
 				title: m.isSub
-					? subagentTitle(parentId, id, byId, subagentsByParent)
+					? subagentTitle(parentId, id, byId, projectionsBySession)
 					: mainTitle(byId, id),
 				workspaceTitle: workspace.title,
 				workspaceKey: workspace.key,
@@ -2401,7 +2434,7 @@ export function createSessionEventSerializer() {
 export function buildRecent(snapshot, workspaceItems, now, detailsById = {}, archivedIds = [], completions = null, delegatingIds = null, turnEnds = null, jobsBySession = null) {
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
-	const current = snapshot?.current ?? null;
+	const current = currentIdOf(snapshot);
 	const items = Array.isArray(workspaceItems) ? workspaceItems : [];
 	const activeIds = activeSessionIds(byId);
 	const archived = archivedIds instanceof Set ? archivedIds : new Set(archivedIds ?? []);

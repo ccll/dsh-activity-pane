@@ -1,4 +1,5 @@
-// E2E 剧本服务：OpenAI 兼容 chat/completions 的 SSE mock（C-045）。
+// E2E 剧本服务：OpenAI 兼容 chat/completions（dsh 0.1.5）与 DeepSeek Messages API
+// （dsh 0.2.0 起 Anthropic 风格 SSE）双线协议的 mock（C-045、T-159）。
 //
 // 按用户消息中的 `e2e:<剧本名>` 关键词选择预编排剧本，在隔离测试环境中
 // 确定性制造会话活动：
@@ -34,17 +35,45 @@ function messageText(msg) {
 	return "";
 }
 
-/** 按用户文本选择剧本；runtime 的 tool 结果转入 slow，其余 tool 结果 fast 收口。
+/** OpenAI chat/completions 形状的剧本输入文本抽取。 */
+function scenarioTexts(body) {
+	const messages = body.messages ?? [];
+	return {
+		toolTexts: messages.filter((m) => m?.role === "tool").map(messageText),
+		userTexts: messages.filter((m) => m?.role === "user").map(messageText),
+	};
+}
+
+/** Messages API 形状的剧本输入文本抽取：工具结果以 user 消息的 tool_result 块回传。 */
+function messagesScenarioTexts(body) {
+	const userTexts = [];
+	const toolTexts = [];
+	for (const message of body.messages ?? []) {
+		const blocks = Array.isArray(message?.content) ? message.content : [];
+		for (const block of blocks) {
+			if (block?.type === "text" && typeof block.text === "string" && message?.role === "user") {
+				userTexts.push(block.text);
+			}
+			if (block?.type === "tool_result") {
+				const parts = Array.isArray(block.content) ? block.content : [block.content];
+				for (const part of parts) {
+					const text = typeof part === "string" ? part : part?.text;
+					if (typeof text === "string") toolTexts.push(text);
+				}
+			}
+		}
+	}
+	return { toolTexts, userTexts };
+}
+
+/** 按剧本输入文本选路；runtime 的 tool 结果转入 slow，其余 tool 结果 fast 收口。
  *  关键词取最后一条带 `e2e:` 前缀的用户消息——主回合的 wire 消息里
  *  上下文注入可能排在用户正文之后，不能只看末条用户消息。 */
-function pickScenario(body) {
-	const messages = body.messages ?? [];
-	const toolTexts = messages.filter((m) => m?.role === "tool").map(messageText);
+function pickScenario({ toolTexts, userTexts }) {
 	if (toolTexts.some((text) => text.includes("e2e-job-tick"))) return "fast";
 	if (toolTexts.some((text) => text.includes("background job"))) return "jobread";
-	const userTexts = messages.filter((m) => m?.role === "user").map(messageText);
 	const runtime = userTexts.some((text) => text.includes("e2e:runtime"));
-	if (messages.some((m) => m?.role === "tool")) return runtime ? "slow" : "fast";
+	if (toolTexts.length > 0) return runtime ? "slow" : "fast";
 	for (let i = userTexts.length - 1; i >= 0; i -= 1) {
 		const match = userTexts[i].match(/e2e:(slow|multiask|ask|runtime|error|fast|job)/);
 		if (match) return match[1];
@@ -174,12 +203,14 @@ async function playJobStart(res, model) {
 }
 
 /** 后台任务剧本读轮：从最近 tool 结果文本提取动态 job id，发起 job_output 读取。 */
-async function playJobRead(res, model, messages) {
+async function playJobRead(res, model, toolTexts) {
 	let jobId = null;
-	for (let i = messages.length - 1; i >= 0 && jobId === null; i -= 1) {
-		if (messages[i]?.role !== "tool") continue;
-		const match = messageText(messages[i]).match(/background job (bash-\d+)/);
-		if (match) jobId = match[1];
+	for (const text of toolTexts) {
+		const match = String(text).match(/background job (bash-\d+)/);
+		if (match) {
+			jobId = match[1];
+			break;
+		}
 	}
 	send(res, chunk(model, { role: "assistant", content: "读取后台任务输出。\n" }));
 	const deltas = [
@@ -203,7 +234,118 @@ const SCENARIOS = {
 	error: playError,
 	fast: playFast,
 	job: playJobStart,
-	jobread: (res, model, messages) => playJobRead(res, model, messages),
+	jobread: (res, model, toolTexts) => playJobRead(res, model, toolTexts),
+};
+
+// ---- Messages API 引擎（dsh 0.2.0 起 DeepSeek provider 走 Anthropic 风格
+// `${baseURL}/messages` SSE：message_start → content_block_* → message_delta →
+// message_stop；tool 调用为 tool_use 块 + input_json_delta 增量，stop_reason
+// 'tool_use'；工具结果以 user 消息 tool_result 块回传）。标题生成请求与普通
+// 请求同路：其 user 消息 JSON 数组内含会话用户文本，通用选路照常命中剧本，
+// 与 0.1.5 的「标题 = 剧本回复」语义一致（e2e spec 按此断言卡标题）。----
+
+/** 把一个 JSON 负载作为一条 Messages SSE data 帧写出（与旧引擎 send 同帧格式）。 */
+function sendEvent(res, payload) {
+	res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+/** 一段文本块的完整生命周期（start → 单条 delta → stop）。 */
+function playTextBlock(res, index, text) {
+	sendEvent(res, { type: "content_block_start", index, content_block: { type: "text", text: "" } });
+	sendEvent(res, { type: "content_block_delta", index, delta: { type: "text_delta", text } });
+	sendEvent(res, { type: "content_block_stop", index });
+}
+
+/** 一个 tool_use 块：input 以 input_json_delta 分片增量装配（引擎按 JSON 累积）。 */
+async function playToolBlock(res, index, id, name, argsJson, fragmentDelayMs = 20) {
+	sendEvent(res, { type: "content_block_start", index, content_block: { type: "tool_use", id, name, input: {} } });
+	for (let offset = 0; offset < argsJson.length; offset += 60) {
+		sendEvent(res, { type: "content_block_delta", index, delta: { type: "input_json_delta", partial_json: argsJson.slice(offset, offset + 60) } });
+		await sleep(fragmentDelayMs);
+	}
+	sendEvent(res, { type: "content_block_stop", index });
+}
+
+/** Messages 收口：message_delta（stop_reason + output usage）→ message_stop。 */
+function settleMessage(res, outputTokens, stopReason = "end_turn") {
+	sendEvent(res, { type: "message_delta", delta: { stop_reason: stopReason }, usage: { output_tokens: outputTokens } });
+	sendEvent(res, { type: "message_stop" });
+}
+
+/** Messages 剧本开场：message_start 携带输入 usage。 */
+function beginMessage(res) {
+	sendEvent(res, { type: "message_start", message: { usage: { input_tokens: 128, output_tokens: 1 } } });
+}
+
+async function playMessagesFast(res, model) {
+	beginMessage(res);
+	playTextBlock(res, 0, `${MOCK_FAST_REPLY}\n`);
+	settleMessage(res, 6);
+	res.end();
+}
+
+async function playMessagesSlow(res, model, streamLog = []) {
+	beginMessage(res);
+	sendEvent(res, { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
+	for (let i = 1; i <= SLOW_CHUNKS; i += 1) {
+		if (res.destroyed || res.writableEnded) return;
+		sendEvent(res, { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: `慢速输出片段 ${i}/${SLOW_CHUNKS}。\n` } });
+		streamLog.push(i);
+		await sleep(SLOW_INTERVAL_MS);
+	}
+	if (res.destroyed || res.writableEnded) return;
+	sendEvent(res, { type: "content_block_stop", index: 0 });
+	settleMessage(res, SLOW_CHUNKS * 6);
+	res.end();
+}
+
+async function playMessagesAsk(res, model, fragmentDelayMs = 20, args = ASK_QUESTION_ARGUMENTS) {
+	beginMessage(res);
+	playTextBlock(res, 0, "需要先确认问题。\n");
+	await playToolBlock(res, 1, "call_e2e_ask", "ask_user_question", args, fragmentDelayMs);
+	settleMessage(res, 24, "tool_use");
+	res.end();
+}
+
+async function playMessagesJobStart(res, model) {
+	beginMessage(res);
+	playTextBlock(res, 0, "启动后台探针任务。\n");
+	const args = JSON.stringify({
+		command: "echo e2e-job-tick-start; for i in $(seq 1 60); do echo e2e-job-tick $i; sleep 1; done",
+		description: "E2E 后台任务探针",
+		run_in_background: true,
+	});
+	await playToolBlock(res, 1, "call_e2e_job", "bash", args, 20);
+	settleMessage(res, 24, "tool_use");
+	res.end();
+}
+
+async function playMessagesJobRead(res, model, toolTexts) {
+	// 工具结果文本由调用方经 messagesScenarioTexts 统一抽取（T-159 审核发现 6）。
+	let jobId = null;
+	for (const text of toolTexts) {
+		const match = String(text).match(/background job (bash-\d+)/);
+		if (match) {
+			jobId = match[1];
+			break;
+		}
+	}
+	beginMessage(res);
+	playTextBlock(res, 0, "读取后台任务输出。\n");
+	await playToolBlock(res, 1, "call_e2e_jobout", "job_output", JSON.stringify({ job_id: jobId ?? "bash-0" }), 20);
+	settleMessage(res, 16, "tool_use");
+	res.end();
+}
+
+const MESSAGES_SCENARIOS = {
+	slow: playMessagesSlow,
+	ask: playMessagesAsk,
+	multiask: (res, model) => playMessagesAsk(res, model, 20, MULTI_ASK_QUESTION_ARGUMENTS),
+	runtime: playMessagesAsk,
+	error: playError,
+	fast: playMessagesFast,
+	job: playMessagesJobStart,
+	jobread: (res, model, toolTexts) => playMessagesJobRead(res, model, toolTexts),
 };
 
 /**
@@ -214,7 +356,9 @@ export async function startMockLlm() {
 	const scenarioLog = [];
 	const streamLog = [];
 	const server = http.createServer((req, res) => {
-		if (req.method !== "POST" || !req.url.endsWith("/chat/completions")) {
+		const isChat = req.method === "POST" && req.url.endsWith("/chat/completions");
+		const isMessages = req.method === "POST" && req.url.endsWith("/messages");
+		if (!isChat && !isMessages) {
 			res.writeHead(404).end("not found");
 			return;
 		}
@@ -228,7 +372,7 @@ export async function startMockLlm() {
 				res.writeHead(400).end("bad json");
 				return;
 			}
-			const scenario = pickScenario(body);
+			const scenario = pickScenario(isChat ? scenarioTexts(body) : messagesScenarioTexts(body));
 			scenarioLog.push(scenario);
 			if (scenario !== "error") {
 				res.writeHead(200, {
@@ -239,7 +383,15 @@ export async function startMockLlm() {
 			}
 			try {
 				const model = body.model ?? "e2e-mock";
-				await (scenario === "slow" ? playSlow(res, model, streamLog) : scenario === "jobread" ? SCENARIOS.jobread(res, model, body.messages ?? []) : SCENARIOS[scenario](res, model));
+				const texts = isChat ? scenarioTexts(body) : messagesScenarioTexts(body);
+				const table = isChat ? SCENARIOS : MESSAGES_SCENARIOS;
+				// 双引擎共用一个派发形状（T-159 审核发现 6）：slow 需要流式日志记账、
+				// jobread 需要工具结果文本，其余剧本只要 (res, model)。
+				await (scenario === "slow"
+					? table.slow(res, model, streamLog)
+					: scenario === "jobread"
+						? table.jobread(res, model, texts.toolTexts)
+						: table[scenario](res, model));
 			} catch {
 				res.end();
 			}

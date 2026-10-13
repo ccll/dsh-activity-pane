@@ -88,12 +88,12 @@ sequenceDiagram
     C-->>R: 活动卡片条目（签名）
     R-->>R: 签名未变则跳过重绘
     U->>R: 点击卡片
-    R->>S: open(sessionId)
-    S-->>R: 当前会话变更
+    R->>S: uiWorkspace.openSession(sessionId)
+    S-->>R: mainView retain 变更（当前会话切换）
     R-->>U: 高亮当前卡片
     U->>S: 从原生左侧栏选择会话
-    S-->>C: current 快照更新
-    C-->>R: isCurrent 变化
+    S-->>C: 行 retainedBy.mainView 更新
+    C-->>R: isCurrent 变化（currentIdOf 推导）
     R->>R: 以 smooth 过渡仅调整 .dap-scroll 使当前卡片完整可见
     R-->>U: 快速平滑滚动后高亮且显示当前卡片
     U->>R: 激活完成提醒卡「移入历史」按钮
@@ -145,8 +145,8 @@ flowchart LR
 
 ## 边界与对外契约
 
-- 对外只读（例外：完成确认写回与回合统计只读下发）：窗格只消费 DSH 原生 `sessions` / `workspaces` / `uiSession` 客户端服务。
-- dsh 0.1.5 起待确认/待审查/待回复经 `uiSession.pendingInteractions` 快照承载，行内 `pendingInteraction` 字段已移除。
+- 对外只读（例外：完成确认写回与回合统计只读下发）：窗格只消费 DSH 原生 `sessions` / `workspaces` / `uiSession` / `jobs` / `uiWorkspace` 客户端服务（dsh 0.2.0 起 `jobs` 承载后台任务 roster、`uiWorkspace` 承载会话导航）。
+- dsh 0.2.0 起待确认/待审查/待回复经 `uiSession.sessionStatus` 统一状态快照承载（`pendingInteraction.kind`；0.1.5 的 `pendingInteractions` 已移除），行内 `pendingInteraction` 字段仍由窗格在快照副本上回填。
 - 窗格还消费可选的 `modelDirectories` 模型目录服务（缺失时回落，见模型上下文条目）及 `remote` 服务（`@deepseek-ai/dsh-api-remotes`，dsh 0.1.5 起替代已移除的 `connection.api` 门面）的一次性目录/日志分页读取。
 - 唯一写回路径是完成提醒卡确认按钮（展示文案「移入历史」）经宿主侧 HTTP 路由 `/dsh-activity-pane/api/ack` 写回确认游标（R-02-001、R-02-003、R-01-002/AC-10）。
 - 回合统计经宿主侧只读通道 `GET /dsh-activity-pane/api/busy`（全量快照）与 `/busy/stream`（SSE）下发，无写回路径。
@@ -196,8 +196,7 @@ flowchart LR
 - 插件抽屉打开时开关隐藏、关闭后恢复（R-01-008/AC-05）。
   - 嵌入态与 hero 态统一以 `visibility:hidden` 留位隐藏，标题行不因开合重排，不可见盒不拦截点击（pointer-events 同步摘除）。
   - 宿主侧栏抽屉打开期间开关不隐藏，保留原位由其遮挡（R-01-008/AC-04，T-168）。
-- 页面契约：点击/键盘激活活动卡片 → 调用 `sessions.open` 切换当前会话；列表未就绪时以 `sessions.refresh` + 有限重试兜底（R-01-005）。
-- 卸载契约：移除注入的窗格元素、浮动开关、透明遮罩、样式与全部事件监听，复位对中间列/会话根的布局改写，不残留（R-02-003、R-02-004）。
+- 页面契约：点击/键盘激活活动卡片 → 调用 `uiWorkspace.openSession(target)` 切换当前会话（dsh 0.2.0 起 `sessions.open` 已移除；子代理以持久父地址寻址）；到达判定以 `currentIdOf` 推导的当前会话驱动 `sessions.refresh` + 有限重试兜底（R-01-005）。- 卸载契约：移除注入的窗格元素、浮动开关、透明遮罩、样式与全部事件监听，复位对中间列/会话根的布局改写，不残留（R-02-003、R-02-004）。
 - 关键机制：
   - 不依赖任何第三方宠物插件，也不向第三方数据路由发请求（R-02-001）。
   - 移动端抽屉不改变主会话布局，离开文档流（R-01-008）。
@@ -221,7 +220,7 @@ flowchart LR
   - 总耗时显示 `busyMs + max(0, (now − openTurnStart) − waitedMs − (openWaitStart 非空时 now − openWaitStart))`，渲染期计算并随运行时钟逐秒更新。
   - 等待期间公式自冻结，等待结束与回合结算处显示值连续无跳变，开放回合起点不可得时只显示已完成累计。
   - 标题行最右侧以 `fmtElapsedMs` 分级格式呈现，子代理卡片不显示（R-01-020）。
-  - 轮内状态通过 `sessions.binding(sessionId).session` 订阅运行中会话取得（dsh 0.1.5 起该快照不再携带会话内容，仅承载运行状态面：running/openState/队列与分页状态），随运行结束断开。
+  - 轮内状态通过 retain 引用的会话面订阅运行中会话取得（`sessions.retain(id, {source})` → `reference.binding.session`；dsh 0.2.0 起 `binding()` 只借用已保留代际；该快照不再携带会话内容，仅承载运行状态面：running/openState/队列与分页状态），随运行结束或可见性 prune 释放引用断开。
   - token 统计（计费输入/输出/缓存命中率）与速率取 `sessions.list` 条目的 `projectionValues`（`tokenUsage` / `sessionStats`，复用既有列表订阅，无新增轮询）。
   - 运行卡停止前在可见详情中保留最后已知投影统计供等待卡与历史卡复用。
   - 运行时长与进度在渲染期按回合开始时间实时计算——回合起点经宿主侧 busy 通道的 `openTurnStart` 提供（快照 `turnTimings` 已随 V3 移除）。
@@ -234,8 +233,8 @@ flowchart LR
   - 预览提取（`messagePreviews`）对多页组合的事件按尾部反向扫描取最近命中。
   - 最近卡窗口缺用户或 agent 任一预览时补读一次日志，避免完成瞬间窗口中仅含用户消息而把 agent 预览永久留空（R-01-013/AC-03、AC-04）。
   - 运行中当前项由原生 `session.subscribe` 推送驱动 `captureSessionLog` 就地读取 eventSource 窗口（快照引用变化才重算，无轮询）（R-01-012）。
-  - 子代理会话的事件流仅接受持久父地址路由——dsh 0.1.5 起宿主校验地址与会话归属及描述符 mode 的一致性，普通地址或不符 mode 的 page/follow 被 agent-busy/subagent-unauthorized 拒绝，持久地址仅经原生导航留存。
-  - 插件在打开子代理会话前经 `configureSubagent` 安装地址，mode 取母会话子代理目录条目、目录未加载时先单发 `refreshSubagents` 拉取再安装（与原生 selectSubagent 同构，不切换当前会话）。
+  - 子代理会话的事件流仅接受持久父地址路由——宿主校验地址与会话归属的一致性，普通地址的 page/follow 被拒绝；持久地址经 `sessions.subagentAddress(childId)` 解析（地址仍携带 `mode`，0.2.0 新增合法值 `'unknown'`；目录未提供时以 `'unknown'` 兜底并先经 `refreshProjections` 拉取目录再重试）。
+  - 插件以 `sessions.retain(target, { source: "dsh-activity-pane" })` 持有可见卡片的会话代际（子代理 target 取上述持久地址；dsh 0.2.0 起旧地址安装与显式打开调用已随会话面重构移除）；母会话投影（子代理目录 `subagentCatalog`）未加载时经 `sessions.refreshProjections(parentId)` 单发拉取再重试（R-01-012/AC-03，T-151/T-159）。
   - 未点选的子代理卡时间线因此得以自动水合并随原生推送更新（R-01-012/AC-03）。
   - 活动卡时间线以 eventSource 窗口（`captureSessionLog` 的 V3 快照 `entries`）的日志派生为主源：transient `assistant/live-chunk` 条目（agent-stream 增量帧，seq 为插值小数，仅流式期间在窗）按 `attemptId` 原位累积为单个 running live assistant 行——运行卡 running 圆点与「agent 工作中」呈现的来源。
   - 非用户 source 的 `user/message` 即宿主 ContextMessageNode（0.1.5 无独立 context 事件），按 provenance 投影为「上下文注入/跨会话召回」行。
@@ -306,7 +305,7 @@ flowchart LR
   - 完成确认/错误提醒时显示为 awaiting。
   - 完成提醒成立与否不消费宿主 `completed` 边沿标志（C-030 唯一口径为 `completions` 游标比较）。
   - 错误提醒成立与否同样只由 `completions` 记账的 `lastTurnEndKind` 判定（C-043）。
-  - 在跑后台任务活性（R-01-023）：`liveJobs` = 快照 `jobsBySession[id]` 中 `status ∈ {'running','stopping'}` 的任务集合（快照缺失、非数组或空数组均视为无任务）。
+  - 在跑后台任务活性（R-01-023）：`liveJobs` = `jobs.state.rows[id]` 中 `status ∈ {'running','stopping'}` 的任务集合（缺失、非数组或空数组均视为无任务）。
   - liveJobs 派生为主会话第三种活动来源，与自身 running、活动后代并列。
   - 存在 liveJobs 的主会话保留在活动区按运行态呈现（时间线冻结、不渲染进度条与运行条纹，不冒充回合运行），标题行以「后台 ×N」小注标注在跑任务数量（R-01-023/AC-01）。
   - 每个在跑任务另产出 `kind: "job"` 的缩进子卡（与子代理同形，跟随母会话直接后继，复合 id `job:<sessionId>:<jobId>` 与会话 id 空间隔离）。
@@ -316,7 +315,9 @@ flowchart LR
   - 任务全部结束后子卡随 liveJobs 清空而消失（R-01-023/AC-03）。
   - 完成提醒与错误提醒在 liveJobs 非空期间被抑制、liveJobs 清空后按既有规则恢复（R-01-023/AC-02）。
   - 数量徽标分子（running 口径）将仅有 liveJobs 的主会话计入，job 子卡被 kind 过滤、不计入（R-01-023/AC-04）。
-  - 任务列表与状态变化由 `sessions.list` 快照的 `jobsBySession` 推送帧承载，不新增订阅或轮询。
+  - 任务列表与状态变化由 `jobs` 客户端服务的 `state.rows` 快照（`Record<sessionId, JobView[]>`）承载。
+  - 窗格经 `watchRows(sessionId)` 对列表全会话建立引用计数共享的 roster 订阅，随列表 prune 停流。
+  - 订阅 `state` 快照变化重算，不新增轮询（dsh 0.2.0 起列表快照不再携带 `jobsBySession`，T-159）。
   - 完成提醒：`buildEntries` 以 `completions` 记账（id → `{ lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }`，经 SSE 通道注入）派生——主会话且 `lastTurnEnd > ackedAt` 时完成提醒成立。
   - 打开会话或切换当前会话不解除，仅显式确认（按钮写回 `ackedAt`）或新回合完成（`lastTurnEnd` 前移，旧提醒被新回合更替）改变成立性（R-01-002/AC-03、AC-05、AC-10、AC-11、AC-12、R-01-010/AC-06）。
   - 错误提醒：主会话且 `lastTurnEndKind === 'error'` 时成立，随新回合结束（`lastTurnEndKind` 被新 reason 覆盖）或活动条件（running/阻塞等待/委托周期）抑制解除，不消费 `ackedAt`、无确认按钮（R-01-002/AC-05、AC-12、AC-13）。
@@ -402,7 +403,7 @@ flowchart LR
 - 动画期间新渲染照常进行，同一 id 再次迁移时旧 ghost 移除并按最新帧重新判定，平移中的卡片以当前视觉矩形为起点重新计算反向位移。
 - 平移状态在卡片摘除、窗格重建与卸载时同步取消（R-01-010/AC-07、AC-10）。
 - 轮内状态订阅：
-  - 仅对运行中会话建立 `binding().session.subscribe`，随会话停止运行或插件卸载执行 `unsubscribe`，订阅数量与运行中会话一致（R-01-009、R-02-004）。
+  - 仅对运行中会话建立 retain 引用的会话面订阅（`session.subscribe`），随会话停止运行或可见性 prune 释放引用并执行 `unsubscribe`，订阅数量与运行中会话一致（R-01-009、R-02-004；dsh 0.2.0 起 retain 生命周期承载代际持有，T-159）。
   - 订阅为推送式，各订阅在独立轻量回调中归一为 `{ startTime }`。
   - 运行时长在渲染期按 `Date.now() - startTime` 实时计算（配合运行时钟逐秒刷新），不依赖推送事件更新。
   - 会话停止运行后，等待卡改用最近完整回合的固定耗时，并复用停止前最后已知的 token 统计（R-01-009/AC-03、AC-12、AC-13）。
@@ -424,16 +425,22 @@ flowchart LR
   - 进入紧凑档时拆掉既有主会话日志窗口订阅（先 unsubscribe 再除名）并清除窗口引用（`detail.log` 置空）。
     - 非当前会话再 dispose 会话运行时 live 源，终止底层 `session/follow` 流——订阅回调移除不终止共享传输流，dispose 才停带宽。
     - 当前会话的窗口由外壳会话视图持有，不 dispose、不拆订阅；其切走后的渲染期执法照常释放。
-    - 切回更高档位时经既有渐进路径重新水合并就绪，不额外新增恢复机制。
-  - 门控为「用时校验」：日志窗口订阅回调入口、`session.open()` 发起点与日志分页响应点（在途深翻的下一页发起前）均重读当前档位。
+    - 切回更高档位时经既有渐进路径重新水合。
+    - 恢复复用既有渐进路径，不新增恢复机制。
+  - 门控为「用时校验」：日志窗口订阅回调入口与日志分页响应点均重读当前档位。
+    - 在途深翻的下一页发起前同判。
+    - dsh 0.2.0 起共享初始历史打开由宿主 retain 语义承载，窗格无独立打开发起点（T-159）。
     - 切档在途的重试链不落地新窗口；在途深翻不再续页，中止时已取页不落地、保持既有详情，切回后重新入队重取。
   - 紧凑档不为主会话发起日志分页深翻（预览/最近回合耗时兜底）与无可见消费者的一次性模型目录读取；最近历史排序与活动时间以既有可用时刻承载，不等待在途数据（R-01-010/AC-09 档位限定）。
-  - 渲染面按档位跳写：中间/紧凑档不写进度行与 token 统计行，紧凑档不构建时间线内容；被跳写区域切回完整档后随档位重渲染（签名含档位分量）恢复。
+  - 渲染面按档位跳写（签名含档位分量）。
+    - 中间/紧凑档不写进度行与 token 统计行。
+    - 紧凑档不构建时间线内容。
+    - 被跳写区域切回完整档后随档位重渲染恢复。
   - 被跳写后 `querySelector` 就地更新器必须空安全——更新器不得假设被跳写区域已含内容节点（task 检查单项）。
 - 加载状态模型（R-01-014）：
   - 列表级：`listLoadState` 把列表快照归一为 loading/ready（快照缺失或 `phase === "pending"` 为在途）；loading 时活动区/历史区各显示活动图标，禁止空态冒充（宿主契约：empty-with-ready 才是真无会话）。
   - 计数级：列表在途时三处数量标识（列头、窄条、移动端开关）经 `countBadgeState` 归一为加载指示（spinner），不冒充 0/0 计数；就绪后显示实际 n/m（R-01-014/AC-06）。
-  - 卡片字段级：models/history/`session.open()` 在途时，模型区、时间线区、预览行显示行内加载指示（spinner）；数据返回经签名驱动就地填充，不重建卡片。
+  - 卡片字段级：models/history/retain 引用就绪在途时，模型区、时间线区、预览行显示行内加载指示（spinner）；数据返回经签名驱动就地填充，不重建卡片。
   - 渐进呈现：补充数据逐个 promise 完成即重绘（先就绪先显示，不等待全部）；注册新读取后立即重绘一次让指示出现。
   - 并发池：冷读取（models/history）经队列并发上限 3 发出，优先级为当前会话最优先、活动区先于历史区、区内按显示顺序；卸载清空队列。
   - 失败语义：补充数据失败降级为空字段；记账随可见性清理放行，会话重回可见时允许重试（R-01-014/AC-05）。
@@ -480,7 +487,7 @@ flowchart LR
 - `completions` 入参（Map id → `{ lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }`，来自宿主侧 ack 状态）使完成提醒/错误提醒中会话以 awaiting 条目保留在活动区（R-01-002/AC-05、AC-13、R-01-010/AC-06）。
 - awaiting 条目同时携带 `stateAt`（进入当前等待行动状态的时刻：阻塞等待取 `waitingStarts`、完成/错误提醒取 `lastTurnEnd`，与排序键同源同值；不可得为 null）。
 - 排序键缺失时的宿主列表时间回退仅用于排序，不作显示时刻（R-01-002/AC-14）。
-- `jobsBySession`（快照携带的任务视图）经 `liveJobs` 派生并入 `buildEntries`/`buildRecent`：存在在跑后台任务的主会话归入运行组（排序键沿用宿主列表时间）。
+- `jobs.state.rows`（jobs 服务快照的按会话任务视图）经 `liveJobs` 派生并入 `buildEntries`/`buildRecent`：存在在跑后台任务的主会话归入运行组（排序键沿用宿主列表时间）。
 - 条目携带 `liveJobs`（`{ id, kind, label, status, startedAt }[]`，`startedAt` 升序）与 `selfRunning`（自身回合是否真实运行，布尔）。
 - `liveJobs` 供渲染层在标题行标注数量（R-01-023/AC-01、AC-04）；`selfRunning` 区分「仅后台任务」（隐藏进度行、呈现冻结）与真实回合运行。
 - 并为每个在跑任务产出 `kind: "job"` 子条目（`{ id: "job:<sessionId>:<jobId>", parentId, depth+1, kind, title=label, jobKind, jobStatus, jobStartedAt }`，归属会话以 `parentId` 承载）。
@@ -673,8 +680,12 @@ flowchart LR
 - 档位存 localStorage（键 `dsh-activity-pane:density`，与列宽键同冒号命名惯例；缺失/非法值经 `normalizeDensity` 归一为默认中间档）于启动时恢复。
 - 会话状态变化不解除已选档位（R-01-021）。
 - 档位资源纪律：紧凑档下主会话不建立或保持会话日志窗口（不水合、不订阅事件流、不派生）、不发起日志分页深翻与无可见消费者的一次性模型目录读取（R-01-025/AC-01、AC-03、AC-06）。
+  - 门控先于 retain（dsh 0.2.0 起 retain.ready 即共享初始历史打开，T-159）：被抑制会话不获取插件 retain 引用。
+  - 轮内状态订阅只借用既有引用的会话面；无引用的运行卡降级到 `sessionStatus` 统一状态面与 busy 记账 `openTurnStart`，不单独水合。
 - 非日志通道（轮内状态订阅、回合统计与完成确认通道、会话/工作区列表订阅、子代理日志窗口）不随裁剪停摆，标题行可见信息与累计运行时长照常更新（R-01-025/AC-02、AC-07）。
-- 中间/紧凑档不写进度行与 token 统计行，紧凑档不构建时间线内容；切回更高档位经档位签名重渲染恢复（R-01-025/AC-05）。
+- 渲染面按档位跳写，切回更高档位经档位签名重渲染恢复（R-01-025/AC-05）。
+  - 中间/紧凑档不写进度行与 token 统计行。
+  - 紧凑档不构建时间线内容。
 - 交互面：点击或 Enter/Space 激活卡片 → 切换会话（后台任务子卡除外——纯展示，激活不触发任何操作，R-01-023/AC-08）；当前会话卡片高亮。
 - 原生左侧栏切换当前会话后，若对应卡片已呈现但未完整可见，渲染器通过原生 `scrollTo({ top, behavior: "smooth" })` 只调整 `.dap-scroll.scrollTop` 的最小必要距离，使其快速平滑地完整可见。
 - 命中降低动效偏好时传入 `auto`，不居中且不影响主会话滚动。
@@ -744,6 +755,8 @@ flowchart LR
   - 纯函数、无 DOM、可单测。
   - 显示过滤单点实现：`lineageActiveIds` 沿自身活动会话的 `parentId` 链上溯——含自身为 `activeSessionIds`（历史区显示判定），仅祖先为 `descendantActiveIds`（活动区委托周期判定）。
   - `isSubagentRow` 判定直属子代理。
+  - `currentIdOf` 以行上 `retainedBy.mainView` 引用计数推导当前会话（dsh 0.2.0 起 `sessions.list` 不再携带 `current`；与宿主外壳 DocumentTitle/UiSession 同款口径，T-159）。
+  - `subagentCatalogOf` 从 `projectionsBySession[parentId].values.subagentCatalog` 读取子代理目录条目（dsh 0.2.0 起 `subagentsByParent` 移除；未加载视为目录不可得，T-159）。
   - 轮内订阅以宿主 running 为准：`shouldSubscribeToSession` 按 `byId` 行 `running` 判定，与呈现 kind 解耦——委托周期中的母会话保持 running 呈现但不建立订阅。
   - `buildRecent` 派生所有当前非活动的历史区候选（仅主会话，不设时间窗口或条数上限），按精化最后活动时间倒序。
   - 候选并归一化 workspace/model/reasoning、最近用户首行与 agent 首行；`turnEnds` 入参驱动 max 归一，相同时间以会话 id 稳定排序。
@@ -829,12 +842,12 @@ flowchart LR
   - 图标常驻且字形 12px 与时间线图标字形一致。
   - 文本与加载 spinner 只写入文本段，不覆盖图标与标签（R-01-013/AC-07、AC-08）。
   - 最近卡在该两行之后复用 `.dap-token-stats` 显示最近回合统计，再以 `activityAt` 时间行收尾（R-01-013/AC-12）。
-  - 对每个运行中会话经 `sessions.binding(id).session` 订阅轮内状态与 ChatSnapshot，归一为 `runtimeStats` 与工作项时间线。
+  - 对每个运行中会话经 retain 引用的会话面（`liveSessionFace`：`sessions.retain(target, { source })` → `reference.ready` → `binding.session`/`binding.eventSource`）订阅轮内状态与读取事件窗口，归一为 `runtimeStats` 与工作项时间线（dsh 0.2.0 起 `binding()` 只借用已保留代际，T-159）。
   - 运行中时长在渲染期按起始时间实时计算，停止运行或卸载即 `unsubscribe`。
   - 进入等待行动后从保留快照或 native history 读取最近完整回合耗时，写入同一 `elapsedMs` 字段并保持冻结，同时复用停止前最后已知的 token 统计字段（R-01-009/AC-12、AC-13）。
   - 冷会话只通过 native history/model 的一次性读取补齐，不进行状态轮询。
   - 模型目录订阅（`modelDirectories` store）随补充数据读取对可见主会话建立。
-  - 会话离开可见集合或插件卸载时先 `unsubscribe` 再除名（`pruneSubscriptions`），监听器不残留（R-01-012/AC-16）。
+  - 会话离开可见集合或插件卸载时先 `unsubscribe` 再除名（`pruneSubscriptions`），retain 引用随同一可见性生命周期 `release`（T-159），监听器不残留（R-01-012/AC-16）。
   - 历史区时间精化：history 到达或保留快照存在时提取最后回合结束时刻注入 `buildRecent` 的 `turnEnds`。
   - 重派生后排序与时间显示经签名驱动就地更新；数据在途期间以宿主列表时间显示（R-01-010/AC-09）。
   - 时间线用户行标识与图标几何：时间线内用户消息行（`.dap-trace-item[data-icon="user"]`）以行下 1px 中性灰实线下划线标识。
@@ -893,10 +906,23 @@ flowchart LR
   - 激活跳转逻辑不感知档位，渲染签名含显示档位分量（档位切换经 queueSync 触发一轮重渲染，R-02-003 的签名去重语义不变）（R-01-021/AC-01、AC-02、AC-04、AC-08）。
   - 档位经 `normalizeDensity` 归一（缺失/非法回退默认中间档）后存 localStorage，启动恢复，会话状态变化不翻转已选档位。
   - 桌面折叠窄条态随标题行隐藏，移动端抽屉形态同样适用；按钮随窗格骨架创建与移除（R-01-021、R-02-003）。
-  - 档位资源纪律（R-01-025）：`onDensityClick` 翻转档位后调用 `enforceDensityDataDiscipline`——进入紧凑档时对主会话日志窗口先 unsubscribe 再除名（`logSourceSubs`）并清除窗口引用（`detail.log` 置空）；非当前会话再 `session.dispose()` 终止底层 `session/follow` 流（订阅回调移除不终止共享传输流），当前会话由外壳持有不 dispose；子代理窗口保留。
-  - `captureSessionLog`/`syncLiveness`/`loadNativeDetails` 入口与日志分页响应点经渲染层单点判定 `logWindowSuppressedFor(id)`（core `logWindowSuppressed(densityLevel, isSubagent)` + 子代理判定）用时校验：紧凑档主会话不订阅事件流、不发起 `session.open()` 水合、不读窗口快照、不续翻在途深翻页；轮内状态订阅与 liveness 记账保留（与正常路径共用代码）。
-  - `loadNativeDetails` 按同谓词门控：紧凑档主会话跳过日志分页深翻与模型目录订阅/一次性 load；子代理读取不受影响；切回更高档位后下一轮渲染经既有渐进路径重建就绪。
-  - 渲染层档位跳写：`renderTimelineArea` 紧凑档跳过（中间档 lastOnly 不变）；进度行与 token 统计行仅在完整档写入；被跳写区域的就地更新器保持空安全。
+  - 档位资源纪律（R-01-025）：`onDensityClick` 翻转档位后调用 `enforceDensityDataDiscipline`。
+    - 进入紧凑档时对主会话日志窗口先 unsubscribe 再除名（`logSourceSubs`）并清除窗口引用（`detail.log` 置空）。
+    - 非当前会话再释放其 retain 引用，终止底层会话流（T-159）。
+    - 当前会话由外壳持有、豁免拆窗；子代理窗口保留。
+  - `captureSessionLog`/`syncLiveness`/`loadNativeDetails` 入口与日志分页响应点经渲染层单点判定 `logWindowSuppressedFor(id)` 用时校验。
+    - 判定输入：core `logWindowSuppressed(densityLevel, isSubagent)` + 子代理判定。
+    - 紧凑档主会话不订阅事件流、不读窗口快照、不续翻在途深翻页。
+    - 轮内状态订阅与 liveness 记账保留（与正常路径共用代码）。
+    - 共享初始历史打开由宿主 retain 语义承载（T-159）。
+  - `loadNativeDetails` 按同谓词门控。
+    - 紧凑档主会话跳过日志分页深翻与模型目录订阅/一次性 load。
+    - 子代理读取不受影响。
+    - 切回更高档位后下一轮渲染经既有渐进路径重建就绪。
+  - 渲染层档位跳写。
+    - `renderTimelineArea` 紧凑档跳过（中间档 lastOnly 不变）。
+    - 进度行与 token 统计行仅在完整档写入。
+    - 被跳写区域的就地更新器保持空安全。
   - 仓库入口：`.dap-repo` 为标题行最左端独立区的常显纯图标链接（T-144），与右侧工具区（`.dap-tools`）的档位切换按钮远离以防触屏误触，视觉强度弱于带描边的档位切换按钮（主次分明，R-01-022/AC-01）；与标题区的接缝间距（`margin-right: 12px`）对齐工具区的接缝间距（`.dap-tools` 的 `padding-left: 12px`），标题区悬停高亮两侧留白对称（T-146）：
     - 呈现：22px 圆形、无边框、不透明底色、hover/focus-visible 高亮、可访问名称，悬停提示「报告问题，点赞收藏」（可访问名称保持「报告问题」表达元素用途，东家指令）；图标为 MIT 许可的 GitHub Octicon `mark-github` 字形，与工具区既有图标同用 14px 字形盒。
     - 行为：`href` 指向 https://github.com/ccll/dsh-activity-pane，以 `target="_blank"` + `rel="noreferrer noopener"` 在新标签页打开；激活不进入标题区收起激活路径，也不改变当前选中会话与呈现档位（R-01-022/AC-02）。

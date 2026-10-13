@@ -172,7 +172,7 @@ IGNORED_PARTS = {
     "tmp",
 }
 CANONICAL_FILES_SHA256 = {
-    "AGENTS.md": "691d715f7ba4b058f778d178dead2f7528668eae703302e1d4bb2ef415d6337b",
+    "AGENTS.md": "f147014436b5f7548e70dd176e1ce4bb7ea02b8d80a80b5c3d998e13850b13c4",
     ".githooks/commit-msg": "8e2d1dd49ab9fd71e8bb3b87fe5786c0ea0314327e58558b518499541e75a51d",
     ".githooks/pre-commit": "83cfb74e7792ed1cf1264105941249d06a37872455faf83297220eb4268325fa",
     ".githooks/pre-push": "c85da06d5f5423959656195835bb570912839e9e65483d3cc20bf096aea9cd4c",

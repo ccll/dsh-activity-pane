@@ -11,9 +11,9 @@ owner: agent 主笔，项目属主审批
 <!-- BEGIN AGENTMAP COMMIT CONVENTION -->
 ## Git 提交规范
 
-- 标题使用 `emoji 中文类型(scope): 中文结果描述`。
+- 标题使用 `emoji 中文类型(scope): 中文结果描述`；标题与正文之间须空一行（commit-msg 校验）。
 - emoji/type 固定配对：⭐ 功能、✨ 改进、🐛 修复、📝 文档、🧪 测试、📌 计划、🧹 维护、⚙️ 配置、♻️ 重构、🚀 发布。
-- `scope` 使用小写字母、数字和连字符，不使用 subscope。
+- `scope` 使用小写字母、数字和连字符，首字符须为字母或数字，不使用 subscope。
 - 普通提交正文必须包含 `## 原因`、`## 影响`、`## 取舍`；Merge、Revert、fixup 与 squash 使用 Git 生成标题。
 - 实现、修正或关闭 task 的提交：正文须引用对应 `T-nnn`。
   - 目的：`git blame` → commit → task 可反查。
@@ -24,17 +24,27 @@ owner: agent 主笔，项目属主审批
 
 ## AgentMap 本地参数
 
+- agentmap 规范版本: 2
+
 - 需求组 01: 用户
 - 需求组 02: 维护者
 - 验证矩阵起始 task: T-001
 - 代码审核起始 task: T-001
 - 测试锚定模式: strict
 - 测试锚点路径: scripts/check.mjs; scripts/acceptance.mjs; e2e/specs/*.mjs
+- 核心文档上限: 96000 token
+  - 登记理由: 2026-10 AgentMap v2 升级后按实测核心文档字节数登记的基线（PRD+SOLUTION+DOMAIN+CONVENTIONS+AGENTS 合计 238713 字节，token=字节/3 上浮 20% 向上取整到千位），供东家后续调整。
 
 ## 验证门禁
 
-- 每次 agent 工作完成运行 `pnpm verify`；编辑循环可先运行约 5 秒的 `pnpm verify:fast`。`pnpm check` 会从工作树重建 `.dsh-plugin/client.js`，提交时必须一并暂存；pre-commit 另以 Git index 内容校验 staged source/build script/bundle 完全一致。
-- PRD 的 AC 新增或正文修改必须在同次变更中触碰含该 exact AC-ID 的自动测试或人工验收证据；仅措辞澄清可由同次修改的 active task 在「测试影响」表以 `none` 动作和具体理由豁免。SOLUTION（方案层）变化必须由同次修改的 active task 记录 `DESIGN` 或 `SOLUTION` 测试影响行。门禁只强制重新审视证据，不自动生成、改写或删除测试（C-059）。
+- 每次 agent 工作完成运行 `pnpm verify`。
+- 编辑循环可先运行约 5 秒的 `pnpm verify:fast`。
+- `pnpm check` 会从工作树重建 `.dsh-plugin/client.js`，提交时必须一并暂存。
+- pre-commit 另以 Git index 内容校验 staged source/build script/bundle 完全一致。
+- PRD 的 AC 新增或正文修改必须在同次变更中触碰含该 exact AC-ID 的自动测试或人工验收证据。
+- 仅措辞澄清可由同次修改的 active task 在「测试影响」表以 `none` 动作和具体理由豁免。
+- SOLUTION（方案层）变化必须由同次修改的 active task 记录 `DESIGN` 或 `SOLUTION` 测试影响行。
+- 门禁只强制重新审视证据，不自动生成、改写或删除测试（C-059）。
 - 测试证据按路径分类报告：`scripts/check.mjs` 为 unit/contract，`e2e/specs/*.mjs` 为 browser E2E，`scripts/acceptance.mjs` 为 manual；`test-anchored` 只表示 AC-ID 锚点闭合，不等同于浏览器覆盖率。
 - 达标类性能收敛（不改变可观察行为、消除已确认重绘/耗电源）按 map 不变短路处理，不增设机制类 PRD 承诺；量化守恒由移动端热静默 E2E 的 rAF 请求次数阈值断言承载，task 终态须记录与该门禁的对照关系（C-082）。
 - `.d/` hook 统一使用 `NN-name.sh`，两位编号在同一目录内唯一；dispatcher 以 `LC_ALL=C` 按文件名顺序执行并在首个失败处停止。
@@ -45,7 +55,9 @@ owner: agent 主笔，项目属主审批
 - 快速验证入口: `pnpm verify:fast`（AgentMap lint + 测试影响检查器 self-test/report + core 单测与 client bundle 契约）。
 - 权威验证入口: .githooks/pre-push
 - 完整验证命令: `pnpm verify`（快速入口 + 全量浏览器 E2E）；agent 任务结束与 pre-push 重放同一命令。
-- CI 门禁: 适用：C-060 在手工 hosted 诊断绿色后恢复 `.github/workflows/ci.yml` 于 main push 自动运行 pnpm verify，并保留 workflow_dispatch；不触发 PR 与 tag。提交与推送前以本地 pre-push 为权威阻断，main hosted 在推送后提供 clean-runner 独立裁决；GitHub Release 仍手工创建。
+- CI 门禁: 适用：C-060 在手工 hosted 诊断绿色后恢复 `.github/workflows/ci.yml` 于 main push 自动运行 pnpm verify，并保留 workflow_dispatch；不触发 PR 与 tag。
+- 提交与推送前以本地 pre-push 为权威阻断，main hosted 在推送后提供 clean-runner 独立裁决。
+- GitHub Release 仍手工创建。
 - npm 发布: `.github/workflows/npm-publish.yml` 在 GitHub Release `published` 后校验 tag/package 版本、运行 `pnpm verify:fast` 并通过 npm Trusted Publishing OIDC 执行发布；不读取 `NPM_TOKEN`，完整 E2E 仍由 main CI 负责。
 - `.githooks/pre-commit.d/20-agentmap-lint.sh`：AgentMap 结构、追溯与派生报告。
 - `.githooks/pre-commit.d/25-test-impact.sh`：比较 HEAD 与 staged PRD/SOLUTION，要求测试证据同步变化或由 staged active task 记录结构化 `none` 理由。

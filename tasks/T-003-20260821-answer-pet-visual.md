@@ -68,7 +68,7 @@ id: T-003
 - commit: 2657fc2
 - review:
   - 审核方: standards 子代理 0c3fe787-c1de-4ace-a511-661201cdb670 / spec 子代理 ab0e786e-4670-4727-aa1c-d4bcda2db2b1（同一审核轮次）
-  - 目的理解: 审核 T-003 实现相对东家原始诉求与 PRD R-01-009（AC-02 回答中文案、AC-08 流式条纹、AC-09 时间线）与 DESIGN 契约（statusLine/buildTrace/progressOf、外观对齐 answer-pet、R-02 数据源纪律）的符合度，及对真实 answer-pet 源码（web profile 内 client.js/PHASE_LABELS/progress.mjs）的逐值对齐。
+  - 目的理解: 审核 T-003 实现相对东家原始诉求与 PRD R-01-009（AC-02 回答中文案、AC-08 流式条纹、AC-09 时间线）与 DESIGN 契约（statusLine/buildTrace/progressOf、外观对齐 answer-pet、早期编号体系下的数据源纪律约束（编号已废弃））的符合度，及对真实 answer-pet 源码（web profile 内 client.js/PHASE_LABELS/progress.mjs）的逐值对齐。
   - 执行方式: code-review skill 双轴（Standards+Spec）并行子代理，评审基线 d255b0e..工作区（T-003 相关文件），排除并发写入者的 README/TODO/pnpm-lock 改动。
   - 问题与修复: Standards — 无文档标准硬违规；正确性抽查（圆点落线几何、grid 列、进度 0–100 钳制、data-streaming 逐渲染重求值无残留、reduced-motion 三动画路径全覆盖、dap-stripes 40px=20px 周期无缝）全部通过；仅两条宽松判断：①竖线+圆点几何在 `.dap-trace` 与 `.dap-subtrace` 重复（规模小、父/子语义不同，可接受，再扩可抽 CSS 公共变量）；②`statusLine` 嵌套三元仅 3 支且与 answer-pet PHASE_LABELS 同构，不构成 Repeated Switches。Spec — 无缺失/无越界/无与参考相悖实现；「子代理竖线」answer-pet 上游本无，属 T-003 与 acceptance 步骤明确的既有需求；进度数值口径（回合差分 token + 无 maxTokens 饱和）为 DESIGN/T-003 明示 ≈ 近似，非缺陷；`/answer-pet/state` 路由与宿主事件折叠未被复制，数据源纪律保持。
   - 复审结论: 两轴均无需整改，双轴通过。

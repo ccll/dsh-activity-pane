@@ -24,7 +24,7 @@ owner: agent 主笔，项目属主审批
 
 ## AgentMap 本地参数
 
-- agentmap 规范版本: 2
+- agentmap 规范版本: 3
 
 - 需求组 01: 用户
 - 需求组 02: 维护者

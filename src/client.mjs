@@ -738,6 +738,22 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   font-variant-numeric: tabular-nums;
 }
 [data-dsh-activity-pane] .dap-jobs-chip[hidden] { display: none; }
+/* jobs-only 呈现门控（R-01-023/AC-11）：回合已结束仍有在跑后台任务时，卡根打
+   data-jobs-only，数量注以 dap-pulse 同节奏闪烁（与 AC-09 状态点同源同周期）；
+   自身回合运行中与阻塞等待不打标。闪烁由 CSS 动画承载，不引入 JS 周期性工作
+   （R-01-025/AC-08 静默门禁不受影响）。 */
+[data-dsh-activity-pane] .dap-card[data-jobs-only="true"] .dap-jobs-chip {
+  animation: dap-pulse 1.2s ease-in-out infinite;
+}
+/* 同门控暂停 R-01-009/AC-09 的圆点闪烁承诺：时间线执行中行圆点与卡片标题行状态点
+   静止（着色与光晕不变），数量注成为卡片唯一运动元素——表明会话当前没有 LLM 活动、
+   仅有后台任务活动；状态结束后随卡根属性复位恢复呼吸。 */
+[data-dsh-activity-pane] .dap-card[data-jobs-only="true"] .dap-trace-item[data-status="running"]::before {
+  animation: none;
+}
+[data-dsh-activity-pane] .dap-card[data-jobs-only="true"] .dap-dot {
+  animation: none;
+}
 /* 后台任务子卡（R-01-023/AC-05、AC-07）：与子代理卡同构的两行卡面，底色在子代理卡
    底色上轻染任务状态点同族的蓝以相互可辨；状态点色随任务状态翻转。
    子卡为纯展示（R-01-023/AC-08）：默认光标，悬停不提供可点反馈。 */
@@ -1798,14 +1814,25 @@ function apply(ctx) {
 	// ---- 累计运行时长通道（R-01-020，C-074） ----
 	// SSE 订阅宿主侧回合统计：连接即收全量快照（刷新/重连恢复），此后每次变更（回合
 	// 边界、回填完成）推送新全量。无 EventSource 环境静默降级为不显示累计时长。
-	// 可见会话的懒回填经 GET /busy?ids= 触发（fire-and-forget），完成后经同一 SSE 广播。
+	// 可见会话的懒回填经 GET /busy?ids= 触发（fire-and-forget），完成后经同一 SSE 广播；
+	// GET 响应按 id 只补缺（applyBusyBackfill），SSE 全量快照始终是权威通道。
 	const busyById = new Map(); // sessionId -> { busyMs, openTurnStart }
 	const busyRequestedIds = new Set(); // 已触发过回填的会话 id（宿主侧单飞，本地防重复请求）
 	const busyRetryAtById = new Map(); // sessionId -> 回填失败后的最早重试时刻（30s 退避，不逼近轮询）
 	let busySource = null;
 	let busyFetchInflight = false;
 
-	/** SSE 全量快照应用：接受已解析对象或原始 JSON 文本；解析失败静默丢弃。 */
+	/** busy 记录归一（R-01-020）。 */
+	function busyRecordFrom(record) {
+		return {
+			busyMs: normalizeBusyMs(record?.busyMs),
+			openTurnStart: normalizeBusyMs(record?.openTurnStart),
+			waitedMs: normalizeBusyMs(record?.waitedMs),
+			openWaitStart: normalizeBusyMs(record?.openWaitStart),
+		};
+	}
+
+	/** SSE 全量快照应用（权威通道）：接受已解析对象或原始 JSON 文本；解析失败静默丢弃。 */
 	function applyBusyState(input) {
 		if (disposed) return;
 		let state = typeof input === "object" ? input : null;
@@ -1819,14 +1846,25 @@ function apply(ctx) {
 		if (state === null || typeof state !== "object") return;
 		busyById.clear();
 		for (const [id, record] of Object.entries(state)) {
-			busyById.set(String(id), {
-				busyMs: normalizeBusyMs(record?.busyMs),
-				openTurnStart: normalizeBusyMs(record?.openTurnStart),
-				waitedMs: normalizeBusyMs(record?.waitedMs),
-				openWaitStart: normalizeBusyMs(record?.openWaitStart),
-			});
+			busyById.set(String(id), busyRecordFrom(record));
 		}
 		queueSync();
+	}
+
+	/** 懒回填响应应用（R-01-020/AC-05）：只补 busyById 缺失的 id，不覆盖、不清除既有记录。
+	 *  安全依据：宿主每次变更（含回填完成）都经 SSE 全量广播且单流按序，SSE 数据恒不旧于
+	 *  同刻 GET 响应——回填响应可能先于宿主登记 turn/start 发出（卡片渲染早于登记）、迟到
+	 *  落地，按 id 只补缺即不会用陈旧点读回退新鲜状态；缺失 id 的补录在冷启动下与全量应用
+	 *  等价，刷新/重连路径无回归。 */
+	function applyBusyBackfill(state) {
+		if (disposed || state === null || typeof state !== "object") return;
+		let changed = false;
+		for (const [id, record] of Object.entries(state)) {
+			if (busyById.has(id)) continue;
+			busyById.set(String(id), busyRecordFrom(record));
+			changed = true;
+		}
+		if (changed) queueSync();
 	}
 
 	/** 累计运行时长注入（R-01-020/AC-01、AC-03、AC-07）：已完成回合累计 + 开放回合实时
@@ -1843,17 +1881,19 @@ function apply(ctx) {
 		});
 	}
 
-	/** 触发可见主会话的懒回填：只对未请求过的 id 发一次 GET；在途时跳过（SSE 广播兜底）。 */
+	/** 触发可见主会话的懒回填：只对未请求过的 id 发一次 GET；在途时跳过（SSE 广播兜底）。
+	 *  响应只补缺（applyBusyBackfill），无缓存（cache:"no-store"，避免缓存层把陈旧快照
+	 *  交给回填触发）。 */
 	function requestBusyBackfill(ids) {
 		if (disposed || typeof fetch !== "function") return;
 		const pending = ids.filter((id) => !busyRequestedIds.has(id) && !busyById.has(id) && Date.now() >= (busyRetryAtById.get(id) ?? 0));
 		if (pending.length === 0 || busyFetchInflight) return;
 		for (const id of pending) busyRequestedIds.add(id);
 		busyFetchInflight = true;
-		fetch(`${PANE_API_BASE}/busy?ids=${encodeURIComponent(pending.join(","))}`)
+		fetch(`${PANE_API_BASE}/busy?ids=${encodeURIComponent(pending.join(","))}`, { cache: "no-store" })
 			.then((response) => (response.ok ? response.json() : null))
 			.then((state) => {
-				if (state !== null && typeof state === "object") applyBusyState(state);
+				if (state !== null && typeof state === "object") applyBusyBackfill(state);
 			})
 			.catch(() => {
 				// 回填触发失败：30s 退避后允许重试，不逐帧逼近轮询形态。
@@ -3404,15 +3444,15 @@ function apply(ctx) {
 	/** 后台任务状态的两字中文短语（R-01-023 呈现）：与原生 ui-jobs 状态词同口径。 */
 	const JOB_STATUS_LABELS = { running: "运行中", stopping: "停止中", completed: "已完成", killed: "已终止", failed: "失败" };
 
-	/** 后台任务数量注（R-01-023/AC-01）：母卡标题行内 `后台 ×N` 小注；任务本体以 job
-	 *  子卡呈现（R-01-023），本注仅承载数量语义。无 liveJobs 时隐藏节点。 */
+	/** 后台任务数量注（R-01-023/AC-01、AC-11）：母卡标题行内 `后台 ×N` 小注；任务本体以 job
+	 *  子卡呈现（R-01-023），本注仅承载数量语义。无 liveJobs 时隐藏节点。闪烁门控
+	 *  （R-01-023/AC-11）：三态由 core 纯函数 jobsChipState 单点判定，闪烁态写
+	 *  data-jobs-only 属性，CSS 动画承载呈现、不引入 JS 周期性工作（R-01-025/AC-08）。 */
 	function renderJobsChip(el, entry) {
 		const chip = el.querySelector(".dap-jobs-chip");
 		if (chip === null) return;
-		const count = Array.isArray(entry.liveJobs) ? entry.liveJobs.length : 0;
-		const text = count > 0 ? `后台 ×${count}` : "";
+		const { text, hidden, blinking } = jobsChipState(entry);
 		if (chip.textContent !== text) chip.textContent = text;
-		const hidden = count === 0;
 		if (chip.hidden !== hidden) chip.hidden = hidden;
 	}
 
@@ -3571,6 +3611,10 @@ function apply(ctx) {
 			// 仅在跑后台任务（R-01-023/AC-01）：呈现冻结——隐藏进度行（进度/条纹为回合运行
 			// 语义，不冒充回合执行），时间线保留最后已知状态；任务本体以 job 子卡呈现。
 			const jobsOnly = Array.isArray(entry.liveJobs) && entry.liveJobs.length > 0 && entry.selfRunning !== true;
+			// jobs-only 门控属性上移卡根（R-01-023/AC-11）：数量注闪烁与时间线圆点/标题点
+			// 停闪共用同一卡根状态，按变化写入避免每帧 DOM 属性写。
+			const jobsOnlyAttr = String(jobsOnly);
+			if (el.dataset.jobsOnly !== jobsOnlyAttr) el.dataset.jobsOnly = jobsOnlyAttr;
 			renderJobsChip(el, entry);
 			const progressRow = el.querySelector(".dap-progress");
 			// 档位资源纪律（R-01-025/AC-05）：进度行在中间/紧凑档被 CSS 隐藏，不写入；

@@ -1913,6 +1913,9 @@ export function cardSignature(entries) {
 			// job 子卡状态翻转与秒桶（渲染期注入的任务行时长推进）同入签名。
 			entry.liveJobs ?? null,
 			entry.jobStatus ?? null,
+			// 自身回合运行态入签名（R-01-023/AC-11）：任务在跑期间自身回合结束/重启驱动
+			// 数量注闪烁门控重绘（liveJobs 不变时其余签名分量可能全部不变）。
+			entry.selfRunning ?? null,
 			// jobKind 不入签名（R-01-023/AC-05）：同一 jobId 的工具类型由发起方定死恒定，
 			// 签名分量永不变化；任务视图整体（liveJobs，含 kind）已随推送帧入签名。
 			entry.jobsAgeSec ?? null,
@@ -2099,6 +2102,23 @@ const JOB_KIND_LABELS = { bash: "Bash", pwsh: "PowerShell", subagent: "子代理
 export function jobKindLabel(kind) {
 	if (typeof kind !== "string" || kind === "") return "";
 	return JOB_KIND_LABELS[kind] ?? kind;
+}
+
+/**
+ * 母卡「后台 ×N」数量注的呈现态（R-01-023/AC-01、AC-11）：文本、隐藏与闪烁三态单点
+ * 判定。闪烁语义仅覆盖「回合已结束但仍有在跑后台任务」——运行呈现仅由在跑后台任务
+ * 支撑的条目（kind "running" 且 selfRunning 为假）闪烁；自身回合运行中（selfRunning
+ * 真）与阻塞等待（kind "awaiting"，回合尚未结束）不闪烁。入参缺失或形状非法按无任务
+ * 处理（hidden、不闪烁），不抛错。
+ */
+export function jobsChipState(entry) {
+	const count = Array.isArray(entry?.liveJobs) ? entry.liveJobs.length : 0;
+	const hidden = !(count > 0);
+	return {
+		text: hidden ? "" : `后台 ×${count}`,
+		hidden,
+		blinking: !hidden && entry.kind === "running" && entry.selfRunning !== true,
+	};
 }
 
 /**

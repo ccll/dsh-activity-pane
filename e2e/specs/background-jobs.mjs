@@ -1,11 +1,12 @@
-// R-01-023/AC-01、AC-02、AC-05、AC-08、AC-09、AC-10、R-01-025/AC-08、R-01-003/AC-04
+// R-01-023/AC-01、AC-02、AC-05、AC-08、AC-09、AC-10、AC-11、R-01-025/AC-08、R-01-003/AC-04
 // 呈现与交互链路（浏览器黄金路径）：e2e:job 剧本让引擎真实启动后台任务并读取一次输出
 // ——默认中间档不呈现任务子卡、仅以母卡「后台 ×N」数量注承载，切回完整档随档位重渲染
 // 恢复；完整档以 job 子卡呈现（与子代理同形：层级连接线 + 两行卡面）、第一行工具名称
 // 与随时钟时长、第二行任务内容原文（悬停 tooltip 完整原文）、卡面底色与子代理卡区分；
 // 低档位在跑任务期间不因任务时长逐秒重绘窗格；回合结束后在跑任务期间完成提醒被抑制；
-// 点击 job 子卡不触发任何操作。
-import { mainAreaHas, newSessionWithMessage, openApp, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
+// 回合已结束仍有在跑任务时数量注闪烁、时间线执行中圆点与标题状态点停闪（数量注成为
+// 唯一运动元素），自身回合运行中数量注不闪烁、圆点恢复呼吸；点击 job 子卡不触发任何操作。
+import { mainAreaHas, newSessionWithMessage, openApp, paneRegions, sendHeroMessage, sessionComposer, until } from "../helpers.mjs";
 
 const TITLE = "e2e:job 后台任务探针";
 
@@ -141,6 +142,68 @@ export default async function backgroundJobs({ page, url, assert }) {
 		return document.querySelector('[data-dsh-activity-pane] .dap-card[data-wait="done"]') === null;
 	});
 	assert.ok(stillSuppressed, "在跑任务期间完成提醒持续被抑制（R-01-023/AC-02）");
+	// R-01-023/AC-11：回合已收口、任务仍在跑——数量注闪烁门控置真，CSS 以 dap-pulse
+	// 同源同节奏闪烁；同门控暂停 R-01-009/AC-09 的圆点呼吸（时间线执行中行圆点与卡片
+	// 标题状态点静止），数量注成为卡片唯一运动元素。回合收口重绘由 selfRunning 签名
+	// 分量驱动（任务在跑期间其余签名分量可能全部不变）。
+	const blinkProbe = () => page.evaluate(() => {
+		const chip = document.querySelector("[data-dsh-activity-pane] .dap-jobs-chip");
+		if (!chip || chip.hidden || !chip.textContent.includes("后台 ×1")) return null;
+		const card = chip.closest(".dap-card");
+		if (!card) return null;
+		const traceRunning = card.querySelector('.dap-trace-item[data-status="running"]');
+		const titleDot = card.querySelector(".dap-dot");
+		return {
+			chipAnim: getComputedStyle(chip).animationName,
+			cardJobsOnly: card.dataset.jobsOnly ?? "",
+			traceDotAnim: traceRunning ? getComputedStyle(traceRunning, "::before").animationName : null,
+			titleDotAnim: titleDot ? getComputedStyle(titleDot).animationName : null,
+			traceStatuses: [...card.querySelectorAll(".dap-trace-item")].map((item) => item.dataset.status),
+		};
+	});
+	// blink 态谓词：收口态（数量注闪烁门控置真 + dap-pulse）必须整体成立才解析——
+	// 探针在 chip 可见时就会返回快照，条件必须放进 until 谓词，防止解析到过渡前的陈旧帧。
+	const untilBlink = (label) => until(label, async () => {
+		const state = await blinkProbe();
+		return state && state.cardJobsOnly === "true" && state.chipAnim === "dap-pulse" ? state : null;
+	}, 10_000);
+	const blinkState = await untilBlink("数量注闪烁门控置真且圆点停闪");
+	assert.ok(blinkState !== null, "回合已结束仍有在跑后台任务时数量注以 dap-pulse 持续闪烁（R-01-023/AC-11）");
+	// 本剧本的工具行在回合收口时已落定，jobs-only 态时间线通常无执行中行（探针实测
+	// status 全为 done）；此时标题点停闪是可观测主体，时间线点断言退化为条件式——一旦
+	// 出现执行中行（真实后台 Bash 行长跑时）必须静止，停闪 CSS 由 check.mjs bundle 契约背书。
+	assert.ok(
+		blinkState.titleDotAnim === "none"
+			&& (blinkState.traceDotAnim === null || blinkState.traceDotAnim === "none"),
+		`jobs-only 态标题状态点停止呼吸、执行中时间线圆点（若在场）停止呼吸（R-01-023/AC-11，标题点 ${blinkState.titleDotAnim}、时间线点 ${blinkState.traceDotAnim}、行态 ${JSON.stringify(blinkState.traceStatuses)}）`,
+	);
+
+	// R-01-023/AC-11：自身回合恢复运行——追发慢速流式消息（e2e:runtime 剧本约 3.6s 分块
+	// 流式，确定性运行窗），运行期间数量注停止闪烁、圆点恢复呼吸且数量注仍承载任务数量；
+	// 回合再次收口后恢复闪烁（停止条件与恢复的完整往返）。
+	const composer = sessionComposer(page);
+	await until("第二轮 composer 就绪", async () => (await composer.count()) > 0 ? true : null);
+	await composer.fill("e2e:runtime 数量注闪烁门控第二轮探针");
+	await composer.press("Enter");
+	// 运行窗态谓词：回合恢复运行后数量注停闪、圆点呼吸恢复（含 promote 出的执行中时间
+	// 线行）；恢复条件全部合取进谓词，同样防止解析到收口态陈旧帧。
+	const untilCalm = (label) => until(label, async () => {
+		const state = await blinkProbe();
+		return state && state.cardJobsOnly !== "true" && state.chipAnim !== "dap-pulse"
+			&& state.titleDotAnim === "dap-pulse" && state.traceDotAnim === "dap-pulse" ? state : null;
+	}, 20_000);
+	const calmState = await untilCalm("回合恢复运行期间数量注停止闪烁且圆点恢复呼吸");
+	assert.ok(
+		calmState !== null,
+		`自身回合恢复运行期间数量注停止闪烁、圆点呼吸恢复（R-01-023/AC-11，实际：${JSON.stringify(calmState)}）`,
+	);
+	const againState = await untilBlink("回合再次收口后数量注恢复闪烁且圆点复停");
+	assert.ok(
+		againState !== null && againState.cardJobsOnly === "true" && againState.chipAnim === "dap-pulse"
+			&& againState.titleDotAnim === "none"
+			&& (againState.traceDotAnim === null || againState.traceDotAnim === "none"),
+		`回合再次结束后数量注恢复闪烁、圆点停闪复止（R-01-023/AC-11，实际：${JSON.stringify(againState)}）`,
+	);
 
 	// R-01-023/AC-10、R-01-025/AC-08：切至紧凑档——任务子卡不呈现，数量注照常承载。
 	// data-density 在点击时同步写入而重渲染异步落地，谓词必须合取门控结果（子卡清零），

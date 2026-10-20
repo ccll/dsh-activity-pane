@@ -68,11 +68,13 @@ function messagesScenarioTexts(body) {
 
 /** 按剧本输入文本选路；runtime 的 tool 结果转入 slow，其余 tool 结果 fast 收口。
  *  关键词取最后一条带 `e2e:` 前缀的用户消息——主回合的 wire 消息里
- *  上下文注入可能排在用户正文之后，不能只看末条用户消息。 */
+ *  上下文注入可能排在用户正文之后，不能只看末条用户消息。
+ *  runtime 优先于 e2e-job-tick 守卫：job 剧本落定后其 tick 文本常驻历史，
+ *  后续 runtime 消息须仍能进入确定性慢速运行窗（background-jobs 第二轮）。 */
 function pickScenario({ toolTexts, userTexts }) {
-	if (toolTexts.some((text) => text.includes("e2e-job-tick"))) return "fast";
-	if (toolTexts.some((text) => text.includes("background job"))) return "jobread";
 	const runtime = userTexts.some((text) => text.includes("e2e:runtime"));
+	if (toolTexts.some((text) => text.includes("e2e-job-tick"))) return runtime ? "slow" : "fast";
+	if (toolTexts.some((text) => text.includes("background job"))) return "jobread";
 	if (toolTexts.length > 0) return runtime ? "slow" : "fast";
 	for (let i = userTexts.length - 1; i >= 0; i -= 1) {
 		const match = userTexts[i].match(/e2e:(slow|multiask|ask|runtime|error|fast|job)/);

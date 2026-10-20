@@ -44,6 +44,7 @@ import {
 	runningClockWanted,
 	liveJobsOf,
 	jobKindLabel,
+	jobsChipState,
 	activeSessionIds,
 	completionReminder,
 	errorReminder,
@@ -3649,6 +3650,46 @@ const emptyLabelViews = { jA: [{ id: "job-9", kind: "bash", label: "", status: "
 const emptyLabelEntry = buildEntries(jobbedSnapshot, [], {}, null, null, [], null, emptyLabelViews).find((entry) => entry.kind === "job");
 assert.ok(emptyLabelEntry !== undefined, "R-01-023/AC-06 前置：内容不可得的在跑任务仍产出子卡");
 assert.equal(emptyLabelEntry.title, "", "R-01-023/AC-06 任务内容不可得时条目内容为空串");
+// R-01-023/AC-11（T-175）：数量注闪烁门控三态——仅由在跑后台任务支撑运行呈现（回合已结束）闪烁；
+// 自身回合运行中、阻塞等待（kind awaiting，回合尚未结束）、无在跑任务均不闪烁；入参非法按无任务处理。
+const chipJobOnly = { kind: "running", selfRunning: false, liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] };
+assert.deepEqual(
+	jobsChipState(chipJobOnly),
+	{ text: "后台 ×1", hidden: false, blinking: true },
+	"R-01-023/AC-11 回合已结束仍有在跑后台任务时数量注闪烁",
+);
+assert.equal(
+	jobsChipState({ kind: "running", selfRunning: true, liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] }).blinking,
+	false,
+	"R-01-023/AC-11 自身回合运行中数量注不闪烁",
+);
+assert.equal(
+	jobsChipState({ kind: "awaiting", selfRunning: false, liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] }).blinking,
+	false,
+	"R-01-023/AC-11 阻塞等待（回合尚未结束）期间数量注不闪烁",
+);
+assert.deepEqual(
+	jobsChipState({ kind: "running", selfRunning: false, liveJobs: [] }),
+	{ text: "", hidden: true, blinking: false },
+	"R-01-023/AC-11 在跑任务全部结束时数量注隐藏且不闪烁",
+);
+assert.deepEqual(
+	[jobsChipState(null), jobsChipState(undefined), jobsChipState("x"), jobsChipState({})],
+	[
+		{ text: "", hidden: true, blinking: false },
+		{ text: "", hidden: true, blinking: false },
+		{ text: "", hidden: true, blinking: false },
+		{ text: "", hidden: true, blinking: false },
+	],
+	"R-01-023/AC-11 入参缺失或形状非法按无任务处理不抛错",
+);
+// R-01-023/AC-11（T-175）：selfRunning 入渲染签名——任务在跑期间自身回合结束/重启驱动
+// 闪烁门控重绘（liveJobs 不变时其余签名分量可能全部不变）。
+assert.notEqual(
+	cardSignature(jobbedEntries),
+	cardSignature(jobbedEntries.map((entry) => (entry.id === "jA" ? { ...entry, selfRunning: !entry.selfRunning } : entry))),
+	"R-01-023/AC-11 母会话自身回合运行态翻转驱动重绘签名变化",
+);
 
 // ---- R-01-025 任务子卡不构建与时长时钟门控（T-174） ----
 // R-01-025/AC-08：运行卡逐秒时钟需求判定 runningClockWanted——仅由在跑后台任务支撑
@@ -4064,6 +4105,44 @@ assert.ok(
 		"状态点仅 running/stopping 以 dap-pulse 1.2s 闪烁、与主卡状态点同源（R-01-023/AC-09）",
 	);
 }
+// R-01-023/AC-11（T-175）：数量注闪烁门控——三态由 core 纯函数判定、jobs-only 态经卡根
+// data-jobs-only 属性写入（单一门控源），CSS 以 dap-pulse 同源同节奏闪烁（回合已结束
+// 仍有在跑后台任务时），并同门控暂停 R-01-009/AC-09 的圆点呼吸（时间线执行中行圆点
+// 与卡片标题状态点静止），数量注成为卡片唯一运动元素。
+assert.ok(
+	bundle.includes("const { text, hidden, blinking } = jobsChipState(entry);")
+		&& bundle.includes("if (el.dataset.jobsOnly !== jobsOnlyAttr) el.dataset.jobsOnly = jobsOnlyAttr;"),
+	"数量注三态由 jobsChipState 单点判定、jobs-only 态经卡根 data-jobs-only 属性写入（R-01-023/AC-11）",
+);
+{
+	const chipBlink = bundle.indexOf('[data-dsh-activity-pane] .dap-card[data-jobs-only="true"] .dap-jobs-chip {');
+	const chipBlinkBlock = bundle.slice(chipBlink, bundle.indexOf("}", chipBlink));
+	assert.ok(
+		chipBlink !== -1 && chipBlinkBlock.includes("animation: dap-pulse 1.2s ease-in-out infinite"),
+		"数量注闪烁由 CSS 动画承载、与状态点同源同节奏（R-01-023/AC-11）",
+	);
+	const dotStop = bundle.indexOf('[data-dsh-activity-pane] .dap-card[data-jobs-only="true"] .dap-trace-item[data-status="running"]::before');
+	const dotStopBlock = bundle.slice(dotStop, bundle.indexOf("}", dotStop));
+	assert.ok(
+		dotStop !== -1 && dotStopBlock.includes("animation: none"),
+		"jobs-only 态暂停时间线执行中圆点呼吸（R-01-023/AC-11、R-01-009/AC-09 暂停）",
+	);
+	const dotStopTitle = bundle.indexOf('[data-dsh-activity-pane] .dap-card[data-jobs-only="true"] .dap-dot {');
+	const dotStopTitleBlock = bundle.slice(dotStopTitle, bundle.indexOf("}", dotStopTitle));
+	assert.ok(
+		dotStopTitle !== -1 && dotStopTitleBlock.includes("animation: none"),
+		"jobs-only 态暂停卡片标题状态点呼吸（R-01-023/AC-11）",
+	);
+}
+// R-01-020（T-175 复盘）：懒回填 GET 响应按 id 只补缺（applyBusyBackfill），不用陈旧
+// 点读回退 SSE 已推送的新鲜状态；请求禁缓存；旧的全量应用调用必须已从 GET 路径消失。
+assert.ok(
+	bundle.includes("function applyBusyBackfill(state)")
+		&& bundle.includes("applyBusyBackfill(state);")
+		&& bundle.includes('{ cache: "no-store" }')
+		&& !bundle.includes("applyBusyState(state)"),
+	"懒回填响应只补缺（旧全量应用不再出现在 GET 路径）、GET 禁缓存，SSE 全量快照是唯一整体替换通道（R-01-020/AC-05）",
+);
 assert.ok(
 	bundle.includes("rec.el.getBoundingClientRect()") && !bundle.includes("rec.el.offsetTop"),
 	"轨道测量必须用浮点矩形：offsetTop/offsetHeight 是整数舍入值，与 CSS 全精度定位的横线会随机差 1~2px",

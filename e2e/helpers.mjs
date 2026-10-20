@@ -2,7 +2,9 @@
 // 断言辅助只读用户可观察呈现（可见文字、包围盒、页面 URL）。
 
 export const POLL_INTERVAL_MS = 200;
-const PANE_READY_TIMEOUT_MS = 6_000;
+// 启动期活性等待：高负载宿主下 goto(networkidle)+公告处理+首屏数据可能超 6s，
+// 与「列表加载失败」的显式报错路径无关，超时加宽只吸收调度抖动、不弱化断言。
+const PANE_READY_TIMEOUT_MS = 30_000;
 
 /** 轮询直到 fn() 返回真值或超时；超时抛错并附最后一次观测值。E2E_TRACE=1 时打印各段耗时。 */
 export async function until(label, fn, timeoutMs = 20_000) {

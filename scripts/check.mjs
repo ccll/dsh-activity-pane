@@ -5117,7 +5117,7 @@ assert.deepEqual(cleanupOrder, ["first", "second"], "cleanup 单步失败后继�
 assert.equal(cleanupErrors.length, 1, "cleanup 错误显式返回给 runner 裁决失败，不被吞掉");
 const e2eHelperSource = await readFile(join(root, "e2e/helpers.mjs"), "utf8");
 assert.equal(e2eHelperSource.match(/page\.goto\(url/g)?.length, 1, "每个 spec 只建立一个页面连接世代");
-assert.ok(e2eHelperSource.includes("const PANE_READY_TIMEOUT_MS = 6_000"), "单页面连接世代使用固定 6s 观察窗口");
+assert.ok(e2eHelperSource.includes("const PANE_READY_TIMEOUT_MS = 30_000"), "单页面连接世代使用固定 30s 启动观察窗口（活性等待，高负载宿主下吸收调度抖动）");
 assert.ok(!e2eHelperSource.includes("ERR_PANE_STALL"), "helpers 不保留列表停滞专用恢复错误码");
 assert.ok(e2eHelperSource.includes('throw new Error("窗格列表加载失败")'), "明确列表失败立即抛错，不等待超时或进入恢复");
 

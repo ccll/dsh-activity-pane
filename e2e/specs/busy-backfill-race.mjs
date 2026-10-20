@@ -3,20 +3,24 @@
 // ① 场景 1——回填响应可能先于宿主登记 turn/start 发出（卡片渲染早于登记）、迟到落地；
 //    若客户端仍对该响应用全量应用（clear + 重放），陈旧空快照会清除既有 busy 记录、
 //    运行卡标题行累计运行时长在回合中段消失。修复后按 id 只补缺，标签持续可见。
-//    用 Playwright 路由把 /busy GET 延迟 1.2s 后返回空快照 {}：首现后采样断言标签
-//    在整个回合（含收口后）持续可见。
+//    时序必须主动构造、不依赖机器快慢：CI 快机器上 SSE 会在首帧渲染前应用 turn-start，
+//    使回填 GET 因 busyById 已有记录而不发、用例空转（2026-10-20 CI run 39384759978）。
+//    构造：先扣住 /busy/stream 连接（扣住的是请求发起时机，route.fallback 原样放行、
+//    不缓冲 SSE 流），保证卡片首帧渲染时 busyById 必为空 → 回填 GET 结构性必发；
+//    发送消息后放行 SSE，hello 全量快照（含运行中回合的 openTurnStart）填充记录并驱动
+//    标签首现；被延迟的空快照 {} 落在填充与回合结束（e2e:slow ~3.6s）之后，采样断言
+//    标签在整窗持续可见（修复前整快照替换会擦除至窗尾且无后续广播可恢复）。
 // ② 场景 2——SSE 不可用（连接被拒）时，GET 回填数据仍能填充缺失会话的 busy 记录：
 //    新页面拒绝 /busy/stream，把 /busy GET 合成为含 openTurnStart（2s 前）的快照，
 //    断言累计运行时长仍出现并走字（降级路径可用，applyBusyBackfill 真正生效）。
-// 场景 1 时序依据（e2e/helpers.mjs sendHeroMessage 在 Enter 后等 1s）：GET 在卡片首帧
-// 渲染时触发，响应落地时标签已可见；e2e:slow 剧本回合 ~3.6s，6s 采样窗覆盖全回合。
 
 import { ensureFullDensity, openApp, sendHeroMessage, until } from "../helpers.mjs";
 
-const STUB_DELAY_MS = 1200;
+const STUB_DELAY_MS = 4000;
 const SAMPLE_INTERVAL_MS = 150;
 const SAMPLE_WINDOW_MS = 6000;
-// 渲染抖动容忍：连续缺席超过 1 个采样周期即视为消失（修复前会连续缺席 ~2s ≈ 13 个周期）。
+// 渲染抖动容忍：连续缺席超过 2 个采样周期即视为消失（旧全量应用语义会把陈旧空快照
+// 落地后的标签擦到采样窗尾——回合已收口、无后续广播恢复，缺席 ~10 个周期）。
 const MAX_MISSING_SAMPLES = 2;
 
 function busyLabelProbe(page, title) {
@@ -36,8 +40,17 @@ function sleep(ms) {
 
 export default async function busyBackfillRace({ page, url, assert }) {
 	// ---- 场景 1：陈旧空快照迟到，不得清除运行中的累计时长（R-01-020/AC-03） ----
-	// 只拦 GET /busy（带查询串；/busy/stream 是 SSE 长连接，保持直通不被拦截）。
+	// 先扣住 /busy/stream（连接发起被延迟，放行后原样透传，SSE 流不被缓冲），
+	// 再把 /busy GET 延迟返回空快照 {}。
 	let stubbedGets = 0;
+	let releaseStream = () => {};
+	const streamReleased = new Promise((resolve) => {
+		releaseStream = resolve;
+	});
+	await page.route(/\/dsh-activity-pane\/api\/busy\/stream/, async (route) => {
+		await streamReleased;
+		return route.fallback();
+	});
 	await page.route(/\/dsh-activity-pane\/api\/busy\?/, (route) => {
 		stubbedGets += 1;
 		const body = JSON.stringify({});
@@ -49,6 +62,10 @@ export default async function busyBackfillRace({ page, url, assert }) {
 	const TITLE = "e2e:slow 累计时长回填竞态探针";
 	await sendHeroMessage(page, TITLE);
 
+	// SSE 被扣住期间 busyById 必空：回填 GET 在卡片首帧渲染时结构性发出。
+	await until("回填 GET 在 SSE 扣流期间发出", () => (stubbedGets >= 1 ? "yes" : null), 5000);
+	// 放行 SSE：连接建立即收全量快照（含运行中回合），记录填充、标签首现。
+	releaseStream();
 	const firstText = await until("运行卡标题行出现累计运行时长", () => busyLabelProbe(page, TITLE));
 	assert.ok(/^\d+s$/.test(firstText), `首现即实时秒读（R-01-020/AC-01，实际：${firstText}）`);
 

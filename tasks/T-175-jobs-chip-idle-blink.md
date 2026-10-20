@@ -6,7 +6,7 @@ id: T-175
 
 # T-175 后台任务数量注回合结束闪烁
 
-状态: active
+状态: completed
 关联: R-01-023
 风险等级: standard
 
@@ -79,4 +79,10 @@ id: T-175
 
 ## 终态与证据
 
-（active 期间留白，关闭时按 standard 档补四行证据与自查清单、轻量 review。）
+- 实现: `src/core.mjs::jobsChipState`（text/hidden/blinking 单点判定，入参容错）+ `cardSignature` 增 `selfRunning` 分量（core.mjs:1918）；`src/client.mjs` `renderJobsChip` 改用纯函数并按变化写卡根 `data-jobs-only`（client.mjs:3417-3425、3605），卡根 CSS 承载数量注 `dap-pulse` 闪烁与时间线执行中圆点（`.dap-trace-item[data-status="running"]::before`）、标题状态点（`.dap-dot`）停闪（client.mjs:745-757）；job 子卡状态点为独立 `.dap-job-dot` 不受停闪误伤（client.mjs:777-788）。附带 R-01-020 缺陷修复：`applyBusyBackfill` 按 id 只补缺 + `{ cache: "no-store" }`（client.mjs:1804-1960），SSE 全量快照保持唯一整体替换通道。
+- 测试: `pnpm check`（jobsChipState 五组判定 + selfRunning 签名断言 + bundle 契约含停闪 CSS 与 applyBusyBackfill/no-store）；`pnpm verify:fast` 全绿；全量 `pnpm verify` 22 个 spec 全 PASS（339343ms，含 background-jobs 三态往返 21149ms solo、session-lifecycle 13677ms、busy-backfill-race）；lint 通过（基线风格 warning 不计）；mock 选路提升后 solo 复跑通过。变异验证：懒回填旧语义下 race spec 精确失败（样本 40 缺席 17），修复后通过。
+- SOLUTION 对照: SOLUTION 与实现对照无差异——活性 bullet、卡片契约（selfRunning 门控闪烁与停闪 + 签名分量）、窗格渲染器（卡根单一门控源 + 两向 CSS）与 `jobsChipState`/`renderJobsChip`/卡根属性实现逐点一致；R-01-023 追溯行落点齐备；核对日期 2026-10-20；PRD AC-11 与实现一致（闪烁门控 + 双圆点停闪 + 三停止条件）。
+- review: 独立子代理两轮（subagent 审整链一轮、busy delta 复审一轮），结论均 non-blocking、无 blocking finding；核验八项全过（判定口径、签名分量、按需 DOM 写入、CSS 前缀隔离、断言非恒真与 bundle 契约一字不差、三态时序、唯一调用分支与骨架无 chip、四方一致性）；busy delta 复审 F2/F3 已修（场景 2 回填计数与读数单调断言、SSE 通道唯一整体替换负向契约），N-1（selfRunning 措辞 vs `!== true`）不采纳并记录理由（真实数据流恒布尔、与既有 jobsOnly 冻结判定同口径）。
+- commit: 05c61da
+
+T-175

@@ -358,6 +358,10 @@ class Result:
     spec_version: int = 0
     # v4 升级边界（升级提交前首次出现的 task），lint() 早期算一次共享。
     legacy_tasks: set[str] = field(default_factory=set)
+    # 运行上下文：--staged/--pre-push 场景下累计审计触发的阻断语义
+    # 收窄（见 check_v4_tiering），由 lint() 主流程设置。
+    staged: bool = False
+    pre_push: bool = False
 
 
 def normalize_text(text: str) -> str:
@@ -2572,6 +2576,23 @@ def _excluded_path(path: str, globs: list[str]) -> bool:
     return False
 
 
+# agentmap 系统托管文件：bootstrap 写盘维护的文件。它们的改动是系统
+# 升级而非业务评审负担，不计入语义行计量——否则每次升级提交自己
+# 就把累计审计窗口顶过阈值（docsim 首跑 732 行误报）。
+SYSTEM_MANAGED_PATHS = (
+    "AGENTS.md",
+    "CONVENTIONS.md",
+    "tools/agentmap_lint.py",
+    "tools/agentmap_validate_commit_msg.py",
+)
+
+
+def _is_system_managed(path: str) -> bool:
+    if path.startswith(".githooks/"):
+        return True
+    return path in SYSTEM_MANAGED_PATHS
+
+
 def parse_semantic_diff(
     diff_text: str, exclude_globs: list[str], split_commits: bool = False
 ) -> tuple[int, set[str], list[int]]:
@@ -2599,7 +2620,9 @@ def parse_semantic_diff(
         if current is None:
             return
         files.add(current)
-        if not _excluded_path(current, exclude_globs):
+        if not _excluded_path(current, exclude_globs) and not _is_system_managed(
+            current
+        ):
             total += _strip_semantic(plus, suffix) + _strip_semantic(minus, suffix)
 
     for line in diff_text.splitlines():
@@ -2763,54 +2786,34 @@ def parse_commit_log_z(text: str) -> dict[str, tuple[str, list[str]]]:
     return commits
 
 
-def tasks_added_before_upgrade(root: Path, result: Result, upgrade_sha: str) -> set[str]:
-    """T-IDs whose task file was first committed before the v4 upgrade commit.
+def tasks_present_at_upgrade(root: Path, result: Result, upgrade_sha: str) -> set[str]:
+    """T-IDs whose task file exists in the v4 upgrade commit's tree.
 
-    存量 task 不迁移：升级前创建的 task 继续按登记时的 v3 语义校验，
-    升级不追溯；升级提交当刻或之后新建的 task 才按 v4 强制。升级提交
-    分支不可达的判定（returncode 非 0/1）视为仓库异常，fail-closed 报错。
+    存量 task 不迁移：升级提交 tree 里存在的 task 按登记时的 v3 语义
+    校验，升级不追溯；升级提交当刻或之后新建的 task 才按 v4 强制。
+
+    以 tree 内容而非提交历史判定，是因为「最早出现提交」会把 T-ID 复用
+    误伤成存量：task 文件删除后重建（历史残留提交仍在），或重建期间
+    文件处于未跟踪态，都会被旧历史判成升级前出生。tree 判定下重建文件
+    天然非 legacy；rename 而来的 task（历史 T-ID 化改名批次）与 merge
+    解冲突时凭空进入主线的 task，都以升级当刻的现名出现在 tree 里，
+    同样覆盖。
+
+    fallback（升级提交未入 git 史时以 HEAD 代之）语义不变：HEAD tree
+    里的已提交 task 全部按存量放行，未提交的新 task 仍按 v4 校验。
     """
     try:
-        # name-only 全量触碰记录（限定 tasks/ 路径）：不用 --diff-filter=A，
-        # 因为 rename 而来的 task 文件（历史 T-ID 化改名）没有 A 记录——
-        # name-only 对 rename 显示新路径，rename 检测关闭时显示 A 新路径，
-        # 两种形态都能定位「该 T-ID 身份的最早出现提交」；first_add 保留
-        # 最早一条（log 自新到旧，not in 保留首见）。merge 提交默认不产
-        # diff，解冲突时凭空进入主线的 task 文件（--diff-filter=A、
-        # --follow、parent 侧均查不到）靠 --diff-merges=first-parent 露出；
-        # parent 分支正常引入的文件由普通提交覆盖，不重复计数。
-        text = run_git(
-            root,
-            ["log", "--diff-merges=first-parent", "--format=%H%x00%B%x00",
-             "--name-only", "-z", "--", "tasks/"],
+        listing = run_git(
+            root, ["ls-tree", "-r", "--name-only", upgrade_sha, "--", "tasks/"]
         )
     except GitCommandError as error:
-        git_data_error(result, "task history lookup failed", error)
+        git_data_error(result, "task tree lookup failed", error)
         return set()
-    first_add: dict[str, str] = {}
-    for sha, (_body, files) in parse_commit_log_z(text).items():
-        for name in files:
-            match = re.match(r"tasks/(T-\d{3})-", name)
-            if match and match.group(1) not in first_add:
-                first_add[match.group(1)] = sha
     legacy: set[str] = set()
-    for task_id, sha in first_add.items():
-        completed = subprocess.run(
-            ["git", "merge-base", "--is-ancestor", sha, upgrade_sha],
-            cwd=root, capture_output=True, check=False,
-        )
-        # 祖先判定含相等：升级提交自身携带的 task（安装/升级时 scaffold
-        # 自带示例）属存量，按 v3 语义放行；同提交新建 task 逃避 v4 的
-        # 损失面远小于 fresh install 首跑即红的误伤面。
-        if completed.returncode == 0:
-            legacy.add(task_id)
-        elif completed.returncode != 1:
-            git_data_error(
-                result,
-                "task history lookup failed",
-                str(completed.stderr),
-            )
-            return set()
+    for path in listing.splitlines():
+        match = re.match(r"tasks/(T-\d{3})-", path)
+        if match:
+            legacy.add(match.group(1))
     return legacy
 
 
@@ -2931,6 +2934,35 @@ DOC_PATH_PREFIXES = (
 )
 
 
+def staged_closes_completed_task(root: Path, result: Result) -> bool:
+    """True 当暂存变更把某个 task 的状态置为 completed（task 关闭提交）。
+
+    累计审计触发的阻断语义只针对 task 关闭提交（设计：触发后阻断
+    下一个 task 关闭）。--staged 场景下升级提交、普通修复提交不是
+    task 关闭，阻断它们无法推进审计，反而把解除触发所需的审计
+    task 提交本身也锁死。git 数据不可读时按 True 处理（fail-closed：
+    宁可误拦一次普通提交，不放过一次该拦的 task 关闭）。
+    """
+    try:
+        paths = run_git(
+            root, ["diff", "--cached", "--name-only", "--", "tasks/"]
+        ).splitlines()
+    except GitCommandError as error:
+        git_data_error(result, "staged task lookup failed", error)
+        return True
+    for path in paths:
+        if not re.match(r"tasks/T-\d{3}-.+\.md$", path):
+            continue
+        try:
+            patch = run_git(root, ["diff", "--cached", "--", path])
+        except GitCommandError as error:
+            git_data_error(result, "staged task lookup failed", error)
+            return True
+        if re.search(r"^\+.*状态:\s*completed\s*$", patch, re.MULTILINE):
+            return True
+    return False
+
+
 def check_v4_tiering(root: Path, result: Result) -> None:
     """v4 档位一致性、升档条件、累计审计触发与提交引用信号。
 
@@ -3014,11 +3046,24 @@ def check_v4_tiering(root: Path, result: Result) -> None:
             len(window_completed) >= params["task_interval"]
             or window_lines >= params["line_interval"]
         ):
-            result.errors.append(
+            # 阻断语义只针对 task 关闭提交；pre-push 与 --staged 的非
+            # 关闭提交降级为 warning（拦截它们无法推进审计，只会把
+            # 解除触发所需的提交也锁死）。全量手动跑保持 error——
+            # 那是 agent 关闭 task 前的自查信号。
+            blocking = True
+            if result.staged:
+                blocking = staged_closes_completed_task(root, result)
+            elif result.pre_push:
+                blocking = False
+            message = (
                 f"累计审计触发: 自复位点起 completed task {len(window_completed)}"
                 f">={params['task_interval']} 或窗口语义行 {window_lines}"
                 f">={params['line_interval']}；先完成累计审计 task 并登记新复位点"
             )
+            if blocking:
+                result.errors.append(message)
+            else:
+                result.warnings.append(message)
 
     # 提交引用信号：一次 git log 取全部提交正文与触碰文件。
     # --diff-merges=first-parent：merge 默认不产 diff，其正文里的 T-ID
@@ -3930,27 +3975,24 @@ def strict_test_anchors(root: Path, result: Result, forced: bool) -> bool:
     return forced
 
 
-def lint(root: Path, strict_tests: bool = False) -> Result:
+def lint(root: Path, strict_tests: bool = False, staged: bool = False,
+         pre_push: bool = False) -> Result:
     result = Result()
+    result.staged = staged
+    result.pre_push = pre_push
     changed = git_changed_paths(root, result)
     result.legacy_cutoff = legacy_cutoff(root, result)
     result.spec_version = agentmap_spec_version(root, result)
     # v4 升级边界：规范版本行首次登记为 4 的提交。升级前已存在的 task
     # （文件首次提交早于该提交且为其祖先）按 v3 语义校验，升级不追溯。
     if result.spec_version >= 4:
-        upgrade_commits = run_git(
-            root,
-            ["log", "--format=%H", "-S", "agentmap 规范版本: 4", "--", "CONVENTIONS.md"],
-        ).split()
-        if upgrade_commits:
-            result.legacy_tasks = tasks_added_before_upgrade(
-                root, result, upgrade_commits[0]
-            )
-        else:
-            # 升级刚落盘尚未提交（bootstrap 对齐版本后立即 lint 的窗口）：
-            # v4 生效点视为下一个提交，所有已提交 task 均先于它，按 v3 语义；
-            # 未提交的新 task 仍按 v4 强制。
-            result.legacy_tasks = tasks_added_before_upgrade(root, result, "HEAD")
+        # 升级刚落盘尚未提交（bootstrap 对齐版本后立即 lint 的窗口）时
+        # v4_effective_commit 返回 None：v4 生效点视为下一个提交，HEAD
+        # tree 里的已提交 task 均按存量放行，未提交的新 task 仍按 v4 强制。
+        upgrade_commit = v4_effective_commit(root, result)
+        result.legacy_tasks = tasks_present_at_upgrade(
+            root, result, upgrade_commit or "HEAD"
+        )
     check_system_files(root, result, changed)
     check_todo_entries(root, result)
     check_id_formats(root, result)
@@ -5718,9 +5760,9 @@ def main() -> int:
     try:
         if args.staged:
             with staged_checkout(root) as snapshot:
-                result = lint(snapshot, strict_tests=args.strict_tests)
+                result = lint(snapshot, strict_tests=args.strict_tests, staged=True)
         else:
-            result = lint(root, strict_tests=args.strict_tests)
+            result = lint(root, strict_tests=args.strict_tests, pre_push=args.pre_push)
         if args.pre_push:
             stdin_text = sys.stdin.read()
             if not stdin_text.strip():

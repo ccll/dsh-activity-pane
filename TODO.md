@@ -20,3 +20,4 @@ owner: 双方
 - [维护想法] SOLUTION.md「活动卡片集合」bullet 拆为嵌套列表（T-152 Standards 评审：单条约 600 字平铺违背 AGENTS.md 写作风格；沿既有膨胀现状同向加重，改造波及整段重组，宜与 SOLUTION 结构评审同期进行）
 - [维护想法] JOB_STATUS_LABELS（client 渲染层状态词）与 JOB_KIND_LABELS（core 工具名映射）两表并存的聚拢评估（T-152 Standards 评审 Shotgun Surgery 苗头；已注释注明分层理由——core 表需 Node 单测钉住且两层共用，状态词仅渲染层消费；新增任务工具类型时两处同步）
 - [维护想法] `.dap-confirm-icon` 显式声明 `box-sizing: border-box`（T-177 审计 N-6：现依赖 button UA 默认值，曾是命中区两轮口径反复的根因；e2e pseudoBox/hitEdges 三重防线已钉死行为，宜顺手消除 UA 默认依赖）
+- [缺陷线索] 连续两轮全量 verify 各有一次不同 spec 在共享 boot helper 超时：recent-infinite-scroll（b5c4979 轮）→ auto-update（aa82982 轮），失败签名同为「等待超时：窗格数据就绪（最后观测：null）」（e2e/helpers.mjs:21 until 轮询、e2e/helpers.mjs:124 openApp），单跑均 PASS——呈并行负载下 boot 就绪等待超时的模式而非孤例；两轮均以失败签名+单跑回执+同型先例收口，若成系统性问题宜给启动就绪等待加宽或并行度退避（b74f508 曾 6s→30s 加宽一次）

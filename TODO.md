@@ -19,3 +19,4 @@ owner: 双方
 - [维护想法] buildEntries/buildRecent 位置参数（8/9 个）收敛为 options 对象（T-149 Standards 评审 Data Clumps 判断项：jobsBySession 续位参数膨胀；改造波及全部既有调用与断言，宜与签名重构同期进行）
 - [维护想法] SOLUTION.md「活动卡片集合」bullet 拆为嵌套列表（T-152 Standards 评审：单条约 600 字平铺违背 AGENTS.md 写作风格；沿既有膨胀现状同向加重，改造波及整段重组，宜与 SOLUTION 结构评审同期进行）
 - [维护想法] JOB_STATUS_LABELS（client 渲染层状态词）与 JOB_KIND_LABELS（core 工具名映射）两表并存的聚拢评估（T-152 Standards 评审 Shotgun Surgery 苗头；已注释注明分层理由——core 表需 Node 单测钉住且两层共用，状态词仅渲染层消费；新增任务工具类型时两处同步）
+- [维护想法] `.dap-confirm-icon` 显式声明 `box-sizing: border-box`（T-177 审计 N-6：现依赖 button UA 默认值，曾是命中区两轮口径反复的根因；e2e pseudoBox/hitEdges 三重防线已钉死行为，宜顺手消除 UA 默认依赖）

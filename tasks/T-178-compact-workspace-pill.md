@@ -8,8 +8,8 @@ id: T-178
 
 状态: active
 关联: R-01-021、R-01-003、R-01-025
-风险等级: minor
-风险面: 无
+风险等级: major
+风险面: 无（升档依据：语义行数超过阈值，见终态证据语义行数行）
 
 ## 背景与目标
 
@@ -52,10 +52,10 @@ id: T-178
 
 | 维度 | 适用性/理由 | 可执行证据 |
 | --- | --- | --- |
-| 成功 | 紧凑档有归属卡片显示无图标胶囊且文本正确 | e2e 断言 |
-| 异常 | 无归属会话不显示胶囊；工作区名缺失不占位 | e2e 断言 |
-| 边界配置 | 完整/中间档行内胶囊不可见、徽标行形态不变；窄标题行省略截断 | e2e 断言 + MANUAL 截图 |
-| 副作用 | 确认按钮几何（T-176 24×24/20×18）与标题行框不受胶囊插入影响 | compact-density 既有几何断言复跑 |
+| 成功 | 适用：紧凑档有归属卡片显示无图标胶囊且文本正确 | `e2e/specs/compact-density.mjs#R-01-021/AC-10`、`src/client.mjs::makeWorkspacePill` |
+| 异常 | 适用：无归属会话不显示胶囊；工作区名缺失不占位 | `e2e/specs/compact-density.mjs::pillHiddenGate`、`src/client.mjs::renderCardInto` |
+| 边界配置 | 适用：完整/中间档行内胶囊不可见、徽标行形态不变；窄标题行省略截断 | `e2e/specs/compact-density.mjs#R-01-021/AC-10` 截断断言、`src/client.mjs::makeWorkspacePill`、MANUAL 截图留痕 /tmp/t178-manual/ |
+| 副作用 | 适用：确认按钮几何（T-176 24×24/20×18）与标题行框不受胶囊插入影响 | `e2e/specs/compact-density.mjs::headAckState` 复跑、`e2e/specs/mobile-thermal.mjs::paneComputedVisibility` |
 
 ## 自查清单
 

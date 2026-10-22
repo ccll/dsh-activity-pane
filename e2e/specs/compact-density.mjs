@@ -343,7 +343,47 @@ export default async function compactDensity({ page, url, assert }) {
 	assert.equal(compactPill?.colored, true, "行内工作区胶囊按槽位变量着色（非透明底，R-01-003/AC-08）");
 	assert.ok(
 		(compactPill?.text.length ?? 0) > 0,
-		"行内工作区胶囊文本为工作区名（标题行可见信息实时更新，R-01-021/AC-10、R-01-025/AC-07）",
+		"行内工作区胶囊文本非空（文本值与实时更新由与徽标行同源双写结构承载，R-01-021/AC-10、R-01-025/AC-07）",
+	);
+
+	// 无归属兜底（R-01-021/AC-10）：无归属会话的渲染输出以 hidden 表达；e2e 数据通道
+	// 会话全部归属工作区（cwd 必中预置工作区），故以渲染输出状态等价物（hidden 属性）
+	// 直接驱动 CSS 门控，验证 compact 展示规则不压过同特异性后声明的 [hidden] 兜底。
+	const pillHiddenGate = await page.evaluate(() => {
+		const pill = document.querySelector('[data-dsh-activity-pane] .dap-card[data-wait="done"] .dap-row .dap-workspace');
+		if (pill === null) return false;
+		pill.setAttribute("hidden", "");
+		const display = getComputedStyle(pill).display;
+		pill.removeAttribute("hidden");
+		return display === "none";
+	});
+	assert.equal(pillHiddenGate, true, "compact 展示规则不压过 [hidden] 兜底——无归属胶囊不显示（R-01-021/AC-10）");
+
+	// R-01-021/AC-10（截断）：行宽不足时空间由 flex 收缩上界约束，文本省略号截断不换行；
+	// 同步窗口内改写文本后立即量测，渲染订阅不会在中途覆盖。
+	const pillTruncate = await page.evaluate(() => {
+		const pill = document.querySelector('[data-dsh-activity-pane] .dap-card[data-wait="done"] .dap-row .dap-workspace');
+		if (pill === null) return null;
+		const row = pill.closest(".dap-row");
+		const text = pill.querySelector(".dap-workspace-text");
+		const original = text.textContent;
+		const rowHeightBefore = row.getBoundingClientRect().height;
+		text.textContent = "超出收窄上界以触发省略截断的足够长的临时工作区名";
+		const rowWidth = row.getBoundingClientRect().width;
+		const pillWidth = pill.getBoundingClientRect().width;
+		// 42% 是 content 盒上界（.dap-workspace 无 box-sizing 声明走 UA content-box），
+		// 可观察行为口径用「不撑破行框、行高不变」断言，不绑 42% 算术。
+		const fitsRow = pill.getBoundingClientRect().right <= row.getBoundingClientRect().right + 0.5;
+		const clipped = text.scrollWidth > text.clientWidth;
+		const nowrap = getComputedStyle(text).whiteSpace === "nowrap";
+		const rowHeightAfter = row.getBoundingClientRect().height;
+		text.textContent = original;
+		return { fitsRow: fitsRow, clipped, nowrap, rowHeightBefore, rowHeightAfter };
+	});
+	assert.ok(
+		pillTruncate?.fitsRow === true && pillTruncate?.clipped === true && pillTruncate?.nowrap === true
+			&& pillTruncate?.rowHeightBefore === pillTruncate?.rowHeightAfter,
+		`行宽不足时行内胶囊省略截断且不换行、不撑破行框（实测 fitsRow=${pillTruncate?.fitsRow}，R-01-021/AC-10）`,
 	);
 
 	// R-01-002/AC-10（紧凑档确认路径）：激活 ✓ 按钮解除完成提醒并迁入最近历史区，不触发跳转。

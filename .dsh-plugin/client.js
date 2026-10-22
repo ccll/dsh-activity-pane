@@ -3474,6 +3474,17 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 [data-dsh-activity-pane] .dap-workspace[hidden] { display: none; }
+/* 行内工作区名胶囊（R-01-021/AC-10，T-178）：仅紧凑档标题行显示——完整/中间档由
+   独立徽标行承担归属标识，行内节点隐藏（形态互斥）；几何/字号/着色全部复用
+   .dap-workspace 既有规则（10.5px/14px、胶囊圆角与槽位着色变量），此处只管显隐与
+   行内收缩（flex 项、min-width:0 使名称省略截断不挤压标题）。 */
+[data-dsh-activity-pane] .dap-row .dap-workspace { display: none; }
+[data-dsh-activity-pane][data-density="compact"] .dap-row .dap-workspace {
+  display: flex; flex: 0 1 auto; min-width: 0; max-width: 42%;
+}
+/* 无归属会话胶囊由渲染层赋 hidden（同徽标行门控），此规则须排在上面 compact
+   展示规则之后：同特异性下后者先声明、hidden 态仍由本规则兜底隐藏。 */
+[data-dsh-activity-pane] .dap-row .dap-workspace[hidden] { display: none; }
 [data-dsh-activity-pane] .dap-card-head {
   display: flex; align-items: center; gap: 6px; min-width: 0;
 }
@@ -5697,6 +5708,15 @@ function apply(ctx) {
 		return button;
 	}
 
+	/** 紧凑档标题行内嵌的工作区名胶囊（R-01-021/AC-10）：同一徽标结构的无图标形态
+	 *  （R-01-003/AC-06 紧凑例外）——同名 .dap-workspace 复用几何与槽位着色，仅名称
+	 *  文本段；着色与名称由 renderCardInto 对全部胶囊节点双写，可见性交由 CSS 门控。 */
+	function makeWorkspacePill() {
+		const pill = makeEl("div", "dap-workspace");
+		pill.append(makeEl("span", "dap-workspace-text"));
+		return pill;
+	}
+
 	/** 将结构化提问预览写成原生列表元素；动态文本只经 textContent 写入（R-01-002/AC-09）。 */
 	function renderQuestionPreview(note, preview) {
 		const items = Array.isArray(preview?.items)
@@ -5776,7 +5796,8 @@ function apply(ctx) {
 		}
 		if (kind === "recent") {
 			const row = makeEl("div", "dap-row");
-			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-total-time"));
+			// 行内工作区名胶囊（R-01-021/AC-10）：状态点与标题之间，仅紧凑档显示（CSS 门控）。
+			row.append(makeEl("span", "dap-dot"), makeWorkspacePill(), makeEl("span", "dap-title"), makeEl("span", "dap-total-time"));
 			const userLine = makeEl("div", "dap-history-line");
 			userLine.dataset.role = "user";
 			const userIcon = makeEl("span", "dap-history-icon");
@@ -5795,7 +5816,8 @@ function apply(ctx) {
 		}
 		if (kind === "awaiting") {
 			const row = makeEl("div", "dap-row");
-			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-total-time"));
+			// 行内工作区名胶囊（R-01-021/AC-10）：状态点与标题之间，仅紧凑档显示（CSS 门控）。
+			row.append(makeEl("span", "dap-dot"), makeWorkspacePill(), makeEl("span", "dap-title"), makeEl("span", "dap-total-time"));
 			// 紧凑档确认入口（R-01-021/AC-02，C-098）：✓ 图标按钮常驻标题行最右（行内右缘
 			// 信息之后），仅紧凑档显示，显隐由渲染层每帧赋值。
 			row.append(makeConfirmIconButton());
@@ -5825,7 +5847,8 @@ function apply(ctx) {
 			return [row, content];
 		}
 		const row = makeEl("div", "dap-row");
-		row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-jobs-chip"), makeEl("span", "dap-total-time"));
+		// 行内工作区名胶囊（R-01-021/AC-10）：状态点与标题之间，仅紧凑档显示（CSS 门控）。
+		row.append(makeEl("span", "dap-dot"), makeWorkspacePill(), makeEl("span", "dap-title"), makeEl("span", "dap-jobs-chip"), makeEl("span", "dap-total-time"));
 		const progressRow = makeProgressRow();
 		return [head, row, makeEl("div", "dap-trace"), progressRow, makeStatsRow()];
 	}
@@ -6361,8 +6384,18 @@ function apply(ctx) {
 	}
 
 	function renderCardInto(el, entry, colorByWorkspace) {
-		const workspaceLabel = el.querySelector(".dap-workspace");
-		if (workspaceLabel !== null) {
+		// 行内工作区名胶囊陈旧骨架就地补建（R-01-021/AC-10，同确认按钮补建惯例）：
+		// 三态卡（running/awaiting/recent）标题行在状态点与标题之间补建；subagent 卡
+		// 无工作区归属承诺（R-01-012/AC-17、AC-18）、job 卡仅完整档构建，均不补。
+		const headRow = el.querySelector(".dap-row");
+		if (headRow !== null && (entry.kind === "running" || entry.kind === "awaiting" || entry.kind === "recent")) {
+			const dot = headRow.querySelector(":scope > .dap-dot");
+			if (dot !== null && headRow.querySelector(":scope > .dap-workspace") === null) {
+				dot.insertAdjacentElement("afterend", makeWorkspacePill());
+			}
+		}
+		const workspaceLabels = el.querySelectorAll(".dap-workspace");
+		for (const workspaceLabel of workspaceLabels) {
 			const workspaceText = workspaceLabel.querySelector(".dap-workspace-text");
 			const color = colorByWorkspace.get(entry.workspaceKey);
 			const foreground = color?.foreground;

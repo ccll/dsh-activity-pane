@@ -1,4 +1,4 @@
-// R-01-021/AC-01、R-01-021/AC-02、R-01-021/AC-03、R-01-021/AC-04、R-01-021/AC-05、R-01-021/AC-06、R-01-021/AC-07、R-01-021/AC-08、R-01-021/AC-09、R-01-011/AC-07、R-01-002/AC-14、R-01-002/AC-10
+// R-01-021/AC-01、R-01-021/AC-02、R-01-021/AC-03、R-01-021/AC-04、R-01-021/AC-05、R-01-021/AC-06、R-01-021/AC-07、R-01-021/AC-08、R-01-021/AC-09、R-01-021/AC-10、R-01-011/AC-07、R-01-002/AC-14、R-01-002/AC-10、R-01-003/AC-06、R-01-003/AC-07、R-01-003/AC-08
 // 显示档位三档循环：切换按钮常显于「活动会话」标题行右侧工具区，紧凑→中间→完整循环；
 // 无持久化档位时默认中间档；中间档保留工作区徽标行/等待末行/最近卡预览行，紧凑档仅
 // 保留标题行；切换时当前选中卡片顶部相对滚动视口的位置稳定（滚动锚定）；档位持久化、
@@ -176,6 +176,32 @@ async function untilDensity(page, expected, label) {
 	await until(label, async () => ((await densityState(page))?.density === expected ? true : null));
 }
 
+/** 标题行内嵌工作区名胶囊状态（R-01-021/AC-10）：显隐、无图标、位置、字号与着色。
+ *  完整/中间档下行内节点隐藏、由独立徽标行承担归属标识（形态互斥）。 */
+function headWorkspaceState(page, selector) {
+	return page.evaluate((sel) => {
+		const pane = document.querySelector("[data-dsh-activity-pane]");
+		const card = pane?.querySelector(sel);
+		if (!card) return null;
+		const row = card.querySelector(".dap-row");
+		const pill = card.querySelector(".dap-row .dap-workspace");
+		if (!row || !pill) return null;
+		const rect = pill.getBoundingClientRect();
+		const dotRect = row.querySelector(".dap-dot")?.getBoundingClientRect() ?? null;
+		const titleRect = row.querySelector(".dap-title")?.getBoundingClientRect() ?? null;
+		const style = getComputedStyle(pill);
+		return {
+			visible: !pill.hidden && style.display !== "none" && rect.width > 0 && rect.height > 0,
+			text: (pill.querySelector(".dap-workspace-text")?.textContent ?? "").trim(),
+			hasIcon: pill.querySelector(".dap-workspace-icon") !== null,
+			afterDot: dotRect !== null && rect.left >= dotRect.right,
+			beforeTitle: titleRect !== null && rect.right <= titleRect.left,
+			fontPx: parseFloat(style.fontSize),
+			colored: style.backgroundColor !== "rgba(0, 0, 0, 0)",
+		};
+	}, selector);
+}
+
 /** 按可访问名称点击档位切换按钮并等待进入期望档位；升序循环的每步推进共用此形状。 */
 async function stepDensity(page, name, expected, label) {
 	await page.getByRole("button", { name }).click();
@@ -243,6 +269,9 @@ export default async function compactDensity({ page, url, assert }) {
 	// R-01-002/AC-10 形态互斥：非紧凑档下标题行不呈现 ✓ 确认按钮（末行文字形态不并存）。
 	const mediumHeadAck = await headAckState(page, DONE_CARD);
 	assert.equal(mediumHeadAck?.visible, false, "中间档完成提醒卡标题行不呈现 ✓ 确认按钮（R-01-002/AC-10）");
+	// R-01-021/AC-10 形态互斥：非紧凑档下标题行不呈现行内工作区胶囊（徽标行承担归属）。
+	const mediumInlinePill = await headWorkspaceState(page, DONE_CARD);
+	assert.equal(mediumInlinePill?.visible, false, "中间档完成提醒卡标题行不呈现行内工作区胶囊（R-01-021/AC-10）");
 	const mediumTraceLines = await page.evaluate((sel) => {
 		const card = document.querySelector(`[data-dsh-activity-pane] ${sel}`);
 		return card ? card.querySelectorAll(".dap-trace .dap-trace-item").length : -1;
@@ -295,6 +324,27 @@ export default async function compactDensity({ page, url, assert }) {
 	assert.deepEqual(compactHeadAck?.pseudoBox, { w: 24, h: 24 }, "✓ 确认按钮透明伪元素命中盒 24×24（inset -4px -3px 基于 padding 盒 18×16，R-01-021/AC-09）");
 	assert.deepEqual(compactHeadAck?.hitEdges, { left: true, right: true, top: true, bottom: true }, "✓ 确认按钮触屏命中区四缘外扩命中（视觉盒四缘外 1.5~2px 点命中，R-01-021/AC-09）");
 	assert.equal(compactHeadAck?.outsideHit, false, "✓ 确认按钮命中区外扩有界（命中盒外 3px 不命中，R-01-021/AC-09）");
+
+	// R-01-021/AC-10（紧凑档工作区名胶囊）：标题行状态点与会话标题之间内嵌无图标胶囊。
+	const compactPill = await until("紧凑下标题行工作区名胶囊呈现", async () => {
+		const state = await headWorkspaceState(page, DONE_CARD);
+		return state?.visible === true ? state : null;
+	}, 30_000);
+	assert.equal(compactPill?.visible, true, "紧凑下完成提醒卡标题行呈现工作区名胶囊（R-01-021/AC-10）");
+	assert.equal(compactPill?.hasIcon, false, "行内工作区胶囊不含文件夹图标（无图标形态，R-01-021/AC-10）");
+	assert.ok(
+		compactPill?.afterDot === true && compactPill?.beforeTitle === true,
+		`行内工作区胶囊位于状态点与会话标题之间（afterDot=${compactPill?.afterDot}，beforeTitle=${compactPill?.beforeTitle}，R-01-021/AC-10）`,
+	);
+	assert.ok(
+		(compactPill?.fontPx ?? 0) >= 10.5,
+		`行内工作区胶囊字号 ≥10.5px（实测 ${compactPill?.fontPx ?? "n/a"}px，R-01-003/AC-07）`,
+	);
+	assert.equal(compactPill?.colored, true, "行内工作区胶囊按槽位变量着色（非透明底，R-01-003/AC-08）");
+	assert.ok(
+		(compactPill?.text.length ?? 0) > 0,
+		"行内工作区胶囊文本为工作区名（标题行可见信息实时更新，R-01-021/AC-10、R-01-025/AC-07）",
+	);
 
 	// R-01-002/AC-10（紧凑档确认路径）：激活 ✓ 按钮解除完成提醒并迁入最近历史区，不触发跳转。
 	const doneBeforeAck = await page.locator('[data-dsh-activity-pane] .dap-card[data-wait="done"]').count();

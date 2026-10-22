@@ -2,7 +2,7 @@
 doc-type: solution
 mutation: living
 owner: agent 主笔，项目属主审批
-核对日期: 2026-10-20
+核对日期: 2026-10-22
 ---
 
 # SOLUTION — 活动会话总览窗格

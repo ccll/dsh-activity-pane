@@ -712,7 +712,8 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 /* 紧凑档标题行 ✓ 确认按钮（R-01-021/AC-02、R-01-002/AC-10，C-098）：与「已完成」胶囊
    共用对勾几何，压暗色调与末行文字按钮同族；按钮 margin-box 20px 使标题行框 16→20px，
-   悬停略提。伪元素透明外扩触屏命中区至 24×24（视觉盒 20×18 不变）。
+   悬停略提。伪元素透明外扩触屏命中区至 24×24（视觉盒 20×18 不变；button 的 UA 默认
+   即 border-box，伪元素基准是 padding 盒 18×16，非 content 盒）。
    [hidden] 显式覆盖（display 规则优先级高于隐藏属性，惯例同 .dap-await-age）。 */
 [data-dsh-activity-pane] .dap-confirm-icon {
   position: relative;
@@ -724,9 +725,11 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   border-radius: 5px;
   cursor: pointer;
 }
-/* 命中区外扩：上下 3px、左右 2px，命中 24×24；透明伪元素随按钮激活，不占布局。 */
+/* 命中区外扩：inset -4px -3px 基于 padding 盒 18×16（button UA 默认 border-box）解出
+   24×24；若渲染环境改用 content-box（基准 20×18）则为 26×26，两种口径均 ≥24×24。
+   透明伪元素随按钮激活，不占布局。 */
 [data-dsh-activity-pane] .dap-confirm-icon::before {
-  content: ""; position: absolute; inset: -3px -2px;
+  content: ""; position: absolute; inset: -4px -3px;
 }
 [data-dsh-activity-pane] .dap-confirm-icon:hover {
   color: color-mix(in srgb, currentColor 82%, transparent);

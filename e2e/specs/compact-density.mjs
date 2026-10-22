@@ -140,6 +140,18 @@ function headAckState(page, selector) {
 		const cardRect = card.getBoundingClientRect();
 		const total = card.querySelector(".dap-row .dap-total-time");
 		const totalRect = total?.getBoundingClientRect() ?? null;
+		const row = card.querySelector(".dap-row");
+		// 触屏命中区探测：按钮视觉盒 20×18、透明伪元素外扩至 24×24（T-176）。
+		// 在视觉盒之外、命中盒之内的四缘点取 elementFromPoint（伪元素命中返回按钮宿主），
+		// 另取命中盒外一点作负对照（应不命中按钮）。
+		const cx = rect.left + rect.width / 2;
+		const cy = rect.top + rect.height / 2;
+		const hitEdges = rect.width > 0 ? {
+			left: document.elementFromPoint(rect.left - 1.5, cy)?.closest(".dap-confirm-icon") === button,
+			right: document.elementFromPoint(rect.right + 1.5, cy)?.closest(".dap-confirm-icon") === button,
+			top: document.elementFromPoint(cx, rect.top - 2)?.closest(".dap-confirm-icon") === button,
+			bottom: document.elementFromPoint(cx, rect.bottom + 2)?.closest(".dap-confirm-icon") === button,
+		} : null;
 		return {
 			visible: !button.hidden && getComputedStyle(button).display !== "none" && rect.width > 0 && rect.height > 0,
 			label: button.getAttribute("aria-label"),
@@ -147,6 +159,11 @@ function headAckState(page, selector) {
 			gapToCardRight: cardRect.right - rect.right,
 			afterTotalTime: totalRect !== null && rect.left >= totalRect.right,
 			animationName: getComputedStyle(button).animationName,
+			box: { w: rect.width, h: rect.height },
+			rowHeight: row?.getBoundingClientRect().height ?? null,
+			hitEdges,
+			// 命中盒上缘外 3px（rect.top-6）不应命中按钮：外扩有界（负对照）。
+			outsideHit: rect.width > 0 ? document.elementFromPoint(cx, rect.top - 6)?.closest(".dap-confirm-icon") === button : null,
 		};
 	}, selector);
 }
@@ -268,6 +285,12 @@ export default async function compactDensity({ page, url, assert }) {
 		`✓ 确认按钮位于标题行最右端（gap=${Math.round(compactHeadAck?.gapToCardRight ?? -1)}px，R-01-021/AC-09）`,
 	);
 	assert.equal(compactHeadAck?.afterTotalTime, true, "✓ 确认按钮位于行内右缘信息之后（R-01-021/AC-09）");
+	// 视觉盒与行框几何钉死：button UA 默认 border-box 下视觉盒 20×18、标题行框 16→20px（T-176）。
+	assert.equal(compactHeadAck?.box.w, 20, "✓ 确认按钮视觉盒宽 20px（R-01-021/AC-09）");
+	assert.equal(compactHeadAck?.box.h, 18, "✓ 确认按钮视觉盒高 18px（R-01-021/AC-09）");
+	assert.equal(compactHeadAck?.rowHeight, 20, "✓ 确认按钮标题行框 20px（16px 行高 + margin 2px，R-01-021/AC-09）");
+	assert.deepEqual(compactHeadAck?.hitEdges, { left: true, right: true, top: true, bottom: true }, "✓ 确认按钮触屏命中区外扩至 ≥24×24（视觉盒四缘外 1.5~2px 点命中，R-01-021/AC-09）");
+	assert.equal(compactHeadAck?.outsideHit, false, "✓ 确认按钮命中区外扩有界（命中盒外 3px 不命中，R-01-021/AC-09）");
 
 	// R-01-002/AC-10（紧凑档确认路径）：激活 ✓ 按钮解除完成提醒并迁入最近历史区，不触发跳转。
 	const doneBeforeAck = await page.locator('[data-dsh-activity-pane] .dap-card[data-wait="done"]').count();

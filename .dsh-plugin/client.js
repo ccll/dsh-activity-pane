@@ -3104,8 +3104,8 @@ const CSS = `
   ) {
   display: none;
 }
-/* 紧凑档整行隐藏次要行（R-01-021/AC-02）：含行内右缘耗费时长（T-179 移出紧凑
-   标题行——时长承载语义由完整/中间档保持，R-01-025/AC-07）；耗时节点三档同码
+/* 紧凑档整行隐藏次要行（R-01-021/AC-02）：含行内右缘累计运行时长（T-179 移出紧凑
+   标题行——时长承载语义由完整/中间档保持，R-01-025/AC-07）；时长节点三档同码
    构建、compact 下随档位隐藏，切回高档随重渲染恢复。 */
 [data-dsh-activity-pane][data-density="compact"] .dap-card :is(
     .dap-card-head,
@@ -3480,8 +3480,8 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 [data-dsh-activity-pane] .dap-workspace[hidden] { display: none; }
 /* 行内工作区名胶囊（R-01-021/AC-10，T-178）：仅紧凑档标题行显示——完整/中间档由
    独立徽标行承担归属标识，行内节点隐藏（形态互斥）；几何/字号/着色全部复用
-   .dap-workspace 既有规则（10.5px/14px、胶囊圆角与槽位着色变量），此处只管显隐与
-   行内收缩（flex 项、min-width:0 使名称省略截断不挤压标题）。 */
+   .dap-workspace 既有规则（10.5px/14px、胶囊圆角与槽位着色变量），此处只管显隐，
+   行尾定位与固定宽见下一条规则（T-179 改行尾固定宽后行内收缩口径作废）。 */
 [data-dsh-activity-pane] .dap-row .dap-workspace { display: none; }
 /* 行内胶囊行尾固定宽（R-01-021/AC-10，东家反馈 T-179）：宽度固定 84px（border-box，
    含左右内边距 14px）不随名称长度变化，使会话标题起点在各卡间对齐；文字水平居中，

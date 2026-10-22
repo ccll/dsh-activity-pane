@@ -1,4 +1,4 @@
-// R-01-021/AC-01、R-01-021/AC-02、R-01-021/AC-03、R-01-021/AC-04、R-01-021/AC-05、R-01-021/AC-06、R-01-021/AC-07、R-01-021/AC-08、R-01-011/AC-07、R-01-002/AC-14
+// R-01-021/AC-01、R-01-021/AC-02、R-01-021/AC-03、R-01-021/AC-04、R-01-021/AC-05、R-01-021/AC-06、R-01-021/AC-07、R-01-021/AC-08、R-01-021/AC-09、R-01-011/AC-07、R-01-002/AC-14
 // 显示档位三档循环：切换按钮常显于「活动会话」标题行右侧工具区，紧凑→中间→完整循环；
 // 无持久化档位时默认中间档；中间档保留工作区徽标行/等待末行/最近卡预览行，紧凑档仅
 // 保留标题行；切换时当前选中卡片顶部相对滚动视口的位置稳定（滚动锚定）；档位持久化、
@@ -128,6 +128,29 @@ function activateCardByIndex(page, selector, index) {
 	}, { sel: selector, idx: index });
 }
 
+/** 紧凑档标题行 ✓ 确认按钮状态（R-01-021/AC-09）：显隐、可访问名称、最右定位与脉冲纪律。 */
+function headAckState(page, selector) {
+	return page.evaluate((sel) => {
+		const pane = document.querySelector("[data-dsh-activity-pane]");
+		const card = pane?.querySelector(sel);
+		if (!card) return null;
+		const button = card.querySelector(".dap-row .dap-confirm-icon");
+		if (!button) return null;
+		const rect = button.getBoundingClientRect();
+		const cardRect = card.getBoundingClientRect();
+		const total = card.querySelector(".dap-row .dap-total-time");
+		const totalRect = total?.getBoundingClientRect() ?? null;
+		return {
+			visible: !button.hidden && getComputedStyle(button).display !== "none" && rect.width > 0 && rect.height > 0,
+			label: button.getAttribute("aria-label"),
+			isButton: button.tagName === "BUTTON",
+			gapToCardRight: cardRect.right - rect.right,
+			afterTotalTime: totalRect !== null && rect.left >= totalRect.right,
+			animationName: getComputedStyle(button).animationName,
+		};
+	}, selector);
+}
+
 /** 等待窗格根 data-density 达到期望档位。 */
 async function untilDensity(page, expected, label) {
 	await until(label, async () => ((await densityState(page))?.density === expected ? true : null));
@@ -197,6 +220,9 @@ export default async function compactDensity({ page, url, assert }) {
 	// R-01-002/AC-14：中间档收合单行下状态年龄随胶囊保留，位于胶囊与按钮之间。
 	assert.equal(mediumFootAtDefault?.ageVisible, true, "中间档完成提醒卡状态年龄显示（R-01-002/AC-14）");
 	assert.equal(mediumFootAtDefault?.ageBetween, true, "中间档状态年龄位于胶囊与按钮之间（R-01-002/AC-14）");
+	// R-01-002/AC-10 形态互斥：非紧凑档下标题行不呈现 ✓ 确认按钮（末行文字形态不并存）。
+	const mediumHeadAck = await headAckState(page, DONE_CARD);
+	assert.equal(mediumHeadAck?.visible, false, "中间档完成提醒卡标题行不呈现 ✓ 确认按钮（R-01-002/AC-10）");
 	const mediumTraceLines = await page.evaluate((sel) => {
 		const card = document.querySelector(`[data-dsh-activity-pane] ${sel}`);
 		return card ? card.querySelectorAll(".dap-trace .dap-trace-item").length : -1;
@@ -225,6 +251,37 @@ export default async function compactDensity({ page, url, assert }) {
 	// R-01-021/AC-03：等待类别底色在紧凑下保持。
 	assert.equal(compactActive?.wait, "done", "完成提醒卡在紧凑下保留等待类别标识");
 	assert.equal(compactActive?.background, mediumBaseline?.background, "紧凑下完成提醒卡面底色与中间呈现一致（R-01-021/AC-03）");
+
+	// R-01-021/AC-09（紧凑档确认入口）：完成提醒卡标题行最右端呈现 ✓ 图标确认按钮。
+	// until 轮询吸收档位切换与渲染帧之间的一帧竞态（untilDensity 解析帧内
+	// confirmIcon.hidden 可能尚未被本帧 renderCard 重赋值）。
+	const compactHeadAck = await until("紧凑下标题行 ✓ 确认按钮呈现", async () => {
+		const state = await headAckState(page, DONE_CARD);
+		return state?.visible === true ? state : null;
+	}, 30_000);
+	assert.equal(compactHeadAck?.visible, true, "紧凑下完成提醒卡标题行呈现 ✓ 确认按钮（R-01-021/AC-09）");
+	assert.equal(compactHeadAck?.isButton, true, "✓ 确认控件为按钮元素（R-01-021/AC-09）");
+	assert.equal(compactHeadAck?.label, "移入历史", "✓ 确认按钮可访问名称为「移入历史」（R-01-002/AC-10）");
+	assert.equal(compactHeadAck?.animationName, "none", "✓ 确认按钮不参与末行脉冲（按钮不闪纪律，R-01-002/AC-08）");
+	assert.ok(
+		compactHeadAck && compactHeadAck.gapToCardRight >= 0 && compactHeadAck.gapToCardRight <= 24,
+		`✓ 确认按钮位于标题行最右端（gap=${Math.round(compactHeadAck?.gapToCardRight ?? -1)}px，R-01-021/AC-09）`,
+	);
+	assert.equal(compactHeadAck?.afterTotalTime, true, "✓ 确认按钮位于行内右缘信息之后（R-01-021/AC-09）");
+
+	// R-01-002/AC-10（紧凑档确认路径）：激活 ✓ 按钮解除完成提醒并迁入最近历史区，不触发跳转。
+	const doneBeforeAck = await page.locator('[data-dsh-activity-pane] .dap-card[data-wait="done"]').count();
+	const recentBeforeAck = await page.locator('[data-dsh-activity-pane] .dap-card[data-kind="recent"]').count();
+	await page.evaluate(() => document.querySelector(".dap-card[data-wait='done'] .dap-row .dap-confirm-icon")?.click());
+	await until("紧凑下确认后完成卡迁入历史区", async () => {
+		const done = await page.locator('[data-dsh-activity-pane] .dap-card[data-wait="done"]').count();
+		const recent = await page.locator('[data-dsh-activity-pane] .dap-card[data-kind="recent"]').count();
+		return done < doneBeforeAck && recent > recentBeforeAck ? true : null;
+	}, 30_000);
+	assert.equal((await densityState(page)).density, "compact", "紧凑下确认迁移动作不解除档位（R-01-021/AC-07）");
+	for (const title of KEEP_DONE_TITLES) {
+		assert.equal(await mainAreaHas(page, title), false, `确认动作不触发向被确认会话的跳转（${title}，R-01-002/AC-10）`);
+	}
 
 	// R-01-021/AC-04：紧凑下激活卡片照常跳转。
 	await activateCardByIndex(page, RECENT_CARD, 1);

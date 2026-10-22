@@ -3533,6 +3533,23 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   color: color-mix(in srgb, currentColor 82%, transparent);
   background: color-mix(in srgb, currentColor 14%, transparent);
 }
+/* 紧凑档标题行 ✓ 确认按钮（R-01-021/AC-02、R-01-002/AC-10，C-098）：与「已完成」胶囊
+   共用对勾几何，压暗色调与末行文字按钮同族；方形小按钮不撑高 16px 行框过多，悬停略提。
+   [hidden] 显式覆盖（display 规则优先级高于隐藏属性，惯例同 .dap-await-age）。 */
+[data-dsh-activity-pane] .dap-confirm-icon {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 18px; margin: 1px 0; padding: 0;
+  color: color-mix(in srgb, currentColor 58%, transparent);
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 5px;
+  cursor: pointer;
+}
+[data-dsh-activity-pane] .dap-confirm-icon:hover {
+  color: color-mix(in srgb, currentColor 82%, transparent);
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+[data-dsh-activity-pane] .dap-confirm-icon[hidden] { display: none; }
 /* 运行卡与最近卡统计（对齐 answer-pet 卡片；MIT 参考，见 README）。 */
 [data-dsh-activity-pane] .dap-progress {
   display: flex; align-items: center; gap: 7px; min-width: 0;
@@ -5658,6 +5675,19 @@ function apply(ctx) {
 		return button;
 	}
 
+	/** 紧凑档完成提醒卡的 ✓ 确认按钮（R-01-021/AC-02、R-01-002/AC-10，C-098）：图标形态
+	 *  挂可访问名称「移入历史」（标示「我已看完了，不再需要看到它」的确认语义）；显隐由
+	 *  渲染层每帧按档位与 waitClass 双条件赋值；点击与键盘激活均不得触发卡片跳转。 */
+	function makeConfirmIconButton() {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "dap-confirm-icon";
+		button.hidden = true;
+		button.setAttribute("aria-label", "移入历史");
+		button.append(createCapsuleIcon("done"));
+		return button;
+	}
+
 	/** 将结构化提问预览写成原生列表元素；动态文本只经 textContent 写入（R-01-002/AC-09）。 */
 	function renderQuestionPreview(note, preview) {
 		const items = Array.isArray(preview?.items)
@@ -5757,6 +5787,9 @@ function apply(ctx) {
 		if (kind === "awaiting") {
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-total-time"));
+			// 紧凑档确认入口（R-01-021/AC-02，C-098）：✓ 图标按钮常驻标题行最右（行内右缘
+			// 信息之后），仅紧凑档显示，显隐由渲染层每帧赋值。
+			row.append(makeConfirmIconButton());
 			// 等待三类末行结构（R-01-002/AC-08、AC-09，C-043）：首行「类型胶囊」（圆底类型
 			// 图标 + 类型文字），其下为正文行——阻塞/错误的说明文字，完成提醒的
 			// 「继续对话，或移入历史」+ 行尾「移入历史」按钮。
@@ -6526,8 +6559,35 @@ function apply(ctx) {
 					// Enter/Space 由按钮原生合成 click；此处阻断其冒泡到卡片 keydown 激活。
 					confirm.addEventListener("keydown", (event) => event.stopPropagation());
 				}
-				// 仅完成提醒（done）卡显示确认按钮；阻塞等待卡隐藏（其解除是真正回答）。
+					// 仅完成提醒（done）卡显示确认按钮；阻塞等待卡隐藏（其解除是真正回答）。
 				confirm.hidden = entry.waitClass !== "done";
+			}
+			// 紧凑档标题行确认入口（R-01-021/AC-02，C-098）：陈旧骨架就地补建（同状态年龄
+			// 补建惯例），显隐每帧按档位与 waitClass 双条件赋值；激活阻断卡片跳转并经
+			// 同一 ack 路由写回。
+			const headRow = el.querySelector(".dap-row");
+			let confirmIcon = el.querySelector(".dap-confirm-icon");
+			if (confirmIcon === null && headRow !== null) {
+				confirmIcon = makeConfirmIconButton();
+				const anchor = headRow.querySelector(".dap-total-time");
+				if (anchor !== null) anchor.insertAdjacentElement("afterend", confirmIcon);
+				else headRow.append(confirmIcon);
+			}
+			if (confirmIcon !== null) {
+				// 激活锚点：只在结构重建时绑一次（卡片按 id 复用，kind 变化会重建骨架）。
+				if (confirmIcon.dataset.bound !== "true") {
+					confirmIcon.dataset.bound = "true";
+					confirmIcon.addEventListener("click", (event) => {
+						event.preventDefault();
+						event.stopPropagation(); // 阻断卡片激活（R-01-002/AC-10）
+						const id = el.dataset.sessionId;
+						if (id) ackCompletion(id);
+					});
+					// Enter/Space 由按钮原生合成 click；阻断其冒泡到卡片 keydown 激活。
+					confirmIcon.addEventListener("keydown", (event) => event.stopPropagation());
+				}
+				// 仅紧凑档完成提醒卡显示 ✓ 确认按钮；完整/中间档沿用末行文字形态。
+				confirmIcon.hidden = !(densityLevel === "compact" && entry.waitClass === "done");
 			}
 		}
 

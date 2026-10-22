@@ -27,7 +27,7 @@ id: T-176
 ## 收敛方案
 
 1. `src/client.mjs`：`cardChildren("awaiting")` 在标题行 `.dap-row` 末尾（`dap-total-time` 之后）追加 `makeConfirmIconButton()`——`aria-label`「移入历史」的图标按钮，内嵌 `createCapsuleIcon("done")` 对勾几何（与「已完成」胶囊共用字形）；`renderCard` awaiting 分支按陈旧骨架就地补建惯例补建缺失节点，每帧按 `data-density === "compact" && waitClass === "done"` 双条件赋 `hidden`，绑定与 `.dap-confirm` 同款（click preventDefault+stopPropagation、keydown stopPropagation、`dataset.bound` 只绑一次、`ackCompletion(id)`）。
-2. CSS：`.dap-confirm-icon` 复用 `.dap-confirm` 压暗色调与 radius，方形内缩布局（icon 12px + padding，行框内不显著增高），hover 提亮同族。
+2. CSS：`.dap-confirm-icon` 复用 `.dap-confirm` 压暗色调与 radius，方形内缩布局（icon 12px + padding；按钮 margin-box 20px 使标题行框 16→20px，增高 ≤4px），hover 提亮同族；伪元素透明外扩触屏命中区至 24×24、视觉盒不变。
 3. 测试：`e2e/specs/compact-density.mjs` 增紧凑档断言——✓ 按钮可见、位于行内右缘信息之后（最右端）、点击后卡片迁入最近历史区且不跳转；完整/中间档该节点隐藏。
 
 ## 测试计划
@@ -58,7 +58,7 @@ id: T-176
 
 ## 自查清单
 
-- [ ] 边界：紧凑行宽极窄（接近 200px 下限）时 ✓ 按钮仍位于标题行内右缘、不溢出卡片（gap 断言 + 行框不增高样式纪律）。
+- [ ] 边界：紧凑行宽极窄（接近 200px 下限）时 ✓ 按钮仍位于标题行内右缘、不溢出卡片（gap 断言 + 行框增高 ≤4px 样式纪律：16→20px，按钮 margin-box 主导）。
 - [ ] 异常路径：陈旧骨架缺 `confirmIcon` 时就地补建于 `dap-total-time` 之后；`dataset.bound` 保证重复渲染不重复绑定。
 - [ ] 异常路径：keydown 激活同样阻断冒泡，不触发卡片跳转。
 - [ ] 回归影响：末行文字按钮（`textContent「移入历史」`、脉冲互斥）与中间档收合契约不变，`check.mjs` 原断言全数保留。

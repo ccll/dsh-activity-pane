@@ -161,6 +161,9 @@ function headAckState(page, selector) {
 			animationName: getComputedStyle(button).animationName,
 			box: { w: rect.width, h: rect.height },
 			rowHeight: row?.getBoundingClientRect().height ?? null,
+			// 命中区几何钉死：inset -4px -3px 基于 padding 盒 18×16（button UA 默认 border-box）
+			// 解出伪元素盒 24×24；content-box 口径下为 26×26，两口径均 ≥24×24（T-176）。
+			pseudoBox: (() => { const s = getComputedStyle(button, "::before"); return s.content !== "none" ? { w: parseFloat(s.width), h: parseFloat(s.height) } : null; })(),
 			hitEdges,
 			// 命中盒上缘外 3px（rect.top-6）不应命中按钮：外扩有界（负对照）。
 			outsideHit: rect.width > 0 ? document.elementFromPoint(cx, rect.top - 6)?.closest(".dap-confirm-icon") === button : null,
@@ -289,7 +292,8 @@ export default async function compactDensity({ page, url, assert }) {
 	assert.equal(compactHeadAck?.box.w, 20, "✓ 确认按钮视觉盒宽 20px（R-01-021/AC-09）");
 	assert.equal(compactHeadAck?.box.h, 18, "✓ 确认按钮视觉盒高 18px（R-01-021/AC-09）");
 	assert.equal(compactHeadAck?.rowHeight, 20, "✓ 确认按钮标题行框 20px（16px 行高 + margin 2px，R-01-021/AC-09）");
-	assert.deepEqual(compactHeadAck?.hitEdges, { left: true, right: true, top: true, bottom: true }, "✓ 确认按钮触屏命中区外扩至 ≥24×24（视觉盒四缘外 1.5~2px 点命中，R-01-021/AC-09）");
+	assert.deepEqual(compactHeadAck?.pseudoBox, { w: 24, h: 24 }, "✓ 确认按钮透明伪元素命中盒 24×24（inset -4px -3px 基于 padding 盒 18×16，R-01-021/AC-09）");
+	assert.deepEqual(compactHeadAck?.hitEdges, { left: true, right: true, top: true, bottom: true }, "✓ 确认按钮触屏命中区四缘外扩命中（视觉盒四缘外 1.5~2px 点命中，R-01-021/AC-09）");
 	assert.equal(compactHeadAck?.outsideHit, false, "✓ 确认按钮命中区外扩有界（命中盒外 3px 不命中，R-01-021/AC-09）");
 
 	// R-01-002/AC-10（紧凑档确认路径）：激活 ✓ 按钮解除完成提醒并迁入最近历史区，不触发跳转。

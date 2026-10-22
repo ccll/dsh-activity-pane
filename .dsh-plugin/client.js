@@ -3536,7 +3536,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 /* 紧凑档标题行 ✓ 确认按钮（R-01-021/AC-02、R-01-002/AC-10，C-098）：与「已完成」胶囊
    共用对勾几何，压暗色调与末行文字按钮同族；按钮 margin-box 20px 使标题行框 16→20px，
    悬停略提。伪元素透明外扩触屏命中区至 24×24（视觉盒 20×18 不变；button 的 UA 默认
-   即 border-box，伪元素基准是 padding 盒 18×16，非 content 盒）。
+   即 border-box，伪元素基准是 padding 盒，与 content-box 口径的基准 20×18 相对）。
    [hidden] 显式覆盖（display 规则优先级高于隐藏属性，惯例同 .dap-await-age）。 */
 [data-dsh-activity-pane] .dap-confirm-icon {
   position: relative;

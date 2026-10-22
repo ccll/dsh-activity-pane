@@ -711,9 +711,11 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   background: color-mix(in srgb, currentColor 14%, transparent);
 }
 /* 紧凑档标题行 ✓ 确认按钮（R-01-021/AC-02、R-01-002/AC-10，C-098）：与「已完成」胶囊
-   共用对勾几何，压暗色调与末行文字按钮同族；方形小按钮不撑高 16px 行框过多，悬停略提。
+   共用对勾几何，压暗色调与末行文字按钮同族；按钮 margin-box 20px 使标题行框 16→20px，
+   悬停略提。伪元素透明外扩触屏命中区至 24×24（视觉盒 20×18 不变）。
    [hidden] 显式覆盖（display 规则优先级高于隐藏属性，惯例同 .dap-await-age）。 */
 [data-dsh-activity-pane] .dap-confirm-icon {
+  position: relative;
   flex: none; display: inline-flex; align-items: center; justify-content: center;
   width: 20px; height: 18px; margin: 1px 0; padding: 0;
   color: color-mix(in srgb, currentColor 58%, transparent);
@@ -721,6 +723,10 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
   border-radius: 5px;
   cursor: pointer;
+}
+/* 命中区外扩：上下 3px、左右 2px，命中 24×24；透明伪元素随按钮激活，不占布局。 */
+[data-dsh-activity-pane] .dap-confirm-icon::before {
+  content: ""; position: absolute; inset: -3px -2px;
 }
 [data-dsh-activity-pane] .dap-confirm-icon:hover {
   color: color-mix(in srgb, currentColor 82%, transparent);
@@ -3736,7 +3742,7 @@ function apply(ctx) {
 					// Enter/Space 由按钮原生合成 click；此处阻断其冒泡到卡片 keydown 激活。
 					confirm.addEventListener("keydown", (event) => event.stopPropagation());
 				}
-					// 仅完成提醒（done）卡显示确认按钮；阻塞等待卡隐藏（其解除是真正回答）。
+				// 仅完成提醒（done）卡显示确认按钮；阻塞等待卡隐藏（其解除是真正回答）。
 				confirm.hidden = entry.waitClass !== "done";
 			}
 			// 紧凑档标题行确认入口（R-01-021/AC-02，C-098）：陈旧骨架就地补建（同状态年龄

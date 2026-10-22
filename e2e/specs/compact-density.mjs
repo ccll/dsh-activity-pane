@@ -157,7 +157,7 @@ function headAckState(page, selector) {
 			label: button.getAttribute("aria-label"),
 			isButton: button.tagName === "BUTTON",
 			gapToCardRight: cardRect.right - rect.right,
-			// 行序定位（R-01-021/AC-09、AC-10）：✓ 位于行尾工作区名胶囊之后（耗时已隐藏）。
+			// 行序定位（R-01-021/AC-09、AC-10）：✓ 位于行尾工作区名胶囊之后（累计运行时长已隐藏）。
 			afterInlinePill: pillRect !== null && rect.left >= pillRect.right,
 			animationName: getComputedStyle(button).animationName,
 			box: { w: rect.width, h: rect.height },
@@ -198,7 +198,7 @@ function headWorkspaceState(page, selector) {
 			visible: !pill.hidden && style.display !== "none" && rect.width > 0 && rect.height > 0,
 			text: (text?.textContent ?? "").trim(),
 			hasIcon: pill.querySelector(".dap-workspace-icon") !== null,
-			// 行尾定位（R-01-021/AC-10）：标题之后、行尾余员（确认按钮/耗时）之前。
+			// 行尾定位（R-01-021/AC-10）：标题之后、行尾余员（确认按钮）之前——累计运行时长在紧凑档不显示（R-01-025/AC-07）。
 			afterTitle: titleRect !== null && rect.left >= titleRect.right,
 			beforeTail: (confirmRect === null || confirmRect.width === 0 || rect.right <= confirmRect.left)
 				&& (totalRect === null || totalRect.width === 0 || rect.right <= totalRect.left),

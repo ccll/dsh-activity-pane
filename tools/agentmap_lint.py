@@ -2343,6 +2343,11 @@ def check_history_transition(root: Path, result: Result, parent: str, commit: st
     for path, text in new_tasks.items():
         if task_state(text) not in TERMINAL_STATES or path in old_tasks:
             continue
+        # 累计审计 task 的生命周期就是窗口结算：触发即审计、审计完即关闭，
+        # 没有可承载「先 active 后终态」的中间提交；它以终态入库是机制内在
+        # 形态而非绕过生命周期，故豁免直接终态检查（复位点登记同提交生效）。
+        if re.search(r"^类型:\s*累计审计\s*$", text, re.MULTILINE):
+            continue
         result.errors.append(f"{commit[:12]}: {path} was created directly in a terminal state")
 
 
@@ -4622,6 +4627,46 @@ def self_test_state_scope_and_evidence() -> None:
         task.write_text(placeholder_text.replace("- commit: 待补", f"- commit: {initial}"))
         resolved = lint(root, strict_tests=True)
         assert not resolved.errors, resolved.errors
+
+        # 累计审计 task 以终态直接入库是窗口结算的内在形态（触发即审计即
+        # 关闭，无中间提交可承载 active 态），豁免「直接终态」检查；普通
+        # task 首次入库即终态仍然报错。
+        audit = root / "tasks/T-002-20260802-audit.md"
+        audit.write_text(
+            "---\ndoc-type: task\nmutation: lifecycle\nid: T-002\n---\n# T-002 累计审计\n"
+            "状态: completed\n类型: 累计审计\n\n## 终态与证据\n\n"
+            f"- 实现: 审计完成\n- 测试: check.mjs passed\n- SOLUTION 对照: 无漂移\n- commit: {initial}\n"
+        )
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "audit"],
+            cwd=root, check=True,
+        )
+        audit_commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+        ).stdout.strip()
+        result = Result()
+        check_history_transition(root, result, initial, audit_commit, check_additions=True)
+        assert not any(
+            "was created directly in a terminal state" in error for error in result.errors
+        ), result.errors
+        plain = root / "tasks/T-003-20260803-plain.md"
+        plain.write_text(
+            "---\ndoc-type: task\nmutation: lifecycle\nid: T-003\n---\n# T-003 常规关闭\n状态: completed\n"
+        )
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "plain"],
+            cwd=root, check=True,
+        )
+        plain_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+        ).stdout.strip()
+        result = Result()
+        check_history_transition(root, result, audit_commit, plain_head, check_additions=True)
+        assert any(
+            "was created directly in a terminal state" in error for error in result.errors
+        ), result.errors
 
 
 def self_test_io_errors() -> None:

@@ -1,7 +1,8 @@
 // R-01-025/AC-01、R-01-025/AC-02、R-01-025/AC-05、R-01-025/AC-07、R-01-020/AC-01、R-01-010/AC-09
 // 档位资源纪律：紧凑档不为不可见内容构建时间线与统计行（trace 容器零子节点、
-// 统计行保持未写入，DOM 层可观察）；标题行可见信息与累计运行时长照常逐秒推进
-// （非日志通道不停摆）；切回更高档位后被裁剪数据按既有渐进语义重建就绪。
+// 统计行保持未写入，DOM 层可观察）；标题行可见信息照常实时更新、累计运行时长
+// 数据通道照常逐秒推进（紧凑档不显示，R-01-025/AC-07；非日志通道不停摆）；
+// 切回更高档位后被裁剪数据按既有渐进语义重建就绪。
 // 传输层节省（日志窗口 dispose 停流、深翻跳过）由 task 终态探针证据与 bundle
 // 契约断言承载——宿主会话窗口按会话对象去重，网络层无法按发起方归因（T-157）。
 // 找卡一律用 data-wait/data-kind/data-current 结构选择器：宿主自动命名会用 LLM
@@ -78,7 +79,8 @@ export default async function densityResource({ page, url, assert }) {
 	assert.ok(compactC.titleRowVisible, "紧凑档下标题行照常呈现（R-01-025/AC-07）");
 
 	// R-01-025/AC-02、AC-07：紧凑档下运行卡标题行可见信息照常实时更新——
-	// 累计运行时长逐秒推进（轮内订阅与 busy 通道不随裁剪停摆）。
+	// 数据通道逐秒推进不停摆（轮内订阅与 busy 通道不随裁剪停摆）；
+	// 累计运行时长在紧凑档不显示（AC-07），推进证据由 display:none 节点承载。
 	await newSessionWithMessage(page, "e2e:slow 档内运行D");
 	await until("档内运行D运行卡出现", async () => {
 		const present = await page.evaluate(() => !!document.querySelector('[data-dsh-activity-pane] .dap-card[data-kind="running"]'));

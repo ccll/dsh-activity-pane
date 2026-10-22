@@ -659,6 +659,9 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 [data-dsh-activity-pane][data-density="compact"] .dap-row .dap-workspace {
   display: flex; flex: 0 1 auto; min-width: 0; max-width: 42%;
 }
+/* 42% 上界让极长工作区名先于标题截断、给标题留出主空间（与 .dap-model 的 58%
+   同类占比约束）；基线未声明 box-sizing，42% 限的是 content 盒，视觉盒可达
+   42%+内边距——以「不撑破行框」为可观察口径，不绑算术。 */
 /* 无归属会话胶囊由渲染层赋 hidden（同徽标行门控），此规则须排在上面 compact
    展示规则之后：同特异性下后者先声明、hidden 态仍由本规则兜底隐藏。 */
 [data-dsh-activity-pane] .dap-row .dap-workspace[hidden] { display: none; }

@@ -3104,12 +3104,16 @@ const CSS = `
   ) {
   display: none;
 }
+/* 紧凑档整行隐藏次要行（R-01-021/AC-02）：含行内右缘耗费时长（T-179 移出紧凑
+   标题行——时长承载语义由完整/中间档保持，R-01-025/AC-07）；耗时节点三档同码
+   构建、compact 下随档位隐藏，切回高档随重渲染恢复。 */
 [data-dsh-activity-pane][data-density="compact"] .dap-card :is(
     .dap-card-head,
     .dap-trace,
     .dap-subtrace,
     .dap-progress,
     .dap-token-stats,
+    .dap-total-time,
     .dap-foot,
     .dap-history-line,
     .dap-note
@@ -3479,12 +3483,12 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
    .dap-workspace 既有规则（10.5px/14px、胶囊圆角与槽位着色变量），此处只管显隐与
    行内收缩（flex 项、min-width:0 使名称省略截断不挤压标题）。 */
 [data-dsh-activity-pane] .dap-row .dap-workspace { display: none; }
+/* 行内胶囊行尾固定宽（R-01-021/AC-10，东家反馈 T-179）：宽度固定 84px（border-box，
+   含左右内边距 14px）不随名称长度变化，使会话标题起点在各卡间对齐；文字水平居中，
+   超长名称由 .dap-workspace-text 既有省略截断承载（R-01-021/AC-10 截断条款）。 */
 [data-dsh-activity-pane][data-density="compact"] .dap-row .dap-workspace {
-  display: flex; flex: 0 1 auto; min-width: 0; max-width: 42%;
+  display: flex; flex: none; width: 84px; box-sizing: border-box; justify-content: center;
 }
-/* 42% 上界让极长工作区名先于标题截断、给标题留出主空间（与 .dap-model 的 58%
-   同类占比约束）；基线未声明 box-sizing，42% 限的是 content 盒，视觉盒可达
-   42%+内边距——以「不撑破行框」为可观察口径，不绑算术。 */
 /* 无归属会话胶囊由渲染层赋 hidden（同徽标行门控），此规则须排在上面 compact
    展示规则之后：同特异性下后者先声明、hidden 态仍由本规则兜底隐藏。 */
 [data-dsh-activity-pane] .dap-row .dap-workspace[hidden] { display: none; }
@@ -5799,8 +5803,9 @@ function apply(ctx) {
 		}
 		if (kind === "recent") {
 			const row = makeEl("div", "dap-row");
-			// 行内工作区名胶囊（R-01-021/AC-10）：状态点与标题之间，仅紧凑档显示（CSS 门控）。
-			row.append(makeEl("span", "dap-dot"), makeWorkspacePill(), makeEl("span", "dap-title"), makeEl("span", "dap-total-time"));
+			// 行内工作区名胶囊（R-01-021/AC-10）：行尾耗时之前，仅紧凑档显示（CSS 门控）；
+			// 固定宽行尾使会话标题起点在各卡间对齐（东家反馈，T-179）。
+			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeWorkspacePill(), makeEl("span", "dap-total-time"));
 			const userLine = makeEl("div", "dap-history-line");
 			userLine.dataset.role = "user";
 			const userIcon = makeEl("span", "dap-history-icon");
@@ -5819,10 +5824,11 @@ function apply(ctx) {
 		}
 		if (kind === "awaiting") {
 			const row = makeEl("div", "dap-row");
-			// 行内工作区名胶囊（R-01-021/AC-10）：状态点与标题之间，仅紧凑档显示（CSS 门控）。
-			row.append(makeEl("span", "dap-dot"), makeWorkspacePill(), makeEl("span", "dap-title"), makeEl("span", "dap-total-time"));
-			// 紧凑档确认入口（R-01-021/AC-02，C-098）：✓ 图标按钮常驻标题行最右（行内右缘
-			// 信息之后），仅紧凑档显示，显隐由渲染层每帧赋值。
+			// 行内工作区名胶囊（R-01-021/AC-10）：行尾耗时之前，仅紧凑档显示（CSS 门控）；
+			// 固定宽行尾使会话标题起点在各卡间对齐（东家反馈，T-179）。
+			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeWorkspacePill(), makeEl("span", "dap-total-time"));
+			// 紧凑档确认入口（R-01-021/AC-02，C-098）：✓ 图标按钮常驻标题行最右（工作区名
+			// 胶囊之后），仅紧凑档显示，显隐由渲染层每帧赋值。
 			row.append(makeConfirmIconButton());
 			// 等待三类末行结构（R-01-002/AC-08、AC-09，C-043）：首行「类型胶囊」（圆底类型
 			// 图标 + 类型文字），其下为正文行——阻塞/错误的说明文字，完成提醒的
@@ -5850,8 +5856,9 @@ function apply(ctx) {
 			return [row, content];
 		}
 		const row = makeEl("div", "dap-row");
-		// 行内工作区名胶囊（R-01-021/AC-10）：状态点与标题之间，仅紧凑档显示（CSS 门控）。
-		row.append(makeEl("span", "dap-dot"), makeWorkspacePill(), makeEl("span", "dap-title"), makeEl("span", "dap-jobs-chip"), makeEl("span", "dap-total-time"));
+		// 行内工作区名胶囊（R-01-021/AC-10）：行尾耗时之前、后台任务数标注之后，仅紧凑档
+		// 显示（CSS 门控）；固定宽行尾使会话标题起点在各卡间对齐（东家反馈，T-179）。
+		row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-jobs-chip"), makeWorkspacePill(), makeEl("span", "dap-total-time"));
 		const progressRow = makeProgressRow();
 		return [head, row, makeEl("div", "dap-trace"), progressRow, makeStatsRow()];
 	}
@@ -6388,13 +6395,16 @@ function apply(ctx) {
 
 	function renderCardInto(el, entry, colorByWorkspace) {
 		// 行内工作区名胶囊陈旧骨架就地补建（R-01-021/AC-10，同确认按钮补建惯例）：
-		// 三态卡（running/awaiting/recent）标题行在状态点与标题之间补建；subagent 卡
-		// 无工作区归属承诺（R-01-012/AC-17、AC-18）、job 卡仅完整档构建，均不补。
+		// 三态卡（running/awaiting/recent）标题行在行尾耗时之前补建（T-179 行尾语义）；
+		// subagent 卡无工作区归属承诺（R-01-012/AC-17、AC-18）、job 卡仅完整档构建，均不补。
 		const headRow = el.querySelector(".dap-row");
 		if (headRow !== null && (entry.kind === "running" || entry.kind === "awaiting" || entry.kind === "recent")) {
-			const dot = headRow.querySelector(":scope > .dap-dot");
-			if (dot !== null && headRow.querySelector(":scope > .dap-workspace") === null) {
-				dot.insertAdjacentElement("afterend", makeWorkspacePill());
+			if (headRow.querySelector(":scope > .dap-workspace") === null
+				&& headRow.querySelector(":scope > .dap-dot") !== null) {
+				const total = headRow.querySelector(":scope > .dap-total-time");
+				const pill = makeWorkspacePill();
+				if (total !== null) total.before(pill);
+				else headRow.append(pill);
 			}
 		}
 		const workspaceLabels = el.querySelectorAll(".dap-workspace");

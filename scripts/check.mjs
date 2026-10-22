@@ -4396,8 +4396,8 @@ assert.ok(bundle.includes("detail.modelLive"), "目录订阅已产值时晚到�
 assert.ok(!bundle.includes("events.mux"), "不常驻全局 mux，当前会话使用原生 session subscribe");
 assert.ok(
 	bundle.includes('return [head, row, makeEl("div", "dap-trace"), progressRow, makeStatsRow()];')
-		&& bundle.includes('row.append(makeEl("span", "dap-dot"), makeWorkspacePill(), makeEl("span", "dap-title"), makeEl("span", "dap-jobs-chip"), makeEl("span", "dap-total-time"));'),
-	"running 卡 token 统计骨架位于进度条骨架之后、标题行承载后台数量注（R-01-023）",
+		&& bundle.includes('row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-jobs-chip"), makeWorkspacePill(), makeEl("span", "dap-total-time"));'),
+	"running 卡 token 统计骨架位于进度条骨架之后、标题行承载后台数量注与行尾工作区名胶囊（R-01-023、R-01-021/AC-10）",
 );
 assert.ok(
 	bundle.indexOf('statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"))') > -1,

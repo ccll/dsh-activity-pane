@@ -157,7 +157,6 @@ function headAckState(page, selector) {
 			label: button.getAttribute("aria-label"),
 			isButton: button.tagName === "BUTTON",
 			gapToCardRight: cardRect.right - rect.right,
-			gapToCardRight: cardRect.right - rect.right,
 			// 行序定位（R-01-021/AC-09、AC-10）：✓ 位于行尾工作区名胶囊之后（耗时已隐藏）。
 			afterInlinePill: pillRect !== null && rect.left >= pillRect.right,
 			animationName: getComputedStyle(button).animationName,
@@ -209,7 +208,6 @@ function headWorkspaceState(page, selector) {
 				&& Math.abs((textRect.left + textRect.right) / 2 - (rect.left + rect.right) / 2) < 1.5,
 			fontPx: parseFloat(style.fontSize),
 			colored: style.backgroundColor !== "rgba(0, 0, 0, 0)",
-			titleLeft: titleRect?.left ?? null,
 		};
 	}, selector);
 }
@@ -375,13 +373,13 @@ export default async function compactDensity({ page, url, assert }) {
 		`紧凑下各卡会话标题起点对齐（跨卡 title 左缘最大偏差 ${titleAlignment?.toFixed(1) ?? "n/a"}px，R-01-021/AC-10）`,
 	);
 
-	// R-01-025/AC-07：耗费时长在紧凑呈现下不显示（完整/中间档保持）。
+	// R-01-025/AC-07：累计运行时长在紧凑呈现下不显示（完整/中间档保持）。
 	const compactTotalHidden = await page.evaluate(() => {
 		const total = document.querySelector('[data-dsh-activity-pane] .dap-card[data-wait="done"] .dap-row .dap-total-time');
 		if (total === null) return null;
 		return getComputedStyle(total).display === "none" ? "hidden" : "visible";
 	});
-	assert.equal(compactTotalHidden, "hidden", "紧凑下标题行耗费时长不可见（R-01-021/AC-02、R-01-025/AC-07）");
+	assert.equal(compactTotalHidden, "hidden", "紧凑下标题行累计运行时长不可见（R-01-021/AC-02、R-01-025/AC-07）");
 
 	// 无归属兜底（R-01-021/AC-10）：无归属会话的渲染输出以 hidden 表达；e2e 数据通道
 	// 会话全部归属工作区（cwd 必中预置工作区），故以渲染输出状态等价物（hidden 属性）

@@ -45,7 +45,8 @@ T-178 交付的行内胶囊（状态点与标题之间、fit-content 弹性宽�
 
 | 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |
 | --- | --- | --- | --- | --- |
-| SOLUTION | 方案层演进：紧凑档行尾固定宽胶囊与耗时移除（374 段、378 资源纪律行） | E2E | update | `e2e/specs/compact-density.mjs` 胶囊断言组改写 |
+| R-01-020/AC-01 | 修改：补紧凑呈现例外指针（R-01-025/AC-07，N-1 审核发现） | E2E | 新增 | `e2e/specs/density-resource.mjs::totalHidden` 紧凑不可见断言 |
+| SOLUTION | 方案层演进：紧凑档行尾固定宽胶囊与时长移除（374 段、378 资源纪律行）与术语统一 | E2E | update | `e2e/specs/compact-density.mjs#R-01-021/AC-10`+`src/client.mjs::makeWorkspacePill` |
 | R-01-021/AC-02 | 修改：保留枚举改「状态点、会话标题与行尾的工作区名胶囊」，隐藏清单加行内右缘耗费时长 | E2E | update | compact-density 耗时不可见断言（compactTotalHidden） |
 | R-01-021/AC-09 | 修改：✓ 位置句改「工作区名胶囊之后」 | E2E | 改写 | afterInlinePill 断言 |
 | R-01-021/AC-10 | 修改：位置改行尾、固定宽 84px、文字居中、截断固定宽口径 | E2E | 改写+新增 | afterTitle/beforeTail、widthPx、centered、截断断言 |

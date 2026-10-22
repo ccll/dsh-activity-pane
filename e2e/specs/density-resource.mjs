@@ -1,4 +1,4 @@
-// R-01-025/AC-01、R-01-025/AC-02、R-01-025/AC-05、R-01-025/AC-07、R-01-010/AC-09
+// R-01-025/AC-01、R-01-025/AC-02、R-01-025/AC-05、R-01-025/AC-07、R-01-020/AC-01、R-01-010/AC-09
 // 档位资源纪律：紧凑档不为不可见内容构建时间线与统计行（trace 容器零子节点、
 // 统计行保持未写入，DOM 层可观察）；标题行可见信息与累计运行时长照常逐秒推进
 // （非日志通道不停摆）；切回更高档位后被裁剪数据按既有渐进语义重建就绪。
@@ -85,10 +85,17 @@ export default async function densityResource({ page, url, assert }) {
 		return present ? true : null;
 	}, 30_000);
 	const tickOne = await page.evaluate(() => document.querySelector('[data-dsh-activity-pane] .dap-card[data-current] .dap-row .dap-total-time')?.textContent ?? "");
-	assert.ok(tickOne !== "", "紧凑档下运行卡标题行显示累计运行时长（R-01-025/AC-07）");
+	// R-01-025/AC-07：累计运行时长在紧凑档不再显示于标题行——节点仍三档同码构建
+	// （CSS 隐藏），断言其不可见；文本推进证据只证明数据通道不停摆（AC-02）。
+	assert.ok(tickOne !== "", "紧凑档下累计运行时长节点仍在三档同码构建（R-01-025/AC-02）");
+	const totalHidden = await page.evaluate(() => {
+		const total = document.querySelector('[data-dsh-activity-pane] .dap-card[data-current] .dap-row .dap-total-time');
+		return total === null ? null : getComputedStyle(total).display === "none";
+	});
+	assert.equal(totalHidden, true, "紧凑档下累计运行时长不再显示（R-01-025/AC-07；R-01-020/AC-01 紧凑例外指针）");
 	await page.waitForTimeout(2100);
 	const tickTwo = await page.evaluate(() => document.querySelector('[data-dsh-activity-pane] .dap-card[data-kind="running"] .dap-row .dap-total-time')?.textContent ?? "");
-	assert.notEqual(tickTwo, tickOne, "紧凑档下累计运行时长照常逐秒推进（R-01-025/AC-02、AC-07）");
+	assert.notEqual(tickTwo, tickOne, "紧凑档下累计运行时长数据通道照常逐秒推进（R-01-025/AC-02）");
 
 	// R-01-025/AC-01：切回更高档位后被裁剪数据按既有渐进语义重建就绪——
 	// 档内新建C的时间线在中间档构建（切换前容器为空）。

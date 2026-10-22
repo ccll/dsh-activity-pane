@@ -383,7 +383,7 @@ export default async function compactDensity({ page, url, assert }) {
 	assert.ok(
 		pillTruncate?.fitsRow === true && pillTruncate?.clipped === true && pillTruncate?.nowrap === true
 			&& pillTruncate?.rowHeightBefore === pillTruncate?.rowHeightAfter,
-		`行宽不足时行内胶囊省略截断且不换行、不撑破行框（实测 fitsRow=${pillTruncate?.fitsRow}，R-01-021/AC-10）`,
+		`行宽不足时行内胶囊省略截断且不换行、不撑破行框（实测 fitsRow=${pillTruncate?.fitsRow} clipped=${pillTruncate?.clipped} nowrap=${pillTruncate?.nowrap} row ${pillTruncate?.rowHeightBefore}→${pillTruncate?.rowHeightAfter}，R-01-021/AC-10）`,
 	);
 
 	// R-01-002/AC-10（紧凑档确认路径）：激活 ✓ 按钮解除完成提醒并迁入最近历史区，不触发跳转。

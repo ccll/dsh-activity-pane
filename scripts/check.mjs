@@ -3836,6 +3836,14 @@ assert.ok(
 		bundle.includes('[data-dsh-activity-pane][data-density="medium"] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-confirm'),
 	"中间档完成提醒卡末行经 data-wait 作用域 CSS 收合为单行——横向 foot、包裹层 display:contents、正文隐藏、按钮 margin-left:auto 居右（R-01-021/AC-08）",
 );
+// R-01-021/AC-09（紧凑档确认入口，C-098）：✓ 图标确认按钮随骨架创建于标题行最右，
+// 挂可访问名称「移入历史」，[hidden] 显式覆盖（display 规则优先级高于隐藏属性）。
+assert.ok(
+	bundle.includes('button.className = "dap-confirm-icon"') &&
+		bundle.includes('button.setAttribute("aria-label", "移入历史")') &&
+		bundle.includes("[data-dsh-activity-pane] .dap-confirm-icon[hidden] { display: none; }"),
+	"紧凑档完成提醒卡 ✓ 确认按钮随骨架创建、可访问名称「移入历史」且隐藏经显式覆盖（R-01-021/AC-09、R-01-002/AC-10）",
+);
 assert.ok(bundle.includes("writeStoredDensity(densityLevel)"), "显示档位切换持久化于 localStorage（R-01-021/AC-06）");
 // R-01-025 档位资源纪律：紧凑档数据面门控与渲染面跳写的 bundle 契约
 assert.ok(

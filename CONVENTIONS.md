@@ -24,8 +24,9 @@ owner: agent 主笔，项目属主审批
 
 ## AgentMap 本地参数
 
-- agentmap 规范版本: 4
+- agentmap 规范版本: 6
 
+- 方案研判: 关闭 <!-- 方案研判闸口：开启后 major 档 task 立项前须按研判标准向东家展示分叉点清单并停等确认；lint 校验 major 档 task 收敛方案含分叉点条目或「无分叉点:」行，依赖声明文件变更须有含「依赖决策:」行的 task 承接 -->
 - 语义行阈值: 50 <!-- 代码审核分档阈值：task 的语义行数（剥离注释与空行后的 diff 增删合计）≤此值为 minor 档 -->
 - 语义行排除路径: `*-lock.*`, `yarn.lock`, `*.min.js`, `*.min.css`, `dist/`, `build/`, `*.snap`, `*.pb.go`, `*_pb2.py`, `.dsh-plugin/` <!-- 语义行数不计入这些 lockfile 与生成物路径（glob）；.dsh-plugin/ 为 scripts/build-client.mjs 生成物，与 src 同步由 pre-commit 门禁字节级保证 -->
 - 累计审计 task 间隔: 10 <!-- 自累计审计复位点起 completed task 达此数即须开累计审计 task -->
@@ -38,8 +39,8 @@ owner: agent 主笔，项目属主审批
 - 代码审核起始 task: T-001
 - 测试锚定模式: strict
 - 测试锚点路径: scripts/check.mjs; scripts/acceptance.mjs; e2e/specs/*.mjs
-- 核心文档上限: 96000 token
-  - 登记理由: 2026-10 AgentMap v2 升级后按实测核心文档字节数登记的基线（PRD+SOLUTION+DOMAIN+CONVENTIONS+AGENTS 合计 238713 字节，token=字节/3 上浮 20% 向上取整到千位），供东家后续调整。
+- 核心文档上限: 315000 字节
+  - 登记理由: 2026-10-30 AgentMap v6 升级后按实测核心文档字节数登记的基线（PRD+SOLUTION+DOMAIN+CONVENTIONS+AGENTS 合计 262365 字节，上浮 20% 余量后向上取整到千位），供东家后续调整。
 
 ## 验证门禁
 

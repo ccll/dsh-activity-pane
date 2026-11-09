@@ -222,7 +222,19 @@ export async function sendHeroMessage(page, text) {
 
 /** 从会话页新建会话：点 sidebar New session 并等 hero 在场，再发送。 */
 export async function newSessionWithMessage(page, text) {
-	await page.getByRole("button", { name: "New session" }).first().click();
+	// 首跑公告可能晚于 openApp 的 dismiss 窗口挂载（T-159），裸点击会被遮罩拦截
+	// （今日全量 verify 两轮各命中 recent-infinite-scroll/repo-entry 同签名）：
+	// 先清公告再点击，点击被拦截则整轮重试，与 sendHeroMessage 同型循环。
+	await until("New session 点击落地", async () => {
+		await dismissNotice(page);
+		const clicked = await page
+			.getByRole("button", { name: "New session" })
+			.first()
+			.click({ timeout: 2_000 })
+			.then(() => true)
+			.catch(() => false);
+		return clicked ? true : null;
+	}, 30_000);
 	await until("hero composer 出现", async () => {
 		const hero = page.locator(`[data-placeholder^="${HERO_PLACEHOLDER}"]`);
 		return (await hero.count()) > 0 ? true : null;

@@ -2099,6 +2099,23 @@ function liveJobsOf(jobsBySession, id) {
 	return live;
 }
 
+/** jobs 快照的窗格相关签名（T-181 ①）：对全会话 live 任务行做稳定序列化。窗格对
+ *  jobs 状态的全部消费都经 liveJobsOf（提升活动区 R-01-023/AC-01、数量徽标 AC-04、
+ *  任务子卡 AC-05），签名不变的推送帧不含可观察变化，订阅侧据此跳过渲染轮。
+ *  五元组 id/kind/label/status/startedAt 即 liveJobsOf 的完整输出面；任务运行中的
+ *  输出流量不改变五元组，签名保持稳定。键序无关（parts 排序后拼接）。 */
+function jobsPaneSignature(jobsBySession) {
+	if (!isRecord(jobsBySession)) return "";
+	const parts = [];
+	for (const id of Object.keys(jobsBySession)) {
+		const live = liveJobsOf(jobsBySession, id);
+		if (live.length === 0) continue;
+		parts.push(`${id}>${live.map((job) => [job.id, job.kind, job.label, job.status, job.startedAt].join("|")).join(";")}`);
+	}
+	parts.sort();
+	return parts.join("\n");
+}
+
 /** 后台任务工具名的友好显示映射（R-01-023/AC-05）：bash→Bash、pwsh→PowerShell、
  *  subagent→子代理；未知 kind 原样显示，非字符串或空串视为不可得（返回空串）。
  *  与 client 渲染层 JOB_STATUS_LABELS（状态词文案）分层：本表居 core 因核心与
@@ -4132,6 +4149,18 @@ function getSnapshot(service, key) {
 	}
 }
 
+/** 页面隐藏判定（T-181 ③）：时钟类自驱动与流式派生折叠在隐藏页停摆——时长显示
+ *  不可见，渲染管线经 rAF 挂起本就不消费派生结果；可见性恢复经 visibilitychange →
+ *  resumeRenderPipeline 补一轮渲染并按需重启。自门控不依赖浏览器对隐藏页的定时器
+ *  豁免行为（版本间可能收紧）。 */
+/** 页面隐藏判定（T-181 ③）：时钟类自驱动与流式派生折叠在隐藏页停摆——时长显示
+ *  不可见，渲染管线经 rAF 挂起本就不消费派生结果；可见性恢复经 visibilitychange →
+ *  resumeRenderPipeline 补一轮渲染并按需重启。自门控不依赖浏览器对隐藏页的定时器
+ *  豁免行为（版本间可能收紧）。 */
+function pageHidden() {
+	return typeof document !== "undefined" && document.hidden === true;
+}
+
 function schedule(callback) {
 	if (typeof window.requestAnimationFrame === "function") {
 		window.requestAnimationFrame(callback);
@@ -4233,6 +4262,10 @@ function apply(ctx) {
 	let workspaceUnsubscribe = null;
 	let pendingUnsubscribe = null;
 	let jobsUnsubscribe = null;
+	// jobs 快照的窗格相关签名基线（T-181 ①）：脏检查跳过签名不变的推送帧。
+	let lastJobsSignature = null;
+	/** jobs 快照 rows 读取单点（T-181 ①）：订阅回调与基线重置共用同一取法。 */
+	const jobsRowsOf = () => jobs?.state?.getSnapshot?.()?.rows ?? null;
 	let clockTimer = null;
 	let recentTimeTimer = null;
 	let syncScheduled = false;
@@ -4815,10 +4848,14 @@ function apply(ctx) {
 			syncThrottleTimer = null;
 		}
 		syncScheduled = false;
-		for (const detail of sessionDetailsById.values()) {
+		for (const [id, detail] of sessionDetailsById) {
 			if (detail.logDeriveTimer && detail.logDeriveFlush) {
 				clearTimeout(detail.logDeriveTimer);
 				detail.logDeriveFlush();
+			} else if (detail.logDerivePending) {
+				// 隐藏期延迟的流式派生（T-181 ③b）：回前台按最新日志窗口一次补齐。
+				detail.logDerivePending = false;
+				deriveSessionDetail(id, detail, detail.logDerivePendingCwd);
 			}
 		}
 		schedule(deliverSync);
@@ -5119,6 +5156,9 @@ function apply(ctx) {
 	function applyLogEvents(id, detail, events, { subagent, cwd = "", planSubagentModelRead = false }) {
 		detail.history = events;
 		detail.timeline = foldedHistoryTimeline(events, 4, cwd);
+		// flush 侧 cwd 记账（T-181 ②）：render 侧 memo 复用 detail.timeline 的前提——
+		// 同一 history、同一 cwd、非 settle 变体三者同时对上才可复用（见 render memo）。
+		detail.flushTimelineCwd = cwd;
 		detail.previews = messagePreviews({ history: events });
 		if (subagent) {
 			if (planSubagentModelRead) {
@@ -5249,6 +5289,25 @@ function apply(ctx) {
 
 	// 绑定会话并水合事件源（dsh 0.2.0 retain 生命周期，T-170）：retain 的 ready
 	// 承载共享初始历史打开（旧显式会话打开调用随 open 移出会话面而删除），
+	/** 日志窗口详情派生单点（T-181 ③b）：flush 定时器与回前台补派生共用同一入口。
+	 *  子代理/cwd 在消化时刻现取（timer 在途期间行属性可能突变，建窗入参不代表消化
+	 *  时刻）；cwd 在快照不可得时回退调用方建窗入参（subagent 现取即权威，无回退）。 */
+	function deriveSessionDetail(id, detail, fallbackCwd) {
+		const listSnap = getSnapshot(sessions, "list");
+		const entries = Array.isArray(detail.log?.entries) ? detail.log.entries : [];
+		applyLogEvents(id, detail, entries, {
+			subagent: isSubagentRow(listSnap?.byId?.[id], listSnap?.byId ?? {}),
+			cwd: listSnap?.byId?.[id]?.cwd ?? fallbackCwd,
+		});
+	}
+
+	/** 隐藏期顺延置位单点（T-181 ③b）：captureSessionLog 直通路径与在途 flush 定时器
+	 *  路径共用同一记账；cwd 记建窗入参，作补齐时快照不可得的回退。 */
+	function deferDetailDerive(detail, fallbackCwd) {
+		detail.logDerivePending = true;
+		detail.logDerivePendingCwd = fallbackCwd;
+	}
+
 	// binding.eventSource 打开即收完整日志窗口 + 实时尾（原生 Conversation 同源）。
 	// 日志窗口快照引用变化即重派生详情（时间线/预览/模型），窗口由宿主按消息对齐分页。
 	function captureSessionLog(id, { cwd } = {}) {
@@ -5292,6 +5351,14 @@ function apply(ctx) {
 		const log = eventSource?.getSnapshot?.() ?? null;
 		if (log === detail.log) return;
 		detail.log = log;
+		// 隐藏页延迟派生（T-181 ③b）：渲染管线经 rAF 挂起，隐藏期渲染本就不消费派生
+		// 结果——不建派生窗，折叠留到回前台 resumeRenderPipeline 按最新日志窗口一次
+		// 补齐，隐藏期零折叠唤醒。在途定时器由 flushDerive 内同判收口。
+		if (pageHidden()) {
+			deferDetailDerive(detail, cwd);
+			queueSync();
+			return;
+		}
 		// 流式派生合并（T-127）：事件到达只更新引用并标脏，applyLogEvents 的 O(日志窗口)
 		// 全量折叠/预览/模型提取合并进 SYNC_MIN_INTERVAL_MS 窗口执行——事件率与派生成本
 		// 解耦，消化时读到的即最新窗口。subagent/cwd 在回调内经 list 快照现取（timer 在途
@@ -5304,12 +5371,16 @@ function apply(ctx) {
 				detail.logDeriveTimer = null;
 				detail.logDeriveFlush = null;
 				if (disposed) return;
-				const listSnap = getSnapshot(sessions, "list");
-				const entries = Array.isArray(detail.log?.entries) ? detail.log.entries : [];
-				applyLogEvents(id, detail, entries, {
-					subagent: isSubagentRow(listSnap?.byId?.[id], listSnap?.byId ?? {}),
-					cwd: listSnap?.byId?.[id]?.cwd ?? cwd,
-				});
+				// 建窗后页面转入隐藏：折叠顺延到回前台（T-181 ③b），不吞事件——
+				// detail.log 已随事件更新，补齐读到的即最新窗口。
+				if (pageHidden()) {
+					deferDetailDerive(detail, cwd);
+					return;
+				}
+				// 在途定时器可见交付即消费挂起记账（T-181 审核发现 1）：隐藏期直通路径
+				// 置位的 pending 已由本次派生一并覆盖，不清除会让下轮回前台重复补派生。
+				detail.logDerivePending = false;
+				deriveSessionDetail(id, detail, cwd);
 				queueSync();
 			};
 			detail.logDeriveFlush = flushDerive;
@@ -5392,7 +5463,18 @@ function apply(ctx) {
 		try {
 			// dsh 0.2.0（T-170）：后台任务 roster 经 jobs 服务的 state 快照推送
 			// （rows: Record<sessionId, JobView[]>），订阅驱动在跑任务卡重算（R-01-023）。
-			jobsUnsubscribe = jobs?.state?.subscribe?.(queueSync) ?? null;
+			// 脏检查（T-181 ①）：窗格对 jobs 的全部消费经 liveJobsOf 派生（提升活动区、
+			// 数量徽标、任务子卡）——签名不变的推送（观察态 churn、无关字段更新）不点亮
+			// 渲染轮；签名覆盖全会话 live 行，提升/徽标语义不随订阅实现收窄。
+			jobsUnsubscribe = jobs?.state?.subscribe?.(() => {
+				if (disposed) return;
+				const signature = jobsPaneSignature(jobsRowsOf());
+				if (signature === lastJobsSignature) return;
+				lastJobsSignature = signature;
+				queueSync();
+			}) ?? null;
+			// 代际更替基线重置：以当帧快照为基线，其后仅真正变化点亮渲染轮。
+			lastJobsSignature = jobsPaneSignature(jobsRowsOf());
 		} catch {
 			jobsUnsubscribe = null;
 		}
@@ -6733,20 +6815,25 @@ function apply(ctx) {
 			} catch {}
 			livenessById.delete(id);
 		}
-		// 运行卡时钟：有运行呈现卡（含委托周期母会话）才启动，无则停。
-		if (clockWanted && clockTimer === null) {
+		// 运行卡时钟：有运行呈现卡（含委托周期母会话）且页面可见才启动，无则停。
+		// 隐藏页停摆（T-181 ③a）：时长显示不可见，逐秒唤醒无观察者；回前台经
+		// visibilitychange → resumeRenderPipeline 补一轮渲染并按需重启。
+		const clockEffective = clockWanted && !pageHidden();
+		if (clockEffective && clockTimer === null) {
 			clockTimer = setInterval(() => queueSync(), CLOCK_MS);
-		} else if (!clockWanted && clockTimer !== null) {
+		} else if (!clockEffective && clockTimer !== null) {
 			clearInterval(clockTimer);
 			clockTimer = null;
 		}
 	}
 
-	/** 历史卡相对时间与等待卡状态年龄只需分钟级刷新；两者皆无时停止定时器，避免空窗格常驻唤醒。 */
+	/** 历史卡相对时间与等待卡状态年龄只需分钟级刷新；两者皆无或页面隐藏时停止定时器，
+	 *  避免空窗格与隐藏页常驻唤醒（T-181 ③a）；回前台经渲染轮按需重启。 */
 	function syncRecentTimeClock(wanted) {
-		if (wanted && recentTimeTimer === null) {
+		const effective = wanted && !pageHidden();
+		if (effective && recentTimeTimer === null) {
 			recentTimeTimer = setInterval(() => queueSync(), RECENT_TIME_REFRESH_MS);
-		} else if (!wanted && recentTimeTimer !== null) {
+		} else if (!effective && recentTimeTimer !== null) {
 			clearInterval(recentTimeTimer);
 			recentTimeTimer = null;
 		}
@@ -7337,7 +7424,13 @@ function apply(ctx) {
 				detail.memoLogTimelineOf = historyRef;
 				detail.memoLogTimelineIdle = entryIdle;
 				detail.memoLogTimelineCwd = entryCwd;
-				detail.memoLogTimeline = foldedHistoryTimeline(historyRef, 4, entryCwd, entryIdle);
+				// flush 侧复用（T-181 ②）：applyLogEvents 已对同一 history 算过非 settle
+				// 变体（detail.timeline 与 detail.history 同点落地、flushTimelineCwd 同点
+				// 记账）——idle=false 且 cwd 未漂移时直接复用，省去 render 侧第二遍全量
+				// 折叠；阻塞等待卡的 settle 变体与 cwd 漂移仍走重算。
+				detail.memoLogTimeline = entryIdle === false && detail.flushTimelineCwd === entryCwd && Array.isArray(detail.timeline)
+					? detail.timeline
+					: foldedHistoryTimeline(historyRef, 4, entryCwd, entryIdle);
 			}
 			if (detail && detailSnapshot) {
 				// 按快照引用 memo：引用不变（时钟 tick、无关推送）时命中缓存，

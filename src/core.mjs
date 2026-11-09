@@ -2093,6 +2093,23 @@ export function liveJobsOf(jobsBySession, id) {
 	return live;
 }
 
+/** jobs 快照的窗格相关签名（T-181 ①）：对全会话 live 任务行做稳定序列化。窗格对
+ *  jobs 状态的全部消费都经 liveJobsOf（提升活动区 R-01-023/AC-01、数量徽标 AC-04、
+ *  任务子卡 AC-05），签名不变的推送帧不含可观察变化，订阅侧据此跳过渲染轮。
+ *  五元组 id/kind/label/status/startedAt 即 liveJobsOf 的完整输出面；任务运行中的
+ *  输出流量不改变五元组，签名保持稳定。键序无关（parts 排序后拼接）。 */
+export function jobsPaneSignature(jobsBySession) {
+	if (!isRecord(jobsBySession)) return "";
+	const parts = [];
+	for (const id of Object.keys(jobsBySession)) {
+		const live = liveJobsOf(jobsBySession, id);
+		if (live.length === 0) continue;
+		parts.push(`${id}>${live.map((job) => [job.id, job.kind, job.label, job.status, job.startedAt].join("|")).join(";")}`);
+	}
+	parts.sort();
+	return parts.join("\n");
+}
+
 /** 后台任务工具名的友好显示映射（R-01-023/AC-05）：bash→Bash、pwsh→PowerShell、
  *  subagent→子代理；未知 kind 原样显示，非字符串或空串视为不可得（返回空串）。
  *  与 client 渲染层 JOB_STATUS_LABELS（状态词文案）分层：本表居 core 因核心与

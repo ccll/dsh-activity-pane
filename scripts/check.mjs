@@ -43,6 +43,7 @@ import {
 	shouldSubscribeToSession,
 	runningClockWanted,
 	liveJobsOf,
+	jobsPaneSignature,
 	jobKindLabel,
 	jobsChipState,
 	activeSessionIds,
@@ -3617,6 +3618,36 @@ assert.deepEqual(
 	[{ id: "job-ws", kind: "bash", label: "", status: "running", startedAt: 1 }],
 	"纯空白 label 视为任务内容不可得（R-01-023/AC-06 数据源头）",
 );
+// T-181 ①：jobs 快照的窗格相关签名——消费面即 liveJobsOf 五元组，签名不变的推送不点亮渲染轮。
+assert.equal(jobsPaneSignature(null), "", "jobsBySession 缺失归一空签名");
+assert.equal(jobsPaneSignature({}), "", "空任务视图归一空签名");
+const sigRunning = jobsPaneSignature({ jA: [{ id: "job-1", kind: "bash", label: "sync", status: "running", startedAt: 1 }] });
+assert.ok(sigRunning.includes("jA>") && sigRunning.includes("job-1|bash|sync|running|1"), "live 行五元组入签名且携带会话键");
+assert.notEqual(
+	jobsPaneSignature({ jA: [{ id: "job-1", kind: "bash", label: "sync", status: "running", startedAt: 1 }] }),
+	jobsPaneSignature({ jA: [{ id: "job-1", kind: "bash", label: "sync", status: "stopping", startedAt: 1 }] }),
+	"状态迁移改变签名（任务子卡状态点着色随之重绘，AC-09）",
+);
+assert.notEqual(
+	jobsPaneSignature({ jA: [{ id: "job-1", kind: "bash", label: "sync", status: "running", startedAt: 1 }] }),
+	jobsPaneSignature({ jA: [{ id: "job-1", kind: "bash", label: "other", status: "running", startedAt: 1 }] }),
+	"label 变化改变签名（任务内容行随之重绘）",
+);
+assert.equal(
+	jobsPaneSignature({ jA: [{ id: "job-1", kind: "bash", label: "sync", status: "running", startedAt: 1, outputTail: "chunk-1" }] }),
+	jobsPaneSignature({ jA: [{ id: "job-1", kind: "bash", label: "sync", status: "running", startedAt: 1, outputTail: "chunk-2" }] }),
+	"五元组外的输出流量不改变签名（不点亮渲染轮）",
+);
+assert.equal(
+	jobsPaneSignature({ jA: [{ id: "job-1", kind: "bash", label: "sync", status: "completed", startedAt: 1 }] }),
+	"",
+	"纯非 live 行不入签名（窗格不消费已结束任务）",
+);
+assert.equal(
+	jobsPaneSignature({ jB: [{ id: "job-2", kind: "bash", label: "b", status: "running", startedAt: 2 }], jA: [{ id: "job-1", kind: "bash", label: "a", status: "running", startedAt: 1 }] }),
+	jobsPaneSignature({ jA: [{ id: "job-1", kind: "bash", label: "a", status: "running", startedAt: 1 }], jB: [{ id: "job-2", kind: "bash", label: "b", status: "running", startedAt: 2 }] }),
+	"键序无关（同一状态不同插入序签名一致）",
+);
 // R-01-023/AC-04：仅有在跑后台任务的主会话计入运行中分子（此处 jA+jB 均呈 running）。
 assert.deepEqual(
 	awaitBadgeStats(jobbedEntries),
@@ -3763,6 +3794,17 @@ assert.ok(
 assert.ok(
 	bundle.includes("historyInstructionAnchor") && bundle.includes("memoTimelineAnchor") && bundle.includes("foldedHistoryTimeline") && !bundle.includes("withInstructionAnchor"),
 	"history 锚行作为核心时间线输入且 client 不再二次裁剪（R-01-009/AC-11、R-01-012/AC-12、C-035）",
+);
+// T-181 派生/唤醒收敛三机制入 bundle：render 侧复用 flush 侧非 settle 变体（条件
+// 表达式字面钉住）、隐藏页延迟派生（pending 记账 + 回前台补齐）、时钟可见性门控、
+// jobs 脏检查签名入口——防实现漂移；行为面由 card-content/hidden-derive-resume 承载。
+assert.ok(
+	bundle.includes("detail.flushTimelineCwd === entryCwd && Array.isArray(detail.timeline)") &&
+		bundle.includes("detail.logDerivePending") &&
+		bundle.includes("deferDetailDerive(detail, cwd)") &&
+		bundle.includes("const clockEffective = clockWanted && !pageHidden()") &&
+		bundle.includes("jobsPaneSignature(jobsRowsOf())"),
+	"T-181 复用/隐藏门控/jobs 脏检查机制进入 bundle（syncJobsWatches 与呈现语义不变）",
 );
 // 子代理事件流打开前置（dsh 0.2.0 retain 语义，T-159 承接 T-151）：retain 前先经
 // sessions.subagentAddress 解析持久父地址（宿主仍按地址校验子代理会话路由），地址

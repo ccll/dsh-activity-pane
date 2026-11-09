@@ -1,7 +1,7 @@
 // R-01-007/AC-01、R-01-007/AC-02、R-01-011/AC-03、R-01-011/AC-04、R-01-011/AC-05
 // 桌面贴边布局：窗格位于主会话左侧贴边、不遮挡主会话；键盘折叠/展开控件保持同位。
 
-import { openApp, paneBox, sendHeroMessage, sessionComposer, until } from "../helpers.mjs";
+import { MOCK_FAST_REPLY, openApp, paneBox, sendHeroMessage, sessionComposer, until } from "../helpers.mjs";
 
 // 窄条特征：宽度远小于窗格、高度容纳竖排标题与计数；位置容差取 2px 抗亚像素抖动。
 const STRIP_MAX_WIDTH_PX = 60;
@@ -54,5 +54,30 @@ export default async function desktopLayout({ page, url, assert }) {
 	await until("Enter 激活窄条展开恢复", async () => {
 		const b = await page.getByRole("button", { name: "收起活动会话窗格" }).boundingBox().catch(() => null);
 		return b && Math.abs(b.x - headerBox.x) <= POSITION_TOLERANCE_PX && Math.abs(b.y - headerBox.y) <= POSITION_TOLERANCE_PX ? true : null;
+	});
+
+	// 回归（#5）：原生面板（插件页）占屏时不得被活动窗格的行布局挤成内在宽度窄条——
+	// 窗格收起、中间列回退外壳默认列布局、面板占满整列；返回会话后行布局与窗格恢复。
+	await page.getByRole("button", { name: "Plugins", exact: true }).first().click();
+	const nativePanel = await until("原生面板占满中间列", () =>
+		page.evaluate(() => {
+			const seat = document.querySelector('#root [data-slot="main"]');
+			const center = seat?.parentElement;
+			const pane = document.querySelector("[data-dsh-activity-pane]");
+			const root = seat?.firstElementChild;
+			if (!center || !pane || !root) return null;
+			const centerWidth = center.getBoundingClientRect().width;
+			const rootWidth = root.getBoundingClientRect().width;
+			return center.style.flexDirection === "" && getComputedStyle(pane).display === "none" && rootWidth > centerWidth * 0.9
+				? { centerWidth, rootWidth }
+				: null;
+		}),
+	);
+	assert.ok(nativePanel, "原生面板回到外壳列布局并占满中间列");
+	await page.getByText(MOCK_FAST_REPLY, { exact: true }).filter({ visible: true }).first().click();
+	await until("返回会话后活动窗格恢复", async () => {
+		const box = await paneBox(page);
+		const dir = await page.evaluate(() => document.querySelector('#root [data-slot="main"]')?.parentElement?.style.flexDirection ?? null);
+		return box !== null && box.width > 0 && dir === "row" ? true : null;
 	});
 }

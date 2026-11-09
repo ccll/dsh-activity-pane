@@ -80,14 +80,16 @@ function settingsYaml(mockUrl) {
 
 /**
  * 启动一套隔离测试环境。
- * @param {{ mobileShell?: boolean }} options mobileShell=true 时按名安装
- *   dsh-web-mobile 手机壳层（真实壳层刺激：hero 空 header 隐藏规则、header 左座
- *   目录开关、hero ⊡）；registry 不可达或包不可得时以 code=E2E_SKIP 抛错，
- *   runner 将该 spec 记为显式 SKIP，避免壳层覆盖静默消失。
+ * @param {{ mobileShell?: boolean, pluginRoot?: string }} options mobileShell=true
+ *   时按名安装 dsh-web-mobile 手机壳层（真实壳层刺激：hero 空 header 隐藏规则、
+ *   header 左座目录开关、hero ⊡）；registry 不可达或包不可得时以 code=E2E_SKIP
+ *   抛错，runner 将该 spec 记为显式 SKIP，避免壳层覆盖静默消失。pluginRoot 缺省
+ *   挂仓库本体；性能 A/B（T-182）以变体镜像目录注入修复前 bundle，其余 caller
+ *   不传即保持原行为。
  * @returns Promise<{ home, url, mock, timings, cleanup }>
  *   timings 记录各阶段毫秒耗时（mock/settings/plugin/shell/webReady/total）。
  */
-export async function bootE2e({ mobileShell = false } = {}) {
+export async function bootE2e({ mobileShell = false, pluginRoot = repoRoot } = {}) {
 	const t0 = Date.now();
 	const timings = {};
 	const mark = (name) => {
@@ -139,7 +141,7 @@ export async function bootE2e({ mobileShell = false } = {}) {
 	};
 
 	try {
-		await execFileAsync("dsh", ["plugin", "--profile", "web", "add", repoRoot], { env });
+		await execFileAsync("dsh", ["plugin", "--profile", "web", "add", pluginRoot], { env });
 		mark("plugin");
 
 		if (mobileShell) {

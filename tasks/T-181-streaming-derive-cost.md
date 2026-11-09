@@ -6,7 +6,7 @@ id: T-181
 
 # T-181 活动窗格卡顿修复——派生与唤醒开销收敛
 
-状态: active
+状态: completed
 类型: 性能优化
 风险等级: major
 风险面: 无（渲染管线内部开销收敛：呈现结果、jobs 订阅面与对外契约均不变，不触及契约、资金、数据迁移、对外接口、鉴权）
@@ -75,4 +75,15 @@ dsh web 前端在后台 agent 会话活跃期出现整页卡顿。只读调查�
 
 ## 终态与证据
 
-（关闭时填写）
+- 实现: ② render memo 复用 flush 侧非 settle 时间线（applyLogEvents 同点记 flushTimelineCwd，render 复用分支带 idle/cwd 键守卫）；③a 1s/60s 定时器 pageHidden 门控 + ③b 隐藏页延迟派生（deferDetailDerive 记账 + resumeRenderPipeline 回前台按最新窗口补齐）；① jobs.state 订阅 jobsPaneSignature 脏检查（core 纯函数、键序无关、install 基线重置）。
+- 测试: scripts/check.mjs 全绿（jobsPaneSignature 七断言 + T-181 bundle 契约钉住）；e2e/specs/hidden-derive-resume.mjs 通过（隐藏期停摆→回前台补齐全链路断言）；全量 pnpm verify 22 specs 通过（第三轮全绿；前两轮失败经 stash 对照归因于首跑公告遮罩竞态、两版代码均可复现，以独立 helper 修复收口，commit c1a4cd1）；关键回归 card-content、background-jobs、idle-quiescence、mobile-thermal（58/80）、density-resource 全过。
+- SOLUTION 对照: 呈现、jobs 订阅面与定时器纪律承诺全部不变（map 不变短路，C-082 口径），SOLUTION 未改写；验证矩阵五行对照完成。
+- commit: b12bf15
+- review:
+  - 目的理解: 插件派生/唤醒管线在 agent 活跃期吃满页面主线程（剖析约 76% 集中于折叠函数、GC 约 19%），修复目标是消掉重复折叠与自驱动唤醒而不改可观察呈现，验收线为事件流入期燃烧 ≤ 修复前 55%。
+  - 问题与修复: Standards 轴 4 条 non-blocking 全部收敛（隐藏期置位重复收敛 deferDetailDerive、pageHidden 去 try/catch、②复用条件补 bundle 契约钉住、jobs 快照读取提 jobsRowsOf 单点）；Spec 轴 2 条——「pending 记账在定时器可见交付未清致一次冗余补派生」已修（flushDerive 可见分支清除 pending），「订阅回调读快照时序假设」经宿主源码核实成立（changed() 先置 snapshotDirty 再 notify，回调内 getSnapshot 必重建最新态）记为已验证假设。
+  - 复审结论: 双轴无 blocking，non-blocking 全部收敛；e2e helper 遮罩竞态修复另案轻量双轴通过（c1a4cd1）。
+- 残余风险与测试缺口:
+  - ② 复用条件无直接行为断言，以 bundle 契约字面钉住 + card-content 回归面间接覆盖（审核判断题）：条件误真会以陈旧时间线呈现，同源性已核（history/timeline 同点赋值）。
+  - 验收线量化（事件流入期 ≤ 修复前 55%）需真实活跃负载窗的修复前后 A/B，仓库测试不可闭合，由东家排期执行（验证矩阵性能行）；本次活实例剖析已先行确认热点重分布（下条）。
+  - 剖析新发现：热点重分布至 O(名册) 渲染家族——buildEntries/workspaceInfoForSession/lineageActiveIds/currentIdOf/buildRecent 合计约 37–45% 非空闲样本（buildEntries 逐 id 新建归档判定 Set 属常量成本），折叠函数降至约 1–2%、GC 约 2%；名册级渲染轮次与 jobs 订阅面残余成本同族，是否立项收敛由东家在重剖后定（TODO 承接）。

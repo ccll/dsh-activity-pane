@@ -8,8 +8,11 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)))
  * 生成 .dsh-plugin/client.js。采用"写临时文件 + 原子 rename"，保证任何并发写入
  * 或 HTTP 读取都只看到完整文件（杜绝就地截断写入的撕裂竞态）；profile 侧经
  * `link:` 符号链接指向本仓库，rename 后立即可见，HMR 的 stat-poll 照常触发。
+ * @param {{ outPath?: string }} options 缺省写仓库 `.dsh-plugin/client.js`；
+ *   性能 A/B（T-182）传变体镜像目录路径，产物不落仓库工作树。
  */
-export async function build() {
+export async function build({ outPath } = {}) {
+	const clientOut = outPath ?? join(root, '.dsh-plugin/client.js')
 	const core = (await readFile(join(root, 'src/core.mjs'), 'utf8')).replace(
 		/^export\s+/gm,
 		'',
@@ -32,9 +35,9 @@ ${client}
   }
 });
 `
-	const tmp = join(root, '.dsh-plugin/client.js.tmp')
+	const tmp = `${clientOut}.tmp`
 	await writeFile(tmp, bundle)
-	await rename(tmp, join(root, '.dsh-plugin/client.js'))
+	await rename(tmp, clientOut)
 }
 
 // CLI 入口：node scripts/build-client.mjs

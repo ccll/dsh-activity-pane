@@ -4,6 +4,7 @@
 // 按用户消息中的 `e2e:<剧本名>` 关键词选择预编排剧本，在隔离测试环境中
 // 确定性制造会话活动：
 //   e2e:slow  —— 慢速流式输出（约 24 块 × 150ms），会话保持运行中数秒
+//   e2e:longstream —— 长流式输出（96 块 × 150ms ≈ 14.4s，T-182 性能 A/B 专用）
 //   e2e:ask      —— 单问题 ask_user_question 工具调用，回合转入待回复
 //   e2e:multiask —— 多问题 ask_user_question 工具调用，回合转入待回复
 //   e2e:runtime  —— 较慢的 ask_user_question 工具调用；回答后转入 slow 流式输出
@@ -22,6 +23,8 @@ import http from "node:http";
 
 const SLOW_CHUNKS = 24;
 const SLOW_INTERVAL_MS = 150;
+/** 长流式剧本（T-182 性能 A/B 专用）：96 块 × 150ms ≈ 14.4s，放大折叠管线信号。 */
+const LONG_STREAM_CHUNKS = 96;
 
 /** 取消息文本（字符串或内容分片数组）。 */
 function messageText(msg) {
@@ -77,7 +80,7 @@ function pickScenario({ toolTexts, userTexts }) {
 	if (toolTexts.some((text) => text.includes("background job"))) return "jobread";
 	if (toolTexts.length > 0) return runtime ? "slow" : "fast";
 	for (let i = userTexts.length - 1; i >= 0; i -= 1) {
-		const match = userTexts[i].match(/e2e:(slow|multiask|ask|runtime|error|fast|job)/);
+		const match = userTexts[i].match(/e2e:(longstream|slow|multiask|ask|runtime|error|fast|job)/);
 		if (match) return match[1];
 	}
 	return "fast";
@@ -132,10 +135,10 @@ const MULTI_ASK_QUESTION_ARGUMENTS = JSON.stringify({
 });
 
 /** 慢速流式剧本：分块吐文本，让会话保持运行数秒。客户端中途断开（响应流关闭）即停止。 */
-async function playSlow(res, model, streamLog = []) {
-	for (let i = 1; i <= SLOW_CHUNKS; i += 1) {
+async function playSlow(res, model, streamLog = [], chunks = SLOW_CHUNKS) {
+	for (let i = 1; i <= chunks; i += 1) {
 		if (res.destroyed || res.writableEnded) return;
-		send(res, chunk(model, { role: i === 1 ? "assistant" : undefined, content: `慢速输出片段 ${i}/${SLOW_CHUNKS}。\n` }));
+		send(res, chunk(model, { role: i === 1 ? "assistant" : undefined, content: `慢速输出片段 ${i}/${chunks}。\n` }));
 		streamLog.push(i);
 		await sleep(SLOW_INTERVAL_MS);
 	}
@@ -230,6 +233,7 @@ async function playJobRead(res, model, toolTexts) {
 
 const SCENARIOS = {
 	slow: playSlow,
+	longstream: (res, model, streamLog) => playSlow(res, model, streamLog, LONG_STREAM_CHUNKS),
 	ask: playAsk,
 	multiask: (res, model) => playAsk(res, model, 20, MULTI_ASK_QUESTION_ARGUMENTS),
 	runtime: playAsk,
@@ -286,18 +290,18 @@ async function playMessagesFast(res, model) {
 	res.end();
 }
 
-async function playMessagesSlow(res, model, streamLog = []) {
+async function playMessagesSlow(res, model, streamLog = [], chunks = SLOW_CHUNKS) {
 	beginMessage(res);
 	sendEvent(res, { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
-	for (let i = 1; i <= SLOW_CHUNKS; i += 1) {
+	for (let i = 1; i <= chunks; i += 1) {
 		if (res.destroyed || res.writableEnded) return;
-		sendEvent(res, { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: `慢速输出片段 ${i}/${SLOW_CHUNKS}。\n` } });
+		sendEvent(res, { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: `慢速输出片段 ${i}/${chunks}。\n` } });
 		streamLog.push(i);
 		await sleep(SLOW_INTERVAL_MS);
 	}
 	if (res.destroyed || res.writableEnded) return;
 	sendEvent(res, { type: "content_block_stop", index: 0 });
-	settleMessage(res, SLOW_CHUNKS * 6);
+	settleMessage(res, chunks * 6);
 	res.end();
 }
 
@@ -341,6 +345,7 @@ async function playMessagesJobRead(res, model, toolTexts) {
 
 const MESSAGES_SCENARIOS = {
 	slow: playMessagesSlow,
+	longstream: (res, model, streamLog) => playMessagesSlow(res, model, streamLog, LONG_STREAM_CHUNKS),
 	ask: playMessagesAsk,
 	multiask: (res, model) => playMessagesAsk(res, model, 20, MULTI_ASK_QUESTION_ARGUMENTS),
 	runtime: playMessagesAsk,

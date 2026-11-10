@@ -251,6 +251,52 @@ export default async function backgroundJobs({ page, url, assert }) {
 	}, 8_000);
 	assert.ok(advanced !== null, "切回完整档后任务时长恢复逐秒推进（R-01-025/AC-08）");
 
+	// T-189 1Hz 时钟局部刷新通道：完整档 jobs-only 无事件窗（回合已收口、任务在跑、
+	// roster 无推送）内，任务时长推进由 1Hz 时钟帧独立承载——时钟帧绕过全量派生，
+	// 只补随钟叶子文本。断言三面：零元素节点增删（不建/不删/不移动卡片骨架；时长
+	// 文本经 textContent 写前比对更新，Chromium 以文本节点替换落地——childList
+	// added/removed 各 1 个文本节点是既有写入风格的固有形态，不计结构变更）；时长
+	// 文本推进 ≥2 次（2.4s 窗至少跨 2 个时钟 tick）；变更只落在运行卡族叶子或分钟级
+	// 文案（后者是 60s 时钟既有通道的合法变更，窗跨分钟边界时可能出现，与 T-189
+	// 无关；母卡累计运行时长在回合收口后已冻结，正常窗内零写入）。锚定
+	// R-01-025/AC-08（完整档任务时长逐秒推进）与 R-01-023/AC-05（job 子卡时长）。
+	await page.evaluate(() => {
+		const target = document.querySelector("[data-dsh-activity-pane] .dap-scroll");
+		window.__clockFrameLog = [];
+		if (window.__clockFrameObserver) window.__clockFrameObserver.disconnect();
+		window.__clockFrameObserver = new MutationObserver((records) => {
+			for (const record of records) {
+				window.__clockFrameLog.push({
+					type: record.type,
+					addedEls: [...record.addedNodes].filter((node) => node.nodeType === 1).length,
+					removedEls: [...record.removedNodes].filter((node) => node.nodeType === 1).length,
+					card: record.target?.parentElement?.closest?.(".dap-card")?.dataset.kind ?? "",
+					text: String(record.target?.textContent ?? "").slice(0, 40),
+				});
+			}
+		});
+		window.__clockFrameObserver.observe(target, { childList: true, subtree: true, characterData: true });
+	});
+	await page.waitForTimeout(2_400);
+	const clockFrames = await page.evaluate(() => window.__clockFrameLog ?? []);
+	const isDurationText = (text) => /^\d+(?:m\d+)?s$/.test(String(text ?? "").trim());
+	const isMinuteAgeText = (text) =>
+		typeof text === "string" && (text.includes("最后活动") || text.includes("分钟前") || text.includes("小时前") || text.trim() === "刚刚");
+	assert.ok(
+		clockFrames.every((record) => record.addedEls === 0 && record.removedEls === 0),
+		`无事件窗内零元素节点增删（实际 ${JSON.stringify(clockFrames.filter((record) => record.addedEls > 0 || record.removedEls > 0).slice(0, 4))}）——时钟帧触碰了 DOM 结构（T-189）`,
+	);
+	assert.ok(
+		clockFrames.filter((record) => record.card === "job" && isDurationText(record.text)).length >= 2,
+		`无事件窗内任务时长至少推进两次（实际 ${clockFrames.filter((record) => record.card === "job").length} 条 job 卡变更）——1Hz 时钟帧未承载逐秒推进（T-189）`,
+	);
+	assert.ok(
+		clockFrames.every((record) =>
+			(record.card === "job" || record.card === "running") && isDurationText(record.text) || isMinuteAgeText(record.text),
+		),
+		`无事件窗内变更应只落运行卡族时长叶子与分钟级文案（实际 ${JSON.stringify(clockFrames.filter((record) => !((record.card === "job" || record.card === "running") && isDurationText(record.text)) && !isMinuteAgeText(record.text)).slice(0, 4))}）——时钟帧触碰了派生或无关卡片（T-189）`,
+	);
+
 	// R-01-023/AC-08：后台任务子卡为纯展示——切到新会话后点击 job 子卡，不发生会话
 	// 切换（任务在跑期间归属会话保留在活动区，job 子卡跨会话可见）。子卡无激活绑定，
 	// 不存在重试链等延迟路径，1.5s 窗口覆盖事件派发已足够；另以结构断言钉住非按钮语义。

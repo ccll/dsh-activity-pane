@@ -60,6 +60,7 @@ id: T-188
 | 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |
 | --- | --- | --- | --- | --- |
 | SOLUTION | 方案层契约表述同步：acks 通道契约行（SOLUTION.md:343）与 busy 下发行（:417）随实现同笔演进——`patch` 事件语义（upserts 仅变更会话）、落盘 500ms 尾沿合帧、GET `?ids=` 裁剪（机制文字，承诺不变） | UNIT/E2E | update | 语义保持由 scripts/check.mjs 新增单测与全量 24 specs 承载 |
+| SOLUTION | 方案层契约表述同步（评审修复）：149/218/275/406 四行旧口径（全量快照/变更即广播）随 `patch`/合帧机制描述对齐——机制文字，无承诺变化 | UNIT/E2E | update | 与 343/417 同类机制描述同步，行为由全量 24 specs 承载 |
 | R-01-002/AC-03、AC-10～AC-13、R-01-010/AC-06 | 不变（机制演进） | E2E+unit | 保留 | 连接全量+增量按序下发的确认及时性、跨客户端同步与重连收敛不变（completion-sync 等 specs） |
 | R-01-020/AC-02～AC-07 | 不变（机制演进） | E2E+unit | 保留 | 记账正确性、回填与自愈语义不变（busy-backfill-race、session-lifecycle） |
 

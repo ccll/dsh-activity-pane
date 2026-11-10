@@ -24,7 +24,7 @@
 // 都在缓存上闭合，变更点同步写缓存后立即广播 patch；KvTable 退化为落盘通道，脏键经
 // createDirtyFlusher 尾沿合帧写盘（FLUSH_INTERVAL_MS，内部运行参数非契约）。合帧窗口内
 // 进程崩溃至多丢该窗口的落盘写：下次懒回填经 reconcileTurnStats 从事件全量重放自愈
-// （R-01-020/AC-04 恢复语义承载，水位不回退）；插件卸载经 effect 清理链先冲刷后关域。
+// （R-01-020/AC-04 恢复语义承载，水位不回退）；插件卸载把冲刷与关域合并进同一 disposer 顺序 await。
 // 设计约束（C-030）：不写会话日志、不依赖 sessionProjections、不引入客户端轮询；
 // 完成提醒成立 = 主会话 && 非 running && 无阻塞等待 && 非委托周期 && lastTurnEnd > ackedAt，
 // 错误提醒成立 = 主会话 && 非 running && 无阻塞等待 && 非委托周期 && lastTurnEndKind === 'error'
@@ -126,8 +126,8 @@ export function apply(ctx) {
 	 *  （domain open 后由 entries() 灌入，此后不回落 KvTable 读）。 */
 	const acksState = new Map()
 	const turnStatsState = new Map()
-	/** 合帧落盘调度器（T-188）：dispose effect 登记在 domain close effect 之后，cordis
-	 *  清理链 LIFO 保证先冲刷剩余脏键、后关闭 domain 排空写链。 */
+	/** 合帧落盘调度器（T-188）：dispose 与 domain.close 合并进同一 disposer 顺序 await——
+	 *  cordis 卸载对多个 effect 的 disposer 是 Promise.all 并发，effect 间无顺序保证。 */
 	let acksFlusher = null
 	let busyFlusher = null
 	/** SSE 连接集合：连接即发 `state` 全量，此后变更广播 `patch`。 */
@@ -139,18 +139,25 @@ export function apply(ctx) {
 	ctx.inject(['storageDomain'], async (domainCtx) => {
 		const domain = await domainCtx.storageDomain.open(domainSpec)
 		const turnDomain = await domainCtx.storageDomain.open(turnDomainSpec)
-		ctx.effect(() => () => domain.close(), 'dsh-activity-pane: domainClose')
-		ctx.effect(() => () => turnDomain.close(), 'dsh-activity-pane: turnDomainClose')
 		acks = domain.table('acks')
 		turnStats = turnDomain.table('turn_stats')
 		for (const [id, record] of acks.entries()) acksState.set(id, record)
 		for (const [id, record] of turnStats.entries()) turnStatsState.set(id, record)
 		acksFlusher = createDirtyFlusher({ flush: (keys) => flushRecords(acks, acksState, keys), intervalMs: FLUSH_INTERVAL_MS })
 		busyFlusher = createDirtyFlusher({ flush: (keys) => flushRecords(turnStats, turnStatsState, keys), intervalMs: FLUSH_INTERVAL_MS })
-		// 两个 dispose effect 注册在 close effect 之后：清理链 LIFO，冲刷先于域关闭执行，
-		// 排入写链的 put 由 close() drain 落盘（T-188 卸载路径）。
-		ctx.effect(() => () => acksFlusher.dispose(), 'dsh-activity-pane: acksFlushDispose')
-		ctx.effect(() => () => busyFlusher.dispose(), 'dsh-activity-pane: busyFlushDispose')
+		// 冲刷与关域合并进同一 disposer（T-188）：cordis 卸载对多个 effect 的 disposer 是
+		// Promise.all 并发（effect 之间无顺序保证），只有同一 disposer 内的 await 是真串行——
+		// 先 await flusher.dispose() 把合帧窗口内的最后一批变更 put 排入域写链并等待完成，
+		// 再 domain.close()（幂等：disposal ??= 共享同一 teardown，runClose 先排空已排队写、
+		// 后关 unit）；facility 兜底 closeAll 对 double-close 无害。
+		ctx.effect(() => async () => {
+			await acksFlusher.dispose()
+			await domain.close()
+		}, 'dsh-activity-pane: acksFlushDomainClose')
+		ctx.effect(() => async () => {
+			await busyFlusher.dispose()
+			await turnDomain.close()
+		}, 'dsh-activity-pane: busyFlushDomainClose')
 		resolveDomain()
 		// 启动扫描（R-01-020/AC-04）：宿主重启后不存在仍在运行的回合——残留开放回合的
 		// 记账按日志最后事件时刻强制结算关闭，否则总耗时按 now − openTurnStart 无限增长。
@@ -183,8 +190,9 @@ export function apply(ctx) {
 		return out
 	}
 
-	/** 指定 id 的 busy 下发形状记录（patch 广播与 GET 裁剪共用）。 */
-	function busyViewRecords(ids) {
+	/** 指定 id 的 busy 下发形状记录（busyViewsById 与 busyRecordView 一名之差消歧：前者
+	 *  是 id 集视图、后者是单条归一）。patch 广播源：内部水位字段不下发。 */
+	function busyViewsById(ids) {
 		const out = {}
 		for (const id of ids) {
 			const record = turnStatsState.get(id)
@@ -260,7 +268,7 @@ export function apply(ctx) {
 					// 落盘经 busyFlusher 尾沿合帧，崩溃窗口由懒回填全量重放自愈（R-01-020/AC-04）。
 					turnStatsState.set(id, { ...turnStatsFrom(next), watermarkSeq: next.watermarkSeq, watermarkTime: next.watermarkTime })
 					busyFlusher?.markDirty(id)
-					broadcastPatch(busyStreamClients, busyViewRecords([id]), [id])
+					broadcastPatch(busyStreamClients, busyViewsById([id]), [id])
 				}
 			} catch (error) {
 				ctx.logger?.warn?.(`dsh-activity-pane: busy 回填失败（${id}）: ${String(error)}`)
@@ -380,7 +388,7 @@ export function apply(ctx) {
 				// 竞态防护，解耦后由串行域 + 同步缓存段取代）。
 				turnStatsState.set(id, { ...turnStatsFrom(next), watermarkSeq: seq, watermarkTime: Number.isFinite(time) ? time : turnStatsFrom(current).watermarkTime ?? null })
 				busyFlusher?.markDirty(id)
-				broadcastPatch(busyStreamClients, busyViewRecords([id]), [id])
+				broadcastPatch(busyStreamClients, busyViewsById([id]), [id])
 			} catch (error) {
 				ctx.logger?.warn?.(`dsh-activity-pane: 回合统计登记失败（${id}）: ${String(error)}`)
 			}
@@ -433,48 +441,56 @@ export function apply(ctx) {
 						return
 					}
 					try {
-					await domainReady
-					const current = acksState.get(sessionId)
-					// 确认写回只动 ackedAt：保留回合结束时刻、结束原因与错误信息（C-043）。
-					// 内存即改（T-188）：同步写权威缓存后标脏，落盘经 flusher 尾沿合帧。
-					acksState.set(sessionId, {
-						lastTurnEnd: current?.lastTurnEnd ?? null,
-						lastTurnEndKind: current?.lastTurnEndKind ?? null,
-						lastTurnEndError: current?.lastTurnEndError ?? null,
-						ackedAt: Date.now(),
-					})
-					acksFlusher?.markDirty(sessionId)
-					broadcastPatch(streamClients, acksState, [sessionId])
-					res.writeHead(200, { 'Content-Type': 'application/json' })
-					res.end(JSON.stringify({ ok: true }))
-				} catch (error) {
-					res.writeHead(500, { 'Content-Type': 'application/json' })
-					res.end(JSON.stringify({ ok: false, error: String(error) }))
-				}
-			})
-			return
-		}
+						await domainReady
+						const current = acksState.get(sessionId)
+						// 确认写回只动 ackedAt：保留回合结束时刻、结束原因与错误信息（C-043）。
+						// 内存即改（T-188）：同步写权威缓存后标脏，落盘经 flusher 尾沿合帧。
+						acksState.set(sessionId, {
+							lastTurnEnd: current?.lastTurnEnd ?? null,
+							lastTurnEndKind: current?.lastTurnEndKind ?? null,
+							lastTurnEndError: current?.lastTurnEndError ?? null,
+							ackedAt: Date.now(),
+						})
+						acksFlusher?.markDirty(sessionId)
+						broadcastPatch(streamClients, acksState, [sessionId])
+						res.writeHead(200, { 'Content-Type': 'application/json' })
+						res.end(JSON.stringify({ ok: true }))
+					} catch (error) {
+						res.writeHead(500, { 'Content-Type': 'application/json' })
+						res.end(JSON.stringify({ ok: false, error: String(error) }))
+					}
+				})
+				return
+			}
 		if (route === '/busy' && method === 'GET') {
 			// 只读下发：响应立即返回快照；查询参数 ids（逗号分隔会话 id）指定客户端当前
 			// 可见的主会话——响应按 ids 裁剪（解析不出合法 id 或超量形态整体回退全量），
 			// 并对其中无记录者触发懒回填（fire-and-forget），回填完成经 /busy/stream
 			// 增量 patch 推送（R-01-020/AC-05，T-188）。
-			const scopedIds = parseBusyIdsParam(url.searchParams.get('ids'), BUSY_IDS_MAX)
-			if (scopedIds !== null) {
-				// 回填触发口径与全量时代一致：对请求的每个 id 都触发 ensureTurnStatsFresh
-				//（单飞幂等），已有记录会话由此补齐宿主离线期间经其它入口发生的回合。
-				for (const id of scopedIds) ensureTurnStatsFresh(id)
-				const full = busySnapshot()
-				const scoped = {}
-				for (const id of scopedIds) {
-					if (Object.hasOwn(full, id)) scoped[id] = full[id]
+			const raw = url.searchParams.get('ids')
+			const scopedIds = parseBusyIdsParam(raw, BUSY_IDS_MAX)
+			// 回填触发口径与全量时代一致：携带 ids 的请求对每个非空片段（trim 后）都触发
+			// ensureTurnStatsFresh——合法与回退（非法/空/超量）形态同口径，重复 id 单飞幂等；
+			// 已有记录会话由此补齐宿主离线期间经其它入口发生的回合。
+			if (raw !== null) {
+				for (const id of raw.split(',')) {
+					const trimmed = id.trim()
+					if (trimmed !== '') ensureTurnStatsFresh(trimmed)
 				}
+			}
+			if (scopedIds === null) {
+				// 非法/空/超量/未携带 ids：响应回全量。
 				res.writeHead(200, { 'Content-Type': 'application/json' })
-				res.end(JSON.stringify(scoped))
+				res.end(JSON.stringify(busySnapshot()))
 				return
 			}
+			const full = busySnapshot()
+			const scoped = {}
+			for (const id of scopedIds) {
+				if (Object.hasOwn(full, id)) scoped[id] = full[id]
+			}
 			res.writeHead(200, { 'Content-Type': 'application/json' })
-			res.end(JSON.stringify(busySnapshot()))
+			res.end(JSON.stringify(scoped))
 			return
 		}
 			if (route === '/busy/stream' && method === 'GET') {
@@ -498,8 +514,9 @@ export function apply(ctx) {
 		},
 	})
 
-	// 卸载：关闭全部 SSE 连接；合帧冲刷与 domain 关闭由 ctx.effect 清理链承接
-	//（冲刷 effect 注册在 close effect 之后，LIFO 先冲刷后关域，T-188）。
+	// 卸载：关闭全部 SSE 连接；冲刷与关域的合并 disposer 见 storageDomain 注入回调
+	//（cordis 卸载对多个 effect 的 disposer 是 Promise.all 并发，仅同一 disposer 内的
+	// await 是真串行，T-188）。
 	return () => {
 		for (const res of streamClients) {
 			try {

@@ -3027,10 +3027,14 @@ function parseBusyIdsParam(raw, maxIds) {
  * schedule/cancel（默认 setTimeout/clearTimeout）与 now（默认 Date.now）可注入，供
  * 单测以假时钟驱动尾沿推进与剩余时间对齐断言。
  *
- * 卸载路径：dispose() 取消在途定时器并立即冲刷全部剩余脏键，供插件卸载钩子触发——
- * 宿主在 cordis effect 清理链中 await 它（LIFO 先于 domain.close 排空写链），使合帧
- * 窗口内的最后一批变更在进程退出前落盘；窗口外进程消失（崩溃/强杀）不走该路径，
- * 由上文「崩溃窗口自愈」承接（R-01-020/AC-04，SSE 全量快照与懒回填保证恢复一致）。
+ * 卸载路径：dispose() 取消在途定时器并立即冲刷全部剩余脏键。宿主必须把它与
+ * domain.close() 合并进**同一个 disposer** 顺序 await——cordis 卸载对多个 effect 的
+ * disposer 是 Promise.all 并发（effect 之间无顺序保证），而 domain.close() 进入即同步
+ * 置 disposing 并拒绝后续 enqueue，分属两个 effect 的「先冲刷后关域」在并发下会被
+ * close 拒写；同一 disposer 内「await dispose()（put 排入域写链并等待完成）→
+ * await close()（幂等，runClose 先排空已排队写、后关 unit）」才是真串行。窗口外
+ * 进程消失（崩溃/强杀）不走该路径，由上文「崩溃窗口自愈」承接（R-01-020/AC-04，
+ * SSE 全量快照与懒回填保证恢复一致）。
  */
 function createDirtyFlusher({ flush, intervalMs, now = Date.now, schedule = setTimeout, cancel = clearTimeout } = {}) {
 	const delay = Number(intervalMs);

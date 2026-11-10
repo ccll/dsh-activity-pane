@@ -462,37 +462,37 @@ export function apply(ctx) {
 				})
 				return
 			}
-		if (route === '/busy' && method === 'GET') {
-			// 只读下发：响应立即返回快照；查询参数 ids（逗号分隔会话 id）指定客户端当前
-			// 可见的主会话——响应按 ids 裁剪（解析不出合法 id 或超量形态整体回退全量），
-			// 并对其中无记录者触发懒回填（fire-and-forget），回填完成经 /busy/stream
-			// 增量 patch 推送（R-01-020/AC-05，T-188）。
-			const raw = url.searchParams.get('ids')
-			const scopedIds = parseBusyIdsParam(raw, BUSY_IDS_MAX)
-			// 回填触发口径与全量时代一致：携带 ids 的请求对每个非空片段（trim 后）都触发
-			// ensureTurnStatsFresh——合法与回退（非法/空/超量）形态同口径，重复 id 单飞幂等；
-			// 已有记录会话由此补齐宿主离线期间经其它入口发生的回合。
-			if (raw !== null) {
-				for (const id of raw.split(',')) {
-					const trimmed = id.trim()
-					if (trimmed !== '') ensureTurnStatsFresh(trimmed)
+			if (route === '/busy' && method === 'GET') {
+				// 只读下发：响应立即返回快照；查询参数 ids（逗号分隔会话 id）指定客户端当前
+				// 可见的主会话——响应按 ids 裁剪（解析不出合法 id 或超量形态整体回退全量），
+				// 并对其中无记录者触发懒回填（fire-and-forget），回填完成经 /busy/stream
+				// 增量 patch 推送（R-01-020/AC-05，T-188）。
+				const raw = url.searchParams.get('ids')
+				const scopedIds = parseBusyIdsParam(raw, BUSY_IDS_MAX)
+				// 回填触发口径与全量时代一致：携带 ids 的请求对每个非空片段（trim 后）都触发
+				// ensureTurnStatsFresh——合法与回退（非法/空/超量）形态同口径，重复 id 单飞幂等；
+				// 已有记录会话由此补齐宿主离线期间经其它入口发生的回合。
+				if (raw !== null) {
+					for (const id of raw.split(',')) {
+						const trimmed = id.trim()
+						if (trimmed !== '') ensureTurnStatsFresh(trimmed)
+					}
 				}
-			}
-			if (scopedIds === null) {
-				// 非法/空/超量/未携带 ids：响应回全量。
+				if (scopedIds === null) {
+					// 非法/空/超量/未携带 ids：响应回全量。
+					res.writeHead(200, { 'Content-Type': 'application/json' })
+					res.end(JSON.stringify(busySnapshot()))
+					return
+				}
+				const full = busySnapshot()
+				const scoped = {}
+				for (const id of scopedIds) {
+					if (Object.hasOwn(full, id)) scoped[id] = full[id]
+				}
 				res.writeHead(200, { 'Content-Type': 'application/json' })
-				res.end(JSON.stringify(busySnapshot()))
+				res.end(JSON.stringify(scoped))
 				return
 			}
-			const full = busySnapshot()
-			const scoped = {}
-			for (const id of scopedIds) {
-				if (Object.hasOwn(full, id)) scoped[id] = full[id]
-			}
-			res.writeHead(200, { 'Content-Type': 'application/json' })
-			res.end(JSON.stringify(scoped))
-			return
-		}
 			if (route === '/busy/stream' && method === 'GET') {
 				// SSE：连接即发全量快照，此后每次变更广播；浏览器 EventSource 自动重连，
 				// 重连时再收一次全量，状态必然收敛。

@@ -54,8 +54,18 @@ id: T-186
   - workspaceIndex memo 命中与失效断言。
   - options 迁移后全部既有断言保持通过（等价性证据）。
 - perf 守恒：`pnpm perf:ab`（--check 折叠绝对采样数阈值 1.2）PASS；隔离 A/B 记录事件期总 CPU 比值。
-- e2e 全量：`pnpm verify` 23 specs 全绿（含 mobile-thermal rAF 阈值守恒，C-082 对照）。
-- 测试影响：PRD/SOLUTION 无变化（map 不变短路），无 AC 锚点变更。
+- e2e 全量：`pnpm verify` 24 specs 全绿（含 mobile-thermal rAF 阈值守恒，C-082 对照；计数经 T-187 审计更正——T-185 新增增量等价 spec 后总数为 24）。
+- 测试影响：见下方测试影响表（SOLUTION 表述同步随关闭提交落地；PRD 无变化，无 AC 锚点变更）。
+
+## 测试影响
+
+| 需求/AC | 变化类型 | 验证层 | 动作 | 证据/理由 |
+| --- | --- | --- | --- | --- |
+| SOLUTION | 方案层表述同步：历史分页运行时的前缀分工随 buildRecent limit 入参实现更新（机制文字，无承诺变化） | UNIT/E2E | update | 行为逐字段等价由 scripts/check.mjs 1439 断言与全量 24 specs 承载 |
+| R-01-010/AC-08、AC-09 | 不变 | E2E+unit | 保留 | 历史区时间序排序与分页语义不变（对抗夹具 + recent-infinite-scroll） |
+| R-01-001/AC-07 | 不变 | unit | 保留 | 活动卡片集合排序输出逐字段一致（平局索引语义等价断言） |
+| R-01-023/AC-01、AC-04 | 不变 | unit | 保留 | jobs 消费面与徽标口径不受 options 迁移影响（background-jobs 断言保持） |
+| R-01-025/AC-08 | 不变 | E2E | 保留 | 档位资源纪律与移动端热静默 rAF 门禁守恒（density-resource、mobile-thermal PASS） |
 
 ## 验证矩阵
 

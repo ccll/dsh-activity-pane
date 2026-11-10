@@ -55,8 +55,9 @@ const CLOCK_MS = 1000;
 /** 渲染与流式派生的最小合并间隔：事件密集（流式输出）时把渲染/派生频率硬顶在
  *  4Hz——事件率随宿主流式 chunk 数增长，显示粒度（秒级时长走独立 1Hz 时钟、块级
  *  时间线 4Hz 粒度无感）不受影响，而渲染与 O(日志窗口) 派生不再随刷新率与事件率
- *  线性放大（T-127 立项 10Hz；T-185 实测长窗口会话并发流式下折叠占单核 86%，
- *  250ms 为折叠频率与流式呈现粒度的再平衡点，增量派生落地后可回调）。 */
+ *  线性放大（T-127 立项 10Hz；T-185 实测长窗口会话并发流式下折叠占单核 86%
+ *  ——活实例 CPU 115.5% × 折叠占比 74.3% 折算——250ms 为折叠频率与流式呈现
+ *  粒度的再平衡点，增量派生落地后可回调）。 */
 const SYNC_MIN_INTERVAL_MS = 250;
 /** 历史卡相对时间与等待卡状态年龄的刷新周期；无需每秒重绘整列。 */
 const RECENT_TIME_REFRESH_MS = 60_000;
@@ -2327,8 +2328,13 @@ function apply(ctx) {
 	 *  不经日志提取（目录链订阅 + 一次性 load 承载，见 installServiceSubscriptions 注）。
 	 *  无请求头/无溯源时保持空白，不以部署默认或其它会话取值冒充（R-01-012/AC-18）。 */
 	function applyLogEvents(id, detail, events, { subagent, cwd = "", planSubagentModelRead = false }) {
+		// 增量派生（T-185）：折叠状态跨拍保留，纯追加只折新增条目；非纯追加
+		//（窗口替换/落定替换/seq 变化/cwd 变化）整表重建——宁全量勿增量。
+		const state = detail.foldState && detail.foldState.cwd === cwd ? detail.foldState : createHistoryFoldState(cwd);
+		foldHistoryAppend(state, events, cwd);
+		detail.foldState = state;
 		detail.history = events;
-		detail.timeline = foldedHistoryTimeline(events, 4, cwd);
+		detail.timeline = foldedTimelineFromFoldState(state, 4);
 		// flush 侧 cwd 记账（T-181 ②）：render 侧 memo 复用 detail.timeline 的前提——
 		// 同一 history、同一 cwd、非 settle 变体三者同时对上才可复用（见 render memo）。
 		detail.flushTimelineCwd = cwd;
@@ -4619,9 +4625,13 @@ function apply(ctx) {
 				// 变体（detail.timeline 与 detail.history 同点落地、flushTimelineCwd 同点
 				// 记账）——idle=false 且 cwd 未漂移时直接复用，省去 render 侧第二遍全量
 				// 折叠；阻塞等待卡的 settle 变体与 cwd 漂移仍走重算。
+				// 增量状态（T-185）：settle 变体优先消费增量条目（cwd 同口径时），状态
+				// 缺席或 cwd 漂移回落全量折叠（foldedHistoryTimeline）。
 				detail.memoLogTimeline = entryIdle === false && detail.flushTimelineCwd === entryCwd && Array.isArray(detail.timeline)
 					? detail.timeline
-					: foldedHistoryTimeline(historyRef, 4, entryCwd, entryIdle);
+					: detail.foldState && detail.foldState.cwd === entryCwd
+						? foldedTimelineFromFoldState(detail.foldState, 4, entryIdle)
+						: foldedHistoryTimeline(historyRef, 4, entryCwd, entryIdle);
 			}
 			if (detail && detailSnapshot) {
 				// 按快照引用 memo：引用不变（时钟 tick、无关推送）时命中缓存，

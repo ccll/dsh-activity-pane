@@ -1004,62 +1004,112 @@ async function pagedHistoryEvents({ fetchPage, maxPages = Infinity, requireOpenT
  *  tool/call 以 durable 事件落定后经既有 call/result 配对路径呈现。
  *  tool/result 落定同 callId 的 call 项（原位替换，name/arguments/callView 由 call 事件补齐）：
  *  history 是冻结过去，call 事件单独留存会成为永久 running 幽灵行（R-01-016/AC-01）。 */
-function conversationTimelineFromHistory(history, limit = 4, cwd = "") {
-	const items = [];
-	const inflightCalls = new Map(); // callId → { index, data, callView }：等待结果落定的 tool/call 事件
-	const liveAttempts = new Map(); // attemptId → { index, text, reasoning }：流式期间累积的 live 行
-	for (const entry of Array.isArray(history) ? history : []) {
-		const event = eventOf(entry);
-		const data = isRecord(event?.data) ? event.data : {};
-		if (event?.type === "assistant/live-chunk") {
-			const attemptId = typeof data.attemptId === "string" ? data.attemptId : "";
-			const text = typeof data.chunk?.text === "string" ? data.chunk.text : "";
-			if (attemptId === "" || text === "" || !isRecord(data.chunk)) continue;
-			const attempt = liveAttempts.get(attemptId) ?? (() => {
-				const created = { index: items.length, text: "", reasoning: "" };
-				liveAttempts.set(attemptId, created);
-				items.push({ id: `live:${attemptId}`, kind: "assistant", icon: "assistant", text: "", detail: null, status: "running", live: true });
-				return created;
-			})();
-			if (data.chunk.type === "reasoning-delta") attempt.reasoning += text;
-			else if (data.chunk.type === "text-delta") attempt.text += text;
-			else continue;
-			items[attempt.index] = {
-				...items[attempt.index],
-				text: attempt.text,
-				detail: attempt.reasoning || null,
-				// 镜像原生 ReasoningRow：流式思考显示尾部最新行，避免与已定案首行摘要漂移。
-				summary: attempt.reasoning ? latestLineOf(attempt.reasoning) : attempt.text,
-				status: "running",
-				live: true,
-			};
-			continue;
-		}
-		if (event?.type === "tool/result") {
-			const callId = toolResultCallId(data);
-			const pending = callId !== undefined ? inflightCalls.get(callId) : undefined;
-			if (pending !== undefined) {
-				inflightCalls.delete(callId);
-				items[pending.index] = timelineToolItem(
-					historyToolResultRoot(data, entry?.view?.for === "result" ? entry.view.view : null, {
-						call: { name: typeof pending.data.name === "string" ? pending.data.name : "", argsRaw: typeof pending.data.arguments === "string" ? pending.data.arguments : "" },
-						callView: pending.callView,
-					}),
-					null,
-					cwd,
-				);
-				continue;
-			}
-		}
-		const item = timelineItemFromEvent(entry, cwd);
-		if (!item) continue;
-		if (event?.type === "tool/call" && item.callId !== "") {
-			inflightCalls.set(item.callId, { index: items.length, data, callView: entry?.view?.for === "call" ? entry.view.view : null });
-		}
-		items.push(item);
+/** 逐条折叠处理（T-185 抽取）：单条历史事件 → 时间线条目的全部逻辑——live-chunk
+ *  累积、tool/result 原位替换、tool/call 配对登记、普通条目 push。全量重建与
+ *  增量追加共用同一实现，杜绝双实现漂移。 */
+function foldProcessEntry(state, entry, cwd) {
+	const event = eventOf(entry);
+	const data = isRecord(event?.data) ? event.data : {};
+	const items = state.items;
+	if (event?.type === "assistant/live-chunk") {
+		const attemptId = typeof data.attemptId === "string" ? data.attemptId : "";
+		const text = typeof data.chunk?.text === "string" ? data.chunk.text : "";
+		if (attemptId === "" || text === "" || !isRecord(data.chunk)) return;
+		const attempt = state.liveAttempts.get(attemptId) ?? (() => {
+			const created = { index: items.length, text: "", reasoning: "" };
+			state.liveAttempts.set(attemptId, created);
+			items.push({ id: `live:${attemptId}`, kind: "assistant", icon: "assistant", text: "", detail: null, status: "running", live: true });
+			return created;
+		})();
+		if (data.chunk.type === "reasoning-delta") attempt.reasoning += text;
+		else if (data.chunk.type === "text-delta") attempt.text += text;
+		else return;
+		items[attempt.index] = {
+			...items[attempt.index],
+			text: attempt.text,
+			detail: attempt.reasoning || null,
+			// 镜像原生 ReasoningRow：流式思考显示尾部最新行，避免与已定案首行摘要漂移。
+			summary: attempt.reasoning ? latestLineOf(attempt.reasoning) : attempt.text,
+			status: "running",
+			live: true,
+		};
+		return;
 	}
+	if (event?.type === "tool/result") {
+		const callId = toolResultCallId(data);
+		const pending = callId !== undefined ? state.inflightCalls.get(callId) : undefined;
+		if (pending !== undefined) {
+			state.inflightCalls.delete(callId);
+			items[pending.index] = timelineToolItem(
+				historyToolResultRoot(data, entry?.view?.for === "result" ? entry.view.view : null, {
+					call: { name: typeof pending.data.name === "string" ? pending.data.name : "", argsRaw: typeof pending.data.arguments === "string" ? pending.data.arguments : "" },
+					callView: pending.callView,
+				}),
+				null,
+				cwd,
+			);
+			return;
+		}
+	}
+	const item = timelineItemFromEvent(entry, cwd);
+	if (!item) return;
+	if (event?.type === "tool/call" && item.callId !== "") {
+		state.inflightCalls.set(item.callId, { index: items.length, data, callView: entry?.view?.for === "call" ? entry.view.view : null });
+	}
+	items.push(item);
+}
+
+function entrySeqOf(entry) {
+	return eventOf(entry)?.seq;
+}
+
+/** 增量折叠状态（T-185）：跨拍保留已派生条目与配对/流式累积；count/lastSeq 为
+ *  已处理游标、cwd 为构建口径（任一变化即失效整表重建）。状态随 detail 生命
+ *  周期存亡，不跨快照代际。 */
+function createHistoryFoldState(cwd = "") {
+	return { items: [], inflightCalls: new Map(), liveAttempts: new Map(), count: 0, lastSeq: undefined, cwd };
+}
+
+/** 增量折叠（T-185）：校验纯追加（已处理前缀原样在位）后仅处理新增条目；任何
+ *  非纯追加（窗口替换/裁剪/落定替换/seq 变化）或 cwd 变化整表重建——宁全量勿
+ *  增量，杜绝静默错误内容。返回同一 state（原地更新）。 */
+function foldHistoryAppend(state, events, cwd) {
+	const entries = Array.isArray(events) ? events : [];
+	const appendOnly = state.cwd === cwd
+		&& entries.length >= state.count
+		&& (state.count === 0 || entrySeqOf(entries[state.count - 1]) === state.lastSeq);
+	if (!appendOnly) {
+		state.items.length = 0;
+		state.inflightCalls.clear();
+		state.liveAttempts.clear();
+		state.count = 0;
+		state.lastSeq = undefined;
+		state.cwd = cwd;
+	}
+	for (let i = state.count; i < entries.length; i += 1) {
+		foldProcessEntry(state, entries[i], cwd);
+		state.count = i + 1;
+		state.lastSeq = entrySeqOf(entries[i]);
+	}
+	return state;
+}
+
+function conversationTimelineFromHistory(history, limit = 4, cwd = "") {
+	const state = createHistoryFoldState(cwd);
+	for (const entry of Array.isArray(history) ? history : []) foldProcessEntry(state, entry, cwd);
 	const max = Math.max(0, limit);
-	return max === 0 ? [] : items.slice(-max);
+	return max === 0 ? [] : state.items.slice(-max);
+}
+
+/** 增量状态的时间线产出（T-185）：与 foldedHistoryTimeline 同一折叠分组与尾部
+ *  选择语义，但条目来自增量维护的 state.items（免去每次全窗口重建）。非变异
+ *  消费（settleWhenIdle 产出副本，不改写增量状态）。 */
+function foldedTimelineFromFoldState(state, limit = 4, settleIdle = false) {
+	const max = Math.max(0, limit);
+	if (max === 0) return [];
+	const items = Array.isArray(state?.items) ? state.items : [];
+	const settled = settleIdle ? settleWhenIdle(items, true) : items;
+	return selectTimelineRows(foldWorkGroups(settled, Number.MAX_SAFE_INTEGER), max);
 }
 
 /** 冷 history 折叠分组时间线（R-01-017、R-01-012/AC-12～AC-15）：页内全部事件映射折叠后
@@ -2951,8 +3001,9 @@ const CLOCK_MS = 1000;
 /** 渲染与流式派生的最小合并间隔：事件密集（流式输出）时把渲染/派生频率硬顶在
  *  4Hz——事件率随宿主流式 chunk 数增长，显示粒度（秒级时长走独立 1Hz 时钟、块级
  *  时间线 4Hz 粒度无感）不受影响，而渲染与 O(日志窗口) 派生不再随刷新率与事件率
- *  线性放大（T-127 立项 10Hz；T-185 实测长窗口会话并发流式下折叠占单核 86%，
- *  250ms 为折叠频率与流式呈现粒度的再平衡点，增量派生落地后可回调）。 */
+ *  线性放大（T-127 立项 10Hz；T-185 实测长窗口会话并发流式下折叠占单核 86%
+ *  ——活实例 CPU 115.5% × 折叠占比 74.3% 折算——250ms 为折叠频率与流式呈现
+ *  粒度的再平衡点，增量派生落地后可回调）。 */
 const SYNC_MIN_INTERVAL_MS = 250;
 /** 历史卡相对时间与等待卡状态年龄的刷新周期；无需每秒重绘整列。 */
 const RECENT_TIME_REFRESH_MS = 60_000;
@@ -5223,8 +5274,13 @@ function apply(ctx) {
 	 *  不经日志提取（目录链订阅 + 一次性 load 承载，见 installServiceSubscriptions 注）。
 	 *  无请求头/无溯源时保持空白，不以部署默认或其它会话取值冒充（R-01-012/AC-18）。 */
 	function applyLogEvents(id, detail, events, { subagent, cwd = "", planSubagentModelRead = false }) {
+		// 增量派生（T-185）：折叠状态跨拍保留，纯追加只折新增条目；非纯追加
+		//（窗口替换/落定替换/seq 变化/cwd 变化）整表重建——宁全量勿增量。
+		const state = detail.foldState && detail.foldState.cwd === cwd ? detail.foldState : createHistoryFoldState(cwd);
+		foldHistoryAppend(state, events, cwd);
+		detail.foldState = state;
 		detail.history = events;
-		detail.timeline = foldedHistoryTimeline(events, 4, cwd);
+		detail.timeline = foldedTimelineFromFoldState(state, 4);
 		// flush 侧 cwd 记账（T-181 ②）：render 侧 memo 复用 detail.timeline 的前提——
 		// 同一 history、同一 cwd、非 settle 变体三者同时对上才可复用（见 render memo）。
 		detail.flushTimelineCwd = cwd;
@@ -7515,9 +7571,13 @@ function apply(ctx) {
 				// 变体（detail.timeline 与 detail.history 同点落地、flushTimelineCwd 同点
 				// 记账）——idle=false 且 cwd 未漂移时直接复用，省去 render 侧第二遍全量
 				// 折叠；阻塞等待卡的 settle 变体与 cwd 漂移仍走重算。
+				// 增量状态（T-185）：settle 变体优先消费增量条目（cwd 同口径时），状态
+				// 缺席或 cwd 漂移回落全量折叠（foldedHistoryTimeline）。
 				detail.memoLogTimeline = entryIdle === false && detail.flushTimelineCwd === entryCwd && Array.isArray(detail.timeline)
 					? detail.timeline
-					: foldedHistoryTimeline(historyRef, 4, entryCwd, entryIdle);
+					: detail.foldState && detail.foldState.cwd === entryCwd
+						? foldedTimelineFromFoldState(detail.foldState, 4, entryIdle)
+						: foldedHistoryTimeline(historyRef, 4, entryCwd, entryIdle);
 			}
 			if (detail && detailSnapshot) {
 				// 按快照引用 memo：引用不变（时钟 tick、无关推送）时命中缓存，

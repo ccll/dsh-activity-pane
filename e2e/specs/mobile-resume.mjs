@@ -4,10 +4,10 @@
 // 吞掉，窗格停留在挂起前状态（会话已完成仍显示运行中）。回前台（visibilitychange/
 // pageshow）必须无条件清掉在途 timer 并立即交付一轮渲染，使窗格自愈到最新状态。
 //
-// 复现手法：包装 setTimeout 吞掉在途 ≤100ms timer 模拟挂起丢弃（SYNC_MIN_INTERVAL_MS
-// 节流与派生窗口的共用量级）；借 resize→queueSync 与 rAF 帧交付的确定次序，在帧交付
-// 后 30ms（仍在 100ms 节流窗口内）再触发一次 resize，逼出一次节流窗口尾排队并被吞
-// ——渲染管线进入与真机挂起一致的滞留态。
+// 复现手法：包装 setTimeout 吞掉在途 ≤250ms timer 模拟挂起丢弃（SYNC_MIN_INTERVAL_MS
+// 节流与派生窗口的共用量级，T-185 起为 250ms）；借 resize→queueSync 与 rAF 帧交付
+// 的确定次序，在帧交付后 30ms（仍在 250ms 节流窗口内）再触发一次 resize，逼出一次
+// 节流窗口尾排队并被吞——渲染管线进入与真机挂起一致的滞留态。
 
 import {activityAcks, ensureFullDensity, openApp, paneRegions, sendHeroMessage, until} from "../helpers.mjs";
 
@@ -29,7 +29,7 @@ export default async function mobileResume({ page, url, assert }) {
 				window.__dapDroppedTimers = 0;
 				window.__dapSuspended = true;
 				window.setTimeout = (fn, ms, ...rest) => {
-					if (window.__dapSuspended && typeof ms === "number" && ms > 0 && ms <= 100) {
+					if (window.__dapSuspended && typeof ms === "number" && ms > 0 && ms <= 250) {
 						window.__dapDroppedTimers += 1;
 						return original(() => {}, 2_147_000_000);
 					}

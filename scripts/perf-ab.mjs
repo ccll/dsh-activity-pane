@@ -352,7 +352,7 @@ for (const [label, variant] of [["A", variantA], ["B", variantB]]) {
 	const detail = variant.event.map((r) => r.cpuSeconds.toFixed(3)).join(" / ");
 	console.log(`perf-ab: ${label} 事件期明细 ${detail} 核·s（窗 ${variant.event[0].wallSeconds.toFixed(1)}s/轮）；隐藏期 ${variant.hidden.cpuSeconds.toFixed(3)} 核·s（模式 ${variant.hidden.mode}）`);
 	console.log(`perf-ab: ${label} 剖析：折叠函数占比 ${(variant.profiled.foldShare * 100).toFixed(1)}%（自采样 ${variant.profiled.foldSamples}/${variant.profiled.nonIdleSamples} 非空闲；单剖析迭代，非中位数）`);
-	if (variant.profiled.foldSamples === 0) console.warn(`perf-ab: 告警：${label} 折叠函数零采样——疑似 src 侧改名，绝对采样比值失真（见采样名锚点注释）`);
+	if (variant.profiled.foldSamples === 0) console.warn(`perf-ab: 告警：${label} 折叠函数零采样——src 侧改名（占比失真）或增量路径已完全接管全量折叠（T-185 后的预期形态），结合采样名锚点注释判读`);
 }
 console.log(`perf-ab: 事件期总 CPU 中位数 B/A = ${medBEvent.toFixed(3)} / ${medAEvent.toFixed(3)} = ${Number.isNaN(ratioEvent) ? "NaN" : ratioEvent.toFixed(3)}（折叠绝对采样 A=${variantA.profiled.foldSamples} / B=${variantB.profiled.foldSamples}；宿主常量负载稀释下总比值为参考项）`);
 console.log(`perf-ab: 隐藏期总 CPU 中位数 B/A = ${medBHidden.toFixed(3)} / ${medAHidden.toFixed(3)} = ${Number.isNaN(ratioHidden) ? "N/A（A 低于 tick 分辨率）" : ratioHidden.toFixed(3)}（参考项）`);

@@ -1884,18 +1884,21 @@ export function buildEntries(options = {}) {
 		// 排序键缺失回落宿主列表时间；回落仅用于排序，显示侧以 null 承载（见 stateAt）。
 		return entered ?? instructionTime(byId[id]);
 	};
-	// 平局裁决预建索引（T-186）：ids 原序首现下标入表，比较器平局分支查表替代
-	// ids.indexOf 的每对两次 O(名册) 线扫——同刻时间戳聚集时的二次方退化消除；
-	// 首现下标语义与 indexOf 完全一致（重复 id 取最小下标）。
-	const idOrder = new Map();
-	for (let i = 0; i < ids.length; i += 1) {
-		if (!idOrder.has(ids[i])) idOrder.set(ids[i], i);
-	}
+	// 平局裁决索引按需构建（T-186 审核 Standards-4）：ids 原序首现下标入表，比较器
+	// 平局分支查表替代 ids.indexOf 的每对两次 O(名册) 线扫——同刻时间戳聚集时的
+	// 二次方退化消除。惰性构建取舍：多数帧无同刻聚集，索引无机会被消费——每帧
+	// 无条件物化 O(名册) Map 与本 task「分配清零」目标相悖，故平局分支首次命中
+	// 才建表；首现下标语义与 indexOf 完全一致（重复 id 取最小下标、缺失归 -1）。
+	let idOrder = null;
 	rootIds.sort((a, b) => {
 		const byGroup = Number(isRunningEntry(b)) - Number(isRunningEntry(a));
 		if (byGroup !== 0) return byGroup;
 		const byTime = sortTime(b) - sortTime(a);
 		if (byTime !== 0) return byTime;
+		idOrder ??= new Map();
+		for (let i = 0; i < ids.length; i += 1) {
+			if (!idOrder.has(ids[i])) idOrder.set(ids[i], i);
+		}
 		return (idOrder.get(a) ?? -1) - (idOrder.get(b) ?? -1);
 	});
 
@@ -2748,6 +2751,16 @@ export function buildRecent(options = {}) {
 		const turnEnd = Number(mapValue(turnEnds, id));
 		candidates.push({ id, activityAt: Number.isFinite(turnEnd) ? Math.max(updatedAt, turnEnd) : updatedAt });
 	}
+	// 两段式保序（T-186 审核 F1）：第一阶段收集的 candidates 仍处 ids 原序，轻量键
+	// 排序（activityAt 降序、平局按 id 字典序）必须发生在切片之前——limit 前缀才是
+	// 时间序「最近 N 条」而非名册序前 N；物化后的 entries.sort 保留作防御。
+	candidates.sort((a, b) => {
+		const byActivity = b.activityAt - a.activityAt;
+		if (byActivity !== 0) return byActivity;
+		const aId = String(a.id);
+		const bId = String(b.id);
+		return aId < bId ? -1 : aId > bId ? 1 : 0;
+	});
 	const bounded = isCountLimit(limit) ? candidates.slice(0, limit) : candidates;
 	const entries = [];
 	for (const { id, activityAt } of bounded) {

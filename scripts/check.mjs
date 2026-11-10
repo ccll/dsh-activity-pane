@@ -3692,6 +3692,9 @@ assert.equal(statusOverlayOf(overlayBase, null), overlayBase, "状态面缺席�
 const overlayRebuilt = statusOverlayOf(overlayBase, overlayStatus);
 assert.notEqual(overlayRebuilt, overlayOnce, "缺席帧清账后同引用重建覆盖层（非同一对象，T-186）");
 assert.deepEqual(overlayRebuilt, overlayOnce, "重建内容与既有覆盖层逐字段一致（T-186）");
+const overlayBaseChanged = statusOverlayOf({ ...overlayBase }, overlayStatus);
+assert.notEqual(overlayBaseChanged, overlayOnce, "基快照引用变更而 statusSnapshot 同引用时重建、不短路（T-186 测试缺口①）");
+assert.deepEqual(overlayBaseChanged, overlayOnce, "基快照变更分支的重建内容逐字段一致（T-186 测试缺口①）");
 // buildRecent 两段式等价：第一阶段只做过滤与排序键收集，第二阶段仅对入选前缀物化完整条目。
 // limit 前缀与全量逐字段一致；total=过滤后候选总数（recentTotal/recentHasMore 语义承载）。
 const recentEquivalence = {
@@ -3730,14 +3733,34 @@ const recentPaged = buildRecent({ ...recentEquivalenceArgs, limit: 3 });
 assert.equal(recentPaged.total, recentFull.length, "total=过滤后候选总数（recentTotal 语义承载，T-186）");
 assert.equal(recentFull[0].model, "Model M", "物化只发生在入选前缀（metadata 查表字段等价，T-186）");
 assert.equal(recentFull[0].activityAt, 1_800, "activityAt 精化（turnEnds 取较新者，R-01-010/AC-08）");
+// 对抗性夹具（T-186 审核 F1）：ids 原序与 activityAt 序相反 + 同刻平局对——limit 前缀
+// 必须按时间序（activityAt 降序、平局按 id 字典序）取「最近 N 条」，而非名册序前 N。
+// 期望序列按排序语义手工写出（非同实现自比），并与全量结果前缀互证（两种断言都要）。
+const adversarialRecent = {
+	ids: ["adv-late", "adv-early", "adv-tieB", "adv-tieA"],
+	byId: {
+		"adv-early": { id: "adv-early", displayTitle: "最旧位", running: false, completed: false, updatedAt: 100 },
+		"adv-late": { id: "adv-late", displayTitle: "最新位", running: false, completed: false, updatedAt: 5_000 },
+		"adv-tieA": { id: "adv-tieA", displayTitle: "平局甲", running: false, completed: false, updatedAt: 1_000 },
+		"adv-tieB": { id: "adv-tieB", displayTitle: "平局乙", running: false, completed: false, updatedAt: 1_000 },
+	},
+	current: null,
+};
+const adversRecent = buildRecent({ snapshot: adversarialRecent, workspaceItems: [], now: 6_000 });
+assert.deepEqual(adversRecent.map((entry) => entry.id), ["adv-late", "adv-tieA", "adv-tieB", "adv-early"], "ids 原序与时间序相反时全量按 activityAt 降序、平局按 id 字典序（对抗夹具，T-186 审核 F1）");
+assert.deepEqual(buildRecent({ snapshot: adversarialRecent, workspaceItems: [], now: 6_000, limit: 2 }).map((entry) => entry.id), ["adv-late", "adv-tieA"], "limit 前缀等于按时间序手工期望的最近 2 条（对抗夹具，非同实现自比）");
+assert.deepEqual(buildRecent({ snapshot: adversarialRecent, workspaceItems: [], now: 6_000 }).slice(0, 2).map((entry) => entry.id), adversRecent.slice(0, 2).map((entry) => entry.id), "limit 前缀等于全量 buildRecent 结果前 N（对抗夹具，T-186）");
+// limit 非法形态（负数/NaN/Infinity）回落全量候选、不附 total（T-186 测试缺口②）。
+for (const badLimit of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+	const badBuilt = buildRecent({ ...recentEquivalenceArgs, limit: badLimit });
+	assert.deepEqual(badBuilt.map((entry) => entry.id), recentFull.map((entry) => entry.id), `limit 非法形态（${String(badLimit)}）回落全量候选（T-186 测试缺口②）`);
+	assert.equal(badBuilt.total, undefined, `limit 非法形态（${String(badLimit)}）不附 total（T-186 测试缺口②）`);
+}
 // 索引按工作区清单引用备忘（T-186）：同引用复用同一索引对象、引用变更重建、
 // 非数组输入不入 memo（WeakMap 键须为对象）。
 assert.strictEqual(buildWorkspaceIndex(wsIndexItems), buildWorkspaceIndex(wsIndexItems), "工作区索引按清单引用复用（T-186）");
 assert.notStrictEqual(buildWorkspaceIndex([...wsIndexItems]), buildWorkspaceIndex(wsIndexItems), "清单引用变更重建索引（T-186）");
 assert.notStrictEqual(buildWorkspaceIndex("nope"), buildWorkspaceIndex("nope"), "非数组输入不入 memo（WeakMap 键须为对象，T-186）");
-assert.equal(recentPaged.total, recentFull.length, "total=过滤后候选总数（recentTotal 语义承载，T-186）");
-assert.equal(recentFull[0].model, "Model M", "物化只发生在入选前缀（metadata 查表字段等价，T-186）");
-assert.equal(recentFull[0].activityAt, 1_800, "activityAt 精化（turnEnds 取较新者，R-01-010/AC-08）");
 // waitingStarts 按 busy 内容版本备忘：busyById 原地 clear+set、Map 引用恒不变，严禁以
 // Map 引用作 memo 键——版本未变即复用上帧 Map，版本变更才重建。
 const busyWaits = new Map([["wA", { openWaitStart: 1234 }], ["wN", { openWaitStart: null }], ["wM", {}]]);

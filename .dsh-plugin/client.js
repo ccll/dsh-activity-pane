@@ -2964,6 +2964,164 @@ function delegationActive(state, now) {
 	return Number.isFinite(now) && now - state.drainedAt <= SETTLE_TURN_GRACE_MS;
 }
 
+// ---- 通道增量协议（T-188）：busy/acks 通道「连接全量、变更按会话增量、落盘合帧」 ----
+// 分工契约（R-01-002/AC-10～AC-13、R-01-020/AC-02～AC-07，承诺不变、机制演进）：
+//   - 内存即改：宿主侧插件缓存 Map 是权威状态与增量广播源，变更点同步更新缓存后立即
+//     广播 `patch`（upserts，仅本次变更会话）；读-改-写循环完全在缓存上闭合。
+//   - 落盘延后：KvTable 退化为落盘通道，脏键经 createDirtyFlusher 尾沿合帧写盘。
+//   - 崩溃窗口自愈（R-01-020/AC-04）：合帧间隔内进程崩溃至多丢失该窗口的落盘写（内存
+//     态已失、磁盘停留旧值）；下次懒回填经 reconcileTurnStats 从事件全量重放收敛——
+//     磁盘水位落后则增量应用 seq > watermarkSeq 的事件补缺口，水位超前（seq 空间重编）
+//     则从空状态全量重放——两条恢复路径都不依赖落盘与内存的即时一致性，水位只前进，
+//     恢复语义与整表即写时代完全相同。
+
+/**
+ * 由全量记录与变更 id 集产出增量补丁帧（T-188）：`{ upserts: { [id]: record } }`。
+ * records 接受 `Map<string, record>` 或以会话 id 为键的普通对象；changedIds 为可迭代的
+ * 变更 id 集。畸形 id（非字符串/空串）与缺失记录（records 无该 id 或值为 null/undefined）
+ * 逐条跳过，不抛错；record 原样引用（宿主在广播点一次性 JSON 序列化，无共享可变态）。
+ * 两张通道表（acks/turnStats）均无删除路径，patch 只需 upsert、无需墓碑（T-188 差距
+ * 评估）；空 upserts 的 patch 帧仍返回（调用方以 upserts 为空判定「不广播」）。
+ */
+function buildChannelPatch(records, changedIds) {
+	const upserts = {};
+	if (records === null || typeof records !== "object" || changedIds === null || typeof changedIds[Symbol.iterator] !== "function") {
+		return { upserts };
+	}
+	const byGet = typeof records.get === "function";
+	for (const id of changedIds) {
+		if (typeof id !== "string" || id === "") continue;
+		const record = byGet ? records.get(id) : records[id];
+		if (record === undefined || record === null) continue;
+		upserts[id] = record;
+	}
+	return { upserts };
+}
+
+/**
+ * `GET /api/busy?ids=` 查询参数解析（T-188）：逗号分隔会话 id，逐项 trim、剔除空段、
+ * 去重；解析出至少一个合法 id 且总量不超过 maxIds 时返回裁剪 id 数组，否则返回 null
+ * 表示回退全量（非法/空/超量形态统一防御，R-01-020/AC-05 懒回填触发口径不受裁剪影响）。
+ * raw 为 null/undefined（未携带 ids 参数）同样返回 null——全量响应、不触发回填。
+ */
+function parseBusyIdsParam(raw, maxIds) {
+	if (typeof raw !== "string") return null;
+	const ids = [...new Set(raw.split(",").map((id) => id.trim()).filter((id) => id !== ""))];
+	if (ids.length === 0 || !(Number.isFinite(maxIds) && maxIds > 0) || ids.length > maxIds) return null;
+	return ids;
+}
+
+/**
+ * 脏键尾沿合帧落盘调度器（T-188）：宿主把「内存即改」与「落盘延后」解耦后，由本调度器
+ * 承载落盘节奏——markDirty 之前调用方须已完成对应键的内存更新（内存立即可读、立即可
+ * 广播），flush 在尾沿把累积的脏键集合一次性交给宿主写盘。
+ *
+ * 调度语义（尾沿合帧 + 延迟上界）：首个标脏起 intervalMs 后交付一次 flush（多次标脏合并
+ * 为一个批次）；flush 在途期间的新标脏不叠加定时器，flush 结束后按「尾沿到期时刻起的
+ * 剩余时间」补排下一轮——落盘延迟上界为 intervalMs（自首标起算），不因 flush 耗时或
+ * 持续标脏无限推迟。flush 由宿主提供并自行消费写盘错误（宿主 logger 告警、内存态继续，
+ * 见 T-188 验证矩阵异常行）；调度器不吞 flush 的拒绝——自动尾沿路径将拒绝暂存，
+ * 由下一次 flushNow/dispose 的调用方观察。批次与批次之间经单一 promise 链串行，同键
+ * 的落盘写严格有序、值取 put 调用瞬间的最新内存态，磁盘值序列是内存值序列的子序列。
+ *
+ * schedule/cancel（默认 setTimeout/clearTimeout）与 now（默认 Date.now）可注入，供
+ * 单测以假时钟驱动尾沿推进与剩余时间对齐断言。
+ *
+ * 卸载路径：dispose() 取消在途定时器并立即冲刷全部剩余脏键，供插件卸载钩子触发——
+ * 宿主在 cordis effect 清理链中 await 它（LIFO 先于 domain.close 排空写链），使合帧
+ * 窗口内的最后一批变更在进程退出前落盘；窗口外进程消失（崩溃/强杀）不走该路径，
+ * 由上文「崩溃窗口自愈」承接（R-01-020/AC-04，SSE 全量快照与懒回填保证恢复一致）。
+ */
+function createDirtyFlusher({ flush, intervalMs, now = Date.now, schedule = setTimeout, cancel = clearTimeout } = {}) {
+	const delay = Number(intervalMs);
+	if (typeof flush !== "function") throw new TypeError("flush 必须为函数");
+	if (!Number.isFinite(delay) || !(delay > 0)) throw new TypeError("intervalMs 必须为正数毫秒");
+	const at = typeof now === "function" ? now : Date.now;
+	const scheduleFn = schedule;
+	const cancelFn = cancel;
+	let dirty = new Set();
+	let timer = null;
+	let inflight = null;
+	let storedError = null;
+
+	function pump(remaining = delay) {
+		if (timer !== null || inflight !== null) return;
+		timer = scheduleFn(runTail, remaining);
+	}
+
+	async function deliver(batch) {
+		try {
+			await flush(batch);
+		} catch (error) {
+			// 不吞错（首错保留，交由 flushNow/dispose 调用方观察）；内存态不受影响。
+			storedError = storedError ?? error;
+		}
+	}
+
+	/** 交付一批并在 settle 后接续调度（剩余时间按尾沿到期时刻对齐）。 */
+	function startBatch(batch, dueAt) {
+		inflight = deliver(batch).finally(() => {
+			inflight = null;
+			// 交付在途互斥解除后再补排：deliver 自身的 finally 先于本回调执行，
+			// 在彼处 pump 会被 inflight 互斥吞掉，脏键将滞留到下一次标脏。
+			if (dirty.size > 0) pump(Math.max(0, delay - (at() - dueAt)));
+		});
+		return inflight;
+	}
+
+	function runTail() {
+		timer = null;
+		if (inflight !== null || dirty.size === 0) return;
+		startBatch(dirty, at());
+		dirty = new Set();
+	}
+
+	/** 标脏（须在对应键内存更新之后调用）：首次标脏启动尾沿定时器，同批窗口内合并。 */
+	function markDirty(...keys) {
+		for (const key of keys) {
+			if (typeof key === "string" && key !== "") dirty.add(key);
+		}
+		if (dirty.size > 0) pump();
+	}
+
+	/** 立即冲刷：取消在途定时器、等待在途写完成、冲刷全部剩余脏键；幂等可并发调用。 */
+	async function flushNow() {
+		if (timer !== null) {
+			cancelFn(timer);
+			timer = null;
+		}
+		for (;;) {
+			if (inflight !== null) {
+				await inflight;
+				continue;
+			}
+			if (dirty.size > 0) {
+				const batch = dirty;
+				dirty = new Set();
+				await startBatch(batch, at());
+				continue;
+			}
+			if (storedError !== null) {
+				const error = storedError;
+				storedError = null;
+				throw error;
+			}
+			return;
+		}
+	}
+
+	/** 卸载冲刷（T-188）：取消定时器并冲刷剩余脏键；返回 promise 供卸载钩子 await。 */
+	async function dispose() {
+		if (timer !== null) {
+			cancelFn(timer);
+			timer = null;
+		}
+		await flushNow();
+	}
+
+	return { markDirty, flushNow, dispose };
+}
+
 /**
  * 为单张 card 绑定点击/键盘激活，并返回卸载函数。
  * 事件处理读取 card 当前的 data-session-id，兼容同一 DOM 在渲染中复用。
@@ -4896,14 +5054,28 @@ function apply(ctx) {
 	}
 
 	// ---- 完成确认通道（R-01-002/AC-10～AC-12、R-01-010/AC-06，C-030） ----
-	// SSE 订阅宿主侧 ack 状态：连接即收全量快照（刷新/重连恢复），此后每次变更
-	// （任一客户端的确认、任一回合结束）推送新全量。无 EventSource 环境静默降级
-	// 为无完成提醒（宿主侧不可用时插件其余功能不受影响）。
+	// SSE 订阅宿主侧 ack 状态：连接即收全量快照（刷新/重连恢复），此后每次变更推送
+	// 增量补丁（T-188：`patch` 事件逐 id upsert，仅本次变更会话）。无 EventSource 环境
+	// 静默降级为无完成提醒（宿主侧不可用时插件其余功能不受影响）。
 	// 移动 PWA 退后台时系统掐断连接，恢复时 EventSource 常以 CLOSED 终态落地不再
 	// 自动重连（或半开死连接看似 OPEN 却不再收到广播），本地 ack 状态随之永久停滞；
 	// 故回到前台时无条件重建连接——连接即收全量快照，各失效形态一并收敛
 	// （R-01-002/AC-12 缺陷回归：完成等待中的会话曾被误判入历史区直至整页重载）。
+	// 未注册监听的事件类型（含宿主未来新增类型）EventSource 天然忽略，向前兼容。
 	let acksSource = null;
+
+	/** ack 记录归一（R-01-002）：state 全量与 patch 增量共用同一形状校验——lastTurnEnd
+	 *  非法时刻的记录不入 Map（返回 null），字段缺失按 null 容纳。 */
+	function ackRecordFrom(record) {
+		const lastTurnEnd = Number(record?.lastTurnEnd);
+		if (!(Number.isFinite(lastTurnEnd) && lastTurnEnd > 0)) return null;
+		return {
+			lastTurnEnd,
+			lastTurnEndKind: typeof record?.lastTurnEndKind === "string" ? record.lastTurnEndKind : null,
+			lastTurnEndError: typeof record?.lastTurnEndError === "string" ? record.lastTurnEndError : null,
+			ackedAt: Number(record.ackedAt) || null,
+		};
+	}
 
 	/** SSE 全量快照应用：解析成功才整体替换本地状态并重绘；坏帧静默丢弃。 */
 	function applyAcksState(raw) {
@@ -4917,15 +5089,28 @@ function apply(ctx) {
 		if (state === null || typeof state !== "object") return;
 		completeAcksById.clear();
 		for (const [id, record] of Object.entries(state)) {
-			const lastTurnEnd = Number(record?.lastTurnEnd);
-			if (Number.isFinite(lastTurnEnd) && lastTurnEnd > 0) {
-				completeAcksById.set(String(id), {
-					lastTurnEnd,
-					lastTurnEndKind: typeof record?.lastTurnEndKind === "string" ? record.lastTurnEndKind : null,
-					lastTurnEndError: typeof record?.lastTurnEndError === "string" ? record.lastTurnEndError : null,
-					ackedAt: Number(record.ackedAt) || null,
-				});
-			}
+			const normalized = ackRecordFrom(record);
+			if (normalized !== null) completeAcksById.set(String(id), normalized);
+		}
+		queueSync();
+	}
+
+	/** SSE 增量补丁应用（T-188）：`{ upserts: { [id]: record } }` 逐 id 合并进本地状态，
+	 *  形状校验与 state 同口径（ackRecordFrom）；坏帧与缺 upserts 静默丢弃。 */
+	function applyAcksPatch(raw) {
+		if (disposed) return;
+		let patch = null;
+		try {
+			patch = JSON.parse(raw);
+		} catch {
+			patch = null;
+		}
+		if (patch === null || typeof patch !== "object") return;
+		const upserts = patch.upserts;
+		if (upserts === null || typeof upserts !== "object") return;
+		for (const [id, record] of Object.entries(upserts)) {
+			const normalized = ackRecordFrom(record);
+			if (normalized !== null) completeAcksById.set(String(id), normalized);
 		}
 		queueSync();
 	}
@@ -4940,6 +5125,7 @@ function apply(ctx) {
 		try {
 			const source = new window.EventSource(`${PANE_API_BASE}/acks/stream`);
 			source.addEventListener("state", (event) => applyAcksState(event.data ?? ""));
+			source.addEventListener("patch", (event) => applyAcksPatch(event.data ?? ""));
 			acksSource = source;
 		} catch {
 			acksSource = null;
@@ -4986,14 +5172,16 @@ function apply(ctx) {
 
 	// ---- 累计运行时长通道（R-01-020，C-074） ----
 	// SSE 订阅宿主侧回合统计：连接即收全量快照（刷新/重连恢复），此后每次变更（回合
-	// 边界、回填完成）推送新全量。无 EventSource 环境静默降级为不显示累计时长。
-	// 可见会话的懒回填经 GET /busy?ids= 触发（fire-and-forget），完成后经同一 SSE 广播；
-	// GET 响应按 id 只补缺（applyBusyBackfill），SSE 全量快照始终是权威通道。
+	// 边界、回填完成）推送增量补丁（T-188：`patch` 事件逐 id upsert，仅本次变更会话）。
+	// 无 EventSource 环境静默降级为不显示累计时长。
+	// 可见会话的懒回填经 GET /busy?ids= 触发（fire-and-forget），完成后经同一 SSE 增量
+	// 推送；GET 响应按 id 只补缺（applyBusyBackfill），SSE 通道始终是权威通道。
 	const busyById = new Map(); // sessionId -> { busyMs, openTurnStart }
 	const busyRequestedIds = new Set(); // 已触发过回填的会话 id（宿主侧单飞，本地防重复请求）
 	const busyRetryAtById = new Map(); // sessionId -> 回填失败后的最早重试时刻（30s 退避，不逼近轮询）
 	// busy 内容版本号（T-186）：busyById 原地 clear+set、Map 引用恒不变，waitingStarts
-	// 的帧间 memo 以本版本号记账——全部变更点（applyBusyState/applyBusyBackfill/cleanup）递增。
+	// 的帧间 memo 以本版本号记账——全部变更点（applyBusyState/applyBusyBackfill/
+	// applyBusyPatch/cleanup）递增。
 	let busyVersion = 0;
 	// 渲染帧名册级 memo 实例（T-186）：statusSnapshot 覆盖层按（基快照, statusSnapshot）
 	// 双引用短路不换壳；waitingStarts 按内容版本复用上帧 Map。
@@ -5032,11 +5220,36 @@ function apply(ctx) {
 		queueSync();
 	}
 
+	/** SSE 增量补丁应用（T-188）：`{ upserts: { [id]: record } }` 逐 id 覆盖合并（upsert
+	 *  语义——宿主两表无删除路径，patch 只携带存在记录），busyRecordFrom 归一；内容变更
+	 *  后递增 busyVersion（T-186 记账契约：busyById 原地变更、帧间 memo 按版本记账，patch
+	 *  与 state/backfill 同为变更点）；坏帧与缺 upserts 静默丢弃。未知事件类型未注册监听，
+	 *  EventSource 天然忽略（向前兼容）。 */
+	function applyBusyPatch(input) {
+		if (disposed) return;
+		let patch = typeof input === "object" && input !== null ? input : null;
+		if (patch === null) {
+			try {
+				patch = JSON.parse(input);
+			} catch {
+				patch = null;
+			}
+		}
+		if (patch === null || typeof patch !== "object") return;
+		const upserts = patch.upserts;
+		if (upserts === null || typeof upserts !== "object") return;
+		for (const [id, record] of Object.entries(upserts)) {
+			busyById.set(String(id), busyRecordFrom(record));
+		}
+		busyVersion += 1;
+		queueSync();
+	}
+
 	/** 懒回填响应应用（R-01-020/AC-05）：只补 busyById 缺失的 id，不覆盖、不清除既有记录。
-	 *  安全依据：宿主每次变更（含回填完成）都经 SSE 全量广播且单流按序，SSE 数据恒不旧于
-	 *  同刻 GET 响应——回填响应可能先于宿主登记 turn/start 发出（卡片渲染早于登记）、迟到
-	 *  落地，按 id 只补缺即不会用陈旧点读回退新鲜状态；缺失 id 的补录在冷启动下与全量应用
-	 *  等价，刷新/重连路径无回归。 */
+	 *  安全依据：宿主每次变更（含回填完成）都经同一 SSE 单流按序推送（T-188 起 state 全量
+	 *  或 patch 增量），SSE 数据恒不旧于同刻 GET 响应——回填响应可能先于宿主登记 turn/start
+	 *  发出（卡片渲染早于登记）、迟到落地，按 id 只补缺即不会用陈旧点读回退新鲜状态；缺失
+	 *  id 的补录在冷启动下与全量应用等价，刷新/重连路径无回归。 */
 	function applyBusyBackfill(state) {
 		if (disposed || state === null || typeof state !== "object") return;
 		let changed = false;
@@ -5102,6 +5315,7 @@ function apply(ctx) {
 		try {
 			const source = new window.EventSource(`${PANE_API_BASE}/busy/stream`);
 			source.addEventListener("state", (event) => applyBusyState(event.data ?? ""));
+			source.addEventListener("patch", (event) => applyBusyPatch(event.data ?? ""));
 			busySource = source;
 		} catch {
 			busySource = null;

@@ -4640,7 +4640,28 @@ assert.ok(!bundle.includes("serviceTimer"), "服务发现不得保留后台定�
 assert.ok(!bundle.includes("frameProbeTimer"), "宿主 frame 发现不得保留后台定时器");
 assert.ok(bundle.includes("conversationObserver"), "流式 DOM 观察绑定到 conversation seat");
 assert.ok(bundle.includes("centerObserver"), "宿主结构变化通过 center 直接子节点通知处理");
-assert.ok(bundle.includes("setInterval(() => queueSync(), CLOCK_MS)"), "运行卡时长继续使用独立的 1 秒时钟");
+assert.ok(bundle.includes("setInterval(() => tickClockFrames(), CLOCK_MS)"), "运行卡时长继续使用独立的 1 秒时钟（回调改走局部刷新通道，T-189）");
+// T-189 1Hz 时钟局部刷新通道：时钟帧绕过全量派生与签名只补随钟叶子文本。
+assert.ok(
+	bundle.includes("function tickClockFrames") && bundle.includes("function tickEntryClock"),
+	"时钟帧补写函数进入 bundle（T-189）",
+);
+assert.ok(
+	bundle.includes("lastCommittedEntries = visibleEntries"),
+	"时钟帧数据源在 renderOk 提交分支随 lastSig 同点登记（T-189）",
+);
+const clockFramesSource = clientSource.slice(
+	clientSource.indexOf("function tickClockFrames"),
+	clientSource.indexOf("function getSessionSnapshot"),
+);
+assert.ok(
+	(clientSource.match(/lastSig = sig;/g) ?? []).length === 1
+		&& !clockFramesSource.includes("lastSig")
+		&& !clockFramesSource.includes("queueSync")
+		&& !clockFramesSource.includes("buildEntries")
+		&& !clockFramesSource.includes("cardSignature"),
+	"时钟帧不写 lastSig（全源唯一提交点在 renderOk）、不经 queueSync、不触派生与签名——全事件路径必经 queueSync 全量校正兜底（T-189 红线）",
+);
 assert.ok(bundle.includes("RECENT_TIME_REFRESH_MS") && bundle.includes("syncRecentTimeClock"), "历史卡相对时间使用独立的分钟级刷新时钟（R-01-013/AC-05）");
 // R-01-014/AC-01
 // R-01-014/AC-02

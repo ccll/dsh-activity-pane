@@ -121,15 +121,19 @@ export default async function busyBackfillRace({ page, url, assert }) {
 	const downgradedText = await until("SSE 不可用时 GET 回填仍驱动累计运行时长显示", () => busyLabelProbe(page2, TITLE2), 15_000);
 	assert.ok(/^\d+s$/.test(downgradedText), `降级路径显示实时秒读（R-01-020/AC-05，实际：${downgradedText}）`);
 
-	// 持续走字：0.9s 后仍可见且读数严格递增（排除一次性渲染的巧合）。
-	await sleep(900);
-	const laterText = await busyLabelProbe(page2, TITLE2);
+	// 持续走字：读数推进改为轮询等待（T-189）。固定 0.9s 窗存在双重时序边缘：秒读
+	// 四舍五入桶（"3s" 覆盖 2.5s–3.5s 实时区间）可能整窗不跨桶边界；且 1Hz 时钟帧
+	// 的写入相位独立于秒桶翻转时刻（旧全量管线靠流式期密集事件帧以 ≤150ms 延迟
+	// 掩盖该相位差）。轮询 ≤3s（至少 2 个时钟 tick）吸收两处相位差，断言语义不变：
+	// 排除一次性渲染巧合，持续在场且单调递增。
+	const advancedText = await until("降级路径读数持续走字", async () => {
+		const text = await busyLabelProbe(page2, TITLE2);
+		return text !== null && /^\d+s$/.test(text) && Number.parseInt(text, 10) > Number.parseInt(downgradedText, 10) ? text : null;
+	}, 3_000);
 	assert.ok(backfillGets >= 1, "SSE 拒连后回填 GET 确实发生（路由失配会使降级验证空转）");
-	const firstSeconds = Number.parseInt(downgradedText, 10);
-	const laterSeconds = laterText === null ? 0 : Number.parseInt(laterText, 10);
 	assert.ok(
-		laterText !== null && /^\d+s$/.test(laterText) && laterSeconds > firstSeconds,
-		`降级路径读数持续在场且单调递增（R-01-020/AC-05，${downgradedText} → ${laterText}）`,
+		advancedText !== null,
+		`降级路径读数持续在场且单调递增（R-01-020/AC-05，${downgradedText} → ${advancedText ?? "未推进"}）`,
 	);
 	await page2.close();
 }

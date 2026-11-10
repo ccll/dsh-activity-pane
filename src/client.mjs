@@ -1514,6 +1514,12 @@ function apply(ctx) {
 	const cardsById = new Map();
 	/** 历史区卡片 id → { el } 复用表。 */
 	const recentCardsById = new Map();
+	/** 上一已提交帧的条目对象引用（active+recent 全量，1Hz 时钟局部刷新通道 T-189）：
+	 *  随钟叶子文本全部可由这些对象与 Date.now() 重算（字段已在富化循环注入条目）。
+	 *  生命周期：renderOk 提交分支随 lastSig 同点重建；渲染失败帧保留上一成功帧
+	 *  （与 lastSig 同语义，失败帧的半更新 DOM 由下一轮全量重试自愈）；窗格重挂载
+	 *  与卸载时清空——旧条目的卡片已随旧 pane/卸载移除，复用表查不到即自然跳过。 */
+	let lastCommittedEntries = [];
 	/** 历史区渐进呈现状态：候选由核心完整派生，DOM 与详情读取只覆盖当前前缀。 */
 	let recentVisibleCount = RECENT_PAGE_SIZE;
 	let recentTotal = 0;
@@ -3584,10 +3590,28 @@ function apply(ctx) {
 		}
 	}
 
-	/** 进度行写入（运行卡与子代理卡共用，R-01-009/AC-06、AC-14）：百分比与填充宽度，未变化跳过 DOM 写。 */
+	/** 标题行累计运行时长写入（R-01-020/AC-01、AC-06）：有数据才显示，无数据（含
+	 *  子代理卡）隐藏节点，不以 0 冒充。事件帧（renderCardInto）与 1Hz 时钟帧
+	 *  （tickEntryClock，T-189）共用同一守卫式写入点。 */
+	function setTotalTimeText(el, entry) {
+		const totalTime = el.querySelector(".dap-total-time");
+		if (totalTime === null) return;
+		const totalText = Number.isFinite(entry.totalBusyMs) && entry.totalBusyMs >= 0 ? fmtElapsedMs(entry.totalBusyMs) : "";
+		if (totalTime.textContent !== totalText) totalTime.textContent = totalText;
+		const totalHidden = totalText === "";
+		if (totalTime.hidden !== totalHidden) totalTime.hidden = totalHidden;
+	}
+
+	/** 进度行写入（运行卡与子代理卡共用，R-01-009/AC-06、AC-14）：百分比与填充宽度，
+	 *  未变化跳过 DOM 写。百分比同样写前比对——1Hz 时钟帧（T-189）复用本函数补写，
+	 *  同值写入会替换文本节点并触发无谓的 characterData 变更（background-jobs 静默
+	 *  观测窗把文本变更计为逐秒重绘）。 */
 	function renderProgressRow(el, progress) {
 		const pct = el.querySelector(".dap-pct");
-		if (pct !== null) pct.textContent = `${Math.round(progress ?? 0)}%`;
+		if (pct !== null) {
+			const pctText = `${Math.round(progress ?? 0)}%`;
+			if (pct.textContent !== pctText) pct.textContent = pctText;
+		}
 		const fill = el.querySelector(".dap-fill");
 		if (fill !== null) {
 			const width = `${Math.min(100, Math.max(0, progress ?? 0))}%`;
@@ -3790,13 +3814,7 @@ function apply(ctx) {
 			title.textContent = entry.title;
 		// 标题行最右侧的累计运行时长（R-01-020/AC-01、AC-06）：有数据才显示，
 		// 无数据（含子代理卡）隐藏节点，不以 0 冒充。
-		const totalTime = el.querySelector(".dap-total-time");
-		if (totalTime !== null) {
-			const totalText = Number.isFinite(entry.totalBusyMs) && entry.totalBusyMs >= 0 ? fmtElapsedMs(entry.totalBusyMs) : "";
-			if (totalTime.textContent !== totalText) totalTime.textContent = totalText;
-			const totalHidden = totalText === "";
-			if (totalTime.hidden !== totalHidden) totalTime.hidden = totalHidden;
-		}
+		setTotalTimeText(el, entry);
 
 		const capsule = el.querySelector(".dap-capsule");
 		// 陈旧骨架就地迁移（C-043 热装兼容）：旧版「正文行 + 行尾类型徽标」骨架升级为
@@ -4067,9 +4085,12 @@ function apply(ctx) {
 		// 运行卡时钟：有运行呈现卡（含委托周期母会话）且页面可见才启动，无则停。
 		// 隐藏页停摆（T-181 ③a）：时长显示不可见，逐秒唤醒无观察者；回前台经
 		// visibilitychange → resumeRenderPipeline 补一轮渲染并按需重启。
+		// T-189：1s 时钟回调改走局部刷新通道（tickClockFrames）——随钟变化的只有
+		// 叶子文本/宽度，绕过全量派生与签名；60s 时钟（syncRecentTimeClock）保持
+		// queueSync 全量管线，承载分钟级字段（等待年龄、最近时间）。
 		const clockEffective = clockWanted && !pageHidden();
 		if (clockEffective && clockTimer === null) {
-			clockTimer = setInterval(() => queueSync(), CLOCK_MS);
+			clockTimer = setInterval(() => tickClockFrames(), CLOCK_MS);
 		} else if (!clockEffective && clockTimer !== null) {
 			clearInterval(clockTimer);
 			clockTimer = null;
@@ -4085,6 +4106,95 @@ function apply(ctx) {
 		} else if (!effective && recentTimeTimer !== null) {
 			clearInterval(recentTimeTimer);
 			recentTimeTimer = null;
+		}
+	}
+
+	/** 1Hz 时钟局部刷新通道（T-189）：时钟帧绕过全量派生与签名，对上一已提交帧
+	 *  （lastCommittedEntries）的条目直接补写随 `Date.now()` 推进的叶子文本/样式。
+	 *
+	 *  随钟字段清单（勘定依据，可见面变更时同步复核）：
+	 *   - 标题行累计运行时长 `.dap-total-time` ← entry.totalBusyMs = totalBusyDisplayMs(...)
+	 *     （applyTotalBusy 同一封装，R-01-020/AC-01；非 subagent 条目三档同码显示）。
+	 *     blocked 等待期公式自冻结（openTurnStart/openWaitStart 增量抵消，core JSDoc），
+	 *     冻结期写前比对零写入；openWaitStart 未配对的推送在途瞬态随秒增长，与全量
+	 *     管线同行为，故 awaiting/recent 也纳入重算。
+	 *   - 统计行时长 `.dap-token-time` ← fmtElapsedMs(entry.elapsedMs)（R-01-009/AC-05）：
+	 *     running/subagent 运行态 elapsedMs = now − 锚点起点（progressAnchorById 帧间
+	 *     记账在上一事件帧已就绪，重算为纯函数调用）；冻结态（锚点空）不补写，
+	 *     running 保持空串、暂停子代理保持冻结的最近回合耗时。
+	 *   - 进度行 `.dap-pct` 文本与 `.dap-fill` 宽度 ← progressOf(...)（纯时间驱动
+	 *     y = t/(t+k)，R-01-009/AC-06）；`.dap-fill` width 过渡（0.45s，client.mjs
+	 *     进度条样式）连续性不受影响——写入频率与值序列和全量管线逐字节同源。
+	 *   - job 子卡时长 `.dap-job-elapsed` ← fmtElapsedMs(now − jobStartedAt)
+	 *     （R-01-023/AC-05，与 renderJobCardInto 同口径；秒桶 jobsAgeSec 只进渲染
+	 *     签名驱动事件帧重绘，本通道直接由起点重算文本）。
+	 *  分钟级字段不进本通道：awaiting `.dap-await-age`（fmtRelativeAge 分钟分级）与
+	 *  recent `.dap-note`（fmtRecentTime 分钟桶缓存）由 60s 时钟的全量管线承载。
+	 *  非随钟项勘定排除：统计行 token/速率列（列表投影驱动）、jobs 数量注
+	 *  （jobsChipState 无时钟分量）、时间线（history 派生，无行级耗时元素）、
+	 *  aria-label 与 data-* 属性、加载指示（数据在途标志）。
+	 *
+	 *  正确性兜底（红线）：时钟帧不写 lastSig——签名仍以上一轮全量渲染的提交值为准，
+	 *  而任何数据变化路径（SSE 快照/补丁、会话订阅推送、ack、busy 回填、目录 store、
+	 *  resize、可见性恢复）必经 queueSync → 全量 render 重算签名与 DOM，时钟帧跳过的
+	 *  派生不会吞掉真实变化；事件帧与时钟帧交错时，事件帧全量校正覆盖全部叶子。
+	 *
+	 *  边界：条目对应卡片已被 pruneCards 摘除（复用表查不到）即跳过——补写永不创建/
+	 *  移动/删除节点、不触碰派生与 DOM 结构；只 querySelector 与读内联样式，不读布局；
+	 *  逐条目异常隔离（单卡补写抛错不冻结其余卡片，下一事件帧全量校正自愈）。渲染
+	 *  失败帧中锚点记账可能先行推进，时钟帧据新锚点写出的文本方向无害（时长/进度
+	 *  单调趋真）。页面隐藏自查与 clockEffective 门控双保险（回调触发瞬间可能刚转
+	 *  隐藏，无 rAF 挡板的同步写入须自门控，T-181 ③a 语义）。 */
+	function tickClockFrames() {
+		if (disposed || pageHidden()) return;
+		const now = Date.now();
+		for (const entry of lastCommittedEntries) {
+			try {
+				tickEntryClock(entry, now);
+			} catch {
+				// 单卡补写异常静默隔离：呈现停摆在下一事件帧全量校正自愈（R-01-013/AC-02）。
+			}
+		}
+	}
+
+	/** 单条目随钟补写：按 kind 重算随钟字段并经共享写入点守卫式补写叶子（写前比对，
+	 *  renderProgressRow/renderTokenStats/setTotalTimeText 与事件帧同函数同守卫）；
+	 *  重算值写回条目对象保持字段与 DOM 同相——条目对象是上一提交帧私有状态，签名
+	 *  在事件帧用全新派生对象计算，写回不参与签名比较。 */
+	function tickEntryClock(entry, now) {
+		// 标题行累计运行时长：非 subagent 条目统一重算（awaiting/recent 的冻结期恒等
+		// 零写入，开放回合在飞或推送在途瞬态随秒推进，与全量管线同行为）。
+		if (entry.kind !== "subagent") {
+			applyTotalBusy(entry, now);
+			const rec = (entry.kind === "recent" ? recentCardsById : cardsById).get(entry.id);
+			if (rec !== undefined) setTotalTimeText(rec.el, entry);
+		}
+		if (entry.kind === "running" || entry.kind === "subagent") {
+			const anchor = progressAnchorById.get(entry.id);
+			// 锚点空 = 呈现冻结态（jobs-only 母卡 / 暂停等待子代理）：与事件帧富化分支
+			// 同判定口径，本帧不补写（进度行/统计行保持事件帧形态）。
+			if (!Number.isFinite(anchor?.anchor)) return;
+			const elapsedMs = Math.max(0, now - anchor.anchor);
+			entry.elapsedMs = elapsedMs;
+			entry.progress = progressOf({ elapsedMs, halfLifeSec: progressHalfLifeSec({ rateTokS: entry.rateTokS }) });
+			// 进度行与统计行仅完整档写入（档位资源纪律 R-01-025/AC-05，与事件帧写入门
+			// 控一致）；job 条目只在完整档存在（登记源已过滤），无档位分支。
+			if (densityLevel !== "full") return;
+			const rec = cardsById.get(entry.id);
+			if (rec === undefined) return;
+			renderTokenStats(rec.el, entry);
+			// jobs-only 母卡进度行隐藏（呈现冻结，R-01-023/AC-01）：以条目字段同源判定
+			// （与 renderCardInto 的 jobsOnly 判定同式），不读 DOM 属性。
+			const jobsOnly = Array.isArray(entry.liveJobs) && entry.liveJobs.length > 0 && entry.selfRunning !== true;
+			if (!jobsOnly) renderProgressRow(rec.el, entry.progress);
+			return;
+		}
+		if (entry.kind === "job") {
+			const rec = cardsById.get(entry.id);
+			if (rec === undefined || !(Number.isFinite(entry.jobStartedAt) && entry.jobStartedAt > 0)) return;
+			const elapsedText = fmtElapsedMs(Math.max(0, now - entry.jobStartedAt));
+			const elapsedEl = rec.el.querySelector(".dap-job-elapsed");
+			if (elapsedEl !== null && elapsedEl.textContent !== elapsedText) elapsedEl.textContent = elapsedText;
 		}
 	}
 
@@ -4570,6 +4680,7 @@ function apply(ctx) {
 		if (pane !== renderedPane) {
 			renderedPane = pane;
 			lastSig = "";
+			lastCommittedEntries = [];
 			pulseSignature = "";
 			prevRenderedActiveIds = new Set();
 			prevRenderedRecentIds = new Set();
@@ -5071,8 +5182,11 @@ function apply(ctx) {
 
 		// 渲染签名在整轮 DOM 写入全部成功后提交：任何一步失败都保留下一轮
 		// 同步重试的机会，避免故障被签名吞掉后卡片永久滞留（R-01-013/AC-02）。
+		// lastCommittedEntries 同点登记（T-189）：时钟帧补写的条目快照与 lastSig
+		// 同生命周期——失败帧保留上一成功帧，时钟帧据此续写上一成功帧的叶子。
 		if (renderOk) {
 			lastSig = sig;
+			lastCommittedEntries = visibleEntries;
 			pulseSignature = nextPulseSignature;
 			prevRenderedActiveIds = new Set(active.map((entry) => String(entry.id)));
 			prevRenderedRecentIds = new Set(recent.map((entry) => String(entry.id)));
@@ -5325,6 +5439,7 @@ function apply(ctx) {
 		if (clockTimer !== null) clearInterval(clockTimer);
 		if (recentTimeTimer !== null) clearInterval(recentTimeTimer);
 		if (syncThrottleTimer !== null) clearTimeout(syncThrottleTimer);
+		lastCommittedEntries = [];
 		// 流式派生合并窗口：逐 detail 清理在途 timer（T-127）。
 		for (const detail of sessionDetailsById.values()) {
 			if (detail.logDeriveTimer) clearTimeout(detail.logDeriveTimer);

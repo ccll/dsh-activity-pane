@@ -1355,15 +1355,28 @@ function livenessFromSnapshot(snap) {
 	return { startTime };
 }
 
-/** 历史卡时间同时给出本地绝对日期时分与相对年龄；跨年份的绝对日期带年份。 */
+/** 历史卡时间同时给出本地绝对日期时分与相对年龄；跨年份的绝对日期带年份。
+ *  格式化结果按「时刻+分钟桶」缓存（T-183）：每次交付对每张历史卡重复格式化
+ *  同一 activityAt，字符串在分钟粒度内恒定——有界 Map 命中即返回，超界整表
+ *  清空（相对年龄按分钟分级，分钟桶翻转时自然失效重算）。 */
+const recentTimeCache = new Map();
 function fmtRecentTime(ts, now = Date.now()) {
 	try {
 		const value = Number(ts);
 		const current = Number(now);
+		const cacheKey = `${value}:${Math.floor(current / 60_000)}`;
+		const cached = recentTimeCache.get(cacheKey);
+		if (cached !== undefined) return cached;
 		const absolute = fmtAbsoluteDateTime(ts, now);
-		if (!absolute) return "";
-		const relative = fmtRelativeAge(current - value);
-		return relative ? `最后活动 · ${absolute} · ${relative}` : `最后活动 · ${absolute}`;
+		const formatted = absolute
+			? (() => {
+					const relative = fmtRelativeAge(current - value);
+					return relative ? `最后活动 · ${absolute} · ${relative}` : `最后活动 · ${absolute}`;
+				})()
+			: "";
+		if (recentTimeCache.size >= 256) recentTimeCache.clear();
+		recentTimeCache.set(cacheKey, formatted);
+		return formatted;
 	} catch {
 		return "";
 	}
@@ -1426,6 +1439,8 @@ function apply(ctx) {
 	let lastJobsSignature = null;
 	/** jobs 快照 rows 读取单点（T-181 ①）：订阅回调与基线重置共用同一取法。 */
 	const jobsRowsOf = () => jobs?.state?.getSnapshot?.()?.rows ?? null;
+	// jobs 订阅差集的快照引用基线（T-183）：同快照引用下 ids 集合不变，免逐帧重建。
+	let lastJobsWatchSnapshot = null;
 	let clockTimer = null;
 	let recentTimeTimer = null;
 	let syncScheduled = false;
@@ -2638,6 +2653,9 @@ function apply(ctx) {
 		} catch {
 			jobsUnsubscribe = null;
 		}
+		// 订阅差集基线重置不依赖订阅成功（T-183 复审）：subscribe 抛错时基线也须
+		// 复位，否则旧引用早退会跳过下一轮的差集重建。
+		lastJobsWatchSnapshot = null;
 
 		queueSync();
 	}
@@ -4005,6 +4023,11 @@ function apply(ctx) {
 	 *  重入只处理差集。服务缺失时整轮跳过。 */
 	function syncJobsWatches(listSnapshot) {
 		if (typeof jobs?.watchRows !== "function") return;
+		// 快照引用短路（T-183）：订阅差集只依赖列表快照的 ids 集合——同一快照引用
+		// 内 ids 恒定（宿主缓存保证两次推送间引用稳定），重复重建 4700 项 String
+		// 集合纯属逐帧浪费。快照引用变化（任何列表推送）即照常重算。
+		if (listSnapshot === lastJobsWatchSnapshot) return;
+		lastJobsWatchSnapshot = listSnapshot;
 		const ids = Array.isArray(listSnapshot?.ids) ? listSnapshot.ids : [];
 		const wanted = new Set(ids.map((id) => String(id)));
 		for (const [key, stop] of [...jobWatchById]) {
@@ -4495,6 +4518,10 @@ function apply(ctx) {
 
 		if (e2eListReadyAt === 0 && e2eListDelayMs > 0) e2eListReadyAt = Date.now() + e2eListDelayMs;
 		let snapshot = getSnapshot(sessions, "list");
+		// 原始快照引用单点（T-183）：覆盖层与 e2e pending 覆写都会更换 snapshot 对象，
+		// currentId 与 jobs 订阅差集只依赖原始快照（覆盖不改 retainedBy/ids），此处
+		// 留存原始引用供单点计算与引用缓存命中。
+		const rawListSnapshot = snapshot;
 		if (e2eListReadyAt > Date.now() && snapshot?.phase !== "error") {
 			snapshot = { phase: "pending" };
 			if (e2eListReleaseTimer === null) {
@@ -4542,7 +4569,13 @@ function apply(ctx) {
 		// 改由 jobs 服务的 state.rows（Record<sessionId, JobView[]>）注入
 		// buildEntries/buildRecent——liveJobs 非空的主会话保留活动区、归运行组并抑制
 		// 完成/错误提醒；roster 订阅经 syncJobsWatches 对列表全会话建立。
-		syncJobsWatches(snapshot);
+		// currentId 单点（T-183）：覆盖层不改 retainedBy，覆盖前后 currentId 同值——
+		// 对原始快照算一次，帧内渲染层取用复用该值（WeakMap 缓存对原始快照命中）。
+		// 残余口径：buildEntries/buildRecent 内部的 currentIdOf 收到的是覆盖层新对象
+		// （WeakMap 恒 miss，各留一次 O(名册) 重扫/帧），彻底消除须把 currentId 纳入
+		// 入参——与位置参数收敛同窗处理（TODO 既有登记）。
+		const currentId = currentIdOf(rawListSnapshot);
+		syncJobsWatches(rawListSnapshot);
 		const jobsBySession = jobs?.state?.getSnapshot?.()?.rows ?? null;
 		const builtActive = buildEntries(snapshot, workspaceItems, sessionDetailsById, completeAcksById, delegatingIds, archivedSessionIds, waitingStarts, jobsBySession);
 		// 任务子卡档位门控（R-01-023/AC-10、R-01-025/AC-08，T-174）：中间/紧凑档不呈现
@@ -4789,7 +4822,6 @@ function apply(ctx) {
 			if (chatLatestAssistantSettled(detailSnapshot)) subagentModelReadIds.add(entry.id);
 		}
 		const detailIds = [...active, ...recent].map((entry) => entry.id);
-		const currentId = currentIdOf(snapshot);
 		detailIds.sort((a, b) => Number(String(b) === String(currentId)) - Number(String(a) === String(currentId)));
 		// 档位资源纪律（R-01-025/AC-01）：渲染期持续执法——进入紧凑档即拆主会话窗口；
 		// 拆窗时被豁免的当前会话在切走后的下一轮渲染照常释放。幂等：主会话拆窗后
@@ -4911,7 +4943,7 @@ function apply(ctx) {
 		}
 		runMoveGhosts(movePlans);
 		if (shiftRects !== null) runShiftAnimations(shiftRects);
-		ensureCurrentCardVisible(pane.querySelector(".dap-scroll"), currentIdOf(snapshot));
+		ensureCurrentCardVisible(pane.querySelector(".dap-scroll"), currentId);
 		if (focusAfterMigrationId !== null) cardsById.get(focusAfterMigrationId)?.el.focus();
 		// 区域已有条目但列表仍在途时，在区头部显示行内加载指示（R-01-014/AC-01）。
 		const headerEl = pane.querySelector(".dap-titlebar");

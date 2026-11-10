@@ -12,13 +12,15 @@
 //   3. 隐藏期：同几何下第二标签页置前转 hidden（headless 不生效时回落
 //      defineProperty 并打印实际模式行），流式全程隐藏。
 // 指标：renderer 进程 /proc CPU 时间（utime+stime）增量 ÷ 墙钟（单核占比）。
-// 用法：pnpm perf:ab [--base <ref>] [--iterations 3] [--fill 48] [--threshold 0.7] [--check]
-// 断言指标：折叠函数剖析占比比值（机制断言——折叠 2→1，对宿主常量负载免疫；
-// 缺省阈值 0.7 为预期 0.5 加噪声余量的校准值）。总 CPU 比值仅随报告输出：
-// 隔离环境里宿主自身流式期 UI 工作是两变体同担的常量大头，总比值被稀释、
-// 不具备生产可比性；生产验收（≤ 修复前 55%）以活实例 A/B 为准。
+// 用法：pnpm perf:ab [--base <ref>] [--iterations 3] [--fill 48] [--threshold 1.2] [--check]
+// 断言指标：折叠绝对采样数比值（机制守恒口径，T-183 演进）——折叠工作量在
+// 同采样间隔同窗长下应守恒（正交改动比值 ≈1.0），阈值 1.2 为守恒噪声余量，
+// 捕捉「折叠工作量随 bundle 变更增长 >20%」的回归；T-181 式折叠减半会表现为
+// 比值 ≈0.5 同样 PASS。占比比值随分母漂移（其他性能改动缩小非折叠盘），仅随
+// 报告输出。总 CPU 比值亦为参考项：隔离环境里宿主自身流式期 UI 工作是两变体
+// 同担的常量大头。生产验收（≤ 修复前 55%）以活实例 A/B 为准。
 // 定位（东家批准口径）：回归防护与发布前自检——默认只报告，--check 才断言，
-// 不进 pre-push 门禁（绝对 CPU 与占比随机器/负载漂移）。
+// 不进 pre-push 门禁（绝对 CPU 与采样数随机器/负载漂移）。
 
 import { execFileSync, spawn } from "node:child_process";
 import { copyFile, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
@@ -54,7 +56,7 @@ const CHROME_CANDIDATES = ["google-chrome", "google-chrome-stable", "chromium-br
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function parseArgs(argv) {
-	const opts = { base: null, iterations: 3, threshold: 0.7, check: false, fill: 48 };
+	const opts = { base: null, iterations: 3, threshold: 1.2, check: false, fill: 48 };
 	for (let i = 0; i < argv.length; i += 1) {
 		const arg = argv[i];
 		if (arg === "--base") opts.base = argv[(i += 1)];
@@ -343,6 +345,7 @@ const ratioHidden = medAHidden > 0 ? medBHidden / medAHidden : Number.NaN;
 const foldShareA = variantA.profiled.foldShare;
 const foldShareB = variantB.profiled.foldShare;
 const ratioFoldShare = foldShareA > 0 ? foldShareB / foldShareA : Number.NaN;
+const ratioFoldSamples = variantA.profiled.foldSamples > 0 ? variantB.profiled.foldSamples / variantA.profiled.foldSamples : Number.NaN;
 
 for (const [label, variant] of [["A", variantA], ["B", variantB]]) {
 	const detail = variant.event.map((r) => r.cpuSeconds.toFixed(3)).join(" / ");
@@ -350,11 +353,15 @@ for (const [label, variant] of [["A", variantA], ["B", variantB]]) {
 	console.log(`perf-ab: ${label} 剖析：折叠函数占比 ${(variant.profiled.foldShare * 100).toFixed(1)}%（自采样 ${variant.profiled.foldSamples}/${variant.profiled.nonIdleSamples} 非空闲；单剖析迭代，非中位数）`);
 	if (variant.profiled.foldSamples === 0) console.warn(`perf-ab: 告警：${label} 折叠函数零采样——疑似 src 侧改名，占比比值失真（见采样名锚点注释）`);
 }
-console.log(`perf-ab: 事件期总 CPU 中位数 B/A = ${medBEvent.toFixed(3)} / ${medAEvent.toFixed(3)} = ${Number.isNaN(ratioEvent) ? "NaN" : ratioEvent.toFixed(3)}（参考项：宿主常量负载稀释，生产口径见活实例 A/B）`);
+console.log(`perf-ab: 事件期总 CPU 中位数 B/A = ${medBEvent.toFixed(3)} / ${medAEvent.toFixed(3)} = ${Number.isNaN(ratioEvent) ? "NaN" : ratioEvent.toFixed(3)}（折叠绝对采样 A=${variantA.profiled.foldSamples} / B=${variantB.profiled.foldSamples}；宿主常量负载稀释下总比值为参考项）`);
 console.log(`perf-ab: 隐藏期总 CPU 中位数 B/A = ${medBHidden.toFixed(3)} / ${medAHidden.toFixed(3)} = ${Number.isNaN(ratioHidden) ? "N/A（A 低于 tick 分辨率）" : ratioHidden.toFixed(3)}（参考项）`);
-console.log(`perf-ab: 折叠占比（单剖析迭代）B/A = ${(foldShareB * 100).toFixed(1)}% / ${(foldShareA * 100).toFixed(1)}% = ${Number.isNaN(ratioFoldShare) ? "NaN" : ratioFoldShare.toFixed(3)}（机制断言指标，阈值 ${opts.threshold}）`);
+console.log(`perf-ab: 折叠占比（单剖析迭代）B/A = ${(foldShareB * 100).toFixed(1)}% / ${(foldShareA * 100).toFixed(1)}% = ${Number.isNaN(ratioFoldShare) ? "NaN" : ratioFoldShare.toFixed(3)}（占比随分母漂移，仅参考）`);
 if (opts.check) {
-	const pass = Number.isFinite(ratioFoldShare) && ratioFoldShare <= opts.threshold;
-	console.log(`perf-ab: --check ${pass ? "PASS" : "FAIL"}（折叠占比比值 ${Number.isFinite(ratioFoldShare) ? ratioFoldShare.toFixed(3) : "NaN"} ${pass ? "≤" : ">"} ${opts.threshold}）`);
+	// 机制断言按折叠绝对采样数比值（T-183 口径演进）：占比比值的分母随其他性能
+	// 改动漂移（名册成本收敛会抬高折叠占比），绝对采样数在同采样间隔同窗长下
+	// 可比、对分母漂移免疫；A 侧采样过少时断言不可靠，保守判 FAIL 并说明。
+	const reliable = variantA.profiled.foldSamples >= 20;
+	const pass = reliable && Number.isFinite(ratioFoldSamples) && ratioFoldSamples <= opts.threshold;
+	console.log(`perf-ab: --check ${pass ? "PASS" : "FAIL"}（折叠绝对采样比值 ${Number.isFinite(ratioFoldSamples) ? ratioFoldSamples.toFixed(3) : "NaN"} ${pass ? "≤" : ">"} ${opts.threshold}${reliable ? "" : "；A 侧折叠采样过少（<20），断言不可靠"}）`);
 	if (!pass) process.exitCode = 1;
 }

@@ -1398,6 +1398,27 @@ function pruneSubscriptions(subscriptions, visibleIds) {
  * 会话的工作区归属归一（R-01-003/AC-08）：在 title 归属判定的同一路径上同时
  * 返回工作区身份 key（路径优先、名称兜底），供徽标色相派生；无归属时两者皆空。
  */
+/** 工作区索引（T-183）：一次遍历工作区清单构建 会话id → {title, key} 查找表，
+ *  供 buildEntries/buildRecent 对全会话逐个取工作区信息时 O(1) 命中——逐会话
+ *  调用 workspaceInfoForSession 会按工作区×区会话数做字符串全扫，4700 会话下
+ *  每帧千万级比较为渲染路径最大热点。先到先得语义与 workspaceInfoForSession
+ *  的首个命中一致（items 顺序遍历、已命中键不覆写）。 */
+function buildWorkspaceIndex(workspaceItems) {
+	const items = Array.isArray(workspaceItems) ? workspaceItems : [];
+	const index = new Map();
+	for (const workspace of items) {
+		if (!isRecord(workspace)) continue;
+		const title = cleanText(workspace.title);
+		if (!title || !Array.isArray(workspace.sessionIds)) continue;
+		const key = cleanText(workspace.path) || title;
+		for (const candidate of workspace.sessionIds) {
+			const id = String(candidate);
+			if (!index.has(id)) index.set(id, { title, key });
+		}
+	}
+	return index;
+}
+
 function workspaceInfoForSession(sessionId, workspaceItems, byId = {}) {
 	const id = String(sessionId);
 	const items = Array.isArray(workspaceItems) ? workspaceItems : [];
@@ -1536,14 +1557,28 @@ function instructionTime(row) {
  * 快照非记录、行缺 retainedBy 或计数非有限数字均按未命中处理，不抛错。
  */
 function currentIdOf(list) {
-	const byId = isRecord(list) && isRecord(list.byId) ? list.byId : {};
+	// 按快照引用记忆化（T-183）：currentIdOf 每次调用 O(全名册) 扫描 retainedBy，
+	// 而每帧被多处调用；快照引用在两次推送间由宿主缓存稳定，WeakMap 键随快照
+	// 对象被丢弃而释放，无跨代际陈旧风险。null 结果同样入表（undefined 判未算）。
+	if (!isRecord(list)) return null;
+	const memo = currentIdMemo.get(list);
+	if (memo !== undefined) return memo;
+	const byId = isRecord(list.byId) ? list.byId : {};
+	let result = null;
 	for (const row of Object.values(byId)) {
 		if (!isRecord(row) || !isRecord(row.retainedBy)) continue;
 		const count = Number(row.retainedBy.mainView);
-		if (Number.isFinite(count) && count > 0) return typeof row?.id === "string" ? row.id : null;
+		if (Number.isFinite(count) && count > 0) {
+			result = typeof row?.id === "string" ? row.id : null;
+			break;
+		}
 	}
-	return null;
+	currentIdMemo.set(list, result);
+	return result;
 }
+
+/** currentIdOf 的按快照引用备忘（T-183）：键为列表快照对象本身。 */
+const currentIdMemo = new WeakMap();
 
 /**
  * 母会话子代理目录条目读取（dsh 0.2.0 起 subagentsByParent 移除）：取列表快照
@@ -1620,17 +1655,34 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 	const archived = archivedIds instanceof Set
 		? new Set([...archivedIds].map((id) => String(id)))
 		: new Set((archivedIds ?? []).map((id) => String(id)));
+	// 归档判定备忘（T-183）：isArchived 沿父链上溯，本帧内被 ids 循环与
+	// descendantActiveIds 的排除判定逐 id 反复调用——每帧一张备忘 Map，链走一次
+	// 即整链入表，消除每 id 的 Set 分配与重复链走。备忘随本帧闭包消亡，不跨帧。
+	const archivedMemo = new Map();
 	const isArchived = (id) => {
+		const startKey = String(id);
+		if (archivedMemo.has(startKey)) return archivedMemo.get(startKey);
 		const seen = new Set();
 		let currentId = id;
+		let result = false;
 		while (currentId !== undefined && currentId !== null) {
 			const key = String(currentId);
-			if (archived.has(key) || seen.has(key)) return archived.has(key);
+			if (archived.has(key) || seen.has(key)) {
+				result = archived.has(key);
+				break;
+			}
+			if (archivedMemo.has(key)) {
+				result = archivedMemo.get(key);
+				break;
+			}
 			seen.add(key);
 			currentId = subagentParentId(byId[key], byId);
 		}
-		return false;
+		for (const key of seen) archivedMemo.set(key, result);
+		archivedMemo.set(startKey, result);
+		return result;
 	};
+	const workspaceIndex = buildWorkspaceIndex(workspaceItems);
 	const descendantIds = descendantActiveIds(byId, isArchived);
 	// 第一遍：层级关系 + 显示判定（show = 自身活动 || 委托周期 || 完成提醒，单点实现避免漂移）。
 	const rootIds = [];
@@ -1724,7 +1776,7 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 			const previews = details.previews ?? { userPreview: "", agentPreview: "" };
 			const workspace = m.isSub
 				? { title: "", key: "" }
-				: workspaceInfoForSession(id, workspaceItems ?? [], byId);
+				: workspaceIndex.get(String(id)) ?? workspaceInfoForSession(id, workspaceItems ?? [], byId);
 			// 完成确认判定单点（R-01-002，C-040、C-064）：pendingText/waitClass/noteText/questionPreview 共用；
 			// 错误提醒（C-043）优先于完成提醒（同一回合登记只能有一个 lastTurnEndKind）。
 			const doneWait = !m.pending && m.done && !m.running && !m.delegating;
@@ -1966,7 +2018,10 @@ function isOwnActiveRow(row, byId = {}) {
  *  否则只收祖先（存在活动后代的母会话）。活动区与历史区显示判定的单点实现。 */
 function lineageActiveIds(byId, includeSelf, isExcluded = null) {
 	const ids = new Set();
-	for (const [id, row] of Object.entries(byId)) {
+	// for-in 免分配（T-183）：Object.entries 每帧分配名册规模键值对数组；for-in
+	// 遍历自有可枚举键（原型链键理论可见，byId 恒为宿主普通对象故行为等价）、零分配。
+	for (const id in byId) {
+		const row = byId[id];
 		if (isExcluded?.(id) || !isOwnActiveRow(row, byId)) continue;
 		const seen = new Set();
 		let currentId = includeSelf ? id : subagentParentId(row, byId);
@@ -2496,6 +2551,7 @@ function buildRecent(snapshot, workspaceItems, now, detailsById = {}, archivedId
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
 	const current = currentIdOf(snapshot);
 	const items = Array.isArray(workspaceItems) ? workspaceItems : [];
+	const workspaceIndex = buildWorkspaceIndex(items);
 	const activeIds = activeSessionIds(byId);
 	const archived = archivedIds instanceof Set ? archivedIds : new Set(archivedIds ?? []);
 	const entries = [];
@@ -2521,7 +2577,7 @@ function buildRecent(snapshot, workspaceItems, now, detailsById = {}, archivedId
 		const metadata = details.model ?? modelMetadata(details.models ?? row.models);
 		// previews 不在此推导：渲染层按需 memo 计算（冷会话由 history 一次性写入 detail.previews）。
 		const previews = details.previews ?? { userPreview: "", agentPreview: "" };
-		const workspace = workspaceInfoForSession(id, items, byId);
+		const workspace = workspaceIndex.get(String(id)) ?? workspaceInfoForSession(id, items, byId);
 		entries.push({
 			id,
 			kind: "recent",
@@ -4195,15 +4251,28 @@ function livenessFromSnapshot(snap) {
 	return { startTime };
 }
 
-/** 历史卡时间同时给出本地绝对日期时分与相对年龄；跨年份的绝对日期带年份。 */
+/** 历史卡时间同时给出本地绝对日期时分与相对年龄；跨年份的绝对日期带年份。
+ *  格式化结果按「时刻+分钟桶」缓存（T-183）：每次交付对每张历史卡重复格式化
+ *  同一 activityAt，字符串在分钟粒度内恒定——有界 Map 命中即返回，超界整表
+ *  清空（相对年龄按分钟分级，分钟桶翻转时自然失效重算）。 */
+const recentTimeCache = new Map();
 function fmtRecentTime(ts, now = Date.now()) {
 	try {
 		const value = Number(ts);
 		const current = Number(now);
+		const cacheKey = `${value}:${Math.floor(current / 60_000)}`;
+		const cached = recentTimeCache.get(cacheKey);
+		if (cached !== undefined) return cached;
 		const absolute = fmtAbsoluteDateTime(ts, now);
-		if (!absolute) return "";
-		const relative = fmtRelativeAge(current - value);
-		return relative ? `最后活动 · ${absolute} · ${relative}` : `最后活动 · ${absolute}`;
+		const formatted = absolute
+			? (() => {
+					const relative = fmtRelativeAge(current - value);
+					return relative ? `最后活动 · ${absolute} · ${relative}` : `最后活动 · ${absolute}`;
+				})()
+			: "";
+		if (recentTimeCache.size >= 256) recentTimeCache.clear();
+		recentTimeCache.set(cacheKey, formatted);
+		return formatted;
 	} catch {
 		return "";
 	}
@@ -4266,6 +4335,8 @@ function apply(ctx) {
 	let lastJobsSignature = null;
 	/** jobs 快照 rows 读取单点（T-181 ①）：订阅回调与基线重置共用同一取法。 */
 	const jobsRowsOf = () => jobs?.state?.getSnapshot?.()?.rows ?? null;
+	// jobs 订阅差集的快照引用基线（T-183）：同快照引用下 ids 集合不变，免逐帧重建。
+	let lastJobsWatchSnapshot = null;
 	let clockTimer = null;
 	let recentTimeTimer = null;
 	let syncScheduled = false;
@@ -5478,6 +5549,9 @@ function apply(ctx) {
 		} catch {
 			jobsUnsubscribe = null;
 		}
+		// 订阅差集基线重置不依赖订阅成功（T-183 复审）：subscribe 抛错时基线也须
+		// 复位，否则旧引用早退会跳过下一轮的差集重建。
+		lastJobsWatchSnapshot = null;
 
 		queueSync();
 	}
@@ -6845,6 +6919,11 @@ function apply(ctx) {
 	 *  重入只处理差集。服务缺失时整轮跳过。 */
 	function syncJobsWatches(listSnapshot) {
 		if (typeof jobs?.watchRows !== "function") return;
+		// 快照引用短路（T-183）：订阅差集只依赖列表快照的 ids 集合——同一快照引用
+		// 内 ids 恒定（宿主缓存保证两次推送间引用稳定），重复重建 4700 项 String
+		// 集合纯属逐帧浪费。快照引用变化（任何列表推送）即照常重算。
+		if (listSnapshot === lastJobsWatchSnapshot) return;
+		lastJobsWatchSnapshot = listSnapshot;
 		const ids = Array.isArray(listSnapshot?.ids) ? listSnapshot.ids : [];
 		const wanted = new Set(ids.map((id) => String(id)));
 		for (const [key, stop] of [...jobWatchById]) {
@@ -7335,6 +7414,10 @@ function apply(ctx) {
 
 		if (e2eListReadyAt === 0 && e2eListDelayMs > 0) e2eListReadyAt = Date.now() + e2eListDelayMs;
 		let snapshot = getSnapshot(sessions, "list");
+		// 原始快照引用单点（T-183）：覆盖层与 e2e pending 覆写都会更换 snapshot 对象，
+		// currentId 与 jobs 订阅差集只依赖原始快照（覆盖不改 retainedBy/ids），此处
+		// 留存原始引用供单点计算与引用缓存命中。
+		const rawListSnapshot = snapshot;
 		if (e2eListReadyAt > Date.now() && snapshot?.phase !== "error") {
 			snapshot = { phase: "pending" };
 			if (e2eListReleaseTimer === null) {
@@ -7382,7 +7465,13 @@ function apply(ctx) {
 		// 改由 jobs 服务的 state.rows（Record<sessionId, JobView[]>）注入
 		// buildEntries/buildRecent——liveJobs 非空的主会话保留活动区、归运行组并抑制
 		// 完成/错误提醒；roster 订阅经 syncJobsWatches 对列表全会话建立。
-		syncJobsWatches(snapshot);
+		// currentId 单点（T-183）：覆盖层不改 retainedBy，覆盖前后 currentId 同值——
+		// 对原始快照算一次，帧内渲染层取用复用该值（WeakMap 缓存对原始快照命中）。
+		// 残余口径：buildEntries/buildRecent 内部的 currentIdOf 收到的是覆盖层新对象
+		// （WeakMap 恒 miss，各留一次 O(名册) 重扫/帧），彻底消除须把 currentId 纳入
+		// 入参——与位置参数收敛同窗处理（TODO 既有登记）。
+		const currentId = currentIdOf(rawListSnapshot);
+		syncJobsWatches(rawListSnapshot);
 		const jobsBySession = jobs?.state?.getSnapshot?.()?.rows ?? null;
 		const builtActive = buildEntries(snapshot, workspaceItems, sessionDetailsById, completeAcksById, delegatingIds, archivedSessionIds, waitingStarts, jobsBySession);
 		// 任务子卡档位门控（R-01-023/AC-10、R-01-025/AC-08，T-174）：中间/紧凑档不呈现
@@ -7629,7 +7718,6 @@ function apply(ctx) {
 			if (chatLatestAssistantSettled(detailSnapshot)) subagentModelReadIds.add(entry.id);
 		}
 		const detailIds = [...active, ...recent].map((entry) => entry.id);
-		const currentId = currentIdOf(snapshot);
 		detailIds.sort((a, b) => Number(String(b) === String(currentId)) - Number(String(a) === String(currentId)));
 		// 档位资源纪律（R-01-025/AC-01）：渲染期持续执法——进入紧凑档即拆主会话窗口；
 		// 拆窗时被豁免的当前会话在切走后的下一轮渲染照常释放。幂等：主会话拆窗后
@@ -7751,7 +7839,7 @@ function apply(ctx) {
 		}
 		runMoveGhosts(movePlans);
 		if (shiftRects !== null) runShiftAnimations(shiftRects);
-		ensureCurrentCardVisible(pane.querySelector(".dap-scroll"), currentIdOf(snapshot));
+		ensureCurrentCardVisible(pane.querySelector(".dap-scroll"), currentId);
 		if (focusAfterMigrationId !== null) cardsById.get(focusAfterMigrationId)?.el.focus();
 		// 区域已有条目但列表仍在途时，在区头部显示行内加载指示（R-01-014/AC-01）。
 		const headerEl = pane.querySelector(".dap-titlebar");

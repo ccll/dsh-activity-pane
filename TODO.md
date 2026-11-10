@@ -20,6 +20,8 @@ owner: 双方
 - [维护想法] SOLUTION.md「活动卡片集合」bullet 拆为嵌套列表（T-152 Standards 评审：单条约 600 字平铺违背 AGENTS.md 写作风格；沿既有膨胀现状同向加重，改造波及整段重组，宜与 SOLUTION 结构评审同期进行）
 - [维护想法] JOB_STATUS_LABELS（client 渲染层状态词）与 JOB_KIND_LABELS（core 工具名映射）两表并存的聚拢评估（T-152 Standards 评审 Shotgun Surgery 苗头；已注释注明分层理由——core 表需 Node 单测钉住且两层共用，状态词仅渲染层消费；新增任务工具类型时两处同步）
 - [维护想法] `.dap-confirm-icon` 显式声明 `box-sizing: border-box`（T-177 审计 N-6：现依赖 button UA 默认值，曾是命中区两轮口径反复的根因；e2e pseudoBox/hitEdges 三重防线已钉死行为，宜顺手消除 UA 默认依赖）
-- [性能想法] 流式派生真增量（HANDOFF-dsh-activity-pane-卡顿修复 ④b）：跨批持久 inflightCalls/liveAttempts 只折新增条目，失效时全量重算（history 引用整体替换、seq 断档、tool_result 晚到出窗三类触发）；宿主日志窗口本身有界（尾页 ≤500 条消息 + 活动 attempt 的 transient chunk），仅在 T-181 ①②③落地重剖后流式单批成本仍占大头时立项；失效面是静默错误内容（漏条目、错配对），立项须按 major 走完整评审
+- [性能想法] 流式派生真增量（HANDOFF-dsh-activity-pane-卡顿修复 ④b）：跨批持久 inflightCalls/liveAttempts 只折新增条目，失效时全量重算（history 引用整体替换、seq 断档、tool_result 晚到出窗三类触发）；宿主日志窗口本身有界（尾页 ≤500 条消息 + 活动 attempt 的 transient chunk），仅在 T-181 ①②③落地重剖后流式单批成本仍占大头时立项；失效面是静默错误内容（漏条目、错配对），立项须按 major 走完整评审（已由 T-185 落地：增量折叠 + 对抗等价 spec；本条待东家演进 TODO 时清除）
+- [性能想法] 增量折叠指纹可选加固 O(窗) seq 单调扫描（T-187 审计 S1：无 seq 畸形条目使纯追加校验的 seq 比较恒真，为 T-185 已登记两点指纹残余的更窄延伸；现行生产者条目普遍带 seq 且守追加+出窗纪律，可达性低）——与 T-185 收敛方案 3 已登记待议项一并裁决
+- [维护想法] buildRecent 第二段幂等冗余排序比较器清理（T-187 审计 D1：两段式保序下第二段 sort 属 Speculative Generality 形态；后续触及该函数时提取单一比较器或删除；同批可评估 waitingStartsFrom 非 Map 无守卫与 applyStatusOverlay isRecord 守卫微差两处容错口径 nit）
 - [性能想法] 名册级渲染轮次成本收敛（T-181 剖析新发现）：折叠大头消除后热点重分布至 buildEntries/workspaceInfoForSession/lineageActiveIds/currentIdOf/buildRecent 家族（活实例两窗剖析合计约 37–45% 非空闲样本，buildEntries 逐 id 新建归档判定 Set 属常量成本），与 jobs 全会话订阅面的残余成本同族；纯函数常量优化属短路可先行，可见窗口订阅收窄属需求变更须先改 PRD，是否立项由东家在重剖后定
 - [缺陷线索] 连续两轮全量 verify 各有一次不同 spec 在共享 boot helper 超时：recent-infinite-scroll（b5c4979 轮）→ auto-update（aa82982 轮），失败签名同为「等待超时：窗格数据就绪（最后观测：null）」（e2e/helpers.mjs:21 until 轮询、e2e/helpers.mjs:124 openApp），单跑均 PASS——呈并行负载下 boot 就绪等待超时的模式而非孤例；两轮均以失败签名+单跑回执+同型先例收口，若成系统性问题宜给启动就绪等待加宽或并行度退避（b74f508 曾 6s→30s 加宽一次）

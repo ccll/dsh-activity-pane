@@ -16,6 +16,7 @@ import {
 	timelineQuestionPreview,
 	buildEntries,
 	buildRecent,
+	buildWorkspaceIndex,
 	cardSignature,
 	cleanPreview,
 	clampPaneWidth,
@@ -44,6 +45,7 @@ import {
 	runningClockWanted,
 	liveJobsOf,
 	jobsPaneSignature,
+	currentIdOf,
 	jobKindLabel,
 	jobsChipState,
 	activeSessionIds,
@@ -3648,6 +3650,30 @@ assert.equal(
 	jobsPaneSignature({ jA: [{ id: "job-1", kind: "bash", label: "a", status: "running", startedAt: 1 }], jB: [{ id: "job-2", kind: "bash", label: "b", status: "running", startedAt: 2 }] }),
 	"键序无关（同一状态不同插入序签名一致）",
 );
+// T-183：工作区索引——逐会话查表替代逐工作区×区会话清单全扫；先到先得语义与
+// workspaceInfoForSession 的首个命中一致。
+const wsIndexItems = [
+	{ title: "甲区", path: "/ws-a", sessionIds: ["s1", "s2"] },
+	{ title: "乙区", path: "/ws-b", sessionIds: ["s2", "s3"] },
+];
+assert.equal(buildWorkspaceIndex(wsIndexItems).get("s1")?.title, "甲区", "索引按会话 id 命中工作区标题");
+assert.equal(buildWorkspaceIndex(wsIndexItems).get("s2")?.title, "甲区", "重复会话 id 先到先得（与 workspaceInfoForSession 首个命中一致）");
+assert.equal(buildWorkspaceIndex(wsIndexItems).get("s2")?.key, "/ws-a", "索引键取路径优先、名称兜底");
+assert.equal(buildWorkspaceIndex(wsIndexItems).get("s3")?.key, "/ws-b", "索引键按各工作区身份取值");
+assert.equal(buildWorkspaceIndex([{ title: "缺清单" }]).size, 0, "sessionIds 缺失的工作区不入索引");
+assert.equal(buildWorkspaceIndex("nope").size, 0, "非数组输入归一空索引");
+assert.equal(buildWorkspaceIndex(wsIndexItems).get("s9"), undefined, "未登记会话不命中（调用方走 cwd 回退）");
+// T-183：currentIdOf 按快照引用记忆化——同引用期内结果冻结（宿主保证快照引用
+// 稳定至下次推送）、不同快照独立、null 结果同样入表。
+const snapshotWithMain = { byId: { a: { id: "a", retainedBy: { mainView: 1 } }, b: { id: "b", retainedBy: { mainView: 0 } } } };
+assert.equal(currentIdOf(snapshotWithMain), "a", "currentIdOf 取首个 mainView>0 行");
+snapshotWithMain.byId.a.retainedBy.mainView = 0;
+assert.equal(currentIdOf(snapshotWithMain), "a", "同快照引用命中记忆化（引用期内结果冻结——新推送以新快照对象承载）");
+const snapshotNoMain = { byId: { b: { id: "b", retainedBy: { mainView: 0 } } } };
+assert.equal(currentIdOf(snapshotNoMain), null, "无 mainView>0 行归一 null");
+assert.equal(currentIdOf(snapshotNoMain), null, "null 结果同样入记忆化表");
+assert.equal(currentIdOf("nope"), null, "非记录快照归一 null");
+assert.equal(currentIdOf({ byId: { c: { id: "c", retainedBy: { mainView: 2 } } } }), "c", "不同快照对象独立求值（新快照重新求值，命中其 mainView>0 行）");
 // R-01-023/AC-04：仅有在跑后台任务的主会话计入运行中分子（此处 jA+jB 均呈 running）。
 assert.deepEqual(
 	awaitBadgeStats(jobbedEntries),

@@ -6863,6 +6863,28 @@ function apply(ctx) {
 		if (totalTime.hidden !== totalHidden) totalTime.hidden = totalHidden;
 	}
 
+	/** job 子卡时长写入（R-01-023/AC-05）：任务起点有效时按起点重算随钟时长，无效
+	 *  时清空（不残留上一任务的时长）。事件帧（renderJobCardInto）与 1Hz 时钟帧
+	 *  （tickEntryClock，T-189）共用同一守卫式写入点；now 参数化供时钟帧统一时钟源。 */
+	function setJobElapsedText(el, entry, now = Date.now()) {
+		const elapsed = el.querySelector(".dap-job-elapsed");
+		if (elapsed === null) return;
+		const elapsedText =
+			Number.isFinite(entry.jobStartedAt) && entry.jobStartedAt > 0
+				? fmtElapsedMs(Math.max(0, now - entry.jobStartedAt))
+				: "";
+		if (elapsed.textContent !== elapsedText) elapsed.textContent = elapsedText;
+	}
+
+	/** jobs-only 呈现判定（R-01-023/AC-01、AC-11）：liveJobs 非空且自身回合不在跑——
+	 *  呈现冻结（进度行隐藏、数量注闪烁、时间线圆点停闪）。事件帧（renderCardInto）
+	 *  与 1Hz 时钟帧（tickEntryClock）共用同一谓词，取反语义（selfRunning !== true）
+	 *  单点承载，防止两处漂移。core 的 runningClockWanted 有同语义判定但形状与
+	 *  锚定测试不同，不跨层合并。 */
+	function isJobsOnlyEntry(entry) {
+		return Array.isArray(entry.liveJobs) && entry.liveJobs.length > 0 && entry.selfRunning !== true;
+	}
+
 	/** 进度行写入（运行卡与子代理卡共用，R-01-009/AC-06、AC-14）：百分比与填充宽度，
 	 *  未变化跳过 DOM 写。百分比同样写前比对——1Hz 时钟帧（T-189）复用本函数补写，
 	 *  同值写入会替换文本节点并触发无谓的 characterData 变更（background-jobs 静默
@@ -6999,14 +7021,7 @@ function apply(ctx) {
 				}
 			}
 		}
-		const elapsed = el.querySelector(".dap-job-elapsed");
-		if (elapsed !== null) {
-			const elapsedText =
-				Number.isFinite(entry.jobStartedAt) && entry.jobStartedAt > 0
-					? fmtElapsedMs(Math.max(0, Date.now() - entry.jobStartedAt))
-					: "";
-			if (elapsed.textContent !== elapsedText) elapsed.textContent = elapsedText;
-		}
+		setJobElapsedText(el, entry);
 	}
 
 	function renderCardInto(el, entry, colorByWorkspace) {
@@ -7131,7 +7146,7 @@ function apply(ctx) {
 		if (entry.kind === "running") {
 			// 仅在跑后台任务（R-01-023/AC-01）：呈现冻结——隐藏进度行（进度/条纹为回合运行
 			// 语义，不冒充回合执行），时间线保留最后已知状态；任务本体以 job 子卡呈现。
-			const jobsOnly = Array.isArray(entry.liveJobs) && entry.liveJobs.length > 0 && entry.selfRunning !== true;
+			const jobsOnly = isJobsOnlyEntry(entry);
 			// jobs-only 门控属性上移卡根（R-01-023/AC-11）：数量注闪烁与时间线圆点/标题点
 			// 停闪共用同一卡根状态，按变化写入避免每帧 DOM 属性写。
 			const jobsOnlyAttr = String(jobsOnly);
@@ -7386,9 +7401,9 @@ function apply(ctx) {
 	 *   - 进度行 `.dap-pct` 文本与 `.dap-fill` 宽度 ← progressOf(...)（纯时间驱动
 	 *     y = t/(t+k)，R-01-009/AC-06）；`.dap-fill` width 过渡（0.45s，client.mjs
 	 *     进度条样式）连续性不受影响——写入频率与值序列和全量管线逐字节同源。
-	 *   - job 子卡时长 `.dap-job-elapsed` ← fmtElapsedMs(now − jobStartedAt)
-	 *     （R-01-023/AC-05，与 renderJobCardInto 同口径；秒桶 jobsAgeSec 只进渲染
-	 *     签名驱动事件帧重绘，本通道直接由起点重算文本）。
+	 *   - job 子卡时长 `.dap-job-elapsed` ← setJobElapsedText 共享写入点
+	 *     （R-01-023/AC-05，事件帧 renderJobCardInto 同函数同守卫；秒桶 jobsAgeSec
+	 *     只进渲染签名驱动事件帧重绘，本通道直接由起点重算文本）。
 	 *  分钟级字段不进本通道：awaiting `.dap-await-age`（fmtRelativeAge 分钟分级）与
 	 *  recent `.dap-note`（fmtRecentTime 分钟桶缓存）由 60s 时钟的全量管线承载。
 	 *  非随钟项勘定排除：统计行 token/速率列（列表投影驱动）、jobs 数量注
@@ -7403,9 +7418,12 @@ function apply(ctx) {
 	 *  边界：条目对应卡片已被 pruneCards 摘除（复用表查不到）即跳过——补写永不创建/
 	 *  移动/删除节点、不触碰派生与 DOM 结构；只 querySelector 与读内联样式，不读布局；
 	 *  逐条目异常隔离（单卡补写抛错不冻结其余卡片，下一事件帧全量校正自愈）。渲染
-	 *  失败帧中锚点记账可能先行推进，时钟帧据新锚点写出的文本方向无害（时长/进度
-	 *  单调趋真）。页面隐藏自查与 clockEffective 门控双保险（回调触发瞬间可能刚转
-	 *  隐藏，无 rAF 挡板的同步写入须自门控，T-181 ③a 语义）。 */
+	 *  失败帧（renderOk=false）的两处临时偏差、均在下一轮同步重试全量校正自愈：
+	 *  锚点记账先行推进时时钟帧文本可能短暂超前（时长/进度单调趋真）；同轮渲染
+	 *  成功的卡片已写入本帧最新 token/速率列，而 lastCommittedEntries 仍是上一成功
+	 *  帧的旧投影值，时钟帧 renderTokenStats 的写前比对会按旧值临时覆盖 token/速率
+	 *  列（时长列不受影响，仍单调趋真）。页面隐藏自查与 clockEffective 门控双保险
+	 *  （回调触发瞬间可能刚转隐藏，无 rAF 挡板的同步写入须自门控，T-181 ③a 语义）。 */
 	function tickClockFrames() {
 		if (disposed || pageHidden()) return;
 		const now = Date.now();
@@ -7419,9 +7437,9 @@ function apply(ctx) {
 	}
 
 	/** 单条目随钟补写：按 kind 重算随钟字段并经共享写入点守卫式补写叶子（写前比对，
-	 *  renderProgressRow/renderTokenStats/setTotalTimeText 与事件帧同函数同守卫）；
-	 *  重算值写回条目对象保持字段与 DOM 同相——条目对象是上一提交帧私有状态，签名
-	 *  在事件帧用全新派生对象计算，写回不参与签名比较。 */
+	 *  renderProgressRow/renderTokenStats/setTotalTimeText/setJobElapsedText 与事件帧
+	 *  同函数同守卫）；重算值写回条目对象保持字段与 DOM 同相——条目对象是上一提交帧
+	 *  私有状态，签名在事件帧用全新派生对象计算，写回不参与签名比较。 */
 	function tickEntryClock(entry, now) {
 		// 标题行累计运行时长：非 subagent 条目统一重算（awaiting/recent 的冻结期恒等
 		// 零写入，开放回合在飞或推送在途瞬态随秒推进，与全量管线同行为）。
@@ -7444,18 +7462,15 @@ function apply(ctx) {
 			const rec = cardsById.get(entry.id);
 			if (rec === undefined) return;
 			renderTokenStats(rec.el, entry);
-			// jobs-only 母卡进度行隐藏（呈现冻结，R-01-023/AC-01）：以条目字段同源判定
-			// （与 renderCardInto 的 jobsOnly 判定同式），不读 DOM 属性。
-			const jobsOnly = Array.isArray(entry.liveJobs) && entry.liveJobs.length > 0 && entry.selfRunning !== true;
-			if (!jobsOnly) renderProgressRow(rec.el, entry.progress);
+			// jobs-only 母卡进度行隐藏（呈现冻结，R-01-023/AC-01）：共享谓词判定，不读
+			// DOM 属性。
+			if (!isJobsOnlyEntry(entry)) renderProgressRow(rec.el, entry.progress);
 			return;
 		}
 		if (entry.kind === "job") {
 			const rec = cardsById.get(entry.id);
-			if (rec === undefined || !(Number.isFinite(entry.jobStartedAt) && entry.jobStartedAt > 0)) return;
-			const elapsedText = fmtElapsedMs(Math.max(0, now - entry.jobStartedAt));
-			const elapsedEl = rec.el.querySelector(".dap-job-elapsed");
-			if (elapsedEl !== null && elapsedEl.textContent !== elapsedText) elapsedEl.textContent = elapsedText;
+			if (rec === undefined) return;
+			setJobElapsedText(rec.el, entry, now);
 		}
 	}
 

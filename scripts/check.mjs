@@ -4650,10 +4650,13 @@ assert.ok(
 	bundle.includes("lastCommittedEntries = visibleEntries"),
 	"时钟帧数据源在 renderOk 提交分支随 lastSig 同点登记（T-189）",
 );
-const clockFramesSource = clientSource.slice(
-	clientSource.indexOf("function tickClockFrames"),
-	clientSource.indexOf("function getSessionSnapshot"),
+const clockFramesStart = clientSource.indexOf("function tickClockFrames");
+const clockFramesEnd = clientSource.indexOf("function syncJobsWatches");
+assert.ok(
+	clockFramesStart !== -1 && clockFramesEnd > clockFramesStart,
+	"时钟帧切片锚点有效（锚点失配时禁区切片会静默漂移，必须显式失败）",
 );
+const clockFramesSource = clientSource.slice(clockFramesStart, clockFramesEnd);
 assert.ok(
 	(clientSource.match(/lastSig = sig;/g) ?? []).length === 1
 		&& !clockFramesSource.includes("lastSig")

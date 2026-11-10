@@ -1453,10 +1453,19 @@ function pruneSubscriptions(subscriptions, visibleIds) {
  *  调用 workspaceInfoForSession 会按工作区×区会话数做字符串全扫，4700 会话下
  *  每帧千万级比较为渲染路径最大热点。先到先得语义与 workspaceInfoForSession
  *  的首个命中一致（items 顺序遍历、已命中键不覆写）。 */
+/** 按引用备忘（T-186）：键为 workspaceItems 数组引用，buildEntries/buildRecent
+ *  共用同一张表——工作区清单由宿主快照缓存、两次推送间引用稳定且视为不可变
+ *  （与 currentIdOf/syncJobsWatches 的引用 memo 同一约定），索引结果只读、可安全
+ *  跨调用复用；WeakMap 键随清单对象被丢弃而释放，无跨代际陈旧风险。 */
+const workspaceIndexMemo = new WeakMap();
+
 function buildWorkspaceIndex(workspaceItems) {
-	const items = Array.isArray(workspaceItems) ? workspaceItems : [];
+	// 非法形状的既有容错保持：非数组输入归一空索引，且不入 memo（WeakMap 键须为对象）。
+	if (!Array.isArray(workspaceItems)) return new Map();
+	const hit = workspaceIndexMemo.get(workspaceItems);
+	if (hit !== undefined) return hit;
 	const index = new Map();
-	for (const workspace of items) {
+	for (const workspace of workspaceItems) {
 		if (!isRecord(workspace)) continue;
 		const title = cleanText(workspace.title);
 		if (!title || !Array.isArray(workspace.sessionIds)) continue;
@@ -1466,7 +1475,69 @@ function buildWorkspaceIndex(workspaceItems) {
 			if (!index.has(id)) index.set(id, { title, key });
 		}
 	}
+	workspaceIndexMemo.set(workspaceItems, index);
 	return index;
+}
+
+/**
+ * statusSnapshot 覆盖层构建（R-01-002/AC-03，dsh 0.2.0 起 sessionStatus 统一状态面）：
+ * 把状态面快照携带的 pendingInteraction.kind 回填到行副本上，等待卡分类
+ * （awaiting/blocked/提问中）保持既有单一口径。状态面缺席或基快照无 byId 记录时
+ * 原样返回基快照（覆盖层不生效形态）。
+ */
+function applyStatusOverlay(snapshot, statusSnapshot) {
+	if (!(statusSnapshot instanceof Map) || statusSnapshot.size === 0 || !isRecord(snapshot?.byId)) return snapshot;
+	const byId = { ...snapshot.byId };
+	for (const [id, status] of statusSnapshot) {
+		const row = byId[id];
+		const kind = status?.pendingInteraction?.kind;
+		if (!isRecord(row) || typeof kind !== "string") continue;
+		byId[id] = { ...row, pendingInteraction: kind };
+	}
+	return { ...snapshot, byId };
+}
+
+/**
+ * 覆盖层按引用备忘（T-186）：以（基快照, statusSnapshot）双引用为 memo 键，引用均
+ * 未变即复用同一覆盖层对象不换壳——消除每帧 `{ ...byId }` + `{ ...snapshot }` 全量
+ * 克隆，并使覆盖层快照的下游按引用 memo（currentIdOf 等）帧内恒命中。键选型依据：
+ * 宿主快照两次推送间引用稳定且视为不可变（与 currentIdOf 的引用 memo 同一约定）；
+ * statusSnapshot 内容变更时宿主换新 Map 引用、内容等价则保留旧引用，故引用相等即
+ * 内容相等，无跨代际陈旧风险；双引用键无法以 WeakMap 承载，闭包单槽即够——上一帧
+ * 就是唯一需要记住的代际。
+ */
+function createStatusOverlayMemo() {
+	let memo = null;
+	return (snapshot, statusSnapshot) => {
+		if (memo !== null && memo.base === snapshot && memo.status === statusSnapshot) return memo.overlay;
+		const overlay = applyStatusOverlay(snapshot, statusSnapshot);
+		memo = overlay === snapshot ? null : { base: snapshot, status: statusSnapshot, overlay };
+		return overlay;
+	};
+}
+
+/** waitingStarts 派生（R-01-001/AC-07，T-141）：busy 记账中 openWaitStart 为毫秒数的
+ *  会话进入阻塞等待时刻表（Map id → 毫秒），其余记录不派生；只读 busyById。 */
+function waitingStartsFrom(busyById) {
+	const waitingStarts = new Map();
+	for (const [id, record] of busyById) {
+		if (typeof record?.openWaitStart === "number") waitingStarts.set(String(id), record.openWaitStart);
+	}
+	return waitingStarts;
+}
+
+/**
+ * waitingStarts 按内容版本备忘（T-186）：busyById 原地 clear+set 变更、Map 引用恒
+ * 不变，严禁以 Map 引用作 memo 键——以调用方在全部变更点递增的 busy 内容版本号记
+ * 账，版本未变即复用上帧 Map，消除逐帧名册级重建。
+ */
+function createWaitingStartsMemo() {
+	let memo = null;
+	return (busyById, busyVersion) => {
+		if (memo !== null && memo.version === busyVersion) return memo.map;
+		memo = { version: busyVersion, map: waitingStartsFrom(busyById) };
+		return memo.map;
+	};
 }
 
 function workspaceInfoForSession(sessionId, workspaceItems, byId = {}) {
@@ -1673,6 +1744,12 @@ function mainTitle(byId, id) {
  *   - 主会话 pendingInteraction / completed / errorReminder → 'awaiting'（等待用户行动）
  *   - 子代理 running / pending 或存在活动后代 → 'subagent'，自身与后代均不活动则不显示
  *   - 普通 fork 虽有 parentId，但 origin 缺失，仍按独立主会话处理
+ * 入参（T-186 收敛为单 options 对象，字段与原位置参数一一对应，全部原缺省保持）：
+ *   { snapshot, workspaceItems, detailsById?, completions?, delegatingIds?,
+ *     archivedIds?, waitingStarts?, jobsBySession?, currentId? }
+ * currentId 纳入入参：渲染层对原始快照算一次后帧内复用，消除函数内 currentIdOf 的
+ * O(名册) 重扫（覆盖层不改 retainedBy，覆盖前后 currentId 同值——T-183 结论）；
+ * undefined 判缺省，保留一次 currentIdOf 兜底，直调方无需感知。
  * completions（完成确认与错误提醒，R-01-002/AC-05、AC-13、R-01-010/AC-06）：Map id →
  * { lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }，由渲染层从宿主侧 ack 状态
  * 通道注入；其中完成提醒成立（completionReminder）或错误提醒成立（errorReminder）的
@@ -1695,10 +1772,23 @@ function mainTitle(byId, id) {
  * 完成提醒与错误提醒被抑制（AC-01、AC-02）；条目携带 liveJobs（startedAt 升序）供渲染层
  * 标注数量与构建任务行（R-01-023）。子代理行不派生 liveJobs（后台任务当前仅主会话呈现）。
  */
-function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = null, delegatingIds = null, archivedIds = [], waitingStarts = null, jobsBySession = null) {
+function buildEntries(options = {}) {
+	const {
+		snapshot,
+		workspaceItems,
+		detailsById = {},
+		completions = null,
+		delegatingIds = null,
+		archivedIds = [],
+		waitingStarts = null,
+		jobsBySession = null,
+		currentId,
+	} = options ?? {};
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
-	const current = currentIdOf(snapshot);
+	// currentId 入参化（T-186）：渲染层对原始快照算一次后帧内复用，消除函数内
+	// currentIdOf 的 O(名册) 重扫；undefined 判缺省，保留一次 currentIdOf 兜底直调。
+	const current = currentId === undefined ? currentIdOf(snapshot) : currentId;
 	const projectionsBySession = isRecord(snapshot?.projectionsBySession)
 		? snapshot.projectionsBySession
 		: {};
@@ -1800,12 +1890,19 @@ function buildEntries(snapshot, workspaceItems, detailsById = {}, completions = 
 		// 排序键缺失回落宿主列表时间；回落仅用于排序，显示侧以 null 承载（见 stateAt）。
 		return entered ?? instructionTime(byId[id]);
 	};
+	// 平局裁决预建索引（T-186）：ids 原序首现下标入表，比较器平局分支查表替代
+	// ids.indexOf 的每对两次 O(名册) 线扫——同刻时间戳聚集时的二次方退化消除；
+	// 首现下标语义与 indexOf 完全一致（重复 id 取最小下标）。
+	const idOrder = new Map();
+	for (let i = 0; i < ids.length; i += 1) {
+		if (!idOrder.has(ids[i])) idOrder.set(ids[i], i);
+	}
 	rootIds.sort((a, b) => {
 		const byGroup = Number(isRunningEntry(b)) - Number(isRunningEntry(a));
 		if (byGroup !== 0) return byGroup;
 		const byTime = sortTime(b) - sortTime(a);
 		if (byTime !== 0) return byTime;
-		return ids.indexOf(a) - ids.indexOf(b);
+		return (idOrder.get(a) ?? -1) - (idOrder.get(b) ?? -1);
 	});
 
 	const entries = [];
@@ -2596,16 +2693,49 @@ function createSessionEventSerializer() {
  * 也不入历史区。历史区不再按时间窗口或条数截断；turnEnds（id → 已知回合结束时刻）驱动
  * activityAt 精化（R-01-010、R-01-019）。
  */
-function buildRecent(snapshot, workspaceItems, now, detailsById = {}, archivedIds = [], completions = null, delegatingIds = null, turnEnds = null, jobsBySession = null) {
+/** buildRecent 的 limit 有效性口径：仅接受非负有限数字，其余形态按全量候选处理。 */
+const isCountLimit = (value) => Number.isFinite(value) && value >= 0;
+
+/**
+ * 构建历史区条目：当前非活动的**主会话**，按最后活动时间从新到旧返回候选集合。
+ * 子代理是临时工作单元，不入历史区；归档、空会话、完成/错误提醒与委托周期中的会话
+ * 也不入历史区。历史区不再按时间窗口或条数截断；turnEnds（id → 已知回合结束时刻）驱动
+ * activityAt 精化（R-01-010、R-01-019）。
+ *
+ * 两段式（T-186）：第一阶段逐候选保留全部既有过滤谓词、只收集 { id, activityAt }
+ * 轻量键排序取前缀，第二阶段仅对入选者物化完整条目（workspace 查表、mainTitle、
+ * metadata、previews）——历史候选可达全名册规模，逐候选物化是渲染帧名册级分配的
+ * 主体；谓词取舍与排序语义（activityAt 降序、平局按 id 字典序）逐字段等价。
+ * options.limit 为非负有限数字时仅返回入选前缀，并以不可枚举 total 属性附过滤后
+ * 候选总数（调用方 recentTotal=过滤后候选总数、recentHasMore 语义由此承载；不可
+ * 枚举属性不参与 deepEqual，既有断言不受影响）；未传 limit 返回全量数组。
+ */
+function buildRecent(options = {}) {
+	const {
+		snapshot,
+		workspaceItems,
+		now,
+		detailsById = {},
+		archivedIds = [],
+		completions = null,
+		delegatingIds = null,
+		turnEnds = null,
+		jobsBySession = null,
+		currentId,
+		limit,
+	} = options ?? {};
 	const byId = isRecord(snapshot) && isRecord(snapshot.byId) ? snapshot.byId : {};
 	const ids = Array.isArray(snapshot?.ids) ? snapshot.ids : [];
-	const current = currentIdOf(snapshot);
+	// currentId 入参化（T-186）：同 buildEntries——undefined 判缺省，保留一次 currentIdOf 兜底直调。
+	const current = currentId === undefined ? currentIdOf(snapshot) : currentId;
 	const items = Array.isArray(workspaceItems) ? workspaceItems : [];
 	const workspaceIndex = buildWorkspaceIndex(items);
 	const activeIds = activeSessionIds(byId);
 	const archived = archivedIds instanceof Set ? archivedIds : new Set(archivedIds ?? []);
-	const entries = [];
-
+	// 两段式分工：第一阶段只读行字段与已 memo 值做过滤与排序键收集，不做任何
+	// workspace/标题/模型物化；物化（workspaceInfoForSession 回退、标题与模型推导）
+	// 只发生在入选前缀上——total/hasMore 用计数维护，不依赖物化条目数。
+	const candidates = [];
 	for (const id of ids) {
 		const row = byId[id];
 		if (!isRecord(row)) continue;
@@ -2622,7 +2752,12 @@ function buildRecent(snapshot, workspaceItems, now, detailsById = {}, archivedId
 		if (!Number.isFinite(updatedAt)) continue;
 		if (Number.isFinite(now) && updatedAt > now) continue;
 		const turnEnd = Number(mapValue(turnEnds, id));
-		const activityAt = Number.isFinite(turnEnd) ? Math.max(updatedAt, turnEnd) : updatedAt;
+		candidates.push({ id, activityAt: Number.isFinite(turnEnd) ? Math.max(updatedAt, turnEnd) : updatedAt });
+	}
+	const bounded = isCountLimit(limit) ? candidates.slice(0, limit) : candidates;
+	const entries = [];
+	for (const { id, activityAt } of bounded) {
+		const row = byId[id]; // 与第一阶段同一个 byId 引用，帧内必仍为记录
 		const details = mapValue(detailsById, id) ?? {};
 		const metadata = details.model ?? modelMetadata(details.models ?? row.models);
 		// previews 不在此推导：渲染层按需 memo 计算（冷会话由 history 一次性写入 detail.previews）。
@@ -2643,7 +2778,6 @@ function buildRecent(snapshot, workspaceItems, now, detailsById = {}, archivedId
 			activityAt,
 		});
 	}
-
 	entries.sort((a, b) => {
 		const byActivity = b.activityAt - a.activityAt;
 		if (byActivity !== 0) return byActivity;
@@ -2651,6 +2785,7 @@ function buildRecent(snapshot, workspaceItems, now, detailsById = {}, archivedId
 		const bId = String(b.id);
 		return aId < bId ? -1 : aId > bId ? 1 : 0;
 	});
+	if (isCountLimit(limit)) Object.defineProperty(entries, "total", { value: candidates.length });
 	return entries;
 }
 
@@ -4839,6 +4974,13 @@ function apply(ctx) {
 	const busyById = new Map(); // sessionId -> { busyMs, openTurnStart }
 	const busyRequestedIds = new Set(); // 已触发过回填的会话 id（宿主侧单飞，本地防重复请求）
 	const busyRetryAtById = new Map(); // sessionId -> 回填失败后的最早重试时刻（30s 退避，不逼近轮询）
+	// busy 内容版本号（T-186）：busyById 原地 clear+set、Map 引用恒不变，waitingStarts
+	// 的帧间 memo 以本版本号记账——全部变更点（applyBusyState/applyBusyBackfill/cleanup）递增。
+	let busyVersion = 0;
+	// 渲染帧名册级 memo 实例（T-186）：statusSnapshot 覆盖层按（基快照, statusSnapshot）
+	// 双引用短路不换壳；waitingStarts 按内容版本复用上帧 Map。
+	const statusOverlayMemo = createStatusOverlayMemo();
+	const waitingStartsMemo = createWaitingStartsMemo();
 	let busySource = null;
 	let busyFetchInflight = false;
 
@@ -4868,6 +5010,7 @@ function apply(ctx) {
 		for (const [id, record] of Object.entries(state)) {
 			busyById.set(String(id), busyRecordFrom(record));
 		}
+		busyVersion += 1;
 		queueSync();
 	}
 
@@ -4884,7 +5027,10 @@ function apply(ctx) {
 			busyById.set(String(id), busyRecordFrom(record));
 			changed = true;
 		}
-		if (changed) queueSync();
+		if (changed) {
+			busyVersion += 1;
+			queueSync();
+		}
 	}
 
 	/** 累计运行时长注入（R-01-020/AC-01、AC-03、AC-07）：已完成回合累计 + 开放回合实时
@@ -7483,20 +7629,12 @@ function apply(ctx) {
 		}
 		const listState = listLoadState(snapshot);
 		// dsh 0.2.0（T-170）：统一会话状态面 sessionStatus（Map<sessionId,
-		// {running, pendingInteraction, completionUnread}>）取代 pendingInteractions：
-		// 从状态快照把 pendingInteraction.kind 回填到行副本上，等待卡分类
-		// （awaiting/blocked/提问中）保持既有单一口径（R-01-002/AC-03）。
+		// {running, pendingInteraction, completionUnread}>）——把 pendingInteraction.kind
+		// 回填到行副本上、等待卡分类（awaiting/blocked/提问中）保持既有单一口径
+		// （R-01-002/AC-03）；覆盖层对象按（基快照, statusSnapshot）双引用短路 memo，
+		// 引用未变帧复用同一对象不换壳（构建与键选型依据见 core 的 createStatusOverlayMemo）。
 		const statusSnapshot = uiSession?.sessionStatus?.getSnapshot?.() ?? null;
-		if (statusSnapshot instanceof Map && statusSnapshot.size > 0 && snapshot?.byId) {
-			const byId = { ...snapshot.byId };
-			for (const [id, status] of statusSnapshot) {
-				const row = byId[id];
-				const kind = status?.pendingInteraction?.kind;
-				if (!isRecord(row) || typeof kind !== "string") continue;
-				byId[id] = { ...row, pendingInteraction: kind };
-			}
-			snapshot = { ...snapshot, byId };
-		}
+		snapshot = statusOverlayMemo(snapshot, statusSnapshot);
 		// 只消费上一轮追加请求；列表短暂 pending 时保留已展开页，ready 后继续从同一前缀呈现。
 		recentAppendQueued = false;
 		const workspaceSnapshot = getSnapshot(workspaces, "list");
@@ -7510,24 +7648,20 @@ function apply(ctx) {
 		for (const [id, state] of progressAnchorById) {
 			if (delegationActive(state, now)) delegatingIds.add(id);
 		}
-		// 排序键注入（契约见 buildEntries JSDoc）：openWaitStart 已在 busy SSE 快照归一为毫秒数或 null。
-		const waitingStarts = new Map();
-		for (const [id, record] of busyById) {
-			if (typeof record?.openWaitStart === "number") waitingStarts.set(String(id), record.openWaitStart);
-		}
+		// 排序键注入（契约见 buildEntries JSDoc）：openWaitStart 已在 busy SSE 快照归一为毫秒数或 null；
+		// 派生 Map 按 busy 内容版本备忘（busyById 原地变更、引用恒不变——见 createWaitingStartsMemo）。
+		const waitingStarts = waitingStartsMemo(busyById, busyVersion);
 		// 在跑后台任务（R-01-023，T-170）：dsh 0.2.0 起 jobsBySession 自列表快照移除，
 		// 改由 jobs 服务的 state.rows（Record<sessionId, JobView[]>）注入
 		// buildEntries/buildRecent——liveJobs 非空的主会话保留活动区、归运行组并抑制
 		// 完成/错误提醒；roster 订阅经 syncJobsWatches 对列表全会话建立。
-		// currentId 单点（T-183）：覆盖层不改 retainedBy，覆盖前后 currentId 同值——
-		// 对原始快照算一次，帧内渲染层取用复用该值（WeakMap 缓存对原始快照命中）。
-		// 残余口径：buildEntries/buildRecent 内部的 currentIdOf 收到的是覆盖层新对象
-		// （WeakMap 恒 miss，各留一次 O(名册) 重扫/帧），彻底消除须把 currentId 纳入
-		// 入参——与位置参数收敛同窗处理（TODO 既有登记）。
+		// currentId 单点（T-183/T-186）：覆盖层不改 retainedBy，覆盖前后 currentId 同值——
+		// 对原始快照算一次，经 options.currentId 注入 buildEntries/buildRecent（两函数
+		// 内部的 currentIdOf O(名册) 重扫/帧随位置参数收敛一并消除；TODO 既有登记同窗完成）。
 		const currentId = currentIdOf(rawListSnapshot);
 		syncJobsWatches(rawListSnapshot);
 		const jobsBySession = jobs?.state?.getSnapshot?.()?.rows ?? null;
-		const builtActive = buildEntries(snapshot, workspaceItems, sessionDetailsById, completeAcksById, delegatingIds, archivedSessionIds, waitingStarts, jobsBySession);
+		const builtActive = buildEntries({ snapshot, workspaceItems, detailsById: sessionDetailsById, completions: completeAcksById, delegatingIds, archivedIds: archivedSessionIds, waitingStarts, jobsBySession, currentId });
 		// 任务子卡档位门控（R-01-023/AC-10、R-01-025/AC-08，T-174）：中间/紧凑档不呈现
 		// 后台任务子卡——剔除 job 子条目后其随钟时长不再注入渲染签名；任务视图订阅
 		// （syncJobsWatches）与母会话 liveJobs（数量注、活动区保留、提醒抑制）不受影响。
@@ -7712,9 +7846,9 @@ function apply(ctx) {
 			}
 			if (detail.memoTurnEnd != null) turnEnds[id] = detail.memoTurnEnd;
 		}
-		const recentCandidates = buildRecent(snapshot, workspaceItems, now, sessionDetailsById, archivedSessionIds, completeAcksById, delegatingIds, turnEnds, jobsBySession);
-		recentTotal = recentCandidates.length;
-		const recent = recentCandidates.slice(0, recentVisibleCount);
+		const recentBuilt = buildRecent({ snapshot, workspaceItems, now, detailsById: sessionDetailsById, archivedIds: archivedSessionIds, completions: completeAcksById, delegatingIds, turnEnds, jobsBySession, currentId, limit: recentVisibleCount });
+		recentTotal = recentBuilt.total;
+		const recent = recentBuilt;
 		recentHasMore = recent.length < recentTotal;
 		// 最近卡统计复用运行卡的列表投影口径；耗时从已读 history 取最近完整回合的运行
 		// 过程时长（busy 口径，与标题行总耗时一致，R-01-013/AC-12），缺边界时仅为当前
@@ -8210,6 +8344,7 @@ function apply(ctx) {
 		window.removeEventListener("pageshow", onSyncPageShow);
 		completeAcksById.clear();
 		busyById.clear();
+		busyVersion += 1;
 		busyRequestedIds.clear();
 		busyRetryAtById.clear();
 		if (clockTimer !== null) clearInterval(clockTimer);

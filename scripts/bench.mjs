@@ -63,7 +63,7 @@ for (let i = 0; i < RECENT; i += 1) detailsById.set(`cold:${i}`, { snapshot: mak
 
 // 与客户端 render() 同构的归一化流程（含快照引用 memo）。
 function renderPass() {
-	const active = buildEntries(listSnapshot, [], detailsById);
+	const active = buildEntries({ snapshot: listSnapshot, workspaceItems: [], detailsById: detailsById });
 	for (const entry of active) {
 		const detail = detailsById.get(entry.id);
 		const snap = detail?.snapshot ?? null;
@@ -75,7 +75,7 @@ function renderPass() {
 			entry.timeline = detail.memoTimeline;
 		}
 	}
-	const recent = buildRecent(listSnapshot, [], Date.now(), detailsById);
+	const recent = buildRecent({ snapshot: listSnapshot, workspaceItems: [], now: Date.now(), detailsById: detailsById });
 	for (const entry of recent) {
 		const detail = detailsById.get(entry.id);
 		if (!detail) continue;
@@ -106,7 +106,7 @@ function legacyScanAll(snapshot) {
 	return items;
 }
 function legacyRenderPass() {
-	const active = buildEntries(listSnapshot, [], detailsById);
+	const active = buildEntries({ snapshot: listSnapshot, workspaceItems: [], detailsById: detailsById });
 	for (const entry of active) {
 		const detail = detailsById.get(entry.id);
 		if (!detail?.snapshot) continue;
@@ -115,7 +115,7 @@ function legacyRenderPass() {
 		legacyScanAll(detail.snapshot); // 旧渲染循环 timeline 重算
 		legacyScanAll(detail.snapshot); // 旧渲染循环 previews 重算
 	}
-	const recent = buildRecent(listSnapshot, [], Date.now(), detailsById);
+	const recent = buildRecent({ snapshot: listSnapshot, workspaceItems: [], now: Date.now(), detailsById: detailsById });
 	for (const entry of recent) {
 		const detail = detailsById.get(entry.id);
 		if (!detail?.snapshot) continue;

@@ -6,7 +6,7 @@ id: T-187
 
 # T-187 累计审计——窗口 1eb46e3..94f710b（T-185 卡顿修复线 + T-186 分配清零）
 
-状态: active
+状态: completed
 类型: 累计审计
 风险等级: 免风险分级（累计审计 task 免分级，证据规格按 major 写死）
 风险面: 无（只读审计，不改动代码与 map；审计发现按严重度登记，修复另立或并入待关闭 task）
@@ -58,4 +58,14 @@ id: T-187
 
 ## 终态与证据
 
-- 关闭时填写: review 三标签（目的理解/问题与修复/复审结论）、CONVENTIONS 复位点登记、commit。
+- 实现: 独立子代理累计审计（窗口 1eb46e3..94f710b 全量 diff 双轴 + T-185/T-186 两份 task 文书全文核验）——跨改动交互轴四项逐一核验正交成立：增量失效键（前缀长度/末条 seq/cwd，src/core.mjs:1072-1089）× 覆盖层与清单 memo 键（引用/版本，src/core.mjs:1454-1535）作用面不同无干扰；foldState.cwd 与 render entryCwd 同源且漂移回落全量（src/client.mjs:4629-4631 fail-closed）；SYNC_MIN_INTERVAL_MS 节流与 memo 失效语义独立；T-185 增量路径调用点未被 T-186 options 迁移误伤（foldedTimelineFromFoldState 家族保持位置签名，全仓 grep 无残留）。证据失实更正 2 处（审计更正口径，不改终态原文）：T-185 终态「23 specs」与 46f5e2f 正文「22 specs」按同一事实口径均应为 24（git ls-tree 核验 46f5e2f e2e/specs 计 24 项）；连带提示 T-186 文书测试计划行同差 1，关闭终态勿照抄。结构抽查：T-185 四行证据 + review 三标签 + 自查清单齐备；T-186 收敛方案 1–5 与三笔提交对应完整。
+- 测试: 审计为只读活动；审计子代理实跑 `node scripts/check.mjs` 全部断言通过；窗口内最近全量 e2e 为 T-186 修复批次 24 specs 全绿（含 mobile-thermal rAF 门禁 PASS，C-082 对照）。
+- SOLUTION 对照: 窗口内无 map 变更（7 笔提交未触碰 PRD/SOLUTION/DOMAIN/RATIONALE/CONVENTIONS，git show --stat 逐笔核验）；PRD/SOLUTION/DOMAIN 未改写。
+- commit: 94f710b（审计窗口端点 1eb46e3..94f710b；复位点登记随本关闭提交生效）
+- review:
+  - 审核方: 累计审计独立子代理（单轮双轴，跨改动视角专项）
+  - 目的理解: 窗口为两条性能线叠加——T-185 流式派生增量化（纯追加校验+失效整表重建+合并间隔 250ms）与 T-186 渲染帧名册级分配清零（覆盖层/清单/等待起点 memo、buildEntries/buildRecent options 化+currentId 入参、buildRecent 两段式、平局索引）——红线同为 C-082 达标类 map 不变；审计捕捉单改动评审看不到的叠加失效盲区、指标口径漂移与证据失实
+  - 问题与修复: blocking 0。S1 无 seq 条目使增量指纹 seq 比较恒真（src/core.mjs:1072-1074，T-185 已登记两点指纹残余的更窄延伸）→ 并入 T-185 已登记的 O(窗) seq 单调扫描待议项一并评估，随 TODO 登记承接；D1 buildRecent 第二段幂等冗余排序（Speculative Generality 形态）→ TODO 登记待后续触及该函数时清理；S2/D2 容错口径 nit（applyStatusOverlay isRecord 微差、waitingStartsFrom 非 Map 无守卫）→ 登记不动代码；证据失实 2 处 → 审计更正登记
+  - 复审结论: 双轴全量审计无 blocking；跨改动交互 4 项（增量失效×引用 memo、cwd 口径、节流×失效、调用点迁移）全部正交；0c17bc1 曾一次引入两处行为回归（F1 排序前切片、N1 平局索引退化）已由同窗 1dc11e3/94f710b 修复并补对抗夹具，审计确认闭环
+- 残余风险: S1 指纹退化（现行生产者条目普遍带 seq 且守追加+出窗纪律，可达性低，与 T-185 指纹残余同族待议）；引用 memo 信任「宿主快照两次推送间引用稳定且不可变」既有约定（与 currentIdOf/syncJobsWatches 同一信任模型，现行无违反生产者，接受型残余）；T-186 关闭时补齐活实例同窗实测与 perf-ab 量化终态记录。
+- review 结论引用: 0 blocking；Spec 轴 2 条观察级（S1/S2）；Standards 轴 1 non-blocking + 2 nit（D1/D2 含于 S2/D2）；审计更正 2 处。

@@ -6,7 +6,7 @@ id: T-183
 
 # T-183 名册渲染家族常量成本收敛（第一档：逐帧重复劳动消除）
 
-状态: active
+状态: completed
 类型: 性能优化
 风险等级: major
 风险面: 无（纯内部计算路径优化：呈现结果、jobs 订阅面与对外契约均不变，不触及契约、资金、数据迁移、对外接口、鉴权）
@@ -68,4 +68,17 @@ T-181 消除折叠放大后，活实例重负载实测（2026-11-10 11:27）定�
 
 ## 终态与证据
 
-（关闭时填写）
+- 实现: 工作区索引 buildWorkspaceIndex（buildEntries/buildRecent 每帧一次、逐会话 O(1) 查表，workspaceInfoForSession 保留 cwd 回退）；currentIdOf 按快照引用 WeakMap 记忆化 + render 覆盖层前单点计算；buildEntries 的 isArchived 每帧备忘整链入表；lineageActiveIds for-in 免分配；syncJobsWatches 快照引用短路差集重建（基线重置不依赖订阅成功）；fmtRecentTime 分钟桶有界缓存；perf-ab --check 口径演进为折叠绝对采样数比值（阈值 1.2）。
+- 测试: scripts/check.mjs 全绿（新增工作区索引七断言与 currentIdOf 记忆化语义断言，含同引用期内冻结的行为钉住）；pnpm verify 全量 22 specs 全绿（含移动端热静默 rAF 门禁 PASS，C-082 对照）；隔离 A/B（base=b12bf15）：事件期总 CPU 比值 0.788、折叠绝对采样 96→93 守恒（正交性证明）；活实例 4 会话并发复测：workspaceInfoForSession 从首位热点（7587 样本）降至消失、currentIdOf 5380→2225/280、fmtAbsoluteDateTime 退出前八，CPU 43.9–81%（对照基线 69–83%，构成改善且随负载波动）。
+- SOLUTION 对照: 纯内部计算路径优化，呈现与排序保持不变（map 不变短路，C-082 口径）；PRD/SOLUTION 未改写，无 AC 锚点变更。
+- commit: 251cfc7
+- review:
+  - 目的理解: 活实例重负载实测（4 运行会话、4700 会话名册）定位出与折叠正交的名册渲染家族（非空闲采样 53-54%），本 task 以行为保持的等价变换消除逐帧重复劳动，验收口径为活实例同窗对照（基线=2026-11-10 上午四窗 69–83%）。
+  - 问题与修复: 首轮双轴 8 条（Spec 5 + Standards 3）全部处置——perf-ab --check 阈值语义错配（占比口径换轨后缺省 0.7 会让正交 bundle 必 FAIL）已重校为 1.2 并改写头注；task 补记口径演进并改正「占比比值不受影响」的失实断言；覆盖层 currentId 残余如实登记（buildEntries/buildRecent 内部各留一次 O(名册) 重扫/帧）；installServiceSubscriptions 补订阅差集基线重置；for-in 注释补原型链说明；fmt 桶滞后登记为已接受残余。复审确认处置一一对应、blocking 清零，三处一行级残留（编号重复、占比行标签、基线重置在 try 内）已当场修复。
+  - 复审结论: 双轴两轮（首审 8 条 + 复审确认）全部收敛，无 blocking；核心等价变换（工作区索引首命中语义、isArchived 备忘四情形、currentIdOf 记忆化边界）逐条核验成立。
+- 残余风险与测试缺口:
+  - buildEntries/lineageActiveIds 的 O(名册) 枚举为全量清点设计的固有成本，活跃期剩余占用以实测为准；进一步收敛须走可见窗口订阅（需求变更，须先改 PRD）。
+  - buildEntries/buildRecent 内部 currentIdOf 收覆盖层快照（WeakMap 恒 miss），各留一次 O(名册) 重扫/帧；与位置参数收敛同窗处理（TODO 既有登记）。
+  - fmtRecentTime 分钟桶缓存使相对分级文案桶内滞后至多 60 秒（分钟级分级呈现口径内），桶界自愈。
+  - perf-ab 隐藏期比值为单样本高方差（实测 0.31/0.64/2.02 跨度），仅作参考不作断言依据。
+- 活实例效果（2026-11-10 午后实测，4 运行会话负载）：workspaceInfoForSession 从首位热点（7587 样本）降至消失；currentIdOf 5380→2225/280；fmtAbsoluteDateTime 退出前八；总 CPU 活跃窗 82.7% → 81/43.9%（负载方差内，构成改善为结构证据）；名册家族占比 53–54% → 24–48%。

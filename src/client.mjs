@@ -1313,10 +1313,6 @@ function getSnapshot(service, key) {
  *  不可见，渲染管线经 rAF 挂起本就不消费派生结果；可见性恢复经 visibilitychange →
  *  resumeRenderPipeline 补一轮渲染并按需重启。自门控不依赖浏览器对隐藏页的定时器
  *  豁免行为（版本间可能收紧）。 */
-/** 页面隐藏判定（T-181 ③）：时钟类自驱动与流式派生折叠在隐藏页停摆——时长显示
- *  不可见，渲染管线经 rAF 挂起本就不消费派生结果；可见性恢复经 visibilitychange →
- *  resumeRenderPipeline 补一轮渲染并按需重启。自门控不依赖浏览器对隐藏页的定时器
- *  豁免行为（版本间可能收紧）。 */
 function pageHidden() {
 	return typeof document !== "undefined" && document.hidden === true;
 }

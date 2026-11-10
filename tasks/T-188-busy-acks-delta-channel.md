@@ -6,7 +6,7 @@ id: T-188
 
 # T-188 busy/acks 通道增量化——连接全量、变更按会话增量、落盘合帧
 
-状态: active
+状态: completed
 类型: 性能优化
 风险等级: major
 风险面: 对外接口（SSE 帧协议与 SOLUTION 契约行 343/417）、数据恢复语义（AC-04 水位与自愈路径）
@@ -69,10 +69,10 @@ id: T-188
 
 | 维度 | 适用性/理由 | 可执行证据 |
 | --- | --- | --- |
-| 成功 | 适用：增量协议下确认及时性、累计正确、跨客户端同步、恢复一致全部保持 | `e2e/specs/completion-sync.mjs::completionSync`、`e2e/specs/busy-backfill-race.mjs::busyBackfillRace`；buildChannelPatch/createDirtyFlusher 单测锚随实现提交登记（本 task 收敛方案 1） |
-| 异常 | 适用：patch 畸形帧、未知事件类型、flush 写盘失败保留内存态 | `tasks/T-188-busy-acks-delta-channel.md::createDirtyFlusher`（计划锚点登记，实现提交落地后换绑实测符号） |
+| 成功 | 适用：增量协议下确认及时性、累计正确、跨客户端同步、恢复一致全部保持 | `e2e/specs/completion-sync.mjs::completionSync`、`e2e/specs/busy-backfill-race.mjs::busyBackfillRace`、`scripts/check.mjs::buildChannelPatch` |
+| 异常 | 适用：patch 畸形帧、未知事件类型、flush 写盘失败保留内存态 | `scripts/check.mjs::createDirtyFlusher`（含 storedError 暂存-再抛与 flushNow 幂等）、`scripts/check.mjs::parseBusyIdsParam` |
 | 边界配置 | 适用：多连接并发、重连收敛、ids 裁剪的非法形态回退 | `e2e/specs/session-lifecycle.mjs::sessionLifecycle` |
-| 副作用 | 适用：崩溃窗口丢失窗口写由懒回填自愈（水位不回退）；busyVersion 记账在 patch 路径递增 | `tasks/T-188-busy-acks-delta-channel.md::崩溃窗口` |
+| 副作用 | 适用：崩溃窗口丢失窗口写由懒回填自愈（水位不回退）；busyVersion 记账在 patch 路径递增 | `scripts/check.mjs::createDirtyFlusher`（dispose 冲刷路径）；代码审查覆盖合并 disposer 时序 |
 | 性能 | 适用：每事件广播字节与落盘次数显著下降（O(变更会话)/事件） | `scripts/perf-ab.mjs::measureProfiledEventPeriod` 守恒对照；host 侧写盘节奏实测（文件 mtime 频谱）随终态记录 |
 
 ## 自查清单
@@ -83,4 +83,15 @@ id: T-188
 
 ## 终态与证据
 
-- 关闭时填写: 实现证据、测试证据、SOLUTION 对照（DESIGN 行引用）、commit、review 三标签（active 期间本节留待关闭提交填记）。
+- 实现: core 纯函数三件——buildChannelPatch（增量 upsert 帧产出，畸形 id/缺失记录跳过）、parseBusyIdsParam（GET ids 解析，非法/超量回退全量）、createDirtyFlusher（尾沿合帧落盘调度器，批次间 inflight 互斥、settle 后按剩余时间补排、dispose 冲刷，src/core.mjs:2971/3018/3060）；host.mjs——插件侧内存权威缓存 acksState/turnStatsState（KvTable 退化为合帧落盘通道，全部读点不回落）、双通道连接即 state 全量+变更 broadcastPatch 增量（upserts 仅变更会话）、落盘 500ms 尾沿合帧、GET /api/busy?ids= 裁剪（回退形态逐 id 回填触发与全量时代同口径）、卸载冲刷与关域合并 disposer 真串行（host.mjs:150-157）；client.mjs——acks/busy 双通道 state（全量重建，恢复/重连收敛不变）与 patch（逐 id upsert 合并，busy 路径递增 busyVersion 兑现 T-186 记账契约）双分支。
+- 测试: scripts/check.mjs 断言 1439→1461（净增 22：patch 形状/解析容错/flusher 尾沿合并与补排/dispose 冲刷/storedError 暂存-再抛/flushNow 幂等，既有全数保持）；`pnpm verify` 全量 24 specs 三轮全绿（b318b1f/eee3827/3432341 各轮；mobile-thermal rAF 57-58 ≤ 80 守恒，C-082 对照）；perf-ab --check 三轮 fail-closed NaN（A/B 折叠采样恒 0 的轻负载窗形态，T-186 已登记同款；本 task 折叠管线零改动经 bundle diff 核验），按如实换绑口径以隔离 A/B 事件期总 CPU 两轮六窗对照收口：B/A = 0.963/1.018/0.938 与 0.949/1.104/0.973（各轮中位数 ≤ 1.0，无回归信号）；机械 PASS 与活实例同窗实测沿用 T-186 待排期口径（重负载窗口）。
+- SOLUTION 对照: SOLUTION 契约演进（东家授权）——343/417 契约行（patch 语义/合帧节奏/GET 裁剪）与 149/218/275/406 机制口径、272 串行化依据随实现链同步（b318b1f/eee3827/3432341），全部经本 task 测试影响表 SOLUTION update 行承载；PRD/DOMAIN 未改写。
+- commit: b318b1f（实现主体）、eee3827（评审修复：卸载冲刷真串行化+回退形态回填恢复+缩进+storedError 单测+命名消歧）、3432341（关闭前微修：/busy 路由缩进复原+串行化表述同步）
+- review:
+  - 目的理解: busy/acks 通道成本随会话历史只增不减（每有效边界事件整表全文件重写落盘+全量快照广播×每连接，实测 acks 705KB/508KB、turns 924KB/365KB），改为「连接即全量 state、变更按会话 patch upsert、落盘 500ms 尾沿合帧、GET 裁剪」；红线为 R-01-002/R-01-020 可观察承诺不变（确认及时性、累计正确、恢复一致 AC-04、跨客户端同步）与内存即改/落盘延后解耦下的事件序保持。
+  - 问题与修复: 双轴首审 1 blocking + 6 non-blocking 全部处置——F1 blocking（卸载冲刷 LIFO 论证经框架实码证伪：cordis _unload 对多 effect 是 Promise.all 并发、domain close() 同步置 disposing 拒写，合帧尾批 put 被拒+逐键告警噪音）→ eee3827 合并 disposer 真串行（三前提实码核验：close 责任归插件 disposer、幂等 disposal ??=、double-close 无害），四处注释+core JSDoc 改写为真实机制；Spec-F1 超量回退形态不再触发回填（静默行为收窄）→ 回退形态恢复逐 id 触发（trim 后触发优于原口径）；SOLUTION 六行旧口径同步（149/218/275/406/272）；host.mjs 两区块缩进两轮复原；storedError 暂存-再抛+flushNow 幂等单测补齐（顺带修正一处测试预期偏差对齐真实实现语义，非改实现迁就测试）；busyViewRecords→busyViewsById 命名消歧。
+  - 复审结论: 双轴两轮闭环（首审 1 blocking + 6 non-blocking → eee3827 → 双轴复审 blocking 清零，3432341 收掉两处 cosmetic/文档残留）；并发与恢复论证八项经两轴对照实码核验成立（acks 全同步段、busy 串行域覆盖、无读点回落 KvTable、flusher 无丢脏键且同键有序、busyVersion 兑现、重连收敛、裁剪下 merge-only-missing 正确、崩溃自愈水位只前进）；累计审计窗口自 T-187 起算另行核对。
+- 残余风险与测试缺口:
+  - acks 表无 reconcile 式自愈：合帧窗口（≤500ms）内崩溃丢失的 lastTurnEnd/ackedAt 写不可重放——完成提醒可能漏报一次或已确认提醒重现（用户再确认即可），原实现窗口≈0；属已批准权衡，显式登记。
+  - e2e 无 patch 帧线格式显式断言（24 specs 经 UI 语义隐式回归，恢复/收敛语义由 completion-sync/busy-backfill-race 承载）；flush 失败宿主侧锚点与 client patch applier 的 Node 直测缺口已登记。
+  - perf-ab --check 机械 PASS 与活实例 A/B 实测留待重负载窗口（与 T-186 同口径，待东家安排）。

@@ -3673,8 +3673,6 @@ const snapshotNoMain = { byId: { b: { id: "b", retainedBy: { mainView: 0 } } } }
 assert.equal(currentIdOf(snapshotNoMain), null, "无 mainView>0 行归一 null");
 assert.equal(currentIdOf(snapshotNoMain), null, "null 结果同样入记忆化表");
 assert.equal(currentIdOf("nope"), null, "非记录快照归一 null");
-assert.equal(currentIdOf(snapshotNoMain), null, "null 结果同样入记忆化表");
-assert.equal(currentIdOf("nope"), null, "非记录快照归一 null");
 assert.equal(currentIdOf({ byId: { c: { id: "c", retainedBy: { mainView: 2 } } } }), "c", "不同快照对象独立求值（新快照重新求值，命中其 mainView>0 行）");
 // ---- T-186 渲染帧名册级分配清零：覆盖层短路 / busy 版本 memo / buildRecent 两段式 / 索引 memo ----
 // 覆盖层按（基快照, statusSnapshot）双引用短路：引用未变帧复用同一覆盖层对象不换壳，
@@ -3750,6 +3748,22 @@ const adversRecent = buildRecent({ snapshot: adversarialRecent, workspaceItems: 
 assert.deepEqual(adversRecent.map((entry) => entry.id), ["adv-late", "adv-tieA", "adv-tieB", "adv-early"], "ids 原序与时间序相反时全量按 activityAt 降序、平局按 id 字典序（对抗夹具，T-186 审核 F1）");
 assert.deepEqual(buildRecent({ snapshot: adversarialRecent, workspaceItems: [], now: 6_000, limit: 2 }).map((entry) => entry.id), ["adv-late", "adv-tieA"], "limit 前缀等于按时间序手工期望的最近 2 条（对抗夹具，非同实现自比）");
 assert.deepEqual(buildRecent({ snapshot: adversarialRecent, workspaceItems: [], now: 6_000 }).slice(0, 2).map((entry) => entry.id), adversRecent.slice(0, 2).map((entry) => entry.id), "limit 前缀等于全量 buildRecent 结果前 N（对抗夹具，T-186）");
+// 复审 N1 追加夹具：两组同刻平局且组内 ids 序与期望字典序相反——limit 前缀必须按
+// 排序语义（而非名册序）取「最近 N 条」；平局索引建表时机不可由外部计数（帧内闭包），
+// 以多组聚集的手工期望序列承载等价断言。
+const tiePairRecent = {
+	ids: ["mB", "mA", "mD", "mC"],
+	byId: {
+		mA: { id: "mA", updatedAt: 2_000 },
+		mB: { id: "mB", updatedAt: 2_000 },
+		mC: { id: "mC", updatedAt: 1_000 },
+		mD: { id: "mD", updatedAt: 1_000 },
+	},
+	current: null,
+};
+const tiePairFull = buildRecent({ snapshot: tiePairRecent, workspaceItems: [], now: 3_000 });
+assert.deepEqual(tiePairFull.map((entry) => entry.id), ["mA", "mB", "mC", "mD"], "两组同刻平局且组内 ids 序与字典序相反时，全量按 activityAt 降序、平局按 id 字典序（复审 N1）");
+assert.deepEqual(buildRecent({ snapshot: tiePairRecent, workspaceItems: [], now: 3_000, limit: 2 }).map((entry) => entry.id), ["mA", "mB"], "limit 前缀在多组同刻聚集下仍按手工期望的字典序，而非名册序前 N（复审 N1）");
 // limit 非法形态（负数/NaN/Infinity）回落全量候选、不附 total（T-186 测试缺口②）。
 for (const badLimit of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
 	const badBuilt = buildRecent({ ...recentEquivalenceArgs, limit: badLimit });

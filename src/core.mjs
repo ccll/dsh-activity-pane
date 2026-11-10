@@ -1884,20 +1884,25 @@ export function buildEntries(options = {}) {
 		// 排序键缺失回落宿主列表时间；回落仅用于排序，显示侧以 null 承载（见 stateAt）。
 		return entered ?? instructionTime(byId[id]);
 	};
-	// 平局裁决索引按需构建（T-186 审核 Standards-4）：ids 原序首现下标入表，比较器
-	// 平局分支查表替代 ids.indexOf 的每对两次 O(名册) 线扫——同刻时间戳聚集时的
-	// 二次方退化消除。惰性构建取舍：多数帧无同刻聚集，索引无机会被消费——每帧
-	// 无条件物化 O(名册) Map 与本 task「分配清零」目标相悖，故平局分支首次命中
-	// 才建表；首现下标语义与 indexOf 完全一致（重复 id 取最小下标、缺失归 -1）。
+	// 平局裁决索引按需构建（T-186 审核 Standards-4 / 复审 N1）：ids 原序首现下标入表，
+	// 比较器平局分支查表替代 ids.indexOf 的每对两次 O(名册) 线扫——同刻时间戳聚集时
+	// 的二次方退化消除。惰性构建一次性完整填充：多数帧无同刻聚集，索引无机会被消费
+	// ——每帧无条件物化 O(名册) Map 与本 task「分配清零」目标相悖，故表未建时才
+	// 一次性完整填充（首现下标、缺失归 -1），建表后平局分支只做 Map.get（O(1)/对），
+	// 不在每对比较重复迭代名册（复审 N1：填充循环写在建表语句之后会把 O(N+P)
+	// 退化成 O(P·N)）；首现下标语义与 indexOf 完全一致。
 	let idOrder = null;
 	rootIds.sort((a, b) => {
 		const byGroup = Number(isRunningEntry(b)) - Number(isRunningEntry(a));
 		if (byGroup !== 0) return byGroup;
 		const byTime = sortTime(b) - sortTime(a);
 		if (byTime !== 0) return byTime;
-		idOrder ??= new Map();
-		for (let i = 0; i < ids.length; i += 1) {
-			if (!idOrder.has(ids[i])) idOrder.set(ids[i], i);
+		if (idOrder === null) {
+			const order = new Map();
+			for (let i = 0; i < ids.length; i += 1) {
+				if (!order.has(ids[i])) order.set(ids[i], i);
+			}
+			idOrder = order;
 		}
 		return (idOrder.get(a) ?? -1) - (idOrder.get(b) ?? -1);
 	});

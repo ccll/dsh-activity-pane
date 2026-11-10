@@ -2957,3 +2957,161 @@ export function delegationActive(state, now) {
 	if (state.drainedAt == null) return true;
 	return Number.isFinite(now) && now - state.drainedAt <= SETTLE_TURN_GRACE_MS;
 }
+
+// ---- 通道增量协议（T-188）：busy/acks 通道「连接全量、变更按会话增量、落盘合帧」 ----
+// 分工契约（R-01-002/AC-10～AC-13、R-01-020/AC-02～AC-07，承诺不变、机制演进）：
+//   - 内存即改：宿主侧插件缓存 Map 是权威状态与增量广播源，变更点同步更新缓存后立即
+//     广播 `patch`（upserts，仅本次变更会话）；读-改-写循环完全在缓存上闭合。
+//   - 落盘延后：KvTable 退化为落盘通道，脏键经 createDirtyFlusher 尾沿合帧写盘。
+//   - 崩溃窗口自愈（R-01-020/AC-04）：合帧间隔内进程崩溃至多丢失该窗口的落盘写（内存
+//     态已失、磁盘停留旧值）；下次懒回填经 reconcileTurnStats 从事件全量重放收敛——
+//     磁盘水位落后则增量应用 seq > watermarkSeq 的事件补缺口，水位超前（seq 空间重编）
+//     则从空状态全量重放——两条恢复路径都不依赖落盘与内存的即时一致性，水位只前进，
+//     恢复语义与整表即写时代完全相同。
+
+/**
+ * 由全量记录与变更 id 集产出增量补丁帧（T-188）：`{ upserts: { [id]: record } }`。
+ * records 接受 `Map<string, record>` 或以会话 id 为键的普通对象；changedIds 为可迭代的
+ * 变更 id 集。畸形 id（非字符串/空串）与缺失记录（records 无该 id 或值为 null/undefined）
+ * 逐条跳过，不抛错；record 原样引用（宿主在广播点一次性 JSON 序列化，无共享可变态）。
+ * 两张通道表（acks/turnStats）均无删除路径，patch 只需 upsert、无需墓碑（T-188 差距
+ * 评估）；空 upserts 的 patch 帧仍返回（调用方以 upserts 为空判定「不广播」）。
+ */
+export function buildChannelPatch(records, changedIds) {
+	const upserts = {};
+	if (records === null || typeof records !== "object" || changedIds === null || typeof changedIds[Symbol.iterator] !== "function") {
+		return { upserts };
+	}
+	const byGet = typeof records.get === "function";
+	for (const id of changedIds) {
+		if (typeof id !== "string" || id === "") continue;
+		const record = byGet ? records.get(id) : records[id];
+		if (record === undefined || record === null) continue;
+		upserts[id] = record;
+	}
+	return { upserts };
+}
+
+/**
+ * `GET /api/busy?ids=` 查询参数解析（T-188）：逗号分隔会话 id，逐项 trim、剔除空段、
+ * 去重；解析出至少一个合法 id 且总量不超过 maxIds 时返回裁剪 id 数组，否则返回 null
+ * 表示回退全量（非法/空/超量形态统一防御，R-01-020/AC-05 懒回填触发口径不受裁剪影响）。
+ * raw 为 null/undefined（未携带 ids 参数）同样返回 null——全量响应、不触发回填。
+ */
+export function parseBusyIdsParam(raw, maxIds) {
+	if (typeof raw !== "string") return null;
+	const ids = [...new Set(raw.split(",").map((id) => id.trim()).filter((id) => id !== ""))];
+	if (ids.length === 0 || !(Number.isFinite(maxIds) && maxIds > 0) || ids.length > maxIds) return null;
+	return ids;
+}
+
+/**
+ * 脏键尾沿合帧落盘调度器（T-188）：宿主把「内存即改」与「落盘延后」解耦后，由本调度器
+ * 承载落盘节奏——markDirty 之前调用方须已完成对应键的内存更新（内存立即可读、立即可
+ * 广播），flush 在尾沿把累积的脏键集合一次性交给宿主写盘。
+ *
+ * 调度语义（尾沿合帧 + 延迟上界）：首个标脏起 intervalMs 后交付一次 flush（多次标脏合并
+ * 为一个批次）；flush 在途期间的新标脏不叠加定时器，flush 结束后按「尾沿到期时刻起的
+ * 剩余时间」补排下一轮——落盘延迟上界为 intervalMs（自首标起算），不因 flush 耗时或
+ * 持续标脏无限推迟。flush 由宿主提供并自行消费写盘错误（宿主 logger 告警、内存态继续，
+ * 见 T-188 验证矩阵异常行）；调度器不吞 flush 的拒绝——自动尾沿路径将拒绝暂存，
+ * 由下一次 flushNow/dispose 的调用方观察。批次与批次之间经单一 promise 链串行，同键
+ * 的落盘写严格有序、值取 put 调用瞬间的最新内存态，磁盘值序列是内存值序列的子序列。
+ *
+ * schedule/cancel（默认 setTimeout/clearTimeout）与 now（默认 Date.now）可注入，供
+ * 单测以假时钟驱动尾沿推进与剩余时间对齐断言。
+ *
+ * 卸载路径：dispose() 取消在途定时器并立即冲刷全部剩余脏键，供插件卸载钩子触发——
+ * 宿主在 cordis effect 清理链中 await 它（LIFO 先于 domain.close 排空写链），使合帧
+ * 窗口内的最后一批变更在进程退出前落盘；窗口外进程消失（崩溃/强杀）不走该路径，
+ * 由上文「崩溃窗口自愈」承接（R-01-020/AC-04，SSE 全量快照与懒回填保证恢复一致）。
+ */
+export function createDirtyFlusher({ flush, intervalMs, now = Date.now, schedule = setTimeout, cancel = clearTimeout } = {}) {
+	const delay = Number(intervalMs);
+	if (typeof flush !== "function") throw new TypeError("flush 必须为函数");
+	if (!Number.isFinite(delay) || !(delay > 0)) throw new TypeError("intervalMs 必须为正数毫秒");
+	const at = typeof now === "function" ? now : Date.now;
+	const scheduleFn = schedule;
+	const cancelFn = cancel;
+	let dirty = new Set();
+	let timer = null;
+	let inflight = null;
+	let storedError = null;
+
+	function pump(remaining = delay) {
+		if (timer !== null || inflight !== null) return;
+		timer = scheduleFn(runTail, remaining);
+	}
+
+	async function deliver(batch) {
+		try {
+			await flush(batch);
+		} catch (error) {
+			// 不吞错（首错保留，交由 flushNow/dispose 调用方观察）；内存态不受影响。
+			storedError = storedError ?? error;
+		}
+	}
+
+	/** 交付一批并在 settle 后接续调度（剩余时间按尾沿到期时刻对齐）。 */
+	function startBatch(batch, dueAt) {
+		inflight = deliver(batch).finally(() => {
+			inflight = null;
+			// 交付在途互斥解除后再补排：deliver 自身的 finally 先于本回调执行，
+			// 在彼处 pump 会被 inflight 互斥吞掉，脏键将滞留到下一次标脏。
+			if (dirty.size > 0) pump(Math.max(0, delay - (at() - dueAt)));
+		});
+		return inflight;
+	}
+
+	function runTail() {
+		timer = null;
+		if (inflight !== null || dirty.size === 0) return;
+		startBatch(dirty, at());
+		dirty = new Set();
+	}
+
+	/** 标脏（须在对应键内存更新之后调用）：首次标脏启动尾沿定时器，同批窗口内合并。 */
+	function markDirty(...keys) {
+		for (const key of keys) {
+			if (typeof key === "string" && key !== "") dirty.add(key);
+		}
+		if (dirty.size > 0) pump();
+	}
+
+	/** 立即冲刷：取消在途定时器、等待在途写完成、冲刷全部剩余脏键；幂等可并发调用。 */
+	async function flushNow() {
+		if (timer !== null) {
+			cancelFn(timer);
+			timer = null;
+		}
+		for (;;) {
+			if (inflight !== null) {
+				await inflight;
+				continue;
+			}
+			if (dirty.size > 0) {
+				const batch = dirty;
+				dirty = new Set();
+				await startBatch(batch, at());
+				continue;
+			}
+			if (storedError !== null) {
+				const error = storedError;
+				storedError = null;
+				throw error;
+			}
+			return;
+		}
+	}
+
+	/** 卸载冲刷（T-188）：取消定时器并冲刷剩余脏键；返回 promise 供卸载钩子 await。 */
+	async function dispose() {
+		if (timer !== null) {
+			cancelFn(timer);
+			timer = null;
+		}
+		await flushNow();
+	}
+
+	return { markDirty, flushNow, dispose };
+}

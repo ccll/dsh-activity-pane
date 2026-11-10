@@ -74,9 +74,12 @@ import {
 	lastTurnBusyFromEvents,
 	lastTurnDuration,
 	applyTurnEventToStats,
+	buildChannelPatch,
 	createSessionEventSerializer,
+	createDirtyFlusher,
 	createStatusOverlayMemo,
 	createWaitingStartsMemo,
+	parseBusyIdsParam,
 	reconcileTurnStats,
 	normalizeBusyMs,
 	totalBusyDisplayMs,
@@ -1647,6 +1650,98 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 	assert.equal(legacy.busyMs, 1_000, "R-01-020/AC-04 存量记录（无 watermarkTime）强制重放后按新空间重算");
 	assert.equal(legacy.watermarkSeq, 3, "R-01-020/AC-04 存量记录重放后水位覆盖全部事件（含无效果事件）");
 	assert.equal(legacy.watermarkTime, 11_500, "R-01-020/AC-04 存量记录重放后补上水位时刻");
+}
+// ---- T-188 busy/acks 通道增量化：patch 帧构造、GET ids 裁剪解析与落盘尾沿合帧 ----
+// R-01-002/AC-12（跨客户端同步）：buildChannelPatch 只携带变更 id 的 upserts，
+// 畸形 id 与缺失记录逐条跳过。
+{
+	const records = new Map([
+		["s1", { lastTurnEnd: 1_000, ackedAt: null }],
+		["s2", { lastTurnEnd: 2_000, ackedAt: 3_000 }],
+	]);
+	assert.deepEqual(buildChannelPatch(records, ["s2", "s1"]), { upserts: { s1: records.get("s1"), s2: records.get("s2") } }, "T-188 patch 帧按变更 id 产出 upserts");
+	assert.deepEqual(buildChannelPatch(records, []), { upserts: {} }, "T-188 空变更集产出空 upserts");
+	assert.deepEqual(buildChannelPatch(records, ["s1", "missing", "", 42, null]), { upserts: { s1: records.get("s1") } }, "T-188 畸形 id 与缺失记录逐条跳过");
+	const objectRecords = { s1: { lastTurnEnd: 1_000 }, s2: null };
+	assert.deepEqual(buildChannelPatch(objectRecords, ["s2", "s1"]), { upserts: { s1: objectRecords.s1 } }, "T-188 普通对象 records 同样产出且 null 记录跳过");
+	assert.deepEqual(buildChannelPatch(records, null), { upserts: {} }, "T-188 非可迭代 changedIds 容错为空 patch");
+	assert.deepEqual(buildChannelPatch(null, ["s1"]), { upserts: {} }, "T-188 畸形 records 容错为空 patch");
+}
+// R-01-020/AC-05（GET /api/busy?ids= 裁剪）：非法/空/超量形态统一回退全量。
+{
+	assert.deepEqual(parseBusyIdsParam("a,b,c", 200), ["a", "b", "c"], "T-188 合法 ids 逗号分隔解析");
+	assert.deepEqual(parseBusyIdsParam(" a , , b ,a ", 200), ["a", "b"], "T-188 空段剔除、重复去重、空白 trim");
+	assert.equal(parseBusyIdsParam(" , , ", 200), null, "T-188 全空段回退全量");
+	assert.equal(parseBusyIdsParam("", 200), null, "T-188 空串回退全量");
+	assert.equal(parseBusyIdsParam(null, 200), null, "T-188 未携带参数回退全量");
+	assert.equal(parseBusyIdsParam("a,b", 0), null, "T-188 非法上限回退全量");
+	assert.equal(parseBusyIdsParam("a,b", 1), null, "T-188 超量回退全量");
+}
+// R-01-020/AC-04（崩溃窗口自愈的落盘侧）：尾沿合帧把窗口内多次标脏合并为一次写盘；
+// flush 在途的新标脏按剩余时间对齐补排；dispose 冲刷窗口内的最后一批变更。
+{
+	const batches = [];
+	const scheduled = [];
+	const cancelled = [];
+	let clockNow = 1_000;
+	const flusher = createDirtyFlusher({
+		flush: async (keys) => {
+			batches.push([...keys]);
+		},
+		intervalMs: 500,
+		now: () => clockNow,
+		schedule: (fn, ms) => {
+			scheduled.push({ fn, ms, at: clockNow });
+			return scheduled.length - 1;
+		},
+		cancel: (id) => cancelled.push(id),
+	});
+	flusher.markDirty("a");
+	assert.equal(scheduled.length, 1, "T-188 首次标脏启动尾沿定时器");
+	assert.equal(scheduled[0].ms, 500, "T-188 尾沿延迟为合帧间隔");
+	flusher.markDirty("a");
+	flusher.markDirty("b");
+	assert.equal(scheduled.length, 1, "T-188 窗口内重复标脏不叠加定时器");
+	clockNow += 500;
+	scheduled[0].fn();
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(batches, [["a", "b"]], "T-188 尾沿合帧把窗口内标脏合并为一次 flush");
+	assert.equal(scheduled.length, 1, "T-188 交付后无剩余脏键不再排定时器");
+
+	// flush 在途的新标脏：flush settle 后按尾沿到期时刻起的剩余时间补排。
+	const slowBatches = [];
+	let now2 = 5_000;
+	let pendingResolve = null;
+	const pending = new Promise((resolve) => (pendingResolve = resolve));
+	const flusher2 = createDirtyFlusher({
+		flush: async (keys) => {
+			slowBatches.push([...keys]);
+			await pending;
+		},
+		intervalMs: 500,
+		now: () => now2,
+		schedule: (fn, ms) => {
+			scheduled.push({ fn, ms, at: now2 });
+			return scheduled.length - 1;
+		},
+		cancel: (id) => cancelled.push(id),
+	});
+	flusher2.markDirty("x");
+	scheduled[1].fn();
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(slowBatches, [["x"]], "T-188 首批交付进入 flush");
+	flusher2.markDirty("y");
+	assert.equal(scheduled.length, 2, "T-188 flush 在途期间标脏不叠加定时器");
+	now2 += 200;
+	pendingResolve();
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(scheduled.length, 3, "T-188 flush settle 后为在途期标脏补排下一轮");
+	assert.equal(scheduled[2].ms, 300, "T-188 补排延迟按尾沿到期时刻起的剩余时间对齐");
+	// dispose：不推进时钟直接冲刷窗口内脏键并取消在途定时器；y/z 合并为一批交付。
+	flusher2.markDirty("z");
+	await flusher2.dispose();
+	assert.deepEqual(slowBatches, [["x"], ["y", "z"]], "T-188 dispose 立即冲刷剩余脏键（在途期标脏合并为一批）");
+	assert.ok(cancelled.length > 0, "T-188 dispose 取消在途定时器");
 }
 // R-01-013/AC-05：历史卡同时显示本地绝对日期时间与相对年龄，异常输入不制造虚假时间。
 const relativeMinute = 60_000;

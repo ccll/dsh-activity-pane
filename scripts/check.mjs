@@ -1743,6 +1743,52 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 	assert.deepEqual(slowBatches, [["x"], ["y", "z"]], "T-188 dispose 立即冲刷剩余脏键（在途期标脏合并为一批）");
 	assert.ok(cancelled.length > 0, "T-188 dispose 取消在途定时器");
 }
+// flush 写盘拒绝：不吞错——拒绝被暂存，自动尾沿路径的后续调度继续（内存态不受影响），
+// 由下一次 flushNow/dispose 的调用方观察（T-188 验证矩阵异常行：写盘失败保留内存态）。
+{
+	const batches = [];
+	const scheduled = [];
+	let clockNow = 7_000;
+	const flusher = createDirtyFlusher({
+		flush: async (keys) => {
+			if ([...keys].includes("a")) throw new Error("boom");
+			batches.push([...keys]);
+		},
+		intervalMs: 500,
+		now: () => clockNow,
+		schedule: (fn, ms) => {
+			scheduled.push({ fn, ms, at: clockNow });
+			return scheduled.length - 1;
+		},
+		cancel: () => {},
+	});
+	flusher.markDirty("a");
+	clockNow += 500;
+	scheduled[0].fn();
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(batches.length, 0, "T-188 flush 拒绝时批次不记账");
+	assert.equal(scheduled.length, 1, "T-188 flush 拒绝后无剩余脏键不补排");
+	// 暂存的拒绝由 flushNow 观察并抛出（先冲本轮新标脏、后报告暂存——不吞错也不阻塞
+	// 本轮冲刷）；失败批次不自动回脏，由下次标脏或崩溃自愈承接（JSDoc 口径）。
+	flusher.markDirty("b");
+	await assert.rejects(() => flusher.flushNow(), /boom/, "T-188 flushNow 抛出暂存的 flush 拒绝");
+	assert.deepEqual(batches, [["b"]], "T-188 flushNow 先冲本轮新标脏成功、后报告暂存拒绝");
+	// flushNow 幂等：脏键与暂存错误均已清空时直接返回，不重复 flush。
+	await flusher.flushNow();
+	assert.deepEqual(batches, [["b"]], "T-188 flushNow 幂等——脏空时不重复冲刷");
+	// dispose 路径同样抛出暂存的拒绝（卸载方感知写盘失败，不静默吞错）。
+	const failing = createDirtyFlusher({
+		flush: async () => {
+			throw new Error("dispose-boom");
+		},
+		intervalMs: 500,
+		now: () => 9_000,
+		schedule: (fn) => 0,
+		cancel: () => {},
+	});
+	failing.markDirty("x");
+	await assert.rejects(() => failing.dispose(), /dispose-boom/, "T-188 dispose 抛出暂存的 flush 拒绝");
+}
 // R-01-013/AC-05：历史卡同时显示本地绝对日期时间与相对年龄，异常输入不制造虚假时间。
 const relativeMinute = 60_000;
 const relativeHour = 60 * relativeMinute;

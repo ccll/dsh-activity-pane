@@ -75,6 +75,8 @@ import {
 	lastTurnDuration,
 	applyTurnEventToStats,
 	createSessionEventSerializer,
+	createStatusOverlayMemo,
+	createWaitingStartsMemo,
 	reconcileTurnStats,
 	normalizeBusyMs,
 	totalBusyDisplayMs,
@@ -318,7 +320,7 @@ const forkActivity = {
 assert.equal(isSubagentRow(forkActivity.byId["fork-child"], forkActivity.byId), false, "普通 fork 的 parentId 不改变主会话身份");
 assert.deepEqual([...activeSessionIds(forkActivity.byId)], ["fork-child"], "活动 fork 不把来源会话算作活动后代母会话");
 assert.deepEqual(
-	buildEntries(forkActivity, forkWorkspace).map((entry) => [entry.id, entry.kind, entry.depth, entry.parentId, entry.workspaceTitle]),
+	buildEntries({ snapshot: forkActivity, workspaceItems: forkWorkspace }).map((entry) => [entry.id, entry.kind, entry.depth, entry.parentId, entry.workspaceTitle]),
 	[["fork-child", "running", 0, null, "Fork 工作区"]],
 	"活动 fork 保持独立主会话条目与工作区身份");
 const forkRecent = {
@@ -329,7 +331,7 @@ const forkRecent = {
 	},
 };
 assert.deepEqual(
-	buildRecent(forkRecent, forkWorkspace, 2_000).map((entry) => [entry.id, entry.workspaceTitle]),
+	buildRecent({ snapshot: forkRecent, workspaceItems: forkWorkspace, now: 2_000 }).map((entry) => [entry.id, entry.workspaceTitle]),
 	[["fork-child", "Fork 工作区"], ["fork-root", "Fork 工作区"]],
 	"结束 fork 可进入最近历史且保留工作区身份");
 const trueSubagentActivity = {
@@ -337,7 +339,7 @@ const trueSubagentActivity = {
 	byId: { ...forkActivity.byId, "fork-child": { ...forkActivity.byId["fork-child"], origin: "subagent" } },
 };
 assert.deepEqual(
-	buildEntries(trueSubagentActivity, forkWorkspace).map((entry) => [entry.id, entry.kind, entry.depth, entry.parentId]),
+	buildEntries({ snapshot: trueSubagentActivity, workspaceItems: forkWorkspace }).map((entry) => [entry.id, entry.kind, entry.depth, entry.parentId]),
 	[["fork-root", "running", 0, null], ["fork-child", "subagent", 1, "fork-root"]],
 	"origin 为 subagent 的真实子代理仍保持嵌套与母会话委托呈现");
 const subagentUnderFork = {
@@ -351,11 +353,11 @@ const subagentUnderFork = {
 };
 assert.deepEqual([...activeSessionIds(subagentUnderFork.byId)].sort(), ["fork", "nested-subagent"], "分支下真实子代理的活动祖先不越过独立 fork 来源");
 assert.deepEqual(
-	buildEntries(subagentUnderFork, [{ title: "Fork 工作区", path: "/srv/fork", sessionIds: ["source", "fork", "nested-subagent"] }]).map((entry) => [entry.id, entry.kind, entry.depth, entry.parentId]),
+	buildEntries({ snapshot: subagentUnderFork, workspaceItems: [{ title: "Fork 工作区", path: "/srv/fork", sessionIds: ["source", "fork", "nested-subagent"] }] }).map((entry) => [entry.id, entry.kind, entry.depth, entry.parentId]),
 	[["fork", "running", 0, null], ["nested-subagent", "subagent", 1, "fork"]],
 	"分支下真实子代理只嵌套到 fork，不把来源会话变成母会话");
 assert.deepEqual(
-	buildEntries(subagentUnderFork, [], {}, null, null, ["source"]).map((entry) => entry.id),
+	buildEntries({ snapshot: subagentUnderFork, workspaceItems: [], detailsById: {}, completions: null, delegatingIds: null, archivedIds: ["source"] }).map((entry) => entry.id),
 	["fork", "nested-subagent"],
 	"归档 fork 来源不影响独立 fork 及其真实子代理子树");
 // ---- R-01-012/AC-17、AC-18 子代理模型溯源：history 尾扫最近一条携带 source.model 的 assistant/message ----
@@ -831,7 +833,7 @@ const snapshot = {
 		},
 	},
 };
-const entries = buildEntries(snapshot, workspaces, {}, new Map([["sB", { lastTurnEnd: 1000, ackedAt: null }]]));
+const entries = buildEntries({ snapshot: snapshot, workspaceItems: workspaces, detailsById: {}, completions: new Map([["sB", { lastTurnEnd: 1000, ackedAt: null }]]) });
 assert.deepEqual(
 	entries.map((e) => [e.id, e.kind, e.depth, e.title]),
 	[
@@ -880,7 +882,7 @@ const recencyActivity = {
 	current: null,
 };
 assert.deepEqual(
-	buildEntries(recencyActivity, recencyWorkspace).map((entry) => [entry.id, entry.kind, entry.depth, entry.parentId ?? null]),
+	buildEntries({ snapshot: recencyActivity, workspaceItems: recencyWorkspace }).map((entry) => [entry.id, entry.kind, entry.depth, entry.parentId ?? null]),
 	[
 		["sNew", "running", 0, null],
 		["sNew-c1", "subagent", 1, "sNew"],
@@ -917,7 +919,7 @@ const mixedCompletions = new Map([
 ]);
 const mixedWaitingStarts = new Map([["sWait", 9_000]]);
 assert.deepEqual(
-	buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions, null, [], mixedWaitingStarts).map((entry) => [entry.id, entry.kind]),
+	buildEntries({ snapshot: mixedActivity, workspaceItems: mixedWorkspace, detailsById: {}, completions: mixedCompletions, delegatingIds: null, archivedIds: [], waitingStarts: mixedWaitingStarts }).map((entry) => [entry.id, entry.kind]),
 	[
 		["sRunOld", "running"],
 		["sWaitNoRec", "awaiting"],
@@ -930,7 +932,7 @@ assert.deepEqual(
 // waitingStarts 缺失（旧调用/数据在途帧）：阻塞等待会话回落宿主列表时间而非上一回合旧登记——
 // sWait 键取 updatedAt=3_500，排在 sDone1(4_000) 之后、sDone2(3_000) 之前，不按 1_500 沉底。
 assert.deepEqual(
-	buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions).map((entry) => [entry.id, entry.kind]),
+	buildEntries({ snapshot: mixedActivity, workspaceItems: mixedWorkspace, detailsById: {}, completions: mixedCompletions }).map((entry) => [entry.id, entry.kind]),
 	[
 		["sRunOld", "running"],
 		["sWaitNoRec", "awaiting"],
@@ -942,14 +944,14 @@ assert.deepEqual(
 );
 // 非 Map 入参视为无数据，与上一断言同路径。
 assert.deepEqual(
-	buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions, null, [], "not-a-map").map((entry) => [entry.id, entry.kind]),
-	buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions).map((entry) => [entry.id, entry.kind]),
+	buildEntries({ snapshot: mixedActivity, workspaceItems: mixedWorkspace, detailsById: {}, completions: mixedCompletions, delegatingIds: null, archivedIds: [], waitingStarts: "not-a-map" }).map((entry) => [entry.id, entry.kind]),
+	buildEntries({ snapshot: mixedActivity, workspaceItems: mixedWorkspace, detailsById: {}, completions: mixedCompletions }).map((entry) => [entry.id, entry.kind]),
 	"waitingStarts 非 Map 视为无数据（R-01-001/AC-07，T-141）",
 );
 // 记录值非法（null/空串经 Number 归一为 0 的形状）同样按无数据处理，回落宿主列表时间而非最旧时刻 0。
 assert.deepEqual(
-	buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions, null, [], new Map([["sWait", null], ["sWaitNoRec", ""]])).map((entry) => [entry.id, entry.kind]),
-	buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions).map((entry) => [entry.id, entry.kind]),
+	buildEntries({ snapshot: mixedActivity, workspaceItems: mixedWorkspace, detailsById: {}, completions: mixedCompletions, delegatingIds: null, archivedIds: [], waitingStarts: new Map([["sWait", null], ["sWaitNoRec", ""]]) }).map((entry) => [entry.id, entry.kind]),
+	buildEntries({ snapshot: mixedActivity, workspaceItems: mixedWorkspace, detailsById: {}, completions: mixedCompletions }).map((entry) => [entry.id, entry.kind]),
 	"waitingStarts 非法值（null/空串）不作数、回落宿主列表时间，不误判为最旧时刻 0（R-01-001/AC-07，T-141 复审）",
 );
 // ---- R-01-002/AC-14 等待卡状态年龄：awaiting 条目携带进入状态时刻 stateAt ----
@@ -957,7 +959,7 @@ assert.deepEqual(
 // 完成/错误提醒取 completions.lastTurnEnd；显示口径不回落宿主列表时间，
 // 缺失/非法为 null（节点隐藏）。
 {
-	const stateEntries = buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions, null, [], mixedWaitingStarts);
+	const stateEntries = buildEntries({ snapshot: mixedActivity, workspaceItems: mixedWorkspace, detailsById: {}, completions: mixedCompletions, delegatingIds: null, archivedIds: [], waitingStarts: mixedWaitingStarts });
 	const stateById = new Map(stateEntries.map((entry) => [entry.id, entry]));
 	assert.equal(stateById.get("sWait").stateAt, 9_000, "阻塞等待条目 stateAt 取等待边界开启时刻，与排序键同源（R-01-002/AC-14）");
 	assert.equal(stateById.get("sWaitNoRec").stateAt, null, "waitingStarts 缺失的阻塞等待条目 stateAt 为 null，不回落宿主列表时间（R-01-002/AC-14）");
@@ -965,12 +967,7 @@ assert.deepEqual(
 	assert.equal(stateById.get("sRunOld").stateAt, undefined, "运行中条目不携带 stateAt（R-01-002/AC-14）");
 }
 assert.equal(
-	buildEntries(
-		{ ids: ["sErr"], byId: { sErr: { id: "sErr", displayTitle: "错误提醒", running: false, updatedAt: 500 } }, current: null },
-		[],
-		{},
-		new Map([["sErr", { lastTurnEnd: 12_345, lastTurnEndKind: "error", lastTurnEndError: "boom", ackedAt: null }]]),
-	)[0].stateAt,
+	buildEntries({ snapshot: { ids: ["sErr"], byId: { sErr: { id: "sErr", displayTitle: "错误提醒", running: false, updatedAt: 500 } }, current: null }, workspaceItems: [], detailsById: {}, completions: new Map([["sErr", { lastTurnEnd: 12_345, lastTurnEndKind: "error", lastTurnEndError: "boom", ackedAt: null }]]) })[0].stateAt,
 	12_345,
 	"错误提醒条目 stateAt 取回合结束登记时刻（R-01-002/AC-14）",
 );
@@ -984,13 +981,13 @@ assert.equal(
 		},
 		current: null,
 	};
-	const subEntry = buildEntries(subStateActivity, [], {}, null).find((entry) => entry.id === "sSub");
+	const subEntry = buildEntries({ snapshot: subStateActivity, workspaceItems: [], detailsById: {}, completions: null }).find((entry) => entry.id === "sSub");
 	assert.equal(subEntry?.kind, "subagent", "前置：运行中子代理为 subagent 条目");
 	assert.equal(subEntry?.stateAt, undefined, "子代理条目不携带 stateAt（R-01-002/AC-14）");
 }
 assert.notEqual(
-	cardSignature(buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions, null, [], mixedWaitingStarts)),
-	cardSignature(buildEntries(mixedActivity, mixedWorkspace, {}, mixedCompletions, null, [], null)),
+	cardSignature(buildEntries({ snapshot: mixedActivity, workspaceItems: mixedWorkspace, detailsById: {}, completions: mixedCompletions, delegatingIds: null, archivedIds: [], waitingStarts: mixedWaitingStarts })),
+	cardSignature(buildEntries({ snapshot: mixedActivity, workspaceItems: mixedWorkspace, detailsById: {}, completions: mixedCompletions, delegatingIds: null, archivedIds: [], waitingStarts: null })),
 	"stateAt 到达/更替驱动渲染签名（R-01-002/AC-14）",
 );
 assert.deepEqual(trackRuns([{ kind: "subagent", parentId: "p", depth: 1 }]), [], "无 id 条目不产生轨道");
@@ -1074,11 +1071,7 @@ assert.equal(entries[2].workspaceTitle, "", "无归属则无工作区徽标");
 assert.equal(entries[0].workspaceKey, "/srv/ops", "活动条目携带工作区身份（路径优先，R-01-003/AC-08）");
 assert.equal(entries[1].workspaceKey, "", "子代理徽标隐藏、身份置空（R-01-003/AC-08）");
 assert.equal(entries[2].workspaceKey, "", "无归属条目身份为空（R-01-003/AC-08）");
-const recentKeyEntries = buildRecent(
-	{ ids: ["sA"], byId: { sA: { id: "sA", displayTitle: "主A", running: false, completed: false, updatedAt: 1000 } }, current: null },
-	workspaces,
-	2000,
-);
+const recentKeyEntries = buildRecent({ snapshot: { ids: ["sA"], byId: { sA: { id: "sA", displayTitle: "主A", running: false, completed: false, updatedAt: 1000 } }, current: null }, workspaceItems: workspaces, now: 2000 });
 assert.equal(recentKeyEntries[0]?.workspaceKey, "/srv/ops", "最近条目同样携带工作区身份（R-01-003/AC-08）");
 // ---- R-01-003/AC-05 活动子代理补齐所有非活动母会话 ----
 const inheritedActivity = {
@@ -1096,16 +1089,16 @@ assert.deepEqual(
 	"活动子代理沿 parentId 链补齐所有有效母会话",
 );
 assert.deepEqual(
-	buildEntries(inheritedActivity, []).map((entry) => [entry.id, entry.kind, entry.depth]),
+	buildEntries({ snapshot: inheritedActivity, workspaceItems: [] }).map((entry) => [entry.id, entry.kind, entry.depth]),
 	[["root", "running", 0], ["parent", "subagent", 1], ["child", "subagent", 2]],
 	"委托周期中主会话母会话保持 running 呈现、子代理母会话保持 subagent 呈现，层级深度不变（R-01-003/AC-05）",
 );
 assert.deepEqual(
-	buildEntries(inheritedActivity, []).map((entry) => entry.descendantActive),
+	buildEntries({ snapshot: inheritedActivity, workspaceItems: [] }).map((entry) => entry.descendantActive),
 	[true, true, false],
 	"委托周期母会话携带 descendantActive 标记（R-01-003/AC-05）",
 );
-assert.deepEqual(buildRecent(inheritedActivity, [], 2000), [], "活动祖先不进入最近历史区");
+assert.deepEqual(buildRecent({ snapshot: inheritedActivity, workspaceItems: [], now: 2000 }), [], "活动祖先不进入最近历史区");
 assert.equal(
 	shouldSubscribeToSession({ id: "parent", kind: "running" }, inheritedActivity.byId),
 	false,
@@ -1121,17 +1114,17 @@ const delegCompleted = {
 	current: null,
 };
 assert.deepEqual(
-	buildEntries(delegCompleted, []).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
+	buildEntries({ snapshot: delegCompleted, workspaceItems: [] }).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
 	[["root", "running", null], ["child", "subagent", null]],
 	"存在活动后代时完成确认不产出「已完成」、卡片保持运行呈现（R-01-002/AC-03）",
 );
 assert.deepEqual(
-	buildEntries(delegCompleted, [], {}, null, new Set(["root"])).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
+	buildEntries({ snapshot: delegCompleted, workspaceItems: [], detailsById: {}, completions: null, delegatingIds: new Set(["root"]) }).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
 	[["root", "running", null], ["child", "subagent", null]],
 	"存在活动后代时完成提醒不生效、卡片保持运行呈现（R-01-010/AC-06）",
 );
 assert.deepEqual(
-	buildEntries({ ids: ["root"], byId: { root: delegCompleted.byId.root }, current: null }, [], {}, new Map([["root", { lastTurnEnd: 1500, ackedAt: null }]])).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null, entry.waitClass ?? null, entry.noteText ?? null]),
+	buildEntries({ snapshot: { ids: ["root"], byId: { root: delegCompleted.byId.root }, current: null }, workspaceItems: [], detailsById: {}, completions: new Map([["root", { lastTurnEnd: 1500, ackedAt: null }]]) }).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null, entry.waitClass ?? null, entry.noteText ?? null]),
 	[["root", "awaiting", null, "done", "继续对话，或移入历史"]],
 	"后代全部结束后完成提醒恢复显示（R-01-002/AC-03、AC-09）",
 );
@@ -1142,12 +1135,12 @@ const drainGap = {
 	current: null,
 };
 assert.deepEqual(
-	buildEntries(drainGap, [], {}, null, new Set(["root"])).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null, entry.descendantActive]),
+	buildEntries({ snapshot: drainGap, workspaceItems: [], detailsById: {}, completions: null, delegatingIds: new Set(["root"]) }).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null, entry.descendantActive]),
 	[["root", "running", null, false]],
 	"耗尽空窗内委托周期保持运行呈现、完成提醒不生效；descendantActive 仍为当帧原始后代活性（R-01-003/AC-05、R-01-002/AC-03）",
 );
 assert.deepEqual(
-	buildEntries(drainGap, [], {}, new Map([["root", { lastTurnEnd: 1500, ackedAt: null }]]), null).map((entry) => [entry.id, entry.kind, entry.waitClass ?? null]),
+	buildEntries({ snapshot: drainGap, workspaceItems: [], detailsById: {}, completions: new Map([["root", { lastTurnEnd: 1500, ackedAt: null }]]), delegatingIds: null }).map((entry) => [entry.id, entry.kind, entry.waitClass ?? null]),
 	[["root", "awaiting", "done"]],
 	"无委托周期记账时同一快照回到等待呈现（空窗保持来自渲染层 delegatingIds 注入）",
 );
@@ -1158,11 +1151,11 @@ const drainGapIdle = {
 	current: null,
 };
 assert.equal(
-	buildRecent(drainGapIdle, [], 2000, {}, [], null, new Set(["root"])).length,
+	buildRecent({ snapshot: drainGapIdle, workspaceItems: [], now: 2000, detailsById: {}, archivedIds: [], completions: null, delegatingIds: new Set(["root"]) }).length,
 	0,
 	"耗尽空窗内委托周期会话不入最近历史（R-01-010 分区不变量）",
 );
-assert.equal(buildRecent(drainGapIdle, [], 2000, {}, [], null).length, 1, "委托周期结束后才入最近历史");
+assert.equal(buildRecent({ snapshot: drainGapIdle, workspaceItems: [], now: 2000, detailsById: {}, archivedIds: [], completions: null }).length, 1, "委托周期结束后才入最近历史");
 // delegationActive：耗尽宽限内视为委托周期（空窗保持），超时退出。
 assert.equal(delegationActive({ mode: "delegating", anchor: 1000, turnStart: 9000, drainedAt: null }, 50000), true, "委托周期中视为活动");
 assert.equal(delegationActive({ mode: "delegating", anchor: 1000, turnStart: 9000, drainedAt: 30000 }, 31000), true, "耗尽宽限内视为活动（空窗保持运行呈现）");
@@ -1178,7 +1171,7 @@ assert.equal(
 // ---- R-01-001/AC-02 无活动会话时为空态 ｜ R-02-001/AC-01、R-02-001/AC-02 独立数据源 ----
 // 核心映射只消费 DSH 原生快照结构（无任何第三方数据源引用）。
 const snapshotOnly = { ids: [], byId: {}, current: null };
-assert.deepEqual(buildEntries(snapshotOnly, []), [], "空快照产出空条目");
+assert.deepEqual(buildEntries({ snapshot: snapshotOnly, workspaceItems: [] }), [], "空快照产出空条目");
 
 // ---- R-01-002/AC-01..02 等待优先于运行态 ｜ 阻塞等待条目携带 waitClass/pendingKind/noteText ----
 const pendingSnap = {
@@ -1188,7 +1181,7 @@ const pendingSnap = {
 	},
 	current: null,
 };
-const pendingEntries = buildEntries(pendingSnap, []);
+const pendingEntries = buildEntries({ snapshot: pendingSnap, workspaceItems: [] });
 assert.equal(pendingEntries[0].kind, "awaiting", "pending 覆盖 running");
 assert.equal(pendingEntries[0].pendingText, "待确认");
 assert.equal(pendingEntries[0].waitClass, "blocked", "待确认为阻塞等待（R-01-002/AC-08）");
@@ -1207,14 +1200,14 @@ const questionPreview = {
 	],
 	omitted: false,
 };
-const questionEntries = buildEntries(questionSnap, [], {
+const questionEntries = buildEntries({ snapshot: questionSnap, workspaceItems: [], detailsById: {
 	sQ: { timeline: [{ fold: true, label: "运行", summary: "等待回答", question: questionPreview }] },
-});
+} });
 assert.equal(questionEntries[0].pendingText, "提问中");
 assert.equal(questionEntries[0].pendingKind, "question");
 assert.equal(questionEntries[0].noteText, "等待你回答问题后继续", "提问列表由 questionPreview 单独承载，noteText 保留回落文案");
 assert.deepEqual(questionEntries[0].questionPreview, questionPreview, "待回复条目携带结构化提问列表");
-const questionFallback = buildEntries(questionSnap, [], { sQ: { timeline: [] } });
+const questionFallback = buildEntries({ snapshot: questionSnap, workspaceItems: [], detailsById: { sQ: { timeline: [] } } });
 assert.equal(questionFallback[0].noteText, "等待你回答问题后继续", "问题不可得时回落动作说明");
 assert.equal(questionFallback[0].questionPreview, null, "问题不可得时不创建空列表");
 
@@ -1265,8 +1258,8 @@ assert.deepEqual(
 	"分子=awaiting 主会话数，分母=running+awaiting 主会话数；blocked 只计阻塞等待",
 );
 // ---- R-01-001/AC-01 可重复的确定性渲染（见下） ｜ R-02-003/AC-01 渲染签名去重 ----
-const e1 = buildEntries(snapshot, workspaces);
-const e2 = buildEntries(snapshot, workspaces);
+const e1 = buildEntries({ snapshot: snapshot, workspaceItems: workspaces });
+const e2 = buildEntries({ snapshot: snapshot, workspaceItems: workspaces });
 assert.equal(cardSignature(e1), cardSignature(e2), "相同状态签名相等→跳过重绘");
 assert.notEqual(
 	cardSignature(e1),
@@ -2923,7 +2916,7 @@ const recentSnap = {
 };
 // R-01-001/AC-01、R-01-002/AC-03（C-030）：宿主 completed 边沿标志本身不再驱动显示——
 // 无完成登记（completions 无记录）时 completed 行视为不活动，落入历史区。
-const recentUncompleted = buildRecent(recentSnap, [], NOW);
+const recentUncompleted = buildRecent({ snapshot: recentSnap, workspaceItems: [], now: NOW });
 assert.deepEqual(
 	recentUncompleted.map((e) => e.id),
 	["sAwait", "sB", "sOld"],
@@ -2934,7 +2927,7 @@ const recentAcks = new Map([
 	["sAwait", { lastTurnEnd: NOW - 1_000, ackedAt: null }],
 	["sAwait2", { lastTurnEnd: NOW - 900, ackedAt: NOW - 2_000 }],
 ]);
-const recent = buildRecent(recentSnap, [], NOW, {}, [], recentAcks);
+const recent = buildRecent({ snapshot: recentSnap, workspaceItems: [], now: NOW, detailsById: {}, archivedIds: [], completions: recentAcks });
 assert.deepEqual(
 	recent.map((e) => e.id),
 	["sB", "sOld"],
@@ -2953,12 +2946,12 @@ assert.deepEqual(messagePreviews({ history: [] }), { userPreview: "", agentPrevi
 // R-01-013/AC-04
 // R-01-013/AC-05
 // R-01-013/AC-06
-const recentWithPreviews = buildRecent(recentSnap, [], NOW, {
+const recentWithPreviews = buildRecent({ snapshot: recentSnap, workspaceItems: [], now: NOW, detailsById: {
 	sB: {
 		model: { model: "Model M", reasoning: "High" },
 		previews: { userPreview: "用户首行", agentPreview: "回复首行" },
 	},
-}, [], recentAcks);
+}, archivedIds: [], completions: recentAcks });
 assert.deepEqual(
 	recentWithPreviews[0],
 	{
@@ -2990,27 +2983,19 @@ assert.deepEqual(
 
 // ---- R-01-010/AC-02 活动→非活动 移入历史区 ----
 // 同一会话：运行态时出现在活动区、不在历史区；转为非活动后从活动区消失并进入历史区。
-const activeDuringRun = buildRecent(
-	{
+const activeDuringRun = buildRecent({ snapshot: {
 		ids: ["sB"],
 		byId: { sB: { id: "sB", displayTitle: "旧B", running: true, updatedAt: NOW - 60_000 } },
 		current: null,
-	},
-	[],
-	NOW,
-);
+	}, workspaceItems: [], now: NOW });
 assert.equal(activeDuringRun.length, 0, "运行中会话不在历史区");
-const viaRunToIdle = buildEntries(
-	{ ids: ["sB"], byId: { sB: { id: "sB", displayTitle: "旧B", running: true } }, current: null },
-	[],
-);
+const viaRunToIdle = buildEntries({ snapshot: { ids: ["sB"], byId: { sB: { id: "sB", displayTitle: "旧B", running: true } }, current: null }, workspaceItems: [] });
 assert.deepEqual(viaRunToIdle.map((e) => e.id), ["sB"], "运行中会话在活动区");
-const recentAfterIdle = buildRecent(recentSnap, [], NOW, {}, [], recentAcks);
+const recentAfterIdle = buildRecent({ snapshot: recentSnap, workspaceItems: [], now: NOW, detailsById: {}, archivedIds: [], completions: recentAcks });
 assert.ok(recentAfterIdle.some((e) => e.id === "sB"), "转为非活动后进入历史区");
 
 // ---- R-01-010/AC-03 历史区按最后活动时间从新到旧 ----
-const multiRecent = buildRecent(
-	{
+const multiRecent = buildRecent({ snapshot: {
 		ids: ["r1", "r2", "r3"],
 		byId: {
 			r1: { id: "r1", displayTitle: "R1", running: false, updatedAt: NOW - 2_000 },
@@ -3018,10 +3003,7 @@ const multiRecent = buildRecent(
 			r3: { id: "r3", displayTitle: "R3", running: false, updatedAt: NOW - 1_000 },
 		},
 		current: null,
-	},
-	[],
-	NOW,
-);
+	}, workspaceItems: [], now: NOW });
 assert.deepEqual(
 	multiRecent.map((e) => e.id),
 	["r3", "r1", "r2"],
@@ -3030,8 +3012,7 @@ assert.deepEqual(
 
 // ---- R-01-019/AC-01～AC-03 历史候选不再截断，按 10 条分批呈现 ----
 const manyRecentIds = Array.from({ length: RECENT_PAGE_SIZE * 2 + 1 }, (_, index) => `page-${index}`);
-const manyRecent = buildRecent(
-	{
+const manyRecent = buildRecent({ snapshot: {
 		ids: manyRecentIds,
 		byId: Object.fromEntries(manyRecentIds.map((id, index) => [id, {
 			id,
@@ -3040,10 +3021,7 @@ const manyRecent = buildRecent(
 			updatedAt: NOW - index,
 		}])),
 		current: null,
-	},
-	[],
-	NOW,
-);
+	}, workspaceItems: [], now: NOW });
 assert.equal(manyRecent.length, manyRecentIds.length, "历史候选超过 20 条时不再被核心截断（R-01-019/AC-01）");
 assert.deepEqual(
 	manyRecent.slice(0, RECENT_PAGE_SIZE).map((entry) => entry.id),
@@ -3060,18 +3038,14 @@ assert.deepEqual(
 	manyRecentIds.slice(RECENT_PAGE_SIZE * 2),
 	"历史末批只取剩余会话且不会越界重复（R-01-019/AC-03）",
 );
-const tiedRecent = buildRecent(
-	{
+const tiedRecent = buildRecent({ snapshot: {
 		ids: ["tie-z", "tie-a"],
 		byId: {
 			"tie-z": { id: "tie-z", displayTitle: "Z", running: false, updatedAt: NOW },
 			"tie-a": { id: "tie-a", displayTitle: "A", running: false, updatedAt: NOW },
 		},
 		current: null,
-	},
-	[],
-	NOW,
-);
+	}, workspaceItems: [], now: NOW });
 assert.deepEqual(tiedRecent.map((entry) => entry.id), ["tie-a", "tie-z"], "相同 activityAt 时以会话 id 稳定排序");
 
 // ---- R-01-010/AC-08 最后活动时间：turn/end 提取与 max 归一 ----
@@ -3191,10 +3165,10 @@ const refineSnap = {
 	},
 	current: null,
 };
-const refined = buildRecent(refineSnap, [], NOW, {}, [], null, null, {
+const refined = buildRecent({ snapshot: refineSnap, workspaceItems: [], now: NOW, detailsById: {}, archivedIds: [], completions: null, delegatingIds: null, turnEnds: {
 	sTurn: NOW - 2_000, // 回合结束晚于宿主时间 → 精化为回合结束时刻
 	sPrompt: NOW - 3_000, // 回合结束早于宿主时间（消息未处理）→ 取较新者
-});
+} });
 assert.deepEqual(
 	refined.map((e) => [e.id, e.activityAt]),
 	[["sPrompt", NOW - 1_000], ["sTurn", NOW - 2_000], ["sNone", NOW - 5_000]],
@@ -3202,23 +3176,14 @@ assert.deepEqual(
 );
 
 // ---- R-01-010/AC-09 数据在途先按宿主列表时间，到达后精化 ----
-const unrefined = buildRecent(refineSnap, [], NOW);
+const unrefined = buildRecent({ snapshot: refineSnap, workspaceItems: [], now: NOW });
 assert.deepEqual(
 	unrefined.map((e) => [e.id, e.activityAt]),
 	[["sPrompt", NOW - 1_000], ["sNone", NOW - 5_000], ["sTurn", NOW - 10_000]],
 	"回合结束时刻在途时先按宿主列表时间判定、排序与显示（R-01-010/AC-09）",
 );
 // 无时间窗口语义：宿主时间较早的非活动会话仍进入历史区，已知 turn/end 继续精化排序（C-068）。
-const crossWindow = buildRecent(
-	{ ids: ["sLong"], byId: { sLong: { id: "sLong", displayTitle: "长回合", running: false, updatedAt: NOW - 25 * 3_600_000 } }, current: null },
-	[],
-	NOW,
-	{},
-	[],
-	null,
-	null,
-	{ sLong: NOW - 1_000 },
-);
+const crossWindow = buildRecent({ snapshot: { ids: ["sLong"], byId: { sLong: { id: "sLong", displayTitle: "长回合", running: false, updatedAt: NOW - 25 * 3_600_000 } }, current: null }, workspaceItems: [], now: NOW, detailsById: {}, archivedIds: [], completions: null, delegatingIds: null, turnEnds: { sLong: NOW - 1_000 } });
 assert.deepEqual(crossWindow.map((entry) => [entry.id, entry.activityAt]), [["sLong", NOW - 1_000]], "较早宿主时间的非活动会话仍进入历史区（C-068）");
 
 // ---- R-01-002/AC-03、AC-05、AC-10～AC-12、R-01-010/AC-06 完成确认：未确认完成提醒保留活动卡；
@@ -3236,7 +3201,7 @@ assert.equal(completionReminder({ id: "m-c1", parentId: "m", origin: "subagent",
 // 打开/切换当前会话不解除（AC-05）：完成提醒成立与 current 无关。
 // R-01-002/AC-05 打开或切换当前会话不解除完成提醒：判定与 current 无关（C-030）。
 const holdSnap = { ids: ["sB"], byId: { sB: holdBase }, current: "sA" };
-const confirmEntries = buildEntries(holdSnap, [], {}, acks(1000));
+const confirmEntries = buildEntries({ snapshot: holdSnap, workspaceItems: [], detailsById: {}, completions: acks(1000) });
 assert.deepEqual(
 	confirmEntries.map((e) => [e.id, e.kind, e.pendingText ?? null, e.waitClass, e.noteText, e.isCurrent]),
 	[["sB", "awaiting", null, "done", "继续对话，或移入历史", false]],
@@ -3248,22 +3213,22 @@ assert.deepEqual(
 	"完成提醒计入徽标等待分子但不计阻塞（R-01-002/AC-06）",
 );
 assert.deepEqual(
-	buildRecent(holdSnap, [], NOW, {}, [], acks(1000)).map((e) => e.id),
+	buildRecent({ snapshot: holdSnap, workspaceItems: [], now: NOW, detailsById: {}, archivedIds: [], completions: acks(1000) }).map((e) => e.id),
 	[],
 	"未确认完成提醒不入历史区（分区不变量）",
 );
 // running 抑制：完成提醒在运行期间按运行卡呈现（C-030 呈现层抑制条件不变）。
-const confirmRunning = buildEntries({ ids: ["sB"], byId: { sB: { ...holdBase, running: true } }, current: null }, [], {}, acks(1000));
+const confirmRunning = buildEntries({ snapshot: { ids: ["sB"], byId: { sB: { ...holdBase, running: true } }, current: null }, workspaceItems: [], detailsById: {}, completions: acks(1000) });
 assert.equal(confirmRunning[0].kind, "running", "完成提醒在运行期间被呈现抑制");
 // 显式确认（AC-10）：ackedAt 前移即解除，会话退出活动区、转入历史区。
 const ackedMap = acks(1000, 1500);
 assert.deepEqual(
-	buildEntries(holdSnap, [], {}, ackedMap).map((e) => [e.id, e.kind]),
+	buildEntries({ snapshot: holdSnap, workspaceItems: [], detailsById: {}, completions: ackedMap }).map((e) => [e.id, e.kind]),
 	[],
 	"确认后完成提醒解除、退出活动区",
 );
 assert.deepEqual(
-	buildRecent(holdSnap, [], NOW, {}, [], ackedMap).map((e) => e.id),
+	buildRecent({ snapshot: holdSnap, workspaceItems: [], now: NOW, detailsById: {}, archivedIds: [], completions: ackedMap }).map((e) => e.id),
 	["sB"],
 	"确认后会话进入历史区",
 );
@@ -3272,14 +3237,14 @@ assert.equal(completionReminder(holdBase, { lastTurnEnd: 2000, ackedAt: 1500 }, 
 // 委托周期抑制：后代活动期间完成提醒不生效（呈现不依赖宿主 completed）。
 const delegDoneMix = { ids: ["root", "root-c1"], byId: { root: holdBase, "root-c1": { id: "root-c1", displayTitle: "子S", parentId: "root", origin: "subagent", running: true } }, current: null };
 assert.deepEqual(
-	buildEntries(delegDoneMix, [], {}, acks(1000), new Set(["root"])).map((e) => [e.id, e.pendingText ?? null]),
+	buildEntries({ snapshot: delegDoneMix, workspaceItems: [], detailsById: {}, completions: acks(1000), delegatingIds: new Set(["root"]) }).map((e) => [e.id, e.pendingText ?? null]),
 	[["root", null], ["root-c1", null]],
 	"委托周期中完成提醒不生效",
 );
 // 阻塞等待优先：pendingInteraction 时按对应文案呈现而非完成提醒。
 const pendingMixSnap = { ids: ["sB"], byId: { sB: { ...holdBase, pendingInteraction: "approval" } }, current: null };
 assert.deepEqual(
-	buildEntries(pendingMixSnap, [], {}, acks(1000)).map((e) => [e.id, e.kind, e.pendingText, e.waitClass]),
+	buildEntries({ snapshot: pendingMixSnap, workspaceItems: [], detailsById: {}, completions: acks(1000) }).map((e) => [e.id, e.kind, e.pendingText, e.waitClass]),
 	[["sB", "awaiting", "待确认", "blocked"]],
 	"阻塞等待优先于完成提醒呈现",
 );
@@ -3293,14 +3258,14 @@ assert.equal(errorReminder({ id: "sB", displayTitle: "旧B" }, { lastTurnEndKind
 assert.equal(errorReminder({ id: "sB", displayTitle: "旧B" }, { lastTurnEndKind: "error", ackedAt: 99999 }, false), true, "错误提醒不消费 ack 游标（ackedAt 不影响成立）");
 assert.equal(errorReminder({ id: "sB", displayTitle: "旧B" }, null, false), false, "无登记不成立（升级不回溯补发错误提醒）");
 assert.equal(errorReminder({ id: "m-c1", parentId: "m", origin: "subagent", displayTitle: "子S" }, { lastTurnEndKind: "error" }, true), false, "子代理不产生错误提醒");
-const errEntries = buildEntries(holdSnap, [], {}, errAcks("error", "The engine is currently overloaded, please try again later"));
+const errEntries = buildEntries({ snapshot: holdSnap, workspaceItems: [], detailsById: {}, completions: errAcks("error", "The engine is currently overloaded, please try again later") });
 assert.deepEqual(
 	errEntries.map((e) => [e.id, e.kind, e.pendingText ?? null, e.waitClass, e.noteText]),
 	[["sB", "awaiting", null, "error", "The engine is currently overloaded, please try again later"]],
 	"error 回合以 awaiting 错误提醒条目留在活动区（红色卡面、正文为错误信息）",
 );
 assert.deepEqual(
-	buildEntries(holdSnap, [], {}, errAcks("error", "")).map((e) => [e.id, e.waitClass, e.noteText]),
+	buildEntries({ snapshot: holdSnap, workspaceItems: [], detailsById: {}, completions: errAcks("error", "") }).map((e) => [e.id, e.waitClass, e.noteText]),
 	[["sB", "error", ERROR_NOTE_FALLBACK]],
 	"error 回合无错误信息时回落固定文案（R-01-002/AC-09）",
 );
@@ -3321,43 +3286,43 @@ assert.deepEqual(
 	"错误提醒计入徽标等待分子但不计阻塞（R-01-002/AC-06）",
 );
 assert.deepEqual(
-	buildRecent(holdSnap, [], NOW, {}, [], errAcks("error", "boom")).map((e) => e.id),
+	buildRecent({ snapshot: holdSnap, workspaceItems: [], now: NOW, detailsById: {}, archivedIds: [], completions: errAcks("error", "boom") }).map((e) => e.id),
 	[],
 	"错误提醒中会话不入历史区（分区不变量，R-01-010/AC-06）",
 );
 // 优先级：同一登记上 error 优先于 done（lastTurnEndKind 为 error 时兼有未确认完成）。
 assert.deepEqual(
-	buildEntries(holdSnap, [], {}, errAcks("error", "boom", 1000)).map((e) => [e.id, e.waitClass]),
+	buildEntries({ snapshot: holdSnap, workspaceItems: [], detailsById: {}, completions: errAcks("error", "boom", 1000) }).map((e) => [e.id, e.waitClass]),
 	[["sB", "error"]],
 	"错误提醒优先于完成提醒呈现（C-043）",
 );
 // 抑制与覆盖：运行期间按运行卡呈现；新回合（kind 覆盖为正常原因）即解除错误提醒——
 // 未确认时落入完成提醒（turn/end 照常登记 lastTurnEnd），已确认后完全退出活动区。
-const errRunning = buildEntries({ ids: ["sB"], byId: { sB: { ...holdBase, running: true } }, current: null }, [], {}, errAcks("error", "boom"));
+const errRunning = buildEntries({ snapshot: { ids: ["sB"], byId: { sB: { ...holdBase, running: true } }, current: null }, workspaceItems: [], detailsById: {}, completions: errAcks("error", "boom") });
 assert.equal(errRunning[0].kind, "running", "错误提醒在运行期间被呈现抑制");
-const clearedErr = buildEntries(holdSnap, [], {}, errAcks("completed", null));
+const clearedErr = buildEntries({ snapshot: holdSnap, workspaceItems: [], detailsById: {}, completions: errAcks("completed", null) });
 assert.deepEqual(
 	clearedErr.map((e) => [e.id, e.kind, e.waitClass]),
 	[["sB", "awaiting", "done"]],
 	"新回合正常结束后错误提醒覆盖解除：未确认时转为完成提醒（绿卡）",
 );
-const clearedErrAcked = buildEntries(holdSnap, [], {}, errAcks("completed", null, 2000));
+const clearedErrAcked = buildEntries({ snapshot: holdSnap, workspaceItems: [], detailsById: {}, completions: errAcks("completed", null, 2000) });
 assert.deepEqual(clearedErrAcked.map((e) => [e.id, e.kind]), [], "新回合正常结束且已确认后完全退出活动区（错误提醒无确认按钮语义）");
 // 委托周期抑制：后代活动期间错误提醒不生效。
 const delegErrMix = { ids: ["root", "root-c1"], byId: { root: holdBase, "root-c1": { id: "root-c1", displayTitle: "子S", parentId: "root", origin: "subagent", running: true } }, current: null };
 const delegErrAcks = new Map([["root", { lastTurnEnd: 1000, lastTurnEndKind: "error", lastTurnEndError: "boom", ackedAt: null }]]);
 assert.deepEqual(
-	buildEntries(delegErrMix, [], {}, delegErrAcks, new Set(["root"])).map((e) => e.id),
+	buildEntries({ snapshot: delegErrMix, workspaceItems: [], detailsById: {}, completions: delegErrAcks, delegatingIds: new Set(["root"]) }).map((e) => e.id),
 	["root", "root-c1"],
 	"委托周期中错误提醒不生效（保持运行呈现）",
 );
 
 // ---- R-01-016/AC-01 等待卡条目承载会话最后已知工作项时间线（数据路径）----
 const settledTrace = [{ id: "w1", kind: "tool", label: "Bash", summary: "pnpm check", status: "done" }];
-const awaitingTraceEntries = buildEntries(holdSnap, [], { sB: { timeline: settledTrace } }, acks(1000));
+const awaitingTraceEntries = buildEntries({ snapshot: holdSnap, workspaceItems: [], detailsById: { sB: { timeline: settledTrace } }, completions: acks(1000) });
 assert.equal(awaitingTraceEntries[0].kind, "awaiting", "完成提醒中会话以 awaiting 卡呈现");
 assert.deepEqual(awaitingTraceEntries[0].timeline, settledTrace, "awaiting 条目承载会话最近工作项时间线（R-01-016/AC-01）");
-const pendingTraceEntries = buildEntries(pendingSnap, [], { sP: { timeline: settledTrace } });
+const pendingTraceEntries = buildEntries({ snapshot: pendingSnap, workspaceItems: [], detailsById: { sP: { timeline: settledTrace } } });
 assert.equal(pendingTraceEntries[0].kind, "awaiting", "待确认会话以 awaiting 卡呈现");
 assert.deepEqual(pendingTraceEntries[0].timeline, settledTrace, "待确认 awaiting 条目同样承载时间线（R-01-016/AC-01）");
 
@@ -3390,47 +3355,35 @@ const recentSubSnap = {
 	},
 	current: null,
 };
-const recentSub = buildRecent(recentSubSnap, [], NOW);
+const recentSub = buildRecent({ snapshot: recentSubSnap, workspaceItems: [], now: NOW });
 assert.ok(
 	recentSub.some((e) => e.id === "m") && !recentSub.some((e) => e.id === "m-c1"),
 	"最近历史仅主会话，已结束子代理不入历史区",
 );
 
 // ---- R-01-010/AC-01 归档会话不入最近历史（不可选中，列出即成死卡） ----
-const recentArchived = buildRecent(
-	{
+const recentArchived = buildRecent({ snapshot: {
 		ids: ["sKeep", "sGone"],
 		byId: {
 			sKeep: { id: "sKeep", displayTitle: "保留K", running: false, completed: false, updatedAt: NOW - 1_000 },
 			sGone: { id: "sGone", displayTitle: "归档G", running: false, completed: false, updatedAt: NOW - 500 },
 		},
 		current: null,
-	},
-	[],
-	NOW,
-	{},
-	["sGone"],
-);
+	}, workspaceItems: [], now: NOW, detailsById: {}, archivedIds: ["sGone"] });
 assert.deepEqual(
 	recentArchived.map((e) => e.id),
 	["sKeep"],
 	"归档会话即使仍被会话服务列出也不入最近历史",
 );
 assert.deepEqual(
-	buildRecent(
-		{
+	buildRecent({ snapshot: {
 			ids: ["sKeep", "sGone"],
 			byId: {
 				sKeep: { id: "sKeep", displayTitle: "保留K", running: false, completed: false, updatedAt: NOW - 1_000 },
 				sGone: { id: "sGone", displayTitle: "归档G", running: false, completed: false, updatedAt: NOW - 500 },
 			},
 			current: null,
-		},
-		[],
-		NOW,
-		{},
-		new Set(["sGone"]),
-	).map((e) => e.id),
+		}, workspaceItems: [], now: NOW, detailsById: {}, archivedIds: new Set(["sGone"]) }).map((e) => e.id),
 	["sKeep"],
 	"归档集同样接受 Set 形态",
 );
@@ -3445,7 +3398,7 @@ const activeArchivedSnap = {
 	current: null,
 };
 assert.deepEqual(
-	buildEntries(activeArchivedSnap, [], {}, new Map([["sGone", { lastTurnEnd: NOW, ackedAt: null }]]), null, ["sGone"]).map((e) => e.id),
+	buildEntries({ snapshot: activeArchivedSnap, workspaceItems: [], detailsById: {}, completions: new Map([["sGone", { lastTurnEnd: NOW, ackedAt: null }]]), delegatingIds: null, archivedIds: ["sGone"] }).map((e) => e.id),
 	["sKeep"],
 	"归档会话从活动区消失，不因未确认完成提醒继续滞留",
 );
@@ -3460,17 +3413,10 @@ const archivedStatusSnap = {
 	current: null,
 };
 assert.deepEqual(
-	buildEntries(
-		archivedStatusSnap,
-		[],
-		{},
-		new Map([
+	buildEntries({ snapshot: archivedStatusSnap, workspaceItems: [], detailsById: {}, completions: new Map([
 			["sDone", { lastTurnEnd: NOW, ackedAt: null }],
 			["sError", { lastTurnEnd: NOW, lastTurnEndKind: "error", lastTurnEndError: "boom", ackedAt: null }],
-		]),
-		new Set(["sDelegating"]),
-		new Set(["sRunning", "sDone", "sError", "sDelegating"]),
-	).map((e) => e.id),
+		]), delegatingIds: new Set(["sDelegating"]), archivedIds: new Set(["sRunning", "sDone", "sError", "sDelegating"]) }).map((e) => e.id),
 	[],
 	"Set 归档集合同时过滤运行、完成提醒、错误提醒与委托周期中的会话",
 );
@@ -3486,12 +3432,12 @@ const archivedLineageSnap = {
 	current: null,
 };
 assert.deepEqual(
-	buildEntries(archivedLineageSnap, [], {}, null, null, ["root"]).map((e) => e.id),
+	buildEntries({ snapshot: archivedLineageSnap, workspaceItems: [], detailsById: {}, completions: null, delegatingIds: null, archivedIds: ["root"] }).map((e) => e.id),
 	["keep-root", "keep-child"],
 	"归档母会话时其子会话与更深层后代均不产出活动条目",
 );
 assert.deepEqual(
-	buildEntries(archivedLineageSnap, [], {}, null, null, ["keep-child"]).map((e) => e.id),
+	buildEntries({ snapshot: archivedLineageSnap, workspaceItems: [], detailsById: {}, completions: null, delegatingIds: null, archivedIds: ["keep-child"] }).map((e) => e.id),
 	["root", "root-child", "root-grandchild"],
 	"归档子会话后不因残留后代活动把未归档母会话留在活动区",
 );
@@ -3589,7 +3535,7 @@ const jobViews = {
 		{ id: "job-1", kind: "bash", label: "sync data", status: "stopping", startedAt: 1000 },
 	],
 };
-const jobbedEntries = buildEntries(jobbedSnapshot, [], {}, null, null, [], null, jobViews);
+const jobbedEntries = buildEntries({ snapshot: jobbedSnapshot, workspaceItems: [], detailsById: {}, completions: null, delegatingIds: null, archivedIds: [], waitingStarts: null, jobsBySession: jobViews });
 const jobbedA = jobbedEntries.find((entry) => entry.id === "jA");
 assert.ok(jobbedA !== undefined, "R-01-023/AC-01 回合已结束但在跑后台任务的主会话保留在活动区");
 assert.equal(jobbedA.kind, "running", "R-01-023/AC-01 在跑后台任务的主会话按运行态呈现（非 awaiting）");
@@ -3612,7 +3558,7 @@ assert.deepEqual(
 );
 assert.ok(jobbedEntries[1].kind === "job" && jobbedEntries[0].id === "jA", "job 子卡紧随母会话条目之后（preorder 位置）");
 assert.ok(jobbedEntries.some((entry) => entry.id === "jB"), "真实运行中会话不受任务视图影响照常显示");
-assert.deepEqual(buildEntries(jobbedSnapshot, [], {}).find((entry) => entry.id === "jA"), undefined, "无任务视图时回合结束且非活动的会话不显示（既有口径不变）");
+assert.deepEqual(buildEntries({ snapshot: jobbedSnapshot, workspaceItems: [], detailsById: {} }).find((entry) => entry.id === "jA"), undefined, "无任务视图时回合结束且非活动的会话不显示（既有口径不变）");
 // R-01-023 归一边界：快照缺失/形状非法均容错为无任务。
 assert.deepEqual(liveJobsOf(null, "jA"), [], "jobsBySession 缺失归一为无任务");
 assert.deepEqual(liveJobsOf({}, "jA"), [], "无该会话条目归一为无任务");
@@ -3727,8 +3673,83 @@ const snapshotNoMain = { byId: { b: { id: "b", retainedBy: { mainView: 0 } } } }
 assert.equal(currentIdOf(snapshotNoMain), null, "无 mainView>0 行归一 null");
 assert.equal(currentIdOf(snapshotNoMain), null, "null 结果同样入记忆化表");
 assert.equal(currentIdOf("nope"), null, "非记录快照归一 null");
+assert.equal(currentIdOf(snapshotNoMain), null, "null 结果同样入记忆化表");
+assert.equal(currentIdOf("nope"), null, "非记录快照归一 null");
 assert.equal(currentIdOf({ byId: { c: { id: "c", retainedBy: { mainView: 2 } } } }), "c", "不同快照对象独立求值（新快照重新求值，命中其 mainView>0 行）");
-// R-01-023/AC-04：仅有在跑后台任务的主会话计入运行中分子（此处 jA+jB 均呈 running）。
+// ---- T-186 渲染帧名册级分配清零：覆盖层短路 / busy 版本 memo / buildRecent 两段式 / 索引 memo ----
+// 覆盖层按（基快照, statusSnapshot）双引用短路：引用未变帧复用同一覆盖层对象不换壳，
+// 消除逐帧 `{ ...byId }` + `{ ...snapshot }` 全量克隆并使下游按引用 memo 帧内恒命中。
+// 键选型依据：宿主快照两次推送间引用稳定且视为不可变；statusSnapshot 内容变更时宿主
+// 换新 Map 引用、内容等价则保留旧引用，故引用相等即内容相等，无跨代际陈旧风险。
+const overlayStatus = new Map([["ovA", { pendingInteraction: { kind: "question" } }]]);
+const overlayBase = { ids: ["ovA", "ovB"], byId: { ovA: { id: "ovA" }, ovB: { id: "ovB" } }, current: null };
+const statusOverlayOf = createStatusOverlayMemo();
+const overlayOnce = statusOverlayOf(overlayBase, overlayStatus);
+assert.equal(statusOverlayOf(overlayBase, overlayStatus), overlayOnce, "覆盖层同引用短路复用同一对象（T-186）");
+assert.equal(overlayOnce.byId.ovA.pendingInteraction, "question", "覆盖层回填 pendingInteraction.kind（R-01-002/AC-03）");
+assert.equal(overlayOnce.byId.ovB, overlayBase.byId.ovB, "未命中状态面的行保持原行引用");
+assert.equal(statusOverlayOf(overlayBase, null), overlayBase, "状态面缺席原样返回基快照");
+const overlayRebuilt = statusOverlayOf(overlayBase, overlayStatus);
+assert.notEqual(overlayRebuilt, overlayOnce, "缺席帧清账后同引用重建覆盖层（非同一对象，T-186）");
+assert.deepEqual(overlayRebuilt, overlayOnce, "重建内容与既有覆盖层逐字段一致（T-186）");
+// buildRecent 两段式等价：第一阶段只做过滤与排序键收集，第二阶段仅对入选前缀物化完整条目。
+// limit 前缀与全量逐字段一致；total=过滤后候选总数（recentTotal/recentHasMore 语义承载）。
+const recentEquivalence = {
+	ids: ["tA", "tB", "tTie1", "tTie2", "tAck", "tJob", "tSub", "tArch", "tBlank", "tFuture"],
+	byId: {
+		tA: { id: "tA", displayTitle: "普通候选甲", running: false, completed: false, updatedAt: 1_500 },
+		tB: { id: "tB", displayTitle: "普通候选乙", running: false, completed: false, updatedAt: 1_200 },
+		tTie1: { id: "tTie1", displayTitle: "同刻甲", running: false, completed: false, updatedAt: 1_000 },
+		tTie2: { id: "tTie2", displayTitle: "同刻乙", running: false, completed: false, updatedAt: 1_000 },
+		tAck: { id: "tAck", displayTitle: "完成提醒", running: false, completed: true, updatedAt: 1_700 },
+		tJob: { id: "tJob", displayTitle: "在跑任务", running: false, completed: false, updatedAt: 1_700 },
+		tSub: { id: "tSub", parentId: "tA", origin: "subagent", running: false, completed: false, updatedAt: 1_600 },
+		tArch: { id: "tArch", displayTitle: "归档行", running: false, completed: false, updatedAt: 1_700 },
+		tBlank: { id: "tBlank", displayTitle: "空白", running: false, blank: true, updatedAt: 1_700 },
+		tFuture: { id: "tFuture", displayTitle: "未来行", running: false, completed: false, updatedAt: 9_000 },
+	},
+	current: null,
+};
+const recentEquivalenceArgs = {
+	snapshot: recentEquivalence,
+	workspaceItems: [],
+	now: 2_000,
+	detailsById: new Map([["tA", { model: { model: "Model M", reasoning: "High" } }]]),
+	archivedIds: ["tArch"],
+	completions: new Map([["tAck", { lastTurnEnd: 1_800, ackedAt: null }]]),
+	turnEnds: { tA: 1_800 },
+	jobsBySession: { tJob: [{ id: "job-9", kind: "bash", label: "watch tail.log", status: "running", startedAt: 2000 }] },
+};
+const recentFull = buildRecent(recentEquivalenceArgs);
+assert.deepEqual(recentFull.map((entry) => entry.id), ["tA", "tB", "tTie1", "tTie2"], "两段式全量与既有过滤谓词语义一致（同刻聚集按 id 字典序，T-186）");
+assert.equal(recentFull.total, undefined, "未传 limit 不附 total（返回全量候选）");
+for (const size of [0, 1, 3, recentFull.length, recentFull.length + 5]) {
+	assert.deepEqual(buildRecent({ ...recentEquivalenceArgs, limit: size }), recentFull.slice(0, size), `两段式前缀 size=${size} 与全量逐字段一致（T-186）`);
+}
+const recentPaged = buildRecent({ ...recentEquivalenceArgs, limit: 3 });
+assert.equal(recentPaged.total, recentFull.length, "total=过滤后候选总数（recentTotal 语义承载，T-186）");
+assert.equal(recentFull[0].model, "Model M", "物化只发生在入选前缀（metadata 查表字段等价，T-186）");
+assert.equal(recentFull[0].activityAt, 1_800, "activityAt 精化（turnEnds 取较新者，R-01-010/AC-08）");
+// 索引按工作区清单引用备忘（T-186）：同引用复用同一索引对象、引用变更重建、
+// 非数组输入不入 memo（WeakMap 键须为对象）。
+assert.strictEqual(buildWorkspaceIndex(wsIndexItems), buildWorkspaceIndex(wsIndexItems), "工作区索引按清单引用复用（T-186）");
+assert.notStrictEqual(buildWorkspaceIndex([...wsIndexItems]), buildWorkspaceIndex(wsIndexItems), "清单引用变更重建索引（T-186）");
+assert.notStrictEqual(buildWorkspaceIndex("nope"), buildWorkspaceIndex("nope"), "非数组输入不入 memo（WeakMap 键须为对象，T-186）");
+assert.equal(recentPaged.total, recentFull.length, "total=过滤后候选总数（recentTotal 语义承载，T-186）");
+assert.equal(recentFull[0].model, "Model M", "物化只发生在入选前缀（metadata 查表字段等价，T-186）");
+assert.equal(recentFull[0].activityAt, 1_800, "activityAt 精化（turnEnds 取较新者，R-01-010/AC-08）");
+// waitingStarts 按 busy 内容版本备忘：busyById 原地 clear+set、Map 引用恒不变，严禁以
+// Map 引用作 memo 键——版本未变即复用上帧 Map，版本变更才重建。
+const busyWaits = new Map([["wA", { openWaitStart: 1234 }], ["wN", { openWaitStart: null }], ["wM", {}]]);
+const waitingStartsOfBusy = createWaitingStartsMemo();
+const waitsOnce = waitingStartsOfBusy(busyWaits, 7);
+assert.equal(waitingStartsOfBusy(busyWaits, 7), waitsOnce, "busy 版本未变复用同一 waitingStarts Map（T-186）");
+assert.deepEqual([...waitsOnce], [["wA", 1234]], "仅毫秒 openWaitStart 派生等待时刻表（R-01-001/AC-07）");
+busyWaits.set("wX", { openWaitStart: 99 });
+assert.equal(waitingStartsOfBusy(busyWaits, 7), waitsOnce, "版本未变时复用上帧 Map——原地变更不以引用承载，版本号是唯一记账（T-186）");
+const waitsNext = waitingStartsOfBusy(busyWaits, 8);
+assert.notEqual(waitsNext, waitsOnce, "busy 版本变更重建 waitingStarts");
+assert.deepEqual([...waitsNext], [["wA", 1234], ["wX", 99]], "重建读取当前 busy 内容");
 assert.deepEqual(
 	awaitBadgeStats(jobbedEntries),
 	{ waiting: 0, blocked: 0, total: 2 },
@@ -3739,15 +3760,15 @@ const jobCompletions = new Map([
 	["jA", { lastTurnEnd: 1000, lastTurnEndKind: "completed", lastTurnEndError: null, ackedAt: null }],
 	["jC", { lastTurnEnd: 1000, lastTurnEndKind: "error", lastTurnEndError: null, ackedAt: null }],
 ]);
-const suppressedEntries = buildEntries(jobbedSnapshot, [], {}, jobCompletions, null, [], null, jobViews);
+const suppressedEntries = buildEntries({ snapshot: jobbedSnapshot, workspaceItems: [], detailsById: {}, completions: jobCompletions, delegatingIds: null, archivedIds: [], waitingStarts: null, jobsBySession: jobViews });
 assert.equal(suppressedEntries.find((entry) => entry.id === "jA").waitClass, undefined, "R-01-023/AC-02 在跑后台任务期间完成提醒被抑制（回合已结束）");
 assert.equal(suppressedEntries.find((entry) => entry.id === "jC").waitClass, "error", "R-01-023/AC-02 无在跑任务的会话错误提醒不受影响（对照组）");
 // R-01-023/AC-03：任务全部结束后提醒与历史候选恢复既有判定。
 const settledViews = { jA: [{ id: "job-2", kind: "bash", label: "watch tail.log", status: "completed", startedAt: 2000, finishedAt: 3000 }] };
-const settledEntries = buildEntries(jobbedSnapshot, [], {}, jobCompletions, null, [], null, settledViews);
+const settledEntries = buildEntries({ snapshot: jobbedSnapshot, workspaceItems: [], detailsById: {}, completions: jobCompletions, delegatingIds: null, archivedIds: [], waitingStarts: null, jobsBySession: settledViews });
 assert.equal(settledEntries.find((entry) => entry.id === "jA")?.waitClass, "done", "R-01-023/AC-03 在跑任务全部结束后完成提醒恢复成立");
-assert.ok(!buildRecent(jobbedSnapshot, [], 999_999, {}, [], null, null, null, jobViews).some((entry) => entry.id === "jA"), "R-01-023/AC-01 在跑后台任务的主会话不入最近历史");
-assert.ok(buildRecent(jobbedSnapshot, [], 999_999, {}, [], null, null, null, settledViews).some((entry) => entry.id === "jA"), "R-01-023/AC-03 任务结束后恢复最近历史候选");
+assert.ok(!buildRecent({ snapshot: jobbedSnapshot, workspaceItems: [], now: 999_999, detailsById: {}, archivedIds: [], completions: null, delegatingIds: null, turnEnds: null, jobsBySession: jobViews }).some((entry) => entry.id === "jA"), "R-01-023/AC-01 在跑后台任务的主会话不入最近历史");
+assert.ok(buildRecent({ snapshot: jobbedSnapshot, workspaceItems: [], now: 999_999, detailsById: {}, archivedIds: [], completions: null, delegatingIds: null, turnEnds: null, jobsBySession: settledViews }).some((entry) => entry.id === "jA"), "R-01-023/AC-03 任务结束后恢复最近历史候选");
 // R-01-023/AC-05：任务卡工具名行——视图与条目携带工具类型，友好映射已知值、未知原样、不可得为空。
 assert.equal(jobbedA.liveJobs[0].kind, "bash", "R-01-023/AC-05 在跑任务视图携带工具类型");
 assert.equal(jobbedEntries.find((entry) => entry.kind === "job")?.jobKind, "bash", "R-01-023/AC-05 job 子条目携带工具类型");
@@ -3758,7 +3779,7 @@ assert.deepEqual(
 );
 // R-01-023/AC-06：任务内容不可得——条目内容为空，渲染层整行隐藏（bundle 契约与人工验收承载 DOM 行为）。
 const emptyLabelViews = { jA: [{ id: "job-9", kind: "bash", label: "", status: "running", startedAt: 100 }] };
-const emptyLabelEntry = buildEntries(jobbedSnapshot, [], {}, null, null, [], null, emptyLabelViews).find((entry) => entry.kind === "job");
+const emptyLabelEntry = buildEntries({ snapshot: jobbedSnapshot, workspaceItems: [], detailsById: {}, completions: null, delegatingIds: null, archivedIds: [], waitingStarts: null, jobsBySession: emptyLabelViews }).find((entry) => entry.kind === "job");
 assert.ok(emptyLabelEntry !== undefined, "R-01-023/AC-06 前置：内容不可得的在跑任务仍产出子卡");
 assert.equal(emptyLabelEntry.title, "", "R-01-023/AC-06 任务内容不可得时条目内容为空串");
 // R-01-023/AC-11（T-175）：数量注闪烁门控三态——仅由在跑后台任务支撑运行呈现（回合已结束）闪烁；
@@ -4696,7 +4717,7 @@ assert.ok(
 // R-01-010/AC-08、AC-09（bundle 契约）
 // 历史区时间精化链路进入 bundle：turn/end 提取、turnEnds 注入 buildRecent、渲染读 activityAt。
 assert.ok(bundle.includes("lastTurnEndFromEvents") && bundle.includes("lastTurnEndFromTimings"), "回合结束时刻提取进入 bundle（R-01-010/AC-08）");
-assert.ok(bundle.includes("delegatingIds, turnEnds, jobsBySession)"), "turnEnds 与 jobsBySession 注入 buildRecent（R-01-010/AC-09、R-01-023/AC-01）");
+assert.ok(bundle.includes("turnEnds, jobsBySession, currentId"), "turnEnds 与 jobsBySession 注入 buildRecent（R-01-010/AC-09、R-01-023/AC-01；options 收敛后由字段序承载，T-186）");
 assert.ok(bundle.includes("fmtRecentTime(entry.activityAt)"), "最近卡渲染读取精化后的 activityAt（R-01-010/AC-08）");
 assert.ok(bundle.includes("fmtRelativeAge") && bundle.includes("最后活动 ·"), "最近卡同时显示绝对日期时间与相对活动时间（R-01-013/AC-05）");
 
@@ -5033,7 +5054,7 @@ assert.ok(
 // R-01-019/AC-01～AC-04 历史候选与手动分页渲染契约
 assert.equal(RECENT_PAGE_SIZE, 10, "历史分页批次固定为 10 条（R-01-019/AC-01）");
 assert.ok(bundle.includes("const RECENT_PAGE_SIZE = 10;"), "生成 bundle 保留 10 条历史分页批次配置（R-01-019/AC-01）");
-assert.ok(bundle.includes('const recent = recentCandidates.slice(0, recentVisibleCount);'), "历史区只渲染当前可见候选前缀（R-01-019/AC-01）");
+assert.ok(bundle.includes("limit: recentVisibleCount"), "历史区只渲染当前可见候选前缀（limit 入参注入 buildRecent，R-01-019/AC-01，T-186）");
 assert.ok(bundle.includes('const nextCount = Math.min(recentVisibleCount + RECENT_PAGE_SIZE, recentTotal);'), "按钮激活后追加最多一个 10 条批次（R-01-019/AC-02）");
 assert.ok(
 	bundle.includes('<button class="dap-recent-more" type="button" hidden>加载更多...</button>') &&

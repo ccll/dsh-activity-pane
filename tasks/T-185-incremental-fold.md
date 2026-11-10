@@ -6,7 +6,7 @@ id: T-185
 
 # T-185 流式派生增量化——只折叠新增条目与合并间隔再平衡
 
-状态: active
+状态: completed
 类型: 性能优化
 风险等级: major
 风险面: 无（派生管线内部增量化的行为保持改造：呈现结果不变、对外契约不变，不触及契约、资金、数据迁移、对外接口、鉴权；合并间隔为内部运行参数，未登记于 SOLUTION 契约）
@@ -28,7 +28,7 @@ id: T-185
 
 1. 合并间隔：`SYNC_MIN_INTERVAL_MS` 100→250（先落地先缓解；注释登记 T-127 立项值与本次再平衡依据）。
 2. core 新增有状态增量折叠：`createHistoryFoldState()` 产出 `{ items, inflightCalls, liveAttempts, count, lastSeq }`；`foldHistoryAppend(state, events, cwd)` 校验纯追加（条目数增长且第 count-1 条 seq 与记录一致）后仅处理新增条目——逐条逻辑与 `conversationTimelineFromHistory` 的循环体完全同源（live-chunk 累积、result 原位替换、call/result 配对、普通条目 push），抽取共享实现避免双实现漂移。
-3. 失效触发（任一命中即整表重建）：条目数少于已处理数、第 count-1 条 seq 与记录不符（窗口替换/裁剪/落定替换）、cwd 变化、history 引用整体更换（detail.log 更换代际）。重算后重建状态并继续增量。
+3. 失效触发（任一命中即整表重建）：条目数少于已处理数、第 count-1 条 seq 与记录不符（窗口替换/裁剪/落定替换）、cwd 变化、history 引用整体更换（detail.log 更换代际）。重算后重建状态并继续增量。指纹残余（T-185 审核 F2）：「等长中段原位替换且末条 seq 不变」的窗口形态不可由两点指纹检出，需窗口生产者违反追加+出窗纪律才可达（现行无此生产者）；可选加固为 O(窗) seq 单调性扫描，待增量路径上线后视需要追加。
 4. 客户端接线：detail 持有 foldState；applyLogEvents 改走增量路径（cwd/代际变化即整表重建）；时间线产出沿用既有折叠分组与尾部选择（`foldedHistoryTimeline` 的 limit/settle 语义不变，分组产出由增量维护的 items 提供）。
 5. 验收：隔离 A/B（折叠绝对采样数应大幅下降）+ 活实例同窗实测（对照 2026-11-10 上午 115.5%/折叠 74.3%）+ 增量等价性 E2E（长流式回合的呈现与全量派生逐字段一致）。
 6. 无分叉点: 增量模型为东家明确指示（GUI 增量渲染类比）；失效守则（宁全量勿增量）为唯一安全口径，无第二认真候选。
@@ -58,4 +58,16 @@ id: T-185
 
 ## 终态与证据
 
-（关闭时填写）
+- 实现: core 抽取 foldProcessEntry（全量重建与增量追加共享同一逐条实现）；新增 createHistoryFoldState/foldHistoryAppend（纯追加校验：前缀原样在位则只折新增，任何非纯追加与 cwd 变化整表重建）；foldedTimelineFromFoldState 从增量维护的条目直接产出折叠分组与尾部选择；client 的 applyLogEvents 维护 detail.foldState、render 的 settle 变体优先消费增量条目、合并间隔 100→250ms；mobile-resume 的 timer 丢弃模拟视野对齐；新增 e2e/specs/incremental-fold-equivalence.mjs。
+- 测试: scripts/check.mjs 全绿（新增增量/全量逐字段等价、分批等价、重复喂入无操作、落定替换重建、边界 seq 变化重建、cwd 变化重建、畸形条目容错断言）；pnpm verify 全量 23 specs 全绿（新增增量等价性 spec；long-list 一轮失败系 boot 竞态家族签名、单跑回执 PASS）；隔离 A/B：折叠绝对采样 A=89 → B=0（增量路径完全接管全量折叠）、事件期总 CPU 比值 0.817。
+- SOLUTION 对照: 派生管线内部机制增量化，呈现与排序保持不变（map 不变达标类，C-082 口径，移动端热静默 rAF 门禁 PASS）；PRD/SOLUTION/DOMAIN 未改写。
+- commit: c09d441
+- review:
+  - 目的理解: T-181 减半被窗口增长吃掉（折叠 O(窗口)/拍 × 10Hz × 并发会话），东家指示增量模型（只处理新增内容、已派生内容跨拍保留）；风险核心为 HANDOFF ④b 的静默错误内容——以纯追加校验 + 任一异常整表重建（宁全量勿增量）兜底。
+  - 问题与修复: 首轮双轴 6 条（Spec 3 + Standards 3）全部处置——F1 blocking（验收承诺的增量等价性 e2e spec 缺失）已补 e2e/specs/incremental-fold-equivalence.mjs（长流式回合期间与落定后的呈现等价断言 + 锚行）并经复审确认兑现；F2 追加校验指纹残余登记 task 收敛方案 3；F3 畸形容错断言已补、中段断档不设等价断言（指纹残余，登记处置）；F4 mobile-resume 注释与 client 注释口径折算说明已改；F5 重复注释块去重；F6 同义漂移接受为 nit。复审确认 F1 兑现、F2-F6 无新引入问题。
+  - 复审结论: 双轴两轮（首审 6 条含 blocking 1 → 复审 blocking 清零、minor 当场修复），活实例与隔离 A/B 双证据链闭环。
+- 残余风险与测试缺口:
+  - 追加校验为两点指纹：「等长中段原位替换且末条 seq 不变」不可检出（需生产者违反追加+出窗纪律，现行无此生产者）；可选加固 O(窗) seq 单调扫描待议（task 收敛方案 3 登记）。
+  - 合并间隔 250ms 为折叠频率与流式呈现粒度的再平衡点；增量派生落地后若实测富余可回调（task 收敛方案 1）。
+  - 隐藏期比值为单样本高方差；生产验收（≤55%）的正式对照留待与昨日基线同形态的重负载窗口（HANDOFF 补记已登记）。
+- 活实例效果（2026-11-10 午后实测，3 运行会话真实流式负载）：CPU 115.5% → 53.2/47.7%；折叠占比 74.3% → 0%（全量折叠在流式期零调用）；GC 20.4% → 12%。

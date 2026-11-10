@@ -29,6 +29,9 @@ import {
 	progressAnchor,
 	conversationWorkItems,
 	conversationTimelineFromHistory,
+	createHistoryFoldState,
+	foldHistoryAppend,
+	foldedTimelineFromFoldState,
 	foldWorkGroups,
 	foldedConversationTimeline,
 	foldedHistoryTimeline,
@@ -3645,11 +3648,62 @@ assert.equal(
 	"",
 	"纯非 live 行不入签名（窗格不消费已结束任务）",
 );
+assert.equal(currentIdOf("nope"), null, "非记录快照归一 null");
+assert.equal(currentIdOf({ byId: { c: { id: "c", retainedBy: { mainView: 2 } } } }), "c", "不同快照对象独立求值（新快照重新求值，命中其 mainView>0 行）");
 assert.equal(
 	jobsPaneSignature({ jB: [{ id: "job-2", kind: "bash", label: "b", status: "running", startedAt: 2 }], jA: [{ id: "job-1", kind: "bash", label: "a", status: "running", startedAt: 1 }] }),
 	jobsPaneSignature({ jA: [{ id: "job-1", kind: "bash", label: "a", status: "running", startedAt: 1 }], jB: [{ id: "job-2", kind: "bash", label: "b", status: "running", startedAt: 2 }] }),
 	"键序无关（同一状态不同插入序签名一致）",
 );
+// ---- T-185 增量折叠：纯追加逐事件喂入与全量重建逐字段一致；非纯追加整表重建 ----
+const incrementalEvents = [hUser(1, "增量用户"), hToolCall(2, "inc1"), hToolResult(3, "inc1"), hLiveChunk(3.5, "inc-a", "流式"), hLiveChunk(3.7, "inc-a", "输出"), hAgent(4, "增量回复")];
+const incrementalState = createHistoryFoldState("/ws-inc");
+for (let i = 1; i <= incrementalEvents.length; i += 1) foldHistoryAppend(incrementalState, incrementalEvents.slice(0, i), "/ws-inc");
+assert.deepEqual(foldedTimelineFromFoldState(incrementalState, 10), foldedHistoryTimeline(incrementalEvents, 10), "增量状态的时间线产出与全量折叠一致（折叠分组与尾部选择同口径）");
+assert.deepEqual(incrementalState.items, conversationTimelineFromHistory(incrementalEvents, Number.MAX_SAFE_INTEGER), "逐事件增量折叠与全量重建的原始条目逐字段一致（live 累积/call-result 配对/普通条目）");
+// 分批喂入（多事件一批）与逐事件喂入等价：批内游标连续推进（真实契约=每次喂
+// 完整窗口，批间窗口只增不减）。
+const batchState = createHistoryFoldState("/ws-inc");
+foldHistoryAppend(batchState, incrementalEvents.slice(0, 3), "/ws-inc");
+foldHistoryAppend(batchState, incrementalEvents, "/ws-inc");
+assert.deepEqual(foldedTimelineFromFoldState(batchState, 10), foldedTimelineFromFoldState(incrementalState, 10), "分批追加与逐事件追加等价");
+// 纯追加校验放行同一数组引用的重复喂入（无新增条目即无操作）
+const beforeCount = batchState.count;
+foldHistoryAppend(batchState, incrementalEvents, "/ws-inc");
+assert.equal(batchState.count, beforeCount, "同前缀重复喂入不重复处理（count 不变）");
+// 非纯追加①：条目数缩减（落定替换退出 transient）→ 整表重建且输出与全量一致
+const replaceState = createHistoryFoldState("/ws-inc");
+foldHistoryAppend(replaceState, [hUser(1, "增量用户"), hToolCall(2, "inc9"), hLiveChunk(2.5, "r1", "临时")], "/ws-inc");
+foldHistoryAppend(replaceState, [hUser(1, "增量用户"), hToolCall(2, "inc9"), hToolResult(3, "inc9")], "/ws-inc");
+assert.deepEqual(
+	foldedTimelineFromFoldState(replaceState, 10),
+	foldedHistoryTimeline([hUser(1, "增量用户"), hToolCall(2, "inc9"), hToolResult(3, "inc9")], 10),
+	"条目数缩减（transient 落定出窗）触发整表重建且与全量一致",
+);
+// 非纯追加②：边界条目 seq 变化（窗口替换）触发重建
+const seqState = createHistoryFoldState("/ws-inc");
+foldHistoryAppend(seqState, [hUser(1, "旧指令")], "/ws-inc");
+foldHistoryAppend(seqState, [hUser(99, "替换指令")], "/ws-inc");
+assert.deepEqual(foldedTimelineFromFoldState(seqState, 10), foldedHistoryTimeline([hUser(99, "替换指令")], 10), "边界 seq 变化整表重建（宁全量勿增量）");
+// 非纯追加③：cwd 变化触发重建（路径归一口径随 cwd）
+const cwdState = createHistoryFoldState("/ws-old");
+foldHistoryAppend(cwdState, [hToolCall(1, "pc1", "bash", "/ws-a/old.sh")], "/ws-old");
+const cwdItemsBefore = cwdState.items.length;
+foldHistoryAppend(cwdState, [hToolCall(2, "pc2", "bash", "/ws-b/new.sh")], "/ws-new");
+assert.equal(cwdState.cwd, "/ws-new", "cwd 变化更新构建口径");
+assert.ok(cwdState.count >= cwdItemsBefore, "cwd 变化整表重建后重新处理全部条目");
+// 畸形条目容错与全量路径一致（T-185 共享实现的结构等价性断言）
+const malformedState = createHistoryFoldState("/ws-inc");
+const malformedEvents = [null, "garbage", hUser(1, "畸形容忍")];
+for (let i = 1; i <= malformedEvents.length; i += 1) foldHistoryAppend(malformedState, malformedEvents.slice(0, i), "/ws-inc");
+assert.deepEqual(
+	foldedTimelineFromFoldState(malformedState, 10),
+	foldedHistoryTimeline(malformedEvents, 10),
+	"畸形条目容错与全量路径一致（增量与全量共享逐条实现）",
+);
+// 追加校验指纹残余（T-185 审核 F2）：「等长中段原位替换且末条 seq 不变」的窗口
+// 形态不可由两点指纹检出（需生产者违反追加+出窗纪律，现行无此生产者）——该
+// 形态不设等价断言，残余风险登记于 task（可选加固 O(窗) seq 单调扫描待议）。
 // T-183：工作区索引——逐会话查表替代逐工作区×区会话清单全扫；先到先得语义与
 // workspaceInfoForSession 的首个命中一致。
 const wsIndexItems = [

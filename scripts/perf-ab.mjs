@@ -256,10 +256,11 @@ async function measureHiddenPeriod(page, browser, userDataDir) {
 	}
 }
 
-/** 剖析版事件期测量：同一测量窗外挂 CDP 采样，产出折叠函数的自采样占比。
- *  总 CPU 比值在隔离环境被宿主自身的流式期 UI 工作稀释（两变体同担的常量项），
- *  折叠占比比值对常量项免疫，是机制断言（折叠 2→1）的主指标；总 CPU 比值作
- *  参考项随报告输出。占比口径与 T-181 调查基线（76%）同源可直接并排。 */
+/** 剖析版事件期测量：同一测量窗外挂 CDP 采样，产出折叠函数的自采样占比与
+ *  绝对采样数。总 CPU 比值在隔离环境被宿主自身的流式期 UI 工作稀释（两变体
+ *  同担的常量项），占比比值随分母漂移、仅作参考；机制断言（T-183 口径演进）
+ *  挂折叠绝对采样数比值，对分母漂移免疫。占比口径与 T-181 调查基线（76%）
+ *  同源可直接并排。 */
 async function measureProfiledEventPeriod(page, userDataDir) {
 	const cdp = await page.context().newCDPSession(page);
 	await cdp.send("Profiler.enable");
@@ -351,7 +352,7 @@ for (const [label, variant] of [["A", variantA], ["B", variantB]]) {
 	const detail = variant.event.map((r) => r.cpuSeconds.toFixed(3)).join(" / ");
 	console.log(`perf-ab: ${label} 事件期明细 ${detail} 核·s（窗 ${variant.event[0].wallSeconds.toFixed(1)}s/轮）；隐藏期 ${variant.hidden.cpuSeconds.toFixed(3)} 核·s（模式 ${variant.hidden.mode}）`);
 	console.log(`perf-ab: ${label} 剖析：折叠函数占比 ${(variant.profiled.foldShare * 100).toFixed(1)}%（自采样 ${variant.profiled.foldSamples}/${variant.profiled.nonIdleSamples} 非空闲；单剖析迭代，非中位数）`);
-	if (variant.profiled.foldSamples === 0) console.warn(`perf-ab: 告警：${label} 折叠函数零采样——疑似 src 侧改名，占比比值失真（见采样名锚点注释）`);
+	if (variant.profiled.foldSamples === 0) console.warn(`perf-ab: 告警：${label} 折叠函数零采样——疑似 src 侧改名，绝对采样比值失真（见采样名锚点注释）`);
 }
 console.log(`perf-ab: 事件期总 CPU 中位数 B/A = ${medBEvent.toFixed(3)} / ${medAEvent.toFixed(3)} = ${Number.isNaN(ratioEvent) ? "NaN" : ratioEvent.toFixed(3)}（折叠绝对采样 A=${variantA.profiled.foldSamples} / B=${variantB.profiled.foldSamples}；宿主常量负载稀释下总比值为参考项）`);
 console.log(`perf-ab: 隐藏期总 CPU 中位数 B/A = ${medBHidden.toFixed(3)} / ${medAHidden.toFixed(3)} = ${Number.isNaN(ratioHidden) ? "N/A（A 低于 tick 分辨率）" : ratioHidden.toFixed(3)}（参考项）`);

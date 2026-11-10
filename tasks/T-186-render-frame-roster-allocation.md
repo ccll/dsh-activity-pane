@@ -6,7 +6,7 @@ id: T-186
 
 # T-186 渲染帧名册级分配清零
 
-状态: active
+状态: completed
 类型: 性能优化
 风险等级: major
 风险面: 无（纯内部计算路径优化：呈现结果、订阅面与对外契约均不变，不触及契约、资金、数据迁移、对外接口、鉴权）
@@ -85,4 +85,15 @@ id: T-186
 
 ## 终态与证据
 
-- 关闭时填写: 实现证据、测试证据、SOLUTION 对照、commit、review 三标签（active 期间本节留待关闭提交填记）。
+- 实现: 五项等价变换全部落地——buildWorkspaceIndex 按引用 memo（WeakMap，非数组不入 memo，src/core.mjs:1454）；createStatusOverlayMemo 覆盖层（基快照×statusSnapshot 双引用短路，client render 不换壳，T-183「currentIdOf 覆盖层恒 miss」残余根因消除，src/core.mjs:1503）与 createWaitingStartsMemo 按 busy 内容版本记账（busyById 三处变更点递增 busyVersion：applyBusyState/applyBusyBackfill/cleanup，src/client.mjs:1932/1950/5266）；buildEntries/buildRecent 收敛单 options 入参 + currentId 入参化（调用点 84 处全迁移：client 2 + check 78 + bench 4，函数内 O(名册) 重扫消除）；buildRecent 两段式（第一阶段全谓词过滤只收轻量键、排序取时间序前缀后仅对入选者物化，limit 口径非负有限数字，total 附过滤后候选总数）；平局索引 Map 一次性完整构建替代 ids.indexOf 二次方线扫（src/core.mjs:1892-1906）。
+- 测试: scripts/check.mjs 断言 1402→1439（新增 memo/两段式等价/对抗夹具/limit 非法形态/覆盖层重建分支断言，既有全数保持）；`pnpm verify` 全量 24 specs 全绿（0c17bc1 与 94f710b 上各一轮全绿；其间四轮环境时序抖动 FAIL 经同提交复跑对照排除回归、失败 spec 单跑全绿，与 TODO 既有 boot 竞态家族签名一致）；mobile-thermal rAF 阈值守恒 PASS（57 ≤ 80，C-082 门禁对照）；perf-ab 隔离 A/B 事件期总 CPU 中位数 B/A=0.820（A=3.510/3.350/3.500、B=2.870/3.210/2.830 核·s），`--check` 第一轮 PASS（折叠绝对采样比值 0.000 ≤ 1.2，A=46/B=0）后三轮因 A 侧折叠采样 <20 fail-closed 判 NaN（轻负载窗形态，B 总 CPU 0.982 不劣于 A，非回归）；活实例同窗实测（决策依据行登记项，基线 CPU 约 50%、GC 约 12%）留待东家排期的重负载窗口。
+- SOLUTION 对照: 内部计算路径等价变换，呈现/排序/分页语义逐字段不变（map 不变达标类，C-082 口径）；PRD/DOMAIN 未改写；SOLUTION.md:260 前缀分工表述随 9787ad8 同步（本 task 测试影响表 SOLUTION update 行承载）。
+- commit: 0c17bc1（实现主体）、1dc11e3（评审修复：F1 排序前切片回归+对抗夹具+重复断言清理+idOrder 惰性化）、94f710b（N1 平局索引一次性完整建表+残留断言收口）、9787ad8（SOLUTION 表述同步）
+- review:
+  - 目的理解: 达标类性能收敛（map 不变短路，C-082）——消除每渲染帧对全名册（实测 4784 会话目录）的固定分配与物化：覆盖层全量克隆（currentIdOf WeakMap 恒 miss 根因）、waitingStarts 逐帧重建、buildRecent 全量物化+全量排序、双 workspaceIndex、平局裁决 indexOf 二次方；红线为 buildEntries/buildRecent 输出逐字段等价、历史区时间序排序与分页语义不变、订阅面与对外契约不变。
+  - 问题与修复: 双轴首审 7 条（Spec 3 含 blocking 1 + Standards 4 含观察 1）全部处置——F1 blocking（两段式排序前切片，limit 前缀取名册序而非时间序；夹具 ids 恰合时间序且断言同实现自比致全绿漏网）→ 1dc11e3 排序前移 + 对抗夹具三重断言（手工期望非自比 + 全量互证 + 名册序≠时间序与平局字典序双维度）；F2/Standards-1 重复断言删除（复审发现残留 2 行随 94f710b 收口）；Standards-4 idOrder 逐帧无条件构建 → 惰性化（复审确认语义一致）→ 复审 N1 退化路径（每平局 O(N) 重扫）→ 94f710b 一次性完整构建恢复 O(N+P)；Standards-3 宿主 statusSnapshot 引用语义前提经实现方在宿主 lib 层核验（HostObservable reconcile 内容等价保留旧引用）登记为接受型外部前提；Standards 测试缺口两条（基快照变更分支、limit 非法形态回落全量）已补断言；F3 SOLUTION 表述漂移 → 9787ad8 同步。
+  - 复审结论: 双轴两轮闭环（首审 1 blocking + 5 non-blocking → 修复 1dc11e3 → 复审 blocking 清零，N1 随 94f710b 收口）；Spec/Standards 双轴确认 F1 修复真实、对抗夹具足以封堵同型回归；累计审计（T-187）跨改动确认无互扰。
+- 残余风险与测试缺口:
+  - 覆盖层/清单 memo 依赖宿主「引用稳定且不可变」既有约定（与 currentIdOf/syncJobsWatches 同一信任模型；宿主将来原地变更即静默陈旧——现行无此生产者，接受型残余，T-187 审计同判）。
+  - e2e 历史区未覆盖「名册序≠时间序」跨序名册场景（对抗夹具已在单测层封堵该形态）。
+  - 活实例同窗实测（CPU/GC 双指标对照基线 50%/12%）留待东家排期的重负载窗口；perf-ab 轻负载窗折叠采样 <20 的 fail-closed 形态已登记。

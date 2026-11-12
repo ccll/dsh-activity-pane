@@ -6,7 +6,7 @@ id: T-192
 
 # T-192 壳层连接自愈触发面收窄——桌面回前台不再主动重建连接
 
-状态: active
+状态: completed
 类型: 缺陷修复
 风险等级: major
 升档说明: 立项预估 minor；lint 实测语义行 101 > 阈值 50，按「评审中发现行为面超出档位假定就地升档」纪律改完整评审后重关
@@ -68,7 +68,7 @@ T-191 上线后，东家桌面切 tab 约 30s+ 回前台观察到全卡刷新。
 - 实现: src/client.mjs `isTouchFormFactor()` 平台门控（`(hover: none) and (pointer: coarse)` 复合查询单判定，判定不可用降级缺席）短路 `resumeShellConnection` 入口（软依赖读取之前），阈值/seam/去重语义不变；e2e connection-resume 以 matchMedia mock 承载触屏形态正例（四场景不变），新增 connection-resume-desktop 桌面负例（seam=0 + 长隐藏断言零重建零新连接世代），合成 hide/restore 对与自愈标记提入 e2e/helpers.mjs 共享；check.mjs 新增触屏形态契约断言并以 `if (!isTouchFormFactor()) return;` 锚定门控调用点，同时删除评审发现的 T-191 断言误粘贴重复。
 - 测试: `pnpm check` 全绿；`e2e/specs/connection-resume.mjs` 与 `e2e/specs/connection-resume-desktop.mjs` 实跑通过（正例钉触屏形态触发语义、负例钉桌面零重建；口径三轮迭代后复跑均绿）；全量 `pnpm verify` 24/25 specs 全绿（首轮 completion-sync openApp 超时为偶发，单跑通过；long-list 同型偶发单跑通过）；`pnpm perf:ab --check` 轻负载窗折叠零采样 fail-closed（A/B 折叠采样均 0，断言 NaN 不可靠），按 T-186/T-188/T-189/T-191 既有口径以总 CPU 对照收口并如实登记：事件期 B/A = 0.832、隐藏期 B/A = 1.057（参考项），折叠采样两侧皆零与本 task 不触及折叠路径一致。
 - SOLUTION 对照: 壳层推送通道自愈条目补「触发面限于触屏形态」限定并与 `isTouchFormFactor` 实现一致；DOMAIN 新登记「触屏形态」词条；桌面真死连接的承载表述改为「依赖壳层连接层自身的关闭/错误路径」（不虚证壳层内部行为）。
-- commit: 454ffe8
+- commit: 454ffe8（实现；完整评审处置 6fbba0f）
 - review:
   - 审核方: code-review skill 双轴（Standards 与 Spec 并行独立子代理）+ 先期独立子代理轻量双轴（minor 档预审，其发现全部处置后才触发 lint 升档）
   - 目的理解: T-191 回前台壳层连接自愈在桌面切 tab 场景误触发，generation 重建的快照重放中间态（全卡 displayTitle 短暂退化为工作区派生名，探针逐帧实证）叠加时长跳变构成整窗格刷新风暴；T-192 在不动阈值/seam/去重与软依赖语义的前提下，把触发面收窄到触屏形态，桌面（浏览器与安装版 PWA）切 tab 回前台零重建，移动挂起自愈保持。

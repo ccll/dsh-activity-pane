@@ -12,37 +12,10 @@
 // 门控语义以负例钉住（未观测 hidden 边沿不触发、短隐藏低于阈值不触发、同沿 2s 去重
 // 不双触发），bfcache 还原（pageshow persisted）的无条件触发以去重窗外的正向用例钉住。
 
-import { openApp, until } from "../helpers.mjs";
+import { CONNECTION_HEAL_MARKER as HEAL_MARKER, openApp, syntheticBfcacheRestore, syntheticHideRestore, until } from "../helpers.mjs";
 
 const SEAM_THRESHOLD_MS = 1000;
-const HEAL_MARKER = "回前台重建壳层连接";
 const DEDUPE_WINDOW_MS = 2000;
-
-/** 合成一次「stub visibilityState 的 hidden→visible 对」：stub 窗口承载真实隐藏时长。 */
-function syntheticHideRestore(page, hiddenMs) {
-	return page.evaluate(
-		(duration) =>
-			new Promise((resolve) => {
-				Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
-				document.dispatchEvent(new Event("visibilitychange"));
-				setTimeout(() => {
-					Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
-					document.dispatchEvent(new Event("visibilitychange"));
-					resolve();
-				}, duration);
-			}),
-		hiddenMs,
-	);
-}
-
-/** 合成 bfcache 还原：pageshow 且 persisted=true（Event 构造器不支持 init persisted）。 */
-function syntheticBfcacheRestore(page) {
-	return page.evaluate(() => {
-		const event = new Event("pageshow");
-		Object.defineProperty(event, "persisted", { value: true });
-		window.dispatchEvent(event);
-	});
-}
 
 export default async function connectionResume({ page, url, assert }) {
 	// 移动形态模拟（T-192 门控后触发面限于移动形态）：覆写 matchMedia 使

@@ -3275,11 +3275,16 @@ function bindBackdropDismiss(backdrop, dismiss) {
 // 运行状态面与 eventSource 日志窗口）+ 可选 `modelDirectories` 目录 store 订阅
 // （模型选择实时更新），不依赖任何第三方插件数据路由，也不做状态轮询。
 //
-// 会话代际生命周期（dsh 0.2.0，T-170）：`binding()` 只借用已保留代际，插件经
+// 生命周期（dsh 0.2.0，T-170）：`binding()` 只借用已保留代际，插件经
 // `sessions.retain(target, { source: "dsh-activity-pane" })` 显式持有可见卡片的
 // 会话引用（子代理以 `sessions.subagentAddress()` 解析的持久父地址为 target），
 // `reference.ready` 落定后接线 binding.eventSource 日志窗口与 session 运行态订阅；
 // 引用随可见性 prune、紧凑档拆窗、服务代际更替与卸载释放。
+//
+// 回前台自愈（R-01-001/AC-03）：acks/busy 自建 SSE 无条件重建 + 渲染管线补齐 +
+// 隐藏时长达到阈值时经软依赖 `connection.reconnect()` 请求壳层重建连接——移动挂起
+// 后壳层 gateway 半开死连接无法自检，壳层推送通道（卡片运行状态的唯一来源）的
+// 收敛由本通道兜底（R-01-002/AC-12 同族失效的壳层侧补位）。
 
 const name = "dsh-activity-pane";
 // remote.session：会话 RPC（目录/日志分页）经 api-remotes 的点分命名空间注入
@@ -3328,6 +3333,16 @@ const LOAD_CONCURRENCY = 3;
 const RECENT_PAGE_SIZE = 10;
 /** 「回到顶部」悬浮按钮显隐阈值：scrollTop 超过该值（px）时显示（R-01-018/AC-01）。 */
 const TOP_THRESHOLD = 200;
+/** 回前台壳层连接重建的最小隐藏时长（R-01-001/AC-03 回归修复，T-191）：移动 PWA 挂起
+ *  期间壳层 gateway 连接被系统/中间链路掐断，恢复后常呈半开死形态——无 close 事件、
+ *  无 online 事件（解锁不触发网络状态翻转），壳层连接层无心跳与可见性处理，推送永久
+ *  停滞（与 acks 通道 R-01-002/AC-12 同族失效，但壳层数据通道不经插件自建 SSE）。
+ *  窗格在 visible 边沿主动请求 `connection.reconnect()` 兜底重建：generation 中止重建
+ *  驱动壳层会话控制流 restart() 重发全量快照，半开与 CLOSED 一并收敛；对健康连接等价
+ *  于壳层对 online 事件的既有反应。阈值避开短切 tab 的无谓重连。 */
+const RESUME_RECONNECT_MIN_HIDDEN_MS = 30_000;
+/** 同一恢复沿去重窗口：visibilitychange 与 bfcache pageshow 可能相继到达，只重建一次。 */
+const RESUME_RECONNECT_DEDUPE_MS = 2_000;
 
 const CSS = `
 [data-dsh-activity-pane] {
@@ -4714,6 +4729,10 @@ function apply(ctx) {
 	// E2E-only deterministic seams（T-089/T-090）：显式 URL fragment 最多把本页首次列表 ready 呈现
 	// 或正式 models RPC 延后 1s；列表延迟从首个窗格 render 开始计时，避免宿主启动耗时
 	// 把 pending 观察窗口提前消耗；默认路径为 0，不伪造服务响应、快照或生产时序。
+	// dap-e2e-resume-reconnect-ms（T-191）：把回前台壳层连接重建的隐藏时长阈值覆盖为
+	// 0–3_600_000ms，使「观测到 hidden 边沿且隐藏达阈值」的断言可在 e2e 内到达；参数
+	// 缺失（get 返回 null）不构成覆盖——生产门控语义不变。合成 hidden→visible 对的
+	// 时长由 spec 以 stub document.visibilityState 承载。
 	const e2eParams = new URLSearchParams(window.location.hash.slice(1));
 	const requestedListDelay = Number(e2eParams.get("dap-e2e-list-delay"));
 	const e2eListDelayMs = Number.isFinite(requestedListDelay) && requestedListDelay > 0
@@ -4723,6 +4742,14 @@ function apply(ctx) {
 	const e2eModelDelayMs = Number.isFinite(requestedModelDelay) && requestedModelDelay > 0
 		? Math.min(requestedModelDelay, 1_000)
 		: 0;
+	const requestedResumeReconnectRaw = e2eParams.get("dap-e2e-resume-reconnect-ms");
+	const requestedResumeReconnectMs = Number(requestedResumeReconnectRaw);
+	const resumeReconnectSeam = requestedResumeReconnectRaw !== null
+		&& Number.isFinite(requestedResumeReconnectMs)
+		&& requestedResumeReconnectMs >= 0;
+	const resumeReconnectMinHiddenMs = resumeReconnectSeam
+		? Math.min(requestedResumeReconnectMs, 3_600_000)
+		: RESUME_RECONNECT_MIN_HIDDEN_MS;
 	let e2eListReadyAt = 0;
 	let e2eListReleaseTimer = null;
 	const e2eModelDelayWaiters = new Map();
@@ -5376,6 +5403,66 @@ function apply(ctx) {
 	};
 	document.addEventListener("visibilitychange", onSyncVisibilityResume);
 	window.addEventListener("pageshow", onSyncPageShow);
+
+	// ---- 回到前台壳层连接自愈（R-01-001/AC-03 回归修复，T-191） ----
+	// 卡片运行状态（row.running/pendingInteraction/jobs roster/委托后代）全部来自壳层
+	// gateway 推送式 store，不经插件自建 SSE——acks/busy 通道的回前台重建覆盖不到它。
+	// 移动 PWA 挂起后该连接常呈半开死形态（看似 OPEN 却不再有推送，也无 close/online
+	// 事件可观测），壳层连接层无心跳、无可见性处理，推送停滞至整页重载：卡片滞留挂起前
+	// 状态（会话已完成仍显示运行中）。故在 visible 边沿主动请求壳层重建连接：
+	// `connection.reconnect()` 中止当前 generation 并立即重连——onReconnectRequested
+	// 强制 RemoteStreamMuxClient 重建共享 WebSocket，generation 变化驱动壳层会话控制流
+	// restart() 重发全量快照、remote 事件流重开，sessions.list/sessionStatus 收敛。
+	// 仅 hidden→visible 边沿且隐藏时长达到阈值才触发（短切 tab 不重建）；bfcache
+	// pageshow(persisted) 视同长时缺席无条件触发。connection 为软依赖（不在 inject
+	// 清单，cordis 对未提供服务返回 undefined）：get 不到或 reconnect 不可用即通道
+	// 降级缺席，acks/busy SSE 重建与渲染管线补齐不受影响；reconnect 抛错同样不外溢。
+	let connHiddenAt = 0;
+	let connResumeAt = 0;
+	function resumeShellConnection(hiddenMs) {
+		if (disposed) return;
+		let connection = null;
+		try {
+			connection = ctx.get("connection") ?? null;
+		} catch {
+			connection = null; // 防御性兜底：服务读取异常等同缺席降级
+		}
+		if (typeof connection?.reconnect !== "function") return;
+		// 去重窗口只由「实际触达 reconnect」的消费推进：软依赖降级路径不占窗口。
+		const now = Date.now();
+		if (now - connResumeAt < RESUME_RECONNECT_DEDUPE_MS) return;
+		connResumeAt = now;
+		try {
+			connection.reconnect();
+			const label = hiddenMs === Number.POSITIVE_INFINITY
+				? "bfcache 还原"
+				: `隐藏 ${Math.round(Math.max(0, hiddenMs) / 1000)}s`;
+			console.info(`[dsh-activity-pane] 回前台重建壳层连接（${label}）`);
+		} catch {
+			// reconnect 抛错不阻断其余自愈通道（acks/busy SSE 重建、渲染管线补齐照常）。
+		}
+	}
+	const onConnectionVisibilityResume = () => {
+		if (disposed) return;
+		if (document.visibilityState === "hidden") {
+			connHiddenAt = Date.now();
+			return;
+		}
+		// visible 边沿只评估「观测到 hidden 边沿」的隐藏-恢复对：connHiddenAt 为 0 表示
+		// 本页未见 hidden 边沿（含 e2e 合成事件直发 visible），按 0 时长处理不触发。
+		if (connHiddenAt === 0) return;
+		const hiddenMs = Date.now() - connHiddenAt;
+		connHiddenAt = 0;
+		if (hiddenMs >= resumeReconnectMinHiddenMs) resumeShellConnection(hiddenMs);
+	};
+	const onConnectionPageShow = (event) => {
+		if (event?.persisted === true && !disposed) {
+			connHiddenAt = 0; // bfcache 还原视同长时缺席，无条件重建（去重窗口防双触发）
+			resumeShellConnection(Number.POSITIVE_INFINITY);
+		}
+	};
+	document.addEventListener("visibilitychange", onConnectionVisibilityResume);
+	window.addEventListener("pageshow", onConnectionPageShow);
 
 	function remoteValue(response) {
 		if (response?.ok === true) return response.value;
@@ -8707,6 +8794,8 @@ function apply(ctx) {
 		window.removeEventListener("pageshow", onPageShow);
 		document.removeEventListener("visibilitychange", onSyncVisibilityResume);
 		window.removeEventListener("pageshow", onSyncPageShow);
+		document.removeEventListener("visibilitychange", onConnectionVisibilityResume);
+		window.removeEventListener("pageshow", onConnectionPageShow);
 		completeAcksById.clear();
 		busyById.clear();
 		busyVersion += 1;

@@ -4551,6 +4551,25 @@ assert.ok(
 	bundle.includes('document.removeEventListener("visibilitychange", onVisibilityResume)') && bundle.includes('window.removeEventListener("pageshow", onPageShow)'),
 	"卸载时移除 ack 通道自愈监听（R-01-002/AC-12）",
 );
+// R-01-001/AC-03 缺陷回归（T-191）：移动 PWA 挂起后壳层 gateway 半开死连接无法自检，
+// 卡片运行状态（sessions.list/sessionStatus 推送）停滞至整页重载——窗格在回前台且
+// 隐藏时长达到阈值时经软依赖 connection.reconnect() 请求壳层重建连接兜底收敛。
+assert.ok(
+	bundle.includes('document.addEventListener("visibilitychange", onConnectionVisibilityResume)') && bundle.includes('window.addEventListener("pageshow", onConnectionPageShow)'),
+	"回前台（visibilitychange 双沿 + bfcache pageshow）触发壳层连接自愈评估（R-01-001/AC-03）",
+);
+assert.ok(
+	bundle.includes("function resumeShellConnection(") && bundle.includes("ctx.get(\"connection\")") && bundle.includes(".reconnect()"),
+	"壳层连接自愈经软依赖 connection.reconnect() 重建 generation，服务缺失静默降级（R-01-001/AC-03，T-191）",
+);
+assert.ok(
+	bundle.includes('document.removeEventListener("visibilitychange", onConnectionVisibilityResume)') && bundle.includes('window.removeEventListener("pageshow", onConnectionPageShow)'),
+	"卸载时移除壳层连接自愈监听（R-01-001/AC-03）",
+);
+assert.ok(
+	bundle.includes('e2eParams.get("dap-e2e-resume-reconnect-ms")') && bundle.includes("requestedResumeReconnectRaw !== null") && bundle.includes("RESUME_RECONNECT_MIN_HIDDEN_MS") && bundle.includes("RESUME_RECONNECT_DEDUPE_MS"),
+	"回前台重建阈值与同沿去重经具名常量承载、阈值可经 e2e seam 覆盖且缺参不构成覆盖（R-01-001/AC-03）",
+);
 assert.ok(bundle.includes("fetch(`${PANE_API_BASE}/ack`"), "确认写回经宿主侧 ack 路由（R-01-002/AC-10、AC-11）");
 assert.ok(
 	!bundle.includes("updateCompletedHolds") && !bundle.includes("heldCompletedIds") && !bundle.includes("prevActiveMainIds"),

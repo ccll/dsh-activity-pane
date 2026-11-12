@@ -6,7 +6,7 @@ id: T-191
 
 # T-191 回前台壳层连接自愈——长时挂起后经 connection.reconnect() 收敛推送停滞
 
-状态: active
+状态: completed
 类型: 缺陷修复
 风险等级: major
 风险面: 无（不触及契约、资金、数据迁移、对外接口、鉴权；改动为窗格客户端内部自愈通道，壳层连接 API 按 dsh 既有公开面消费、不改变其契约）
@@ -74,4 +74,15 @@ id: T-191
 - 回归影响：既有三组回前台监听（acks/busy/sync）行为不变；定时器纪律与 R-02-004 不轮询承诺不损（事件驱动、无周期唤醒）；shell 流重启为壳层 online 路径既有形态，无新失败模式。
 
 ## 终态与证据
+
+- 实现: src/client.mjs 回前台壳层连接自愈块（sync 可见性恢复块之后，src/client.mjs:2146-2204）——visibilitychange 双沿记账、严格 hidden 边沿前置门控（connHiddenAt===0 不触发）、隐藏时长阈值评估（默认 30_000ms，e2e seam `dap-e2e-resume-reconnect-ms` 只覆盖阈值且缺参不构成覆盖）、bfcache pageshow(persisted) 无条件通道、2s 同沿去重（只由实际触达 reconnect 的消费推进）、软依赖 `ctx.get("connection")`（cordis 对未提供服务返回 undefined，按 reconnect 可调用性降级缺席，try/catch 防御性兜底）与 reconnect 调用异常隔离；卸载具名 handler 成对移除（src/client.mjs:5533-5534）。
+- 测试: `pnpm check` 全绿（新增 4 条自愈契约断言：监听注册/卸载成对、软依赖 reconnect 调用点、seam presence 判定与具名常量）；`e2e/specs/connection-resume.mjs` 实跑通过——长隐藏（stub 承载 1.2s ≥ seam 1s）断言自愈标记与新 gateway WebSocket 世代出现，负例钉前置门控/阈值门控/2s 去重，bfcache 去重窗外正向钉住；全量 `pnpm verify` 25 specs 全绿（409691ms，exit 0；首轮 auto-update 超时为偶发，单跑与本轮全量均通过）；`pnpm perf:ab --check` PASS。
+- SOLUTION 对照: SOLUTION.md「运行时、并发与失败语义」新增「回前台通道自愈」条目（渲染管线/自建 SSE/壳层推送通道三路径清单）与实现逐语义一致——≥30s 阈值、2s 去重、bfcache 无条件、短切 tab 不触发、软依赖静默降级、事件驱动无周期唤醒（R-02-001 不轮询承诺不损）；E2E 契约失败语义行补「断言壳层连接世代重建的 spec 除外」例外句；核对日期按仓库近期实践（T-188/T-189 关闭亦未更新）保持不动。
+- commit: 047a7b1（task 文书与实现、测试、SOLUTION、bundle 同笔工作单元提交；验证矩阵证据引用与提交树一致性由 pre-commit lint 裁决，故未按 T-189 先例拆独立立项提交）。
+- review:
+  - 审核方与执行方式: code-review skill 双轴独立子代理（Spec 轴 + Standards 轴并行，缺省方式）
+  - 目的理解: 移动 PWA 挂起后半开死壳层连接致卡片状态滞留至整页重载，回前台经软依赖 reconnect() 重建 generation 收敛壳层推送（R-01-001/AC-03 恢复既有承诺，map 不变短路）；约束为事件驱动无轮询、短切 tab 不触发、软依赖降级不外溢、seam 默认生产路径不变。
+  - 问题与修复: Spec 轴 1 条 blocking——seam `Number(null)===0` 叠加 `>=0` 使参数缺失时 override 恒真、叠加「前置放宽」后每次 visible 边沿强制重建（生产门控失效），修复为显式 `raw !== null` presence 判定并删除「前置放宽」（scope creep），e2e 改 stub document.visibilityState 承载真实隐藏时长并补 bfcache 正向锚点；Standards 轴 0 blocking、5 条 judgement call（cordis 注释语义纠正、SOLUTION E2E 契约例外句、e2e 时序加固、验证矩阵证据归属纠正、console.info 维持）全部落实。
+  - 复审结论: 两轴复审通过——blocking 清零、无新引入问题，同意收口（残余：WS 计数未过滤 URL、reconnect 抛错窗口已消费可接受、降级路径行为级断言缺位为登记在案的测试缺口）。
+- 残余风险与测试缺口: 降级路径无行为级断言（仅 bundle 契约承载，登记为已知测试缺口）；e2e WS 计数未过滤 URL（单 WS 源前提下以标记共现佐证）；默认 30s 路径无直接 e2e（30s 不可等，由 bundle 契约与 seam 门控负例间接承载）；真机半开死形态桌面不可复现（spec 为机制级断言）；iOS 无 hidden 边沿观测的病理路径不覆盖；健康连接每次长隐藏回归一次重连握手（与壳层 online 路径同构、单次有界）。
 

@@ -5024,6 +5024,8 @@ function apply(ctx) {
 		if (seat === null || seat.parentElement === null) return;
 		const center = seat.parentElement;
 		let changed = false;
+		const nativePane = document.querySelector(`[${PANE_ATTR}]`);
+		const nativeToggle = document.querySelector(".dap-toggle");
 		if (!desktopQuery.matches) {
 			// 移动端：抽屉脱离文档流（fixed），不参与主会话布局；恢复外壳默认
 			// 列布局，避免行方向扰动移动端主会话显示（R-01-008）。
@@ -5046,9 +5048,23 @@ function apply(ctx) {
 					changed = true;
 				}
 			}
+			if (nativePane !== null && nativePane.style.display === "none") nativePane.style.display = "";
+			if (nativeToggle !== null && nativeToggle.style.display === "none") nativeToggle.style.display = "";
 			if (changed) notifyLayoutChange();
 			return;
 		}
+		// 原生面板（插件/技能/定时任务等）占屏时没有会话滚动区：恢复外壳默认列
+		// 布局并收起窗格/开关，避免面板作为普通 flex 项被行布局挤成内在宽度窄条。
+		if (conversationFlexItem(center) === null) {
+			if (center.style.flexDirection !== "") { center.style.flexDirection = ""; changed = true; }
+			if (center.style.alignItems !== "") { center.style.alignItems = ""; changed = true; }
+			if (nativePane !== null && nativePane.style.display !== "none") { nativePane.style.display = "none"; changed = true; }
+			if (nativeToggle !== null && nativeToggle.style.display !== "none") { nativeToggle.style.display = "none"; changed = true; }
+			if (changed) notifyLayoutChange();
+			return;
+		}
+		if (nativePane !== null && nativePane.style.display === "none") { nativePane.style.display = ""; changed = true; }
+		if (nativeToggle !== null && nativeToggle.style.display === "none") { nativeToggle.style.display = ""; changed = true; }
 		if (center.style.flexDirection !== "row") {
 			center.style.flexDirection = "row";
 			changed = true;

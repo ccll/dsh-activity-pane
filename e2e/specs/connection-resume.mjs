@@ -45,6 +45,15 @@ function syntheticBfcacheRestore(page) {
 }
 
 export default async function connectionResume({ page, url, assert }) {
+	// 移动形态模拟（T-192 门控后触发面限于移动形态）：覆写 matchMedia 使
+	// "(hover: none) and (pointer: coarse)" 复合查询命中，插件 apply 时读到的形态与
+	// 手机/平板一致；其余查询透传原生实现。
+	await page.addInitScript(() => {
+		const native = window.matchMedia.bind(window);
+		window.matchMedia = (query) => query === "(hover: none) and (pointer: coarse)"
+			? { matches: true, media: query, onchange: null, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; } }
+			: native(query);
+	});
 	const selfHealLogs = [];
 	const websocketUrls = [];
 	page.on("console", (message) => {

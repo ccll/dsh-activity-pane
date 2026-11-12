@@ -4567,6 +4567,14 @@ assert.ok(
 	"卸载时移除壳层连接自愈监听（R-01-001/AC-03）",
 );
 assert.ok(
+	bundle.includes("function resumeShellConnection(") && bundle.includes("ctx.get(\"connection\")") && bundle.includes(".reconnect()"),
+	"壳层连接自愈经软依赖 connection.reconnect() 重建 generation，服务缺失静默降级（R-01-001/AC-03，T-191）",
+);
+assert.ok(
+	bundle.includes('window.matchMedia?.("(hover: none) and (pointer: coarse)")') && bundle.includes("navigator.standalone") && bundle.includes("isMobileFormFactor()"),
+	"壳层连接自愈触发面限于移动形态（无 hover 主输入且主指针为触屏，或 iOS standalone），桌面浏览器与桌面安装版 PWA 不重建（R-01-001/AC-03，T-192）",
+);
+assert.ok(
 	bundle.includes('e2eParams.get("dap-e2e-resume-reconnect-ms")') && bundle.includes("requestedResumeReconnectRaw !== null") && bundle.includes("RESUME_RECONNECT_MIN_HIDDEN_MS") && bundle.includes("RESUME_RECONNECT_DEDUPE_MS"),
 	"回前台重建阈值与同沿去重经具名常量承载、阈值可经 e2e seam 覆盖且缺参不构成覆盖（R-01-001/AC-03）",
 );

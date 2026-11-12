@@ -271,7 +271,7 @@ flowchart LR
 - 回前台通道自愈（R-01-001/AC-03；R-01-002/AC-12 同族失效）：移动 PWA 挂起丢弃在途 setTimeout 且系统掐断连接，回前台（visibilitychange/pageshow）经三条路径收敛，缺一即出现「会话已结束而卡片滞留运行中直至整页重载」：
   - 渲染管线：`resumeRenderPipeline` 清掉滞留的节流窗口与流式派生在途 timer 并补一轮全量渲染（T-181）。
   - 自建 SSE：acks/busy 通道无条件重建连接，连接即收全量快照，EventSource CLOSED 与半开死连接一并收敛（R-01-002/AC-12）。
-  - 壳层推送通道（T-191）：`sessions.list`/`sessionStatus`/jobs roster——卡片运行状态的唯一来源——不经自建 SSE；壳层 gateway 连接半开死形态无法自检（壳层连接层无心跳、无可见性处理，解锁不触发 online 事件），由窗格在 hidden→visible 边沿且隐藏时长 ≥30s（bfcache `pageshow(persisted)` 无条件、同沿 2s 去重）时经软依赖 `connection.reconnect()` 请求壳层重建 generation——共享 WebSocket 强制重连、会话控制流 restart() 重发全量快照、remote 事件流重开；短切 tab 不触发；connection 服务缺失或 reconnect 不可用/抛错静默降级，不阻断其余自愈（R-02-001 不轮询承诺不损：事件驱动、无周期唤醒）。
+  - 壳层推送通道（T-191，触发面 T-192 收窄）：`sessions.list`/`sessionStatus`/jobs roster——卡片运行状态的唯一来源——不经自建 SSE；壳层 gateway 连接半开死形态无法自检（壳层连接层无心跳、无可见性处理，解锁不触发 online 事件），由窗格在 hidden→visible 边沿且隐藏时长 ≥30s（bfcache `pageshow(persisted)` 无条件、同沿 2s 去重）时经软依赖 `connection.reconnect()` 请求壳层重建 generation——共享 WebSocket 强制重连、会话控制流 restart() 重发全量快照、remote 事件流重开；短切 tab 不触发；触发面限于移动形态（主输入无 hover 且主指针为触屏的手机/平板，或 iOS standalone 信号）——半开死连接是移动 OS 挂起特有失效形态，桌面浏览器与桌面安装版 PWA 由壳层既有 close/online 路径兜底，桌面主动重建的快照重放中间态（全卡 displayTitle 短暂退化为工作区派生名）反成整窗格刷新风暴；connection 服务缺失或 reconnect 不可用/抛错静默降级，不阻断其余自愈（R-02-001 不轮询承诺不损：事件驱动、无周期唤醒）。
 - 回合统计运行时（R-01-020、R-02-003）：
   - 实时登记串行化：读-改-写闭合于宿主侧内存权威缓存（KvTable 退化为合帧落盘通道，不再作读-改-写基线）——acks 通道为 `await domainReady` 之后的全同步段（单线程内无 await 即不可分割，并发派发也无竞态），busy 通道经 core `createSessionEventSerializer` 会话串行域（run 内含 domainReady/在途回填等 await）保证同会话缓存变更按事件序落定、不同会话互不阻塞；事件序 = 派发序 = 缓存变更序 = `patch` 广播序。
   - 口径收敛：增量登记与全量重放/强制结算统一收敛于 core 纯函数 `applyTurnEventToStats`/`reconcileTurnStats`，宿主侧只做读取、写入与广播。

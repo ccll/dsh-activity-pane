@@ -2158,8 +2158,25 @@ function apply(ctx) {
 	// 降级缺席，acks/busy SSE 重建与渲染管线补齐不受影响；reconnect 抛错同样不外溢。
 	let connHiddenAt = 0;
 	let connResumeAt = 0;
+	/** 移动形态判定（T-192）：半开死连接是移动 OS 挂起特有的失效形态，桌面浏览器与
+	 *  桌面安装版 PWA 由壳层既有 close/online 路径兜底——真机探针实证桌面主动 reconnect
+	 *  是纯代价：generation 重建的快照重放中间态会让全卡 displayTitle 短暂退化为工作区
+	 *  派生名再恢复，叠加时长跳变构成整窗格刷新风暴。移动形态以「主输入无 hover 且主
+	 *  指针为触屏」判定——手机/平板的任何浏览器形态命中（含普通标签页与安装版 PWA），
+	 *  桌面浏览器、桌面安装版 PWA、触屏笔记本（主输入为鼠标）均不命中；辅以
+	 *  navigator.standalone（iOS PWA 专属信号）。判定不可用视为非移动，通道降级缺席
+	 *  （与软依赖降级同语义）。 */
+	function isMobileFormFactor() {
+		try {
+			if (navigator.standalone === true) return true;
+			return window.matchMedia?.("(hover: none) and (pointer: coarse)")?.matches === true;
+		} catch {
+			return false;
+		}
+	}
 	function resumeShellConnection(hiddenMs) {
 		if (disposed) return;
+		if (!isMobileFormFactor()) return;
 		let connection = null;
 		try {
 			connection = ctx.get("connection") ?? null;

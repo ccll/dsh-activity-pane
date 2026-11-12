@@ -283,3 +283,32 @@ export async function clickCardButton(page, cardTitle, buttonName) {
 	}
 	throw new Error(`卡片「${cardTitle}」上找不到按钮「${buttonName}」`);
 }
+
+/** 壳层连接自愈自愈标记（T-191/T-192 共享）：重建发起时 console.info 的标识串。 */
+export const CONNECTION_HEAL_MARKER = "回前台重建壳层连接";
+
+/** 合成一次「stub visibilityState 的 hidden→visible 对」：stub 窗口承载真实隐藏时长。 */
+export function syntheticHideRestore(page, hiddenMs) {
+	return page.evaluate(
+		(duration) =>
+			new Promise((resolve) => {
+				Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+				document.dispatchEvent(new Event("visibilitychange"));
+				setTimeout(() => {
+					Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+					document.dispatchEvent(new Event("visibilitychange"));
+					resolve();
+				}, duration);
+			}),
+		hiddenMs,
+	);
+}
+
+/** 合成 bfcache 还原：pageshow 且 persisted=true（Event 构造器不支持 init persisted）。 */
+export function syntheticBfcacheRestore(page) {
+	return page.evaluate(() => {
+		const event = new Event("pageshow");
+		Object.defineProperty(event, "persisted", { value: true });
+		window.dispatchEvent(event);
+	});
+}

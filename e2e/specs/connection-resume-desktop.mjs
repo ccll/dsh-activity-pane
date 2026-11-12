@@ -5,10 +5,9 @@
 // spec 钉住：桌面形态（headless context 主输入有 hover）下，长隐藏→可见不触发壳层
 // 连接重建，平台门控在长隐藏评估之后、软依赖之前短路（阈值/seam 达标也不触发）。
 
-import { openApp, until } from "../helpers.mjs";
+import { CONNECTION_HEAL_MARKER as HEAL_MARKER, openApp, syntheticHideRestore, until } from "../helpers.mjs";
 
 const SEAM_THRESHOLD_MS = 0;
-const HEAL_MARKER = "回前台重建壳层连接";
 
 export default async function connectionResumeDesktop({ page, url, assert }) {
 	const selfHealLogs = [];
@@ -21,20 +20,9 @@ export default async function connectionResumeDesktop({ page, url, assert }) {
 	await openApp(page, `${url}#${params}`);
 	const wsBaseline = websocketUrls.length;
 
-	// 桌面形态（无 standalone 显示模式）：seam 阈值 0 + 观测 hidden 边沿 + 长隐藏，
+	// 桌面形态（无触屏主输入）：seam 阈值 0 + 观测 hidden 边沿 + 长隐藏，
 	// 平台门控仍应直接跳过重建——标记与新连接世代都不出现。
-	await page.evaluate(
-		() =>
-			new Promise((resolve) => {
-				Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
-				document.dispatchEvent(new Event("visibilitychange"));
-				setTimeout(() => {
-					Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
-					document.dispatchEvent(new Event("visibilitychange"));
-					resolve();
-				}, 1200);
-			}),
-	);
+	await syntheticHideRestore(page, 1200);
 	await new Promise((resolve) => setTimeout(resolve, 600));
 	assert.equal(selfHealLogs.length, 0, "桌面形态长隐藏恢复不重建（平台门控）");
 	await until("桌面形态回前台无新连接世代", async () => (websocketUrls.length === wsBaseline ? websocketUrls : null));

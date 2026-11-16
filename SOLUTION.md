@@ -2,7 +2,7 @@
 doc-type: solution
 mutation: living
 owner: agent 主笔，项目属主审批
-核对日期: 2026-10-22
+核对日期: 2026-11-16
 ---
 
 # SOLUTION — 活动会话总览窗格
@@ -147,7 +147,7 @@ flowchart LR
 ## 边界与对外契约
 
 - 对外只读（例外：完成确认写回与回合统计只读下发）：窗格只消费 DSH 原生 `sessions` / `workspaces` / `uiSession` / `jobs` / `uiWorkspace` 客户端服务（dsh 0.2.0 起 `jobs` 承载后台任务 roster、`uiWorkspace` 承载会话导航）；dsh 0.2.0 起待确认/待审查/待回复经 `uiSession.sessionStatus` 统一状态快照承载（`pendingInteraction.kind`；0.1.5 的 `pendingInteractions` 已移除），行内 `pendingInteraction` 字段仍由窗格在快照副本上回填；可选的 `modelDirectories` 模型目录服务（缺失时回落，见模型上下文条目）及 `remote` 服务（`@deepseek-ai/dsh-api-remotes`，dsh 0.1.5 起替代已移除的 `connection.api` 门面）的一次性目录/日志分页读取；唯一写回路径是完成提醒卡确认按钮（完整/中间档展示文案「移入历史」，紧凑档为同路由的 ✓ 图标形态）经宿主侧 HTTP 路由 `/dsh-activity-pane/api/ack` 写回确认游标（R-02-001、R-02-003、R-01-002/AC-10）；回合统计经宿主侧只读通道 `GET /dsh-activity-pane/api/busy`（快照，支持 `?ids=` 裁剪）与 `/busy/stream`（SSE，连接全量 `state`、变更 `patch` 增量）下发，无写回路径；不发起第三方 HTTP 状态轮询。
-- 宿主依赖：窗口宿主为外壳三栏的中间列（`#root [data-slot="main"]` keyed main 槽容器的父级；dsh 0.1.5 起原 `conversation` Slot 迁移为 `main` 的 `conversation` key，槽容器为 `display:contents` 占位层、真实 flex 列为其父级中列）。桌面下窗格作为该列内**真实的 flex 行元素**（插于 main 槽容器之前）占据左侧列宽（默认 280px，可经右缘手柄拖拽在 200–480px 内调整），会话根被设为 `flex:1 1 0%` 弹性填充余宽——主会话内容（标题/tabs/滚动区/输入框）随窗格展开与调宽随之让位、随折叠（窄条）同步恢复，而非被浮层覆盖（R-01-007、R-01-011、R-01-015）。
+- 宿主依赖：窗口宿主为外壳三栏的中间列（`#root [data-slot="main"]` keyed main 槽容器的父级；dsh 0.1.5 起原 `conversation` Slot 迁移为 `main` 的 `conversation` key，槽容器为 `display:contents` 占位层、真实 flex 列为其父级中列）。桌面下窗格作为该列内**真实的 flex 行元素**（插于 main 槽容器之前）占据左侧列宽（默认 280px，可经右缘手柄拖拽在 200–480px 内调整），会话根被设为 `flex:1 1 0%` 弹性填充余宽——主会话内容（标题/tabs/滚动区/输入框）随窗格展开与调宽随之让位、随折叠（窄条）同步恢复，而非被浮层覆盖（R-01-007、R-01-011、R-01-015）。全局面板占屏时（宿主把插件页、定时任务页等非会话页面挂到同一 main 槽；dsh 0.2.2 起中间列带 `data-global-panel` 标记），中间列回退外壳默认列布局、窗格收起，整列让给面板；返回会话视图时恢复行布局与既有折叠/宽度状态（R-01-007/AC-03、AC-04，T-193）。0.2.0 无该标记的宿主以会话滚动区缺失作为回退判据。
 - 移动端：抽屉以 `position:fixed` 脱离文档流，不改变主会话布局；中间列恢复外壳默认列布局（R-01-008）。抽屉打开时显示透明全屏遮罩，z-index 介于主会话与抽屉之间，点击遮罩收起抽屉；遮罩完全透明、不占布局（R-01-008/AC-03）。
 - 「活动」开关常态嵌入宿主头部的标题行，作为布局子项位于该行行首（R-01-008/AC-04）。
   - 视觉位置即左边栏切换按钮的右侧（东家指示，T-163）。
@@ -450,6 +450,7 @@ flowchart LR
   - 桌面调宽：右缘拖拽手柄实时调宽、范围夹取与 localStorage 持久化（实现 R-01-015）
 - 关键内部结构:
   - 桌面下把中间列临时改为行方向，窗格作为真实 flex 行子项（先于会话座）占据左侧默认 280px；经祖先链（跳过 display:contents）找到会话根设 `flex:1 1 0%` 弹性填充，会话内容随之让位；折叠为窄条时让位同步恢复；仅桌面生效，移动端恢复外壳默认列布局。
+  - 全局面板占屏时先恢复外壳列布局并收起窗格/开关（`setPaneHidden` 单点，display:none 零占位），返回会话后恢复行布局与窗格（R-01-007/AC-03、AC-04，T-193）。判据优先宿主 `data-global-panel` 标记，0.2.0 回退到会话滚动区缺失。
   - 内容区为上「活动会话」下「最近历史」两段，各自带空态；由同一快照派生。
   - 委托周期中的母会话保持运行卡呈现（kind=running，骨架不重建）：轮内订阅随自身回合结束断开，时间线与 token 统计冻结在最后已知值，进度按委托周期锚点继续推进（R-01-003/AC-05、R-01-009/AC-06）。委托周期集合由渲染层 `progressAnchorById` 记账经 `delegationActive` 逐帧派生并注入 `buildEntries`/`buildRecent`——后代耗尽至 settle 处理回合启动的空窗内（`SETTLE_TURN_GRACE_MS` 宽限）母会话保持运行呈现、完成提醒不生效、不入历史区（分区不变量）；宽限超时无新回合则退出周期，完成提醒恢复显示。
   - 活动区子代理卡片与后台任务子卡沿 `depth` 缩进；母会话到直属子代理及后台任务子卡的连接线由列表内轨道层（`.dap-tracks`）按测量值整体绘制：每条竖轨一个连续元素、零拼接接缝，横线同为轨道层元素，全部坐标统一取整（同相位、粗细一致、端点相接）；连接线不覆盖卡片内容或点击区域（R-01-003/AC-04）。

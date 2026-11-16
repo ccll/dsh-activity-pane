@@ -1,12 +1,17 @@
-// R-01-007/AC-01、R-01-007/AC-02、R-01-011/AC-03、R-01-011/AC-04、R-01-011/AC-05
-// 桌面贴边布局：窗格位于主会话左侧贴边、不遮挡主会话；键盘折叠/展开控件保持同位。
+// R-01-007/AC-01、R-01-007/AC-02、R-01-007/AC-03、R-01-007/AC-04、
+// R-01-011/AC-03、R-01-011/AC-04、R-01-011/AC-05
+// 桌面贴边布局：窗格位于主会话左侧贴边、不遮挡主会话；键盘折叠/展开控件保持同位；
+// 全局面板占屏时窗格收起、整列让给面板，返回会话后恢复既有折叠形态。
 
-import { openApp, paneBox, sendHeroMessage, sessionComposer, until } from "../helpers.mjs";
+import { MOCK_FAST_REPLY, openApp, paneBox, sendHeroMessage, sessionComposer, until } from "../helpers.mjs";
 
 // 窄条特征：宽度远小于窗格、高度容纳竖排标题与计数；位置容差取 2px 抗亚像素抖动。
 const STRIP_MAX_WIDTH_PX = 60;
 const STRIP_MIN_HEIGHT_PX = 60;
 const POSITION_TOLERANCE_PX = 2;
+// #5 触发条件：全局面板根声明 inline-size containment 时内在宽度为 0，行方向 flex 下
+// 被压成窄条。以 section 根为目标，只命中宿主全局面板（会话根为 div），打开即生效。
+const NATIVE_CONTAINMENT_CSS = '#root [data-slot="main"] > section { container-type: inline-size; }';
 
 export default async function desktopLayout({ page, url, assert }) {
 	await openApp(page, url);
@@ -55,4 +60,59 @@ export default async function desktopLayout({ page, url, assert }) {
 		const b = await page.getByRole("button", { name: "收起活动会话窗格" }).boundingBox().catch(() => null);
 		return b && Math.abs(b.x - headerBox.x) <= POSITION_TOLERANCE_PX && Math.abs(b.y - headerBox.y) <= POSITION_TOLERANCE_PX ? true : null;
 	});
+
+	// R-01-007/AC-03、AC-04（T-193、#5 缺陷回归）：全局面板占屏时中列回退外壳列布局、
+	// 窗格收起、面板占满整列；返回会话后恢复行布局与既有折叠窄条。
+	await header.press("Space");
+	await until("再次折叠为窄条", async () => {
+		const b = await page.getByRole("button", { name: /活动会话/ }).last().boundingBox().catch(() => null);
+		return b && b.width < STRIP_MAX_WIDTH_PX ? true : null;
+	});
+	await page.evaluate((css) => {
+		const style = document.createElement("style");
+		style.id = "e2e-native-containment";
+		style.textContent = css;
+		document.head.appendChild(style);
+	}, NATIVE_CONTAINMENT_CSS);
+	await page.getByRole("button", { name: "Plugins", exact: true }).first().click();
+	const nativePanel = await until("全局面板占满中间列", () =>
+		page.evaluate(() => {
+			const seat = document.querySelector('#root [data-slot="main"]');
+			const center = seat?.parentElement;
+			const pane = document.querySelector("[data-dsh-activity-pane]");
+			const root = seat?.firstElementChild;
+			if (!center || !pane || !root) return null;
+			const centerWidth = center.getBoundingClientRect().width;
+			const rootWidth = root.getBoundingClientRect().width;
+			return getComputedStyle(center).flexDirection === "column" &&
+				getComputedStyle(pane).display === "none" &&
+				rootWidth > centerWidth * 0.9
+				? { centerWidth, rootWidth }
+				: null;
+		}),
+	);
+	assert.ok(nativePanel, `全局面板回到外壳列布局并占满中间列（center=${nativePanel?.centerWidth} root=${nativePanel?.rootWidth}）`);
+	await page.getByText(MOCK_FAST_REPLY, { exact: true }).filter({ visible: true }).first().click();
+	const restored = await until("返回会话后行布局与折叠窗格恢复", async () => {
+		const dir = await page.evaluate(() => {
+			const seat = document.querySelector('#root [data-slot="main"]');
+			return seat?.parentElement ? getComputedStyle(seat.parentElement).flexDirection : null;
+		});
+		const b = await paneBox(page);
+		const collapsed = await page.evaluate(() => document.querySelector("[data-dsh-activity-pane]")?.getAttribute("data-collapsed"));
+		return dir === "row" && b !== null && b.width > 0 && b.width < STRIP_MAX_WIDTH_PX && collapsed === "true" ? b : null;
+	});
+	assert.ok(restored, "返回会话恢复行布局且折叠窄条保持");
+	await page.evaluate(() => document.getElementById("e2e-native-containment")?.remove());
+	// 反例：hero 页存在会话滚动区、无全局面板标记，窗格不得被误收起。
+	await page.getByRole("button", { name: "New session" }).first().click();
+	const hero = await until("hero 页窗格保持可见", async () => {
+		const b = await paneBox(page);
+		const dir = await page.evaluate(() => {
+			const seat = document.querySelector('#root [data-slot="main"]');
+			return seat?.parentElement ? getComputedStyle(seat.parentElement).flexDirection : null;
+		});
+		return b !== null && b.width > 0 && dir === "row" ? b : null;
+	});
+	assert.ok(hero, "hero 页窗格保持可见且行布局（全局面板判据不误伤无会话页）");
 }

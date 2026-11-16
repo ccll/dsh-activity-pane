@@ -4570,6 +4570,12 @@ assert.ok(
 	bundle.includes('window.matchMedia?.("(hover: none) and (pointer: coarse)")') && bundle.includes("if (!isTouchFormFactor()) return;"),
 	"壳层连接自愈触发面限于触屏形态（主输入无 hover 且主指针为触屏），桌面浏览器与桌面安装版 PWA 不重建（R-01-001/AC-03，T-192）",
 );
+// R-01-007/AC-03、AC-04（T-193）：全局面板占屏时中间列回退外壳列布局、窗格收起；
+// 判据优先宿主 data-global-panel 标记，0.2.0 回退到会话滚动区缺失。
+assert.ok(
+	bundle.includes("data-global-panel") && bundle.includes("function setPaneHidden") && bundle.includes("setPaneHidden(pane, toggle, true)"),
+	"全局面板占屏回退判据与窗格显隐单点进入 bundle（R-01-007/AC-03、AC-04，T-193）",
+);
 assert.ok(
 	bundle.includes('e2eParams.get("dap-e2e-resume-reconnect-ms")') && bundle.includes("requestedResumeReconnectRaw !== null") && bundle.includes("RESUME_RECONNECT_MIN_HIDDEN_MS") && bundle.includes("RESUME_RECONNECT_DEDUPE_MS"),
 	"回前台重建阈值与同沿去重经具名常量承载、阈值可经 e2e seam 覆盖且缺参不构成覆盖（R-01-001/AC-03）",

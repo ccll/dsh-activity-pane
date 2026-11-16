@@ -1,7 +1,7 @@
 // R-01-007/AC-01、R-01-007/AC-02、R-01-007/AC-03、R-01-007/AC-04、
 // R-01-011/AC-03、R-01-011/AC-04、R-01-011/AC-05
 // 桌面贴边布局：窗格位于主会话左侧贴边、不遮挡主会话；键盘折叠/展开控件保持同位；
-// 全局面板占屏时窗格收起、整列让给面板，返回会话后恢复既有折叠形态。
+// 全局面板占屏时窗格收起、主区域让给面板，返回会话后恢复既有折叠形态与宽度。
 
 import { MOCK_FAST_REPLY, openApp, paneBox, sendHeroMessage, sessionComposer, until } from "../helpers.mjs";
 
@@ -21,6 +21,14 @@ const layoutState = (page) =>
 		const root = seat?.firstElementChild;
 		const pane = document.querySelector("[data-dsh-activity-pane]");
 		if (!center || !root || !pane) return null;
+		// 与 applyLayout 同口径找到真实会话弹性项（跳过 display:contents 包装层），
+		// 用于断言全局面板态确实清掉 flex，而不是只隐藏窗格。
+		let flexNode = document.querySelector("[data-conversation-scroll]");
+		let flexItem = null;
+		while (flexNode !== null && flexNode !== center && flexNode !== document.body) {
+			if (getComputedStyle(flexNode).display !== "contents") flexItem = flexNode;
+			flexNode = flexNode.parentElement;
+		}
 		return {
 			direction: getComputedStyle(center).flexDirection,
 			paneDisplay: getComputedStyle(pane).display,
@@ -29,6 +37,7 @@ const layoutState = (page) =>
 			rootWidth: root.getBoundingClientRect().width,
 			containerType: getComputedStyle(root).containerType,
 			collapsed: pane.getAttribute("data-collapsed"),
+			flexGrow: flexItem === null ? null : getComputedStyle(flexItem).flexGrow,
 		};
 	});
 
@@ -161,17 +170,17 @@ export default async function desktopLayout({ page, url, assert }) {
 	await setGlobalPanelMarker(page, true);
 	const markerLayout = await until("宿主标记触发窗格收起", async () => {
 		const state = await layoutState(page);
-		return state && state.direction === "column" && state.paneDisplay === "none" ? state : null;
+		return state && state.direction === "column" && state.paneDisplay === "none" && state.flexGrow === "0" ? state : null;
 	});
-	assert.ok(markerLayout, "data-global-panel 标记优先于保留的会话 DOM");
+	assert.ok(markerLayout, "data-global-panel 标记优先于保留的会话 DOM，并清掉会话根 flex");
 	await setGlobalPanelMarker(page, false);
 	const markerRestored = await until("移除标记后恢复贴边列", async () => {
 		const state = await layoutState(page);
-		return state && state.direction === "row" && state.paneWidth > STRIP_MAX_WIDTH_PX && state.collapsed !== "true"
+		return state && state.direction === "row" && state.flexGrow === "1" && state.paneWidth > STRIP_MAX_WIDTH_PX && state.collapsed !== "true"
 			? state
 			: null;
 	});
-	assert.ok(markerRestored, "移除标记后恢复贴边列与窗格宽度");
+	assert.ok(markerRestored, "移除标记后恢复贴边列、会话根 flex 与窗格宽度");
 	// 反例：hero 页存在会话视图、无全局面板标记，窗格不得被误收起。
 	await page.getByRole("button", { name: "New session" }).first().click();
 	const hero = await until("hero 页窗格保持可见", async () => {

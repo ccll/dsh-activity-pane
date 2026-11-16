@@ -82,6 +82,9 @@ export default async function longList({ page, url, assert }) {
 			return originalScrollTo(options);
 		};
 	});
+	const currentCardText = () => page.evaluate(() =>
+		document.querySelector("[data-dsh-activity-pane] .dap-card[data-current]")?.textContent?.trim() ?? null,
+	);
 	const currentCardState = () => page.evaluate(() => {
 		const pane = document.querySelector("[data-dsh-activity-pane]");
 		const scroll = pane?.querySelector(".dap-scroll");
@@ -96,8 +99,13 @@ export default async function longList({ page, url, assert }) {
 	await until("原生侧栏测试前平滑初始化收口", () => paneScroll.evaluate((el) => el.scrollTop <= 1));
 	const initialScrollCallCount = await paneScroll.evaluate((el) => el.__dapE2eScrollCalls?.length ?? 0);
 	const beforeNativeSelect = await paneScroll.evaluate((el) => el.scrollTop);
+	const beforeCardText = await currentCardText();
 	await nativeSessionRows.last().click();
-	const selectedState = await until("原生侧栏选中后当前卡片完整可见", currentCardState);
+	// 旧 current 卡在滚动前也可能完整可见；等 current 卡确实换到所选会话再断言滚动。
+	const selectedState = await until("原生侧栏选中后当前卡片完整可见", async () => {
+		const state = await currentCardState();
+		return state !== null && (await currentCardText()) !== beforeCardText ? state : null;
+	});
 	assert.ok(selectedState.scrollTop > beforeNativeSelect, "原生侧栏选择下方会话后窗格向目标卡片滚动");
 	const smoothCalls = await paneScroll.evaluate((el, start) => (el.__dapE2eScrollCalls ?? []).slice(start), initialScrollCallCount);
 	assert.ok(smoothCalls.some((call) => call.behavior === "smooth"), "原生侧栏选择使用平滑滚动 API");

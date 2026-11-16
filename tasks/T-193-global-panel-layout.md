@@ -6,7 +6,7 @@ id: T-193
 
 # T-193 全局面板占屏的布局隔离——收起窗格并让出主区域
 
-状态: active
+状态: completed
 类型: 缺陷修复
 风险等级: major
 风险面: 对外行为（全局面板占屏时的窗格显隐与中间列布局）、兼容性（DSH 0.2.0/0.2.2 全局面板标记差异）
@@ -80,4 +80,12 @@ id: T-193
 
 ## 终态与证据
 
-关闭时填写实现、测试、SOLUTION 对照、commit 与独立 review 证据。
+- 实现: 桌面 `applyLayout` 双判据（宿主 `data-global-panel` 或会话弹性项缺失）命中时复位中间列方向/对齐、清会话根 flex 并 `setPaneHidden(true)`；返回会话恢复行布局、窗格显示与用户宽度/折叠（src/client.mjs:1765、1805、1823）；`centerObserver` 以 childList + `attributeFilter` 观察标记翻转（src/client.mjs:5530）；cleanup 复用 reset 助手（src/client.mjs:5660）。PRD R-01-007 AC-01 增「会话视图在屏」前置、AC-03/AC-04 按可观察口径表述并补出处 C-101；SOLUTION 宿主依赖/窗格渲染器补全局面板分支且核对日期 2026-11-16；DOMAIN 登记「会话视图」「全局面板」与桌面布局适配例外；C-101 记录方案 A 与保留窗格/flex 回退等被否方案。
+- 测试: desktop-layout 实跑通过（5.2–6.8s）：containment 刺激断言 `containerType=inline-size`、全局面板 column + 窗格 `display:none` + 页根宽 >90%、marker flexGrow 0/1、拖拽到非默认宽度后的折叠/展开往返、hero 反例；未修复红侧以回执基线 96px 与本次会话未修复 e2e 20s 超时记录（无 artifact）。mobile-drawer/mobile-thermal/mobile-shell 复跑通过。全量 `pnpm verify` 最终 26/26 specs 全绿（427355ms，VERIFY_EXIT 0）；此前两次全量分别为 auto-update/long-list 与 repo-entry 的启动窗格数据超时，单跑均绿，long-list 的旧 current 卡等待已加强（49ead5a）。
+- SOLUTION 对照: SOLUTION 宿主依赖的 `data-global-panel` 判据、0.2.0 回退与渲染器退出复位与实现一致；PRD AC 与测试锚点一一对应；DOMAIN 不变量不禁止本次布局适配；C-101 与 PRD 出处互链。0.2.2 回执记录基线 96px/row/窗格 280 → 修复 1000px/column/窗格隐藏 → 返回 row/280；探针 bundle 对应 30a28e4（后续 b9702e5 仅标记观察与 cleanup 复用，几何不变）；回执表未列 marker，同次探针状态日志为 `marker: true`，已由 T-194 审计更正 E2 登记。
+- commit: 6f4d05b（实现）、30a28e4（评审处置）、cc2ee54（测试补强）、b9702e5（审计处置）、49ead5a（长列表等待稳定）
+- review:
+  - 审核方: code-review skill 双轴独立子代理（Standards 与 Spec 并行）+ 累计审计独立子代理（T-194）
+  - 目的理解: #5 的 dsh-market 原生页在 0.2.2 被压成 60–101px 窄条；根因是桌面行布局只给会话根 flex，原生全局面板没有会话滚动区而塌陷。#6 的修法方向成立但不完整、map 未同步、无 0.2.2 证据。T-193 按东家批准的方案 A：全局面板占屏时收起窗格并让主区域给面板，返回恢复宽度/折叠；同时补 PRD AC、SOLUTION/DOMAIN、测试与 0.2.2 回执，再交东家评审合入。
+  - 问题与修复: Standards 轴 5 条 hard 全部处置——PRD AC 去机制词；DOMAIN 不变量为布局适配开例外并登记会话视图；marker 分支补可执行 e2e；AC-04 宽度用拖拽后往返断言；receipt 补齐。smell 侧抽出 reset 助手、去掉不可达 null 分支、显式传 pane/toggle、清残余 flex、测试去重并断言 containment；非-blocking 保留 toggle 形参遮蔽、set 侧不对称、strip 等待重复。Spec 轴发现：0.2.0 侧栏返回点击误判为 blocking（实测侧栏行标题即 mock 回复，点击可用，保留并注释）；0.2.2 回执缺失、AC-04 宽度、marker 无证据、containment 未断言、README 越界，均已补/收敛。累计审计另登记 7 条证据更正（E1 T-192 24/25 口径、E2 回执 marker 列、E3 720px 未入回执、E4 scrollTop 引证、E5 红跑无 artifact、E6 T-191 历史锚点、E7 触屏术语残留）与 4 项非-blocking（marker 属性观察、cleanup 复用、C-101/PRD 出处、任务措辞/残余）。残留 process risk：PRD AC 文本仍属东家闸口，东家批准的是方案 A 语义，措辞规范化未单独二次签认；已在决策依据与本节如实登记。
+  - 复审结论: Standards 轴复审接受 30a28e4（无 blocking，余 judgment call 已记录）；Spec 轴复审接受 cc2ee54（行为与证据链通过，余 PRD 文本 owner-gated 的 process risk）；累计审计 T-194 登记新复位点并判定窗口可复位；最终全量 `pnpm verify` 26/26 全绿。non-blocking 通过。

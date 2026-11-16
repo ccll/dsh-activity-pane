@@ -41,8 +41,8 @@ const layoutState = (page) =>
 		};
 	});
 
-// e2e 宿主为 0.2.0（无 data-global-panel）：在真实对话页施加宿主标记，再经槽座
-// childList 唤醒一次重排，验证 0.2.2 标记判据本身（不依赖运行中的宿主版本）。
+// e2e 宿主为 0.2.0（无 data-global-panel）：在真实对话页施加宿主标记，由宿主属性
+// 观察唤醒一次重排，验证 0.2.2 标记判据本身（不依赖运行中的宿主版本）。
 const setGlobalPanelMarker = async (page, enabled) => {
 	await page.evaluate((on) => {
 		const seat = document.querySelector('#root [data-slot="main"]');
@@ -50,10 +50,6 @@ const setGlobalPanelMarker = async (page, enabled) => {
 		if (!seat || !center) return;
 		if (on) center.setAttribute("data-global-panel", "");
 		else center.removeAttribute("data-global-panel");
-		// 探针节点同步移除：只制造一次槽座 childList 变化唤醒插件重排，不改会话内容。
-		const probe = document.createElement("span");
-		seat.appendChild(probe);
-		probe.remove();
 	}, enabled);
 };
 

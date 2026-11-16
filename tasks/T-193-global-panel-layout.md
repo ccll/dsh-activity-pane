@@ -57,6 +57,7 @@ id: T-193
 | R-01-007/AC-03 | 新增：全局面板占屏时收起窗格、主区域让给面板 | E2E | add | `e2e/specs/desktop-layout.mjs::desktopLayout` 以 containment 复现 #5 并断言容器类型、隐藏与全宽；marker 分支单独断言 |
 | R-01-007/AC-04 | 新增：返回会话恢复贴边列、折叠形态与既选宽度 | E2E | add | 同一 spec 的折叠窄条往返 + 展开宽度断言 |
 | SOLUTION | 宿主依赖与窗格渲染器补全局面板分支 | UNIT/E2E | update | 机制由 e2e 与 `scripts/check.mjs` 断言承载 |
+| R-01-004/AC-02 | 既有长列表选会话滚动画像在旧 current 卡可见时提前返回；等 current 卡切到所选会话再断言 | E2E | update | `e2e/specs/long-list.mjs` 实跑通过；产品滚动行为不变 |
 | PRD | 补充 R-01-007 出处 C-101，验收点不变 | E2E | none | AC 文案与测试锚点保持，决策记录见 RATIONALE |
 | DOMAIN | 登记「全局面板」「会话视图」词条与桌面布局适配例外 | UNIT | update | `scripts/check.mjs` 断言判据进入 bundle；不变量与既有 SOLUTION 布局适配对齐 |
 

@@ -11,7 +11,42 @@ const STRIP_MIN_HEIGHT_PX = 60;
 const POSITION_TOLERANCE_PX = 2;
 // #5 触发条件：全局面板根声明 inline-size containment 时内在宽度为 0，行方向 flex 下
 // 被压成窄条。以 section 根为目标，只命中宿主全局面板（会话根为 div），打开即生效。
-const NATIVE_CONTAINMENT_CSS = '#root [data-slot="main"] > section { container-type: inline-size; }';
+const GLOBAL_PANEL_CONTAINMENT_CSS = '#root [data-slot="main"] > section { container-type: inline-size; }';
+
+// 单次读取宿主中间列、页面根与窗格的可观察布局状态；结构不齐时返回 null。
+const layoutState = (page) =>
+	page.evaluate(() => {
+		const seat = document.querySelector('#root [data-slot="main"]');
+		const center = seat?.parentElement;
+		const root = seat?.firstElementChild;
+		const pane = document.querySelector("[data-dsh-activity-pane]");
+		if (!center || !root || !pane) return null;
+		return {
+			direction: getComputedStyle(center).flexDirection,
+			paneDisplay: getComputedStyle(pane).display,
+			paneWidth: pane.getBoundingClientRect().width,
+			centerWidth: center.getBoundingClientRect().width,
+			rootWidth: root.getBoundingClientRect().width,
+			containerType: getComputedStyle(root).containerType,
+			collapsed: pane.getAttribute("data-collapsed"),
+		};
+	});
+
+// e2e 宿主为 0.2.0（无 data-global-panel）：在真实对话页施加宿主标记，再经槽座
+// childList 唤醒一次重排，验证 0.2.2 标记判据本身（不依赖运行中的宿主版本）。
+const setGlobalPanelMarker = async (page, enabled) => {
+	await page.evaluate((on) => {
+		const seat = document.querySelector('#root [data-slot="main"]');
+		const center = seat?.parentElement;
+		if (!seat || !center) return;
+		if (on) center.setAttribute("data-global-panel", "");
+		else center.removeAttribute("data-global-panel");
+		// 探针节点同步移除：只制造一次槽座 childList 变化唤醒插件重排，不改会话内容。
+		const probe = document.createElement("span");
+		seat.appendChild(probe);
+		probe.remove();
+	}, enabled);
+};
 
 export default async function desktopLayout({ page, url, assert }) {
 	await openApp(page, url);
@@ -29,6 +64,18 @@ export default async function desktopLayout({ page, url, assert }) {
 	await composer.click();
 	await composer.pressSequentially("主会话可正常输入");
 	assert.equal((await composer.textContent())?.trim(), "主会话可正常输入", "主会话 composer 可正常输入");
+
+	// AC-04 用户既选宽度：先把窗格拖宽到非默认值，供全局面板往返后的宽度断言。
+	const edgeX = box.x + box.width;
+	const midY = box.y + box.height / 2;
+	await page.mouse.move(edgeX - 2, midY);
+	await page.mouse.down();
+	await page.mouse.move(edgeX + 40, midY, { steps: 6 });
+	await page.mouse.up();
+	const chosen = await until("窗格调宽到用户选择值", async () => {
+		const b = await paneBox(page);
+		return b && b.width > box.width + 20 ? b : null;
+	});
 
 	// R-01-011/AC-03、AC-05（T-144 顶缘同位语义）：Space 激活标题区收起，控件顶缘保持在窗格顶部同一屏幕位置。
 	const header = page.getByRole("button", { name: "收起活动会话窗格" });
@@ -61,8 +108,8 @@ export default async function desktopLayout({ page, url, assert }) {
 		return b && Math.abs(b.x - headerBox.x) <= POSITION_TOLERANCE_PX && Math.abs(b.y - headerBox.y) <= POSITION_TOLERANCE_PX ? true : null;
 	});
 
-	// R-01-007/AC-03、AC-04（T-193、#5 缺陷回归）：全局面板占屏时中列回退外壳列布局、
-	// 窗格收起、面板占满整列；返回会话后恢复行布局与既有折叠窄条。
+	// R-01-007/AC-03、AC-04（T-193、#5 缺陷回归）：全局面板占屏时窗格收起、面板占满
+	// 主区域；返回会话后恢复贴边列与既有折叠窄条。
 	await header.press("Space");
 	await until("再次折叠为窄条", async () => {
 		const b = await page.getByRole("button", { name: /活动会话/ }).last().boundingBox().catch(() => null);
@@ -70,49 +117,66 @@ export default async function desktopLayout({ page, url, assert }) {
 	});
 	await page.evaluate((css) => {
 		const style = document.createElement("style");
-		style.id = "e2e-native-containment";
+		style.id = "e2e-global-panel-containment";
 		style.textContent = css;
 		document.head.appendChild(style);
-	}, NATIVE_CONTAINMENT_CSS);
+	}, GLOBAL_PANEL_CONTAINMENT_CSS);
 	await page.getByRole("button", { name: "Plugins", exact: true }).first().click();
-	const nativePanel = await until("全局面板占满中间列", () =>
-		page.evaluate(() => {
-			const seat = document.querySelector('#root [data-slot="main"]');
-			const center = seat?.parentElement;
-			const pane = document.querySelector("[data-dsh-activity-pane]");
-			const root = seat?.firstElementChild;
-			if (!center || !pane || !root) return null;
-			const centerWidth = center.getBoundingClientRect().width;
-			const rootWidth = root.getBoundingClientRect().width;
-			return getComputedStyle(center).flexDirection === "column" &&
-				getComputedStyle(pane).display === "none" &&
-				rootWidth > centerWidth * 0.9
-				? { centerWidth, rootWidth }
-				: null;
-		}),
-	);
-	assert.ok(nativePanel, `全局面板回到外壳列布局并占满中间列（center=${nativePanel?.centerWidth} root=${nativePanel?.rootWidth}）`);
-	await page.getByText(MOCK_FAST_REPLY, { exact: true }).filter({ visible: true }).first().click();
-	const restored = await until("返回会话后行布局与折叠窗格恢复", async () => {
-		const dir = await page.evaluate(() => {
-			const seat = document.querySelector('#root [data-slot="main"]');
-			return seat?.parentElement ? getComputedStyle(seat.parentElement).flexDirection : null;
-		});
-		const b = await paneBox(page);
-		const collapsed = await page.evaluate(() => document.querySelector("[data-dsh-activity-pane]")?.getAttribute("data-collapsed"));
-		return dir === "row" && b !== null && b.width > 0 && b.width < STRIP_MAX_WIDTH_PX && collapsed === "true" ? b : null;
+	const globalPanel = await until("全局面板占满主区域", async () => {
+		const state = await layoutState(page);
+		return state &&
+			state.direction === "column" &&
+			state.paneDisplay === "none" &&
+			state.containerType === "inline-size" &&
+			state.rootWidth > state.centerWidth * 0.9
+			? state
+			: null;
 	});
-	assert.ok(restored, "返回会话恢复行布局且折叠窄条保持");
-	await page.evaluate(() => document.getElementById("e2e-native-containment")?.remove());
-	// 反例：hero 页存在会话滚动区、无全局面板标记，窗格不得被误收起。
+	assert.ok(
+		globalPanel,
+		`全局面板让出主区域且窗格收起（center=${globalPanel?.centerWidth} root=${globalPanel?.rootWidth} container=${globalPanel?.containerType}）`,
+	);
+	// 会话行标题即 mock 回复文案；原生面板打开时侧栏该行仍可见，点击即返回会话。
+	await page.getByText(MOCK_FAST_REPLY, { exact: true }).filter({ visible: true }).first().click();
+	const restored = await until("返回会话恢复贴边列与折叠窄条", async () => {
+		const state = await layoutState(page);
+		return state && state.direction === "row" && state.paneWidth > 0 && state.paneWidth < STRIP_MAX_WIDTH_PX && state.collapsed === "true"
+			? state
+			: null;
+	});
+	assert.ok(restored, "返回会话恢复贴边列且折叠窄条保持");
+	await page.evaluate(() => document.getElementById("e2e-global-panel-containment")?.remove());
+	// AC-04 宽度：展开后回到用户此前的窗格宽度（拖拽后的非默认值）。
+	const stripBack = page.getByRole("button", { name: /活动会话/ }).last();
+	await stripBack.click();
+	const expanded = await until("展开后窗格宽度保持", async () => {
+		const state = await layoutState(page);
+		return state && state.direction === "row" && state.paneWidth > STRIP_MAX_WIDTH_PX && Math.abs(state.paneWidth - chosen.width) <= 1
+			? state
+			: null;
+	});
+	assert.ok(expanded, `返回会话保持用户选择宽度（${chosen.width}px）`);
+	// 0.2.2 标记分支：e2e 宿主为 0.2.0（无 data-global-panel）。在真实对话页施加宿主
+	// 标记后经槽座 childList 唤醒重排，验证标记优先于保留的会话 DOM，且移除后恢复。
+	await setGlobalPanelMarker(page, true);
+	const markerLayout = await until("宿主标记触发窗格收起", async () => {
+		const state = await layoutState(page);
+		return state && state.direction === "column" && state.paneDisplay === "none" ? state : null;
+	});
+	assert.ok(markerLayout, "data-global-panel 标记优先于保留的会话 DOM");
+	await setGlobalPanelMarker(page, false);
+	const markerRestored = await until("移除标记后恢复贴边列", async () => {
+		const state = await layoutState(page);
+		return state && state.direction === "row" && state.paneWidth > STRIP_MAX_WIDTH_PX && state.collapsed !== "true"
+			? state
+			: null;
+	});
+	assert.ok(markerRestored, "移除标记后恢复贴边列与窗格宽度");
+	// 反例：hero 页存在会话视图、无全局面板标记，窗格不得被误收起。
 	await page.getByRole("button", { name: "New session" }).first().click();
 	const hero = await until("hero 页窗格保持可见", async () => {
-		const b = await paneBox(page);
-		const dir = await page.evaluate(() => {
-			const seat = document.querySelector('#root [data-slot="main"]');
-			return seat?.parentElement ? getComputedStyle(seat.parentElement).flexDirection : null;
-		});
-		return b !== null && b.width > 0 && dir === "row" ? b : null;
+		const state = await layoutState(page);
+		return state && state.direction === "row" && state.paneWidth > 0 ? state : null;
 	});
-	assert.ok(hero, "hero 页窗格保持可见且行布局（全局面板判据不误伤无会话页）");
+	assert.ok(hero, "hero 页窗格保持可见且为贴边列（全局面板判据不误伤会话视图）");
 }

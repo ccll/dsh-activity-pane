@@ -5512,7 +5512,7 @@ function apply(ctx) {
 			ancestorObservers.push(observer);
 		}
 
-		// 只观察 center 的直接子节点，捕获 seat/pane 重挂载，不观察 pane 子树。
+		// 观察 center 的直接子节点（seat/pane 重挂载）与全局面板标记属性；不观察 pane 子树。
 		centerObserver = new MutationObserver(() => {
 			const nextSeat = document.querySelector(CONVERSATION_SELECTOR);
 			if (nextSeat?.parentElement !== center) {
@@ -5527,7 +5527,7 @@ function apply(ctx) {
 			}
 			queueSync();
 		});
-		centerObserver.observe(center, { childList: true });
+		centerObserver.observe(center, { childList: true, attributes: true, attributeFilter: [GLOBAL_PANEL_ATTR] });
 
 		// 流式更新只来自会话 seat；pane 自身的文字/属性写入不会再触发重绘。
 		conversationObserver = new MutationObserver(queueSync);
@@ -5657,13 +5657,8 @@ function apply(ctx) {
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
 		if (seat !== null && seat.parentElement !== null) {
 			const center = seat.parentElement;
-			center.style.flexDirection = "";
-			center.style.alignItems = "";
-			const flex = conversationFlexItem(center);
-			if (flex !== null) {
-				flex.style.flex = "";
-				flex.style.minWidth = "";
-			}
+			resetCenterColumn(center);
+			resetConversationFlex(conversationFlexItem(center));
 		}
 		toggle.remove();
 		document.querySelector(`[${PANE_ATTR}]`)?.remove();

@@ -4571,10 +4571,14 @@ assert.ok(
 	"壳层连接自愈触发面限于触屏形态（主输入无 hover 且主指针为触屏），桌面浏览器与桌面安装版 PWA 不重建（R-01-001/AC-03，T-192）",
 );
 // R-01-007/AC-03、AC-04（T-193）：全局面板占屏时中间列回退外壳列布局、窗格收起；
-// 判据优先宿主 data-global-panel 标记，0.2.0 回退到会话滚动区缺失。
+// 判据优先宿主 data-global-panel 标记，0.2.0 回退到会话滚动区缺失；标记翻转由 center
+// 的属性观察唤醒重排，不只依赖子节点替换。
 assert.ok(
-	bundle.includes("data-global-panel") && bundle.includes("function setPaneHidden") && bundle.includes("setPaneHidden(pane, toggle, true)"),
-	"全局面板占屏回退判据与窗格显隐单点进入 bundle（R-01-007/AC-03、AC-04，T-193）",
+	bundle.includes("data-global-panel") &&
+		bundle.includes("attributeFilter: [GLOBAL_PANEL_ATTR]") &&
+		bundle.includes("function setPaneHidden") &&
+		bundle.includes("setPaneHidden(pane, toggle, true)"),
+	"全局面板占屏回退判据、标记属性观察与窗格显隐单点进入 bundle（R-01-007/AC-03、AC-04，T-193）",
 );
 assert.ok(
 	bundle.includes('e2eParams.get("dap-e2e-resume-reconnect-ms")') && bundle.includes("requestedResumeReconnectRaw !== null") && bundle.includes("RESUME_RECONNECT_MIN_HIDDEN_MS") && bundle.includes("RESUME_RECONNECT_DEDUPE_MS"),

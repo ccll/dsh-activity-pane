@@ -5022,6 +5022,33 @@ function apply(ctx) {
 		}
 		return candidate;
 	}
+	/** 恢复中间列的外壳默认列布局，返回是否发生变化。 */
+	function resetCenterColumn(center) {
+		let changed = false;
+		if (center.style.flexDirection !== "") {
+			center.style.flexDirection = "";
+			changed = true;
+		}
+		if (center.style.alignItems !== "") {
+			center.style.alignItems = "";
+			changed = true;
+		}
+		return changed;
+	}
+	/** 清除会话根的弹性填充，返回是否发生变化。 */
+	function resetConversationFlex(flex) {
+		if (flex === null) return false;
+		let changed = false;
+		if (flex.style.flex !== "") {
+			flex.style.flex = "";
+			changed = true;
+		}
+		if (flex.style.minWidth !== "") {
+			flex.style.minWidth = "";
+			changed = true;
+		}
+		return changed;
+	}
 	/** 窗格与开关的显隐单点：只写变化的内联 display，返回是否发生变化。
 	 *  隐藏取 display:none 换取零占位——实测隐藏期 scrollTop 读数为 0、恢复后滚动位置
 	 *  保留，且自动滚动有 clientHeight 守卫（T-193），不引入额外布局状态机。 */
@@ -5029,7 +5056,6 @@ function apply(ctx) {
 		let changed = false;
 		const next = hidden ? "none" : "";
 		for (const el of [pane, toggle]) {
-			if (el === null) continue;
 			if (el.style.display !== next) {
 				el.style.display = next;
 				changed = true;
@@ -5037,7 +5063,7 @@ function apply(ctx) {
 		}
 		return changed;
 	}
-	function applyLayout(pane) {
+	function applyLayout(pane, toggle) {
 		const seat = document.querySelector(CONVERSATION_SELECTOR);
 		if (seat === null || seat.parentElement === null) return;
 		const center = seat.parentElement;
@@ -5046,41 +5072,19 @@ function apply(ctx) {
 			// 移动端：抽屉脱离文档流（fixed），不参与主会话布局；恢复外壳默认
 			// 列布局，避免行方向扰动移动端主会话显示（R-01-008）。
 			if (setPaneHidden(pane, toggle, false)) changed = true;
-			if (center.style.flexDirection !== "") {
-				center.style.flexDirection = "";
-				changed = true;
-			}
-			if (center.style.alignItems !== "") {
-				center.style.alignItems = "";
-				changed = true;
-			}
-			const flex = conversationFlexItem(center);
-			if (flex !== null) {
-				if (flex.style.flex !== "") {
-					flex.style.flex = "";
-					changed = true;
-				}
-				if (flex.style.minWidth !== "") {
-					flex.style.minWidth = "";
-					changed = true;
-				}
-			}
+			if (resetCenterColumn(center)) changed = true;
+			if (resetConversationFlex(conversationFlexItem(center))) changed = true;
 			if (changed) notifyLayoutChange();
 			return;
 		}
 		const flex = conversationFlexItem(center);
-		// 全局面板占屏（会话视图不在屏）：中间列回退外壳默认列布局，收起窗格/开关，
-		// 让面板占满整列（R-01-007/AC-03、AC-04）。0.2.2 起优先读宿主标记；0.2.0
-		// 无标记，以会话滚动区缺失回退——两种宿主都覆盖，不依赖单一 DOM 形态。
-		if (center.hasAttribute(GLOBAL_PANEL_ATTR) || flex === null) {
-			if (center.style.flexDirection !== "") {
-				center.style.flexDirection = "";
-				changed = true;
-			}
-			if (center.style.alignItems !== "") {
-				center.style.alignItems = "";
-				changed = true;
-			}
+		// 全局面板占屏（会话视图不在屏）：恢复外壳列布局、收起窗格/开关，并清掉会话根
+		// 的弹性填充（宿主保留会话 DOM 时也不挤压面板，R-01-007/AC-03）。0.2.2 起优先
+		// 读宿主标记；0.2.0 无标记，以会话滚动区缺失回退——两种宿主都覆盖。
+		const globalPanel = center.hasAttribute(GLOBAL_PANEL_ATTR) || flex === null;
+		if (globalPanel) {
+			if (resetCenterColumn(center)) changed = true;
+			if (resetConversationFlex(flex)) changed = true;
 			if (setPaneHidden(pane, toggle, true)) changed = true;
 			if (changed) notifyLayoutChange();
 			return;
@@ -8106,7 +8110,7 @@ function apply(ctx) {
 			// 旧窗格已脱离文档：其在飞平移的 transitionend 不再触发，逐元素取消避免残留。
 			for (const el of [...shiftCleanups.keys()]) cancelShift(el);
 		}
-		applyLayout(pane);
+		applyLayout(pane, toggle);
 		const activeList = pane.querySelector(`.${LIST_CLASS}`);
 		const recentSection = pane.querySelector(`.${RECENT_CLASS}`);
 		if (activeList === null || recentSection === null) return;

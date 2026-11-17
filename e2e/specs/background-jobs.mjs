@@ -3,9 +3,10 @@
 // ——默认中间档不呈现任务子卡、仅以母卡「后台 ×N」数量注承载，切回完整档随档位重渲染
 // 恢复；完整档以 job 子卡呈现（与子代理同形：层级连接线 + 两行卡面）、第一行工具名称
 // 与随时钟时长、第二行任务内容原文（悬停 tooltip 完整原文）、卡面底色与子代理卡区分；
-// 低档位在跑任务期间不因任务时长逐秒重绘窗格；回合结束后在跑任务期间完成提醒被抑制；
-// 回合已结束仍有在跑任务时数量注闪烁、时间线执行中圆点与标题状态点停闪（数量注成为
-// 唯一运动元素），自身回合运行中数量注不闪烁、圆点恢复呼吸；点击 job 子卡不触发任何操作。
+// 低档位在跑任务期间不因任务时长逐秒重绘窗格；回合结束后在跑任务不再抬成运行态——
+// 完成提醒照常呈现（卡片按等待态），任务只以数量注标注；等待态卡片数量注闪烁、时间线
+// 执行中圆点与标题状态点停闪（等待态末行脉冲归 R-01-002/AC-08，不受该门控约束），
+// 自身回合运行中数量注不闪烁、圆点恢复呼吸；点击 job 子卡不触发任何操作。
 import { mainAreaHas, newSessionWithMessage, openApp, paneRegions, sendHeroMessage, sessionComposer, until } from "../helpers.mjs";
 
 const TITLE = "e2e:job 后台任务探针";
@@ -125,27 +126,38 @@ export default async function backgroundJobs({ page, url, assert }) {
 	// R-01-023/AC-05：内容行悬停 tooltip 承载完整命令原文。
 	assert.ok(jobCard.contentTitle.includes("e2e-job-tick-start"), "job 子卡内容行悬停显示完整命令（R-01-023/AC-05）");
 
-	// R-01-023/AC-02：回合收口（回复行已流出）后任务仍在跑——完成提醒被抑制。以
-	// data-wait="done" 结构标记判定，不以「已完成」文本子串判定：时间线末行 agent
-	// 回复文本本身含「已完成」字样，子串匹配会误报（T-152 修正既有断言缺陷）。
+	// R-01-023/AC-02：回合收口（回复行已流出）后任务仍在跑——完成提醒照常呈现、卡片按
+	// 等待态（data-wait="done"）承载，在跑任务不把会话抬成运行态。以结构标记判定，不以
+	// 「已完成」文本子串判定：时间线末行 agent 回复文本本身含「已完成」字样（T-152 修正）。
 	await until("回合回复已流出", async () => {
 		const regions = await paneRegions(page);
 		return regions && regions.active.includes("E2E 快速回合已完成") ? true : null;
 	}, 20_000);
-	const suppressed = await page.evaluate(() => {
-		return document.querySelector('[data-dsh-activity-pane] .dap-card[data-wait="done"]') === null;
-	});
-	assert.ok(suppressed, "回合收口后在跑后台任务期间完成提醒被抑制（R-01-023/AC-02）");
-	// 完成登记跨客户端的竞态窗口内再核一次：任务持续期间抑制保持。
+	const reminderCard = await until("完成提醒卡呈现", async () => {
+		return page.evaluate(() => {
+			const card = document.querySelector('[data-dsh-activity-pane] .dap-card[data-wait="done"]');
+			if (!card) return null;
+			return {
+				kind: card.dataset.kind ?? "",
+				jobsBlink: card.dataset.jobsBlink ?? "",
+				chip: card.querySelector(".dap-jobs-chip")?.textContent ?? "",
+			};
+		});
+	}, 20_000);
+	assert.ok(reminderCard !== null, "回合收口后在跑后台任务期间完成提醒照常呈现（R-01-023/AC-02）");
+	assert.equal(reminderCard.kind, "awaiting", "在跑任务不把回合已结束的会话抬成运行态呈现（R-01-023/AC-02）");
+	assert.ok(reminderCard.chip.includes("后台 ×1"), "等待态卡片仍标注在跑任务数量（R-01-023/AC-01）");
+	assert.equal(reminderCard.jobsBlink, "true", "等待态卡片数量注闪烁门控置真（R-01-023/AC-11）");
+	// 完成登记跨客户端的竞态窗口内再核一次：任务持续期间提醒保持呈现、不再被抑制。
 	await new Promise((resolve) => setTimeout(resolve, 3_000));
-	const stillSuppressed = await page.evaluate(() => {
-		return document.querySelector('[data-dsh-activity-pane] .dap-card[data-wait="done"]') === null;
+	const stillShown = await page.evaluate(() => {
+		return document.querySelector('[data-dsh-activity-pane] .dap-card[data-wait="done"]') !== null;
 	});
-	assert.ok(stillSuppressed, "在跑任务期间完成提醒持续被抑制（R-01-023/AC-02）");
+	assert.ok(stillShown, "在跑任务期间完成提醒持续呈现（R-01-023/AC-02）");
 	// R-01-023/AC-11：回合已收口、任务仍在跑——数量注闪烁门控置真，CSS 以 dap-pulse
 	// 同源同节奏闪烁；同门控暂停 R-01-009/AC-09 的圆点呼吸（时间线执行中行圆点与卡片
-	// 标题状态点静止），数量注成为卡片唯一运动元素。回合收口重绘由 selfRunning 签名
-	// 分量驱动（任务在跑期间其余签名分量可能全部不变）。
+	// 标题状态点静止）；等待态末行脉冲由 R-01-002/AC-08 承载，不受该门控约束。回合收口
+	// 重绘由 kind 与 selfRunning 签名分量驱动（任务在跑期间其余签名分量可能全部不变）。
 	const blinkProbe = () => page.evaluate(() => {
 		const chip = document.querySelector("[data-dsh-activity-pane] .dap-jobs-chip");
 		if (!chip || chip.hidden || !chip.textContent.includes("后台 ×1")) return null;
@@ -155,7 +167,7 @@ export default async function backgroundJobs({ page, url, assert }) {
 		const titleDot = card.querySelector(".dap-dot");
 		return {
 			chipAnim: getComputedStyle(chip).animationName,
-			cardJobsOnly: card.dataset.jobsOnly ?? "",
+			cardJobsBlink: card.dataset.jobsBlink ?? "",
 			traceDotAnim: traceRunning ? getComputedStyle(traceRunning, "::before").animationName : null,
 			titleDotAnim: titleDot ? getComputedStyle(titleDot).animationName : null,
 			traceStatuses: [...card.querySelectorAll(".dap-trace-item")].map((item) => item.dataset.status),
@@ -165,17 +177,17 @@ export default async function backgroundJobs({ page, url, assert }) {
 	// 探针在 chip 可见时就会返回快照，条件必须放进 until 谓词，防止解析到过渡前的陈旧帧。
 	const untilBlink = (label) => until(label, async () => {
 		const state = await blinkProbe();
-		return state && state.cardJobsOnly === "true" && state.chipAnim === "dap-pulse" ? state : null;
+		return state && state.cardJobsBlink === "true" && state.chipAnim === "dap-pulse" ? state : null;
 	}, 10_000);
 	const blinkState = await untilBlink("数量注闪烁门控置真且圆点停闪");
 	assert.ok(blinkState !== null, "回合已结束仍有在跑后台任务时数量注以 dap-pulse 持续闪烁（R-01-023/AC-11）");
-	// 本剧本的工具行在回合收口时已落定，jobs-only 态时间线通常无执行中行（探针实测
+	// 本剧本的工具行在回合收口时已落定，闪烁态时间线通常无执行中行（探针实测
 	// status 全为 done）；此时标题点停闪是可观测主体，时间线点断言退化为条件式——一旦
 	// 出现执行中行（真实后台 Bash 行长跑时）必须静止，停闪 CSS 由 check.mjs bundle 契约背书。
 	assert.ok(
 		blinkState.titleDotAnim === "none"
 			&& (blinkState.traceDotAnim === null || blinkState.traceDotAnim === "none"),
-		`jobs-only 态标题状态点停止呼吸、执行中时间线圆点（若在场）停止呼吸（R-01-023/AC-11，标题点 ${blinkState.titleDotAnim}、时间线点 ${blinkState.traceDotAnim}、行态 ${JSON.stringify(blinkState.traceStatuses)}）`,
+		`闪烁态标题状态点停止呼吸、执行中时间线圆点（若在场）停止呼吸（R-01-023/AC-11，标题点 ${blinkState.titleDotAnim}、时间线点 ${blinkState.traceDotAnim}、行态 ${JSON.stringify(blinkState.traceStatuses)}）`,
 	);
 
 	// R-01-023/AC-11：自身回合恢复运行——追发慢速流式消息（e2e:runtime 剧本约 3.6s 分块
@@ -189,7 +201,7 @@ export default async function backgroundJobs({ page, url, assert }) {
 	// 线行）；恢复条件全部合取进谓词，同样防止解析到收口态陈旧帧。
 	const untilCalm = (label) => until(label, async () => {
 		const state = await blinkProbe();
-		return state && state.cardJobsOnly !== "true" && state.chipAnim !== "dap-pulse"
+		return state && state.cardJobsBlink !== "true" && state.chipAnim !== "dap-pulse"
 			&& state.titleDotAnim === "dap-pulse" && state.traceDotAnim === "dap-pulse" ? state : null;
 	}, 20_000);
 	const calmState = await untilCalm("回合恢复运行期间数量注停止闪烁且圆点恢复呼吸");
@@ -199,7 +211,7 @@ export default async function backgroundJobs({ page, url, assert }) {
 	);
 	const againState = await untilBlink("回合再次收口后数量注恢复闪烁且圆点复停");
 	assert.ok(
-		againState !== null && againState.cardJobsOnly === "true" && againState.chipAnim === "dap-pulse"
+		againState !== null && againState.cardJobsBlink === "true" && againState.chipAnim === "dap-pulse"
 			&& againState.titleDotAnim === "none"
 			&& (againState.traceDotAnim === null || againState.traceDotAnim === "none"),
 		`回合再次结束后数量注恢复闪烁、圆点停闪复止（R-01-023/AC-11，实际：${JSON.stringify(againState)}）`,
@@ -251,7 +263,7 @@ export default async function backgroundJobs({ page, url, assert }) {
 	}, 8_000);
 	assert.ok(advanced !== null, "切回完整档后任务时长恢复逐秒推进（R-01-025/AC-08）");
 
-	// T-189 1Hz 时钟局部刷新通道：完整档 jobs-only 无事件窗（回合已收口、任务在跑、
+	// T-189 1Hz 时钟局部刷新通道：完整档闪烁态无事件窗（回合已收口、任务在跑、
 	// roster 无推送）内，任务时长推进由 1Hz 时钟帧独立承载——时钟帧绕过全量派生，
 	// 只补随钟叶子文本。断言三面：零元素节点增删（不建/不删/不移动卡片骨架；时长
 	// 文本经 textContent 写前比对更新，Chromium 以文本节点替换落地——childList
@@ -298,7 +310,7 @@ export default async function backgroundJobs({ page, url, assert }) {
 	);
 
 	// R-01-023/AC-08：后台任务子卡为纯展示——切到新会话后点击 job 子卡，不发生会话
-	// 切换（任务在跑期间归属会话保留在活动区，job 子卡跨会话可见）。子卡无激活绑定，
+	// 切换（等待态母卡仍在活动区，job 子卡跨会话可见）。子卡无激活绑定，
 	// 不存在重试链等延迟路径，1.5s 窗口覆盖事件派发已足够；另以结构断言钉住非按钮语义。
 	await newSessionWithMessage(page, "e2e:fast 会话切换探针");
 	assert.ok(await mainAreaHas(page, "e2e:fast 会话切换探针"), "前置：已切换到新会话");
@@ -313,4 +325,41 @@ export default async function backgroundJobs({ page, url, assert }) {
 	await page.evaluate(() => document.querySelector('[data-dsh-activity-pane] .dap-card[data-kind="job"]')?.click());
 	await page.waitForTimeout(1500);
 	assert.ok(await mainAreaHas(page, "e2e:fast 会话切换探针"), "点击后台任务子卡不切换会话（R-01-023/AC-08）");
+
+	// R-01-023/AC-01、AC-03：确认（移入历史）后卡片落最近历史区并保留数量标注；标注为
+	// 静态（最近历史卡不闪，AC-11）。任务随后结束的情形由 scripts/check.mjs 的
+	// settledViews 断言覆盖（本剧本的任务为长跑探针，不自动结束）。
+	// 按会话锚定而非取首张卡：本剧本已新建「e2e:fast」会话，其完成提醒的进入等待时刻更晚，
+	// 在等待组按 enterStateAt 降序排于探针卡之前——取首张会确认错会话。
+	const probeSessionId = await page.evaluate(() => {
+		const card = [...document.querySelectorAll("[data-dsh-activity-pane] .dap-card")].find((el) =>
+			String(el.querySelector(".dap-title")?.textContent ?? "").includes("e2e:job 后台任务探针"),
+		);
+		return card?.dataset.sessionId ?? null;
+	});
+	assert.ok(probeSessionId !== null, "前置：探针会话卡片在场（按标题锚定会话 id）");
+	const acked = await page.evaluate((id) => {
+		const card = document.querySelector(`[data-dsh-activity-pane] .dap-card[data-session-id="${id}"][data-wait="done"]`);
+		const button = card?.querySelector(".dap-confirm");
+		if (!button) return false;
+		button.click();
+		return true;
+	}, probeSessionId);
+	assert.ok(acked, "前置：完成提醒卡存在可激活的「移入历史」按钮（R-01-002/AC-10）");
+	const historyChip = await until("最近历史卡数量注", async () => {
+		return page.evaluate((id) => {
+			const card = document.querySelector(`[data-dsh-activity-pane] .dap-card[data-session-id="${id}"][data-kind="recent"]`);
+			if (!card) return null;
+			const chip = card.querySelector(".dap-jobs-chip");
+			if (!chip || chip.hidden) return null;
+			return {
+				chip: chip.textContent ?? "",
+				blink: card.dataset.jobsBlink ?? "",
+				chipAnim: getComputedStyle(chip).animationName,
+			};
+		}, probeSessionId);
+	}, 15_000);
+	assert.ok(historyChip !== null, "已确认的在跑任务会话落入最近历史并承载数量注（R-01-023/AC-01）");
+	assert.ok(historyChip.chip.includes("后台 ×1"), "最近历史卡标注在跑任务数量（R-01-023/AC-01）");
+	assert.ok(historyChip.blink !== "true" && historyChip.chipAnim !== "dap-pulse", "最近历史卡数量注静止不闪（R-01-023/AC-11）");
 }

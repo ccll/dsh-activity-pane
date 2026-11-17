@@ -3659,8 +3659,9 @@ assert.equal(logWindowSuppressed("full", false), false, "完整档不裁剪数�
 assert.equal(logWindowSuppressed("junk", false), false, "非法档位经归一视作中间档即不裁剪（R-01-025/AC-01）");
 assert.equal(logWindowSuppressed(null, undefined), false, "缺失档位不裁剪（R-01-025/AC-01）");
 
-// ---- R-01-023 在跑后台任务的活性派生、提醒抑制与徽标 ----
-// R-01-023/AC-01：liveJobs 非空的主会话保留活动区、归运行组并携带任务视图（startedAt 升序）。
+// ---- R-01-023 在跑后台任务的卡片标注、等待态门控与徽标口径 ----
+// AC-01/AC-02：在跑后台任务不是活动来源——回合已结束且无未确认提醒的会话不产生活动区条目，
+// 落入最近历史并携带任务视图（历史卡标注数量）。
 const jobbedSnapshot = {
 	ids: ["jA", "jB", "jC"],
 	byId: {
@@ -3676,18 +3677,33 @@ const jobViews = {
 		{ id: "job-1", kind: "bash", label: "sync data", status: "stopping", startedAt: 1000 },
 	],
 };
-const jobbedEntries = buildEntries({ snapshot: jobbedSnapshot, workspaceItems: [], detailsById: {}, completions: null, delegatingIds: null, archivedIds: [], waitingStarts: null, jobsBySession: jobViews });
+const liveJobViews = [
+	{ id: "job-1", kind: "bash", label: "sync data", status: "stopping", startedAt: 1000 },
+	{ id: "job-2", kind: "bash", label: "watch tail.log", status: "running", startedAt: 2000 },
+];
+const plainEntries = buildEntries({ snapshot: jobbedSnapshot, workspaceItems: [], detailsById: {}, jobsBySession: jobViews });
+assert.equal(plainEntries.find((entry) => entry.id === "jA"), undefined, "R-01-023/AC-02 回合已结束且无未确认提醒时，在跑任务不使会话进入活动区");
+assert.ok(plainEntries.find((entry) => entry.id === "jB") !== undefined, "真实运行中会话不受任务视图影响照常显示");
+const jobbedRecent = buildRecent({ snapshot: jobbedSnapshot, workspaceItems: [], now: 999_999, detailsById: {}, archivedIds: [], completions: null, delegatingIds: null, turnEnds: null, jobsBySession: jobViews });
+const recentJobbed = jobbedRecent.find((entry) => entry.id === "jA");
+assert.ok(recentJobbed !== undefined, "R-01-023/AC-01 有在跑任务的已结束会话落入最近历史（不从两区消失）");
+assert.deepEqual(recentJobbed.liveJobs, liveJobViews, "R-01-023/AC-01 历史卡条目携带在跑任务视图：仅 live 状态、startedAt 升序");
+// 未确认完成提醒：等待态呈现、提醒照常成立（不再被在跑任务抑制），任务子卡挂母卡下。
+const jobCompletions = new Map([
+	["jA", { lastTurnEnd: 1000, lastTurnEndKind: "completed", lastTurnEndError: null, ackedAt: null }],
+	["jC", { lastTurnEnd: 1000, lastTurnEndKind: "error", lastTurnEndError: null, ackedAt: null }],
+]);
+const jobbedEntries = buildEntries({ snapshot: jobbedSnapshot, workspaceItems: [], detailsById: {}, completions: jobCompletions, delegatingIds: null, archivedIds: [], waitingStarts: null, jobsBySession: jobViews });
 const jobbedA = jobbedEntries.find((entry) => entry.id === "jA");
-assert.ok(jobbedA !== undefined, "R-01-023/AC-01 回合已结束但在跑后台任务的主会话保留在活动区");
-assert.equal(jobbedA.kind, "running", "R-01-023/AC-01 在跑后台任务的主会话按运行态呈现（非 awaiting）");
+assert.ok(jobbedA !== undefined, "R-01-023/AC-01 存在未确认完成提醒的会话保留在活动区");
+assert.equal(jobbedA.kind, "awaiting", "R-01-023/AC-02 在跑任务不把会话抬成运行态呈现");
+assert.equal(jobbedA.waitClass, "done", "R-01-023/AC-02 完成提醒照常成立（不被在跑任务抑制）");
 assert.deepEqual(
 	jobbedA.liveJobs,
-	[
-		{ id: "job-1", kind: "bash", label: "sync data", status: "stopping", startedAt: 1000 },
-		{ id: "job-2", kind: "bash", label: "watch tail.log", status: "running", startedAt: 2000 },
-	],
-	"R-01-023/AC-01 条目携带在跑任务视图：仅 live 状态、startedAt 升序、已结束任务剔除",
+	liveJobViews,
+	"R-01-023/AC-01 等待态条目携带在跑任务视图：仅 live 状态、startedAt 升序、已结束任务剔除",
 );
+assert.equal(jobbedEntries.find((entry) => entry.id === "jC").waitClass, "error", "R-01-023/AC-02 无在跑任务的错误提醒不受影响（对照组）");
 // R-01-023 任务子卡条目：与子代理同形的缩进子卡，跟随母会话直接后继、结束即消失。
 assert.deepEqual(
 	jobbedEntries.filter((entry) => entry.kind === "job").map((entry) => [entry.id, entry.parentId, entry.depth, entry.title, entry.jobKind, entry.jobStatus]),
@@ -3697,9 +3713,8 @@ assert.deepEqual(
 	],
 	"R-01-023/AC-01 每个在跑后台任务产出一张 job 子卡（复合 id、缩进 depth+1、携带任务字段与工具类型）",
 );
-assert.ok(jobbedEntries[1].kind === "job" && jobbedEntries[0].id === "jA", "job 子卡紧随母会话条目之后（preorder 位置）");
-assert.ok(jobbedEntries.some((entry) => entry.id === "jB"), "真实运行中会话不受任务视图影响照常显示");
-assert.deepEqual(buildEntries({ snapshot: jobbedSnapshot, workspaceItems: [], detailsById: {} }).find((entry) => entry.id === "jA"), undefined, "无任务视图时回合结束且非活动的会话不显示（既有口径不变）");
+const jobbedAIndex = jobbedEntries.findIndex((entry) => entry.id === "jA");
+assert.equal(jobbedEntries[jobbedAIndex + 1]?.kind, "job", "job 子卡紧随母会话条目之后（preorder 位置）");
 // R-01-023 归一边界：快照缺失/形状非法均容错为无任务。
 assert.deepEqual(liveJobsOf(null, "jA"), [], "jobsBySession 缺失归一为无任务");
 assert.deepEqual(liveJobsOf({}, "jA"), [], "无该会话条目归一为无任务");
@@ -3863,7 +3878,12 @@ const recentEquivalenceArgs = {
 	jobsBySession: { tJob: [{ id: "job-9", kind: "bash", label: "watch tail.log", status: "running", startedAt: 2000 }] },
 };
 const recentFull = buildRecent(recentEquivalenceArgs);
-assert.deepEqual(recentFull.map((entry) => entry.id), ["tA", "tB", "tTie1", "tTie2"], "两段式全量与既有过滤谓词语义一致（同刻聚集按 id 字典序，T-186）");
+assert.deepEqual(recentFull.map((entry) => entry.id), ["tA", "tJob", "tB", "tTie1", "tTie2"], "两段式全量与既有过滤谓词语义一致（同刻聚集按 id 字典序；有在跑任务的会话照常入选，R-01-023/AC-01）");
+assert.deepEqual(
+	recentFull.find((entry) => entry.id === "tJob").liveJobs,
+	[{ id: "job-9", kind: "bash", label: "watch tail.log", status: "running", startedAt: 2000 }],
+	"R-01-023/AC-01 最近历史条目携带在跑任务视图（数量标注数据源）",
+);
 assert.equal(recentFull.total, undefined, "未传 limit 不附 total（返回全量候选）");
 for (const size of [0, 1, 3, recentFull.length, recentFull.length + 5]) {
 	assert.deepEqual(buildRecent({ ...recentEquivalenceArgs, limit: size }), recentFull.slice(0, size), `两段式前缀 size=${size} 与全量逐字段一致（T-186）`);
@@ -3930,23 +3950,28 @@ assert.notEqual(waitsNext, waitsOnce, "busy 版本变更重建 waitingStarts");
 assert.deepEqual([...waitsNext], [["wA", 1234], ["wX", 99]], "重建读取当前 busy 内容");
 assert.deepEqual(
 	awaitBadgeStats(jobbedEntries),
-	{ waiting: 0, blocked: 0, total: 2 },
-	"R-01-023/AC-04 徽标分子将仅在跑后台任务的主会话计入运行中",
+	{ waiting: 2, blocked: 0, total: 3 },
+	"R-01-023/AC-04 徽标分子只计回合运行中：等待态（完成/错误提醒）计入等待数，在跑任务不参与运行中分子",
 );
-// R-01-023/AC-02：liveJobs 非空期间完成提醒与错误提醒被抑制。
-const jobCompletions = new Map([
-	["jA", { lastTurnEnd: 1000, lastTurnEndKind: "completed", lastTurnEndError: null, ackedAt: null }],
-	["jC", { lastTurnEnd: 1000, lastTurnEndKind: "error", lastTurnEndError: null, ackedAt: null }],
-]);
-const suppressedEntries = buildEntries({ snapshot: jobbedSnapshot, workspaceItems: [], detailsById: {}, completions: jobCompletions, delegatingIds: null, archivedIds: [], waitingStarts: null, jobsBySession: jobViews });
-assert.equal(suppressedEntries.find((entry) => entry.id === "jA").waitClass, undefined, "R-01-023/AC-02 在跑后台任务期间完成提醒被抑制（回合已结束）");
-assert.equal(suppressedEntries.find((entry) => entry.id === "jC").waitClass, "error", "R-01-023/AC-02 无在跑任务的会话错误提醒不受影响（对照组）");
-// R-01-023/AC-03：任务全部结束后提醒与历史候选恢复既有判定。
+// R-01-023/AC-04：运行中分子按运行态统计——委托周期母卡（kind running、自身回合未运行）
+// 计入运行中；等待态计入等待数；任务子条目不计入。
+assert.deepEqual(
+	awaitBadgeStats([
+		{ id: "run", kind: "running", selfRunning: true },
+		{ id: "deleg", kind: "running", selfRunning: false },
+		{ id: "wait", kind: "awaiting", waitClass: "done" },
+		{ id: "job-1", kind: "job" },
+	]),
+	{ waiting: 1, blocked: 0, total: 3 },
+	"R-01-023/AC-04 运行态（含委托周期母卡）计入运行中分子、等待态计入等待数、任务子条目不计入",
+);
+// R-01-023/AC-03：任务全部结束后移除数量标注，归属与提醒判定不变。
 const settledViews = { jA: [{ id: "job-2", kind: "bash", label: "watch tail.log", status: "completed", startedAt: 2000, finishedAt: 3000 }] };
 const settledEntries = buildEntries({ snapshot: jobbedSnapshot, workspaceItems: [], detailsById: {}, completions: jobCompletions, delegatingIds: null, archivedIds: [], waitingStarts: null, jobsBySession: settledViews });
-assert.equal(settledEntries.find((entry) => entry.id === "jA")?.waitClass, "done", "R-01-023/AC-03 在跑任务全部结束后完成提醒恢复成立");
-assert.ok(!buildRecent({ snapshot: jobbedSnapshot, workspaceItems: [], now: 999_999, detailsById: {}, archivedIds: [], completions: null, delegatingIds: null, turnEnds: null, jobsBySession: jobViews }).some((entry) => entry.id === "jA"), "R-01-023/AC-01 在跑后台任务的主会话不入最近历史");
-assert.ok(buildRecent({ snapshot: jobbedSnapshot, workspaceItems: [], now: 999_999, detailsById: {}, archivedIds: [], completions: null, delegatingIds: null, turnEnds: null, jobsBySession: settledViews }).some((entry) => entry.id === "jA"), "R-01-023/AC-03 任务结束后恢复最近历史候选");
+assert.equal(settledEntries.find((entry) => entry.id === "jA")?.waitClass, "done", "R-01-023/AC-03 任务全部结束后完成提醒判定不变（照旧成立）");
+assert.equal(settledEntries.find((entry) => entry.id === "jA")?.liveJobs, undefined, "R-01-023/AC-03 任务全部结束后移除数量标注");
+assert.ok(buildRecent({ snapshot: jobbedSnapshot, workspaceItems: [], now: 999_999, detailsById: {}, archivedIds: [], completions: null, delegatingIds: null, turnEnds: null, jobsBySession: settledViews }).some((entry) => entry.id === "jA"), "R-01-023/AC-03 任务结束后最近历史候选不变");
+assert.equal(buildRecent({ snapshot: jobbedSnapshot, workspaceItems: [], now: 999_999, detailsById: {}, archivedIds: [], completions: null, delegatingIds: null, turnEnds: null, jobsBySession: settledViews }).find((entry) => entry.id === "jA")?.liveJobs, undefined, "R-01-023/AC-03 任务结束后最近历史条目不携带任务视图（数量标注消失）");
 // R-01-023/AC-05：任务卡工具名行——视图与条目携带工具类型，友好映射已知值、未知原样、不可得为空。
 assert.equal(jobbedA.liveJobs[0].kind, "bash", "R-01-023/AC-05 在跑任务视图携带工具类型");
 assert.equal(jobbedEntries.find((entry) => entry.kind === "job")?.jobKind, "bash", "R-01-023/AC-05 job 子条目携带工具类型");
@@ -3957,16 +3982,21 @@ assert.deepEqual(
 );
 // R-01-023/AC-06：任务内容不可得——条目内容为空，渲染层整行隐藏（bundle 契约与人工验收承载 DOM 行为）。
 const emptyLabelViews = { jA: [{ id: "job-9", kind: "bash", label: "", status: "running", startedAt: 100 }] };
-const emptyLabelEntry = buildEntries({ snapshot: jobbedSnapshot, workspaceItems: [], detailsById: {}, completions: null, delegatingIds: null, archivedIds: [], waitingStarts: null, jobsBySession: emptyLabelViews }).find((entry) => entry.kind === "job");
+const emptyLabelEntry = buildEntries({ snapshot: jobbedSnapshot, workspaceItems: [], detailsById: {}, completions: jobCompletions, delegatingIds: null, archivedIds: [], waitingStarts: null, jobsBySession: emptyLabelViews }).find((entry) => entry.kind === "job");
 assert.ok(emptyLabelEntry !== undefined, "R-01-023/AC-06 前置：内容不可得的在跑任务仍产出子卡");
 assert.equal(emptyLabelEntry.title, "", "R-01-023/AC-06 任务内容不可得时条目内容为空串");
-// R-01-023/AC-11（T-175）：数量注闪烁门控三态——仅由在跑后台任务支撑运行呈现（回合已结束）闪烁；
-// 自身回合运行中、阻塞等待（kind awaiting，回合尚未结束）、无在跑任务均不闪烁；入参非法按无任务处理。
-const chipJobOnly = { kind: "running", selfRunning: false, liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] };
+// R-01-023/AC-11：数量注闪烁门控——等待态且非阻塞等待（回合已结束）闪烁；最近历史卡、
+// 自身回合运行中、阻塞等待与无在跑任务均不闪烁；入参非法按无任务处理。
+const chipAwaitingJobs = { kind: "awaiting", waitClass: "done", pendingKind: undefined, selfRunning: false, liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] };
 assert.deepEqual(
-	jobsChipState(chipJobOnly),
+	jobsChipState(chipAwaitingJobs),
 	{ text: "后台 ×1", hidden: false, blinking: true },
-	"R-01-023/AC-11 回合已结束仍有在跑后台任务时数量注闪烁",
+	"R-01-023/AC-11 等待态卡片（回合已结束）仍有在跑后台任务时数量注闪烁",
+);
+assert.equal(
+	jobsChipState({ kind: "awaiting", waitClass: "error", liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] }).blinking,
+	true,
+	"R-01-023/AC-11 错误提醒卡（回合已结束）同样闪烁——闪烁语义只看回合是否结束",
 );
 assert.equal(
 	jobsChipState({ kind: "running", selfRunning: true, liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] }).blinking,
@@ -3974,12 +4004,17 @@ assert.equal(
 	"R-01-023/AC-11 自身回合运行中数量注不闪烁",
 );
 assert.equal(
-	jobsChipState({ kind: "awaiting", selfRunning: false, liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] }).blinking,
+	jobsChipState({ kind: "awaiting", pendingKind: "approval", waitClass: "blocked", liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] }).blinking,
 	false,
 	"R-01-023/AC-11 阻塞等待（回合尚未结束）期间数量注不闪烁",
 );
+assert.equal(
+	jobsChipState({ kind: "recent", liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] }).blinking,
+	false,
+	"R-01-023/AC-11 最近历史卡片数量注静止",
+);
 assert.deepEqual(
-	jobsChipState({ kind: "running", selfRunning: false, liveJobs: [] }),
+	jobsChipState({ kind: "awaiting", liveJobs: [] }),
 	{ text: "", hidden: true, blinking: false },
 	"R-01-023/AC-11 在跑任务全部结束时数量注隐藏且不闪烁",
 );
@@ -4002,20 +4037,24 @@ assert.notEqual(
 );
 
 // ---- R-01-025 任务子卡不构建与时长时钟门控（T-174） ----
-// R-01-025/AC-08：运行卡逐秒时钟需求判定 runningClockWanted——仅由在跑后台任务支撑
-// 运行呈现的母会话（selfRunning 为假且 liveJobs 非空）自身无逐秒推进分量，低档位
-// （job 子条目被剔除后）不驱动时钟；job 子条目、开放回合会话、委托周期母会话与
-// 运行中子代理照常驱动。
-const jobOnlyMother = [{ id: "solo", kind: "running", selfRunning: false, liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] }];
+// R-01-025/AC-08：运行卡逐秒时钟需求判定 runningClockWanted——在跑后台任务不产生运行呈现，
+// 等待态母卡（回合已结束）自身无逐秒推进分量，低档位（job 子条目被剔除后）不驱动时钟；
+// job 子条目、开放回合会话、委托周期母卡与运行中子代理照常驱动。
+const jobsAwaitingMother = [{ id: "solo", kind: "awaiting", waitClass: "done", selfRunning: false, liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] }];
 assert.equal(
-	runningClockWanted(jobOnlyMother, new Set()),
+	runningClockWanted(jobsAwaitingMother, new Set()),
 	false,
-	"R-01-025/AC-08 仅由在跑后台任务支撑运行呈现的母会话不驱动逐秒时钟（低档位 job 子条目被剔除后的形态）",
+	"R-01-025/AC-08 等待态母卡（仅有在跑任务）不驱动逐秒时钟（低档位 job 子条目被剔除后的形态）",
 );
 assert.equal(
-	runningClockWanted([...jobOnlyMother, { id: "job:solo:job-1", kind: "job", jobStatus: "running" }], new Set()),
+	runningClockWanted([...jobsAwaitingMother, { id: "job:solo:job-1", kind: "job", jobStatus: "running" }], new Set()),
 	true,
 	"R-01-025/AC-08 job 子条目在场（完整档）时驱动逐秒时钟——切回完整档恢复任务时长推进",
+);
+assert.equal(
+	runningClockWanted([{ id: "deleg", kind: "running", selfRunning: false, liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] }], new Set()),
+	true,
+	"R-01-025/AC-08 委托周期母卡（回合运行呈现由后代支撑）照常驱动逐秒时钟",
 );
 assert.equal(
 	runningClockWanted([{ id: "live", kind: "running", selfRunning: true }], new Set()),
@@ -4434,33 +4473,52 @@ assert.ok(
 		"状态点仅 running/stopping 以 dap-pulse 1.2s 闪烁、与主卡状态点同源（R-01-023/AC-09）",
 	);
 }
-// R-01-023/AC-11（T-175）：数量注闪烁门控——三态由 core 纯函数判定、jobs-only 态经卡根
-// data-jobs-only 属性写入（单一门控源），CSS 以 dap-pulse 同源同节奏闪烁（回合已结束
-// 仍有在跑后台任务时），并同门控暂停 R-01-009/AC-09 的圆点呼吸（时间线执行中行圆点
-// 与卡片标题状态点静止），数量注成为卡片唯一运动元素。
+// R-01-023/AC-11：数量注闪烁门控——判定收口 core 纯函数，闪烁态经卡根 data-jobs-blink
+// 属性写入（单一门控源，运行/等待/最近历史三类卡片共用 applyJobsChip），CSS 以 dap-pulse
+// 同源同节奏闪烁（等待态且回合已结束仍存在在跑后台任务时），并同门控暂停 R-01-009/AC-09
+// 的圆点呼吸（时间线执行中行圆点与卡片标题状态点静止）；等待态末行脉冲由 R-01-002/AC-08
+// 承载，不受该门控约束。
 assert.ok(
-	bundle.includes("const { text, hidden, blinking } = jobsChipState(entry);")
-		&& bundle.includes("if (el.dataset.jobsOnly !== jobsOnlyAttr) el.dataset.jobsOnly = jobsOnlyAttr;"),
-	"数量注三态由 jobsChipState 单点判定、jobs-only 态经卡根 data-jobs-only 属性写入（R-01-023/AC-11）",
+	bundle.includes("const { text, hidden } = jobsChipState(entry);")
+		&& bundle.includes("if (el.dataset.jobsBlink !== blink) el.dataset.jobsBlink = blink;")
+		&& bundle.includes("function applyJobsChip(el, entry)"),
+	"数量注与闪烁门控由 jobsChipState 单点判定、经 applyJobsChip 写卡根 data-jobs-blink（R-01-023/AC-11）",
+);
+// 三类卡片共用同一写入点与骨架节点：等待态与最近历史卡骨架都含数量注，渲染分支都调用
+// applyJobsChip（AC-01 历史卡标注的可执行证据），不再各自手写属性。
+assert.equal(
+	bundle.split('makeEl("span", "dap-jobs-chip"), makeWorkspacePill()').length - 1,
+	3,
+	"运行、等待与最近历史三类卡片骨架均含数量注节点（R-01-023/AC-01）",
+);
+assert.equal(
+	bundle.split("applyJobsChip(el, entry);").length - 1,
+	3,
+	"运行、等待与最近历史三类卡片渲染分支均写入数量注与闪烁门控（R-01-023/AC-01、AC-11）",
+);
+assert.ok(
+	bundle.includes('const row = el.querySelector(".dap-row");')
+		&& bundle.includes('pill.insertAdjacentElement("beforebegin", chip);'),
+	"陈旧骨架缺数量注节点时就地补建（C-043 热装惯例）",
 );
 {
-	const chipBlink = bundle.indexOf('[data-dsh-activity-pane] .dap-card[data-jobs-only="true"] .dap-jobs-chip {');
+	const chipBlink = bundle.indexOf('[data-dsh-activity-pane] .dap-card[data-jobs-blink="true"] .dap-jobs-chip {');
 	const chipBlinkBlock = bundle.slice(chipBlink, bundle.indexOf("}", chipBlink));
 	assert.ok(
 		chipBlink !== -1 && chipBlinkBlock.includes("animation: dap-pulse 1.2s ease-in-out infinite"),
 		"数量注闪烁由 CSS 动画承载、与状态点同源同节奏（R-01-023/AC-11）",
 	);
-	const dotStop = bundle.indexOf('[data-dsh-activity-pane] .dap-card[data-jobs-only="true"] .dap-trace-item[data-status="running"]::before');
+	const dotStop = bundle.indexOf('[data-dsh-activity-pane] .dap-card[data-jobs-blink="true"] .dap-trace-item[data-status="running"]::before');
 	const dotStopBlock = bundle.slice(dotStop, bundle.indexOf("}", dotStop));
 	assert.ok(
 		dotStop !== -1 && dotStopBlock.includes("animation: none"),
-		"jobs-only 态暂停时间线执行中圆点呼吸（R-01-023/AC-11、R-01-009/AC-09 暂停）",
+		"闪烁态暂停时间线执行中圆点呼吸（R-01-023/AC-11、R-01-009/AC-09 暂停）",
 	);
-	const dotStopTitle = bundle.indexOf('[data-dsh-activity-pane] .dap-card[data-jobs-only="true"] .dap-dot {');
+	const dotStopTitle = bundle.indexOf('[data-dsh-activity-pane] .dap-card[data-jobs-blink="true"] .dap-dot {');
 	const dotStopTitleBlock = bundle.slice(dotStopTitle, bundle.indexOf("}", dotStopTitle));
 	assert.ok(
 		dotStopTitle !== -1 && dotStopTitleBlock.includes("animation: none"),
-		"jobs-only 态暂停卡片标题状态点呼吸（R-01-023/AC-11）",
+		"闪烁态暂停卡片标题状态点呼吸（R-01-023/AC-11）",
 	);
 }
 // R-01-020（T-175 复盘）：懒回填 GET 响应按 id 只补缺（applyBusyBackfill），不用陈旧

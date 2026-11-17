@@ -6,7 +6,7 @@ id: T-197
 
 # T-197 页面切换期间桌面窗格常驻——移除自动收起判据
 
-状态: active
+状态: completed
 类型: 需求变更
 风险等级: major
 风险面: 对外行为（桌面窗格显隐与展开/收起、全局面板宽度）、兼容性（dsh 0.2.0 无标记与 0.2.2 `data-global-panel` 标记两种宿主）
@@ -73,3 +73,14 @@ id: T-197
 - 残余风险：dsh 0.2.2 真实全局面板 DOM 未在本机复测（仅以合成标记模拟），需在 0.2.2 隔离环境补一次几何回执；插件实例重挂载不恢复折叠形态（AC-05 只承诺页面切换，超出范围）；切页过渡帧在 250ms 同步节流内可能短暂以非弹性宽度渲染，e2e 等收敛后断言、未做逐帧约束；e2e 宿主固定 0.2.0。
 
 ## 终态与证据
+
+- 实现: 桌面分支改为常驻——删除 `GLOBAL_PANEL_ATTR`、全局面板分支与 `centerObserver` 属性观察；`applyLayout` 始终显示窗格并保持 row，主内容根取当前 main entry 根（跳过 `display:contents`，读取异常回退滚动区会话根）并设 `flex:1 1 0%` + `min-width:0`；`setPaneHidden` 收敛为 `ensurePaneVisible`（src/client.mjs:1767、1781、1811、1838）；契约与 e2e 同步（scripts/check.mjs:4631、e2e/specs/desktop-layout.mjs:152）；PRD R-01-007 陈述与 AC-01～AC-05 改写、SOLUTION/DOMAIN/README/C-103/acceptance 同步。
+- 测试: `node scripts/check.mjs` 通过（新契约对旧实现可判红：把 src/client.mjs 换回 HEAD 版本后新断言失败）；`node e2e/run.mjs desktop-layout` 多次 PASS（5.0–7.7s），覆盖折叠态/展开态切页、面板余宽、containment 回归、标记属性落位跨 500ms 不改变、切页前后同宽度与节点身份、hero；`node e2e/run.mjs mobile-drawer mobile-thermal mobile-shell` 3/3 PASS；最终版全量 `node e2e/run.mjs` 26/26 通过（410998ms）；`agentmap_lint --report` 与 `test_impact_lint --report` 通过。
+- SOLUTION 对照: 宿主依赖/窗口形态/渲染器与实现一致（常驻行布局、当前 entry 根弹性填充、不再按标记自动收起）；需求追溯 R-01-007 一行；核对日期 2026-11-17；DOMAIN 不变量与 PRD AC 一一对应；C-103 取代 C-101 且 PRD 出处已改。
+- commit: ca5789d（实现）
+- review:
+  - 审核方: code-review skill 双轴独立子代理（三轮复审）
+  - 目的理解: 删除 C-101 的全局面板自动收起判据，桌面窗格在会话视图与全局面板之间的页面切换期间常驻侧栏右侧；中列始终按「窗格 + 当前 entry」行布局并让当前 entry 根弹性填充；切页不改用户形态/宽度、不重建节点；移动端抽屉不变。
+  - 问题与修复: 首轮 2 条 blocking——B1 AC-05 含无证据的「宿主重渲染」子句、B2 切页/返回/标记/hero 等待条件不区分页面。B1 收窄 AC-05 并同步 PRD 陈述/DOMAIN/SOLUTION/C-103 到页面切换口径，实例重挂载不恢复折叠记为非目标；B2 加 entryTag/conversationScroll/heroPhase/globalPanelMarker 判别、标记落位断言与 500ms 沉降。复审指出承诺层仍有广义「只由用户决定」表述，遂把五处承诺句统一收窄；N1–N6 与 J2/J3/J6 一并处置（折叠宽度下限、侧栏语义锚与命中遮挡、删死回退、README 0.2.2 口径、acceptance 映射、catch 回退加一次性 warn、C-103 裁机制），返回路径补窄条高度与节点身份断言。
+  - 复审结论: 第三轮 blocking 清零（0 条）；N6 catch 回退真实生效，e2e 页面判别与精度断言成立；非 blocking 仅剩 AC-02 面板内容单点代理与 0.2.2 几何回执等记录项。
+

@@ -113,8 +113,13 @@ export default async function longList({ page, url, assert }) {
 	const beforeNativeTopSelect = await paneScroll.evaluate((el) => el.scrollTop);
 	await page.emulateMedia({ reducedMotion: "reduce" });
 	const reducedCallCount = await paneScroll.evaluate((el) => el.__dapE2eScrollCalls?.length ?? 0);
+	const beforeTopCardText = await currentCardText();
 	await nativeSessionRows.first().click();
-	const topSelectedState = await until("原生侧栏选中后向上定位当前卡片", currentCardState);
+	// 滚动到底后旧 current 卡可能已完整可见；等 current 卡确实换到所选会话再断言向上滚动。
+	const topSelectedState = await until("原生侧栏选中后向上定位当前卡片", async () => {
+		const state = await currentCardState();
+		return state !== null && (await currentCardText()) !== beforeTopCardText ? state : null;
+	});
 	assert.ok(topSelectedState.scrollTop < beforeNativeTopSelect, "原生侧栏选择上方会话后窗格向目标卡片滚动");
 	const reducedCalls = await paneScroll.evaluate((el, start) => (el.__dapE2eScrollCalls ?? []).slice(start), reducedCallCount);
 	assert.ok(reducedCalls.some((call) => call.behavior === "auto"), "降低动效偏好时原生侧栏选择跳过平滑过渡");

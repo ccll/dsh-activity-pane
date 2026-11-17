@@ -224,25 +224,58 @@ export async function sendHeroMessage(page, text) {
 			await page.waitForTimeout(POLL_INTERVAL_MS);
 		}
 	};
-	// 本轮发送是否已被宿主受理：受理后草稿被消费、切页可能晚于 5s 窗口——置位后只等落地，
-	// 不再重填重发（否则会在已受理的发送上叠出第二条消息）。
-	let accepted = false;
-	await until(`发送消息「${text}」`, async () => {
+	// 发送按钮：空草稿时宿主置 disabled，草稿被注册后启用——比键盘焦点可靠的「可发送」信号。
+	const sendButton = page.getByRole("button", { name: "Send message" }).first();
+	const waitSendReady = async (timeout) => {
+		const deadline = Date.now() + timeout;
+		for (;;) {
+			if (await sendButton.isEnabled().catch(() => false)) return true;
+			if (Date.now() > deadline) return false;
+			await page.waitForTimeout(POLL_INTERVAL_MS);
+		}
+	};
+	// 单轮发送尝试：返回是否已发送；未受理时附本轮观测，超时报错带上它，CI 复红可直接
+	// 区分「草稿未注册 / 按钮未启用 / 点击被丢弃 / 已受理但切页慢」（T-196）。
+	const attemptOnce = async () => {
 		// 首跑公告可能在 goto/networkidle 之后延迟挂载；每轮先处理，避免遮罩吞掉 composer 键盘事件。
 		await dismissNotice(page);
-		if (accepted) return (await landed(5_000)) ? true : null;
 		// 短超时：切页过程中 hero 节点可能已卸载，避免 fill 落在被移除节点上空等默认 30s。
 		await hero.fill(text, { timeout: 5_000 }).catch(() => {});
 		await page.waitForTimeout(400);
 		// contenteditable 无 inputValue，经 textContent 校验草稿（被水合清空则下轮重填）。
-		if ((await hero.textContent().catch(() => "")) !== text) return null;
-		await page.keyboard.press("Enter");
-		if (await landed(5_000)) return true;
-		// 会话页 composer 已出现 = 发送已被受理、只是切页未完成：只等落地不重发，避免叠出
-		// 第二条消息。仅凭「草稿为空」不作数——水合清空同样是空草稿，重填才是正确恢复。
-		if ((await sessionComposer(page).count()) > 0) accepted = true;
+		const draft = await hero.textContent().catch(() => "");
+		if (draft !== text) return { sent: false, note: `草稿未就绪（${JSON.stringify(draft.slice(0, 24))}）` };
+		// 等发送按钮启用再点：按钮仍 disabled 说明草稿未被宿主注册（水合期常见），本轮重填。
+		if (!(await waitSendReady(3_000))) return { sent: false, note: "发送按钮未启用" };
+		// 点发送按钮而非仅按 Enter（T-196）：Enter 依赖键盘焦点，宿主替换编辑器节点后发送会被
+		// 静默丢弃（hosted runner 上表现为长时间不离开 hero）；按钮是用户可见的同一动作。
+		await sendButton.click({ timeout: 2_000 }).catch(() => {});
+		if (await landed(5_000)) return { sent: true };
+		// 按钮回到 disabled = 草稿已被消费（受理中，切页慢）：只等落地，不再重发。
+		// 仅凭「草稿为空」不作数——水合清空同样是空草稿，重填才是正确恢复。
+		if (await sendButton.isDisabled().catch(() => false)) {
+			return { sent: false, accepted: true, note: "已受理（按钮 disabled），等待切页" };
+		}
+		return { sent: false, note: "发送未受理（按钮仍可用）" };
+	};
+	// 本轮发送是否已被宿主受理：受理后草稿被消费、切页可能晚于 5s 窗口——置位后只等落地，
+	// 不再重填重发（否则会在已受理的发送上叠出第二条消息）。
+	let accepted = false;
+	let note = "尚未尝试";
+	await until(`发送消息「${text}」`, async () => {
+		if (accepted) {
+			if (await landed(5_000)) return true;
+			note = "已受理，等待切页";
+			return null;
+		}
+		const result = await attemptOnce();
+		if (result.sent) return true;
+		if (result.accepted) accepted = true;
+		note = result.note;
 		return null;
-	}, 45_000);
+	}, 45_000).catch(async (error) => {
+		throw new Error(`${error.message}｜${note}；hero=${await hero.count()} 会话 composer=${await sessionComposer(page).count()}`);
+	});
 }
 
 /** 从会话页新建会话：点 sidebar New session 并等 hero 在场，再发送。 */

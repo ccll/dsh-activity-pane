@@ -120,11 +120,13 @@ function footLayout(page, selector) {
 	}, { sel: selector, rowTolerancePx: ROW_TOLERANCE_PX });
 }
 
-/** 激活匹配选择器的第 index 张卡片（激活 = 跳转会话并使其成为当前选中，与卡片文本无关）。 */
+/** 激活匹配选择器的第 index 张卡片（激活 = 跳转会话并使其成为当前选中，与卡片文本无关）。
+ *  返回被点击卡片的会话 id：跳转后列表可能重排，等待「当前选中」时按 id 而非下标断言。 */
 function activateCardByIndex(page, selector, index) {
 	return page.evaluate(({ sel, idx }) => {
 		const card = [...document.querySelectorAll(`[data-dsh-activity-pane] ${sel}`)][idx];
 		card?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		return card?.dataset.sessionId ?? null;
 	}, { sel: selector, idx: index });
 }
 
@@ -456,13 +458,13 @@ export default async function compactDensity({ page, url, assert }) {
 	// data-current 落定（跳转异步完成），把其顶部滚到与视口顶对齐后切换档位。
 	await stepDensity(page, "切换为紧凑显示", "compact", "完整后第一步进入紧凑呈现");
 	await stepDensity(page, "切换为中间显示", "medium", "第二步回到中间呈现");
-	await activateCardByIndex(page, DONE_CARD, 2);
+	const targetDoneId = await activateCardByIndex(page, DONE_CARD, 2);
+	assert.ok(targetDoneId, "第三张完成卡存在且可激活");
 	await until("第三张完成卡成为当前选中", async () => {
-		return page.evaluate(() => {
-			const cards = [...document.querySelectorAll('[data-dsh-activity-pane] .dap-card[data-wait="done"]')];
+		return page.evaluate((id) => {
 			const current = document.querySelector("[data-dsh-activity-pane] .dap-card[data-current]");
-			return cards.indexOf(current) === 2 ? true : null;
-		});
+			return current?.dataset.sessionId === id ? true : null;
+		}, targetDoneId);
 	});
 	await page.evaluate(() => {
 		const pane = document.querySelector("[data-dsh-activity-pane]");

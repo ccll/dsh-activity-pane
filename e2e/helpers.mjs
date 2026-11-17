@@ -197,7 +197,9 @@ export const RELATIVE_AGE_PATTERN = /^(?:刚刚|\d+分钟前|\d+小时前|\d+天
 
 /** 在 hero 首页 composer 填入消息并发送；
  *  宿主偶发在启动时直接恢复进会话视图（无 hero）——先点 New session 回 hero。
- *  二次水合可能清空输入，填入后校验、被清空则重填；发送成功以 hero 消失为准。 */
+ *  二次水合可能清空输入，填入后校验、被清空则重填。发送成功的判据是「hero 编辑器不在场
+ *  且会话页 composer 在场」，再等 800ms 落地稳定窗才返回：紧随其后的「New session」点击若
+ *  落在过渡期会被宿主忽略（T-196）。 */
 export async function sendHeroMessage(page, text) {
 	const hero = page.locator(`[data-placeholder^="${HERO_PLACEHOLDER}"]`);
 	await dismissNotice(page);
@@ -207,17 +209,40 @@ export async function sendHeroMessage(page, text) {
 		if (attempt >= 1) throw new Error("hero composer 未出现（New session 后仍无）");
 		await page.getByRole("button", { name: "New session" }).first().click();
 	}
+	// 落地判据：hero 编辑器不在场且会话页 composer 在场。只看 hero 短暂缺席会把水合期的
+	// 重挂载误判成「已发送」——发送轮询会空转返回真、会话根本没创建（T-196）。
+	// 命中后等 800ms 稳定窗：hero 消失与会话页可交互之间还有过渡，紧接着点「New session」
+	// 会落在过渡期的按钮上被宿主忽略（T-196 本地复现）。
+	const landed = async (timeout) => {
+		const deadline = Date.now() + timeout;
+		for (;;) {
+			if ((await hero.count()) === 0 && (await sessionComposer(page).count()) > 0) {
+				await page.waitForTimeout(800);
+				return true;
+			}
+			if (Date.now() > deadline) return false;
+			await page.waitForTimeout(POLL_INTERVAL_MS);
+		}
+	};
+	// 本轮发送是否已被宿主受理：受理后草稿被消费、切页可能晚于 5s 窗口——置位后只等落地，
+	// 不再重填重发（否则会在已受理的发送上叠出第二条消息）。
+	let accepted = false;
 	await until(`发送消息「${text}」`, async () => {
 		// 首跑公告可能在 goto/networkidle 之后延迟挂载；每轮先处理，避免遮罩吞掉 composer 键盘事件。
 		await dismissNotice(page);
-		await hero.fill(text).catch(() => {});
+		if (accepted) return (await landed(5_000)) ? true : null;
+		// 短超时：切页过程中 hero 节点可能已卸载，避免 fill 落在被移除节点上空等默认 30s。
+		await hero.fill(text, { timeout: 5_000 }).catch(() => {});
 		await page.waitForTimeout(400);
 		// contenteditable 无 inputValue，经 textContent 校验草稿（被水合清空则下轮重填）。
 		if ((await hero.textContent().catch(() => "")) !== text) return null;
 		await page.keyboard.press("Enter");
-		await page.waitForTimeout(1000);
-		return (await hero.count()) === 0 ? true : null; // 已进入会话页
-	}, 20_000);
+		if (await landed(5_000)) return true;
+		// 会话页 composer 已出现 = 发送已被受理、只是切页未完成：只等落地不重发，避免叠出
+		// 第二条消息。仅凭「草稿为空」不作数——水合清空同样是空草稿，重填才是正确恢复。
+		if ((await sessionComposer(page).count()) > 0) accepted = true;
+		return null;
+	}, 45_000);
 }
 
 /** 从会话页新建会话：点 sidebar New session 并等 hero 在场，再发送。 */

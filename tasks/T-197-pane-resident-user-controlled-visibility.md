@@ -77,7 +77,7 @@ id: T-197
 - 实现: 桌面分支改为常驻——删除 `GLOBAL_PANEL_ATTR`、全局面板分支与 `centerObserver` 属性观察；`applyLayout` 始终显示窗格并保持 row，主内容根取当前 main entry 根（跳过 `display:contents`，读取异常回退滚动区会话根）并设 `flex:1 1 0%` + `min-width:0`；`setPaneHidden` 收敛为 `ensurePaneVisible`（src/client.mjs:1767、1781、1811、1838）；契约与 e2e 同步（scripts/check.mjs:4631、e2e/specs/desktop-layout.mjs:152）；PRD R-01-007 陈述与 AC-01～AC-05 改写、SOLUTION/DOMAIN/README/C-103/acceptance 同步。
 - 测试: `node scripts/check.mjs` 通过（新契约对旧实现可判红：把 src/client.mjs 换回 HEAD 版本后新断言失败）；`node e2e/run.mjs desktop-layout` 多次 PASS（5.0–7.7s），覆盖折叠态/展开态切页、面板余宽、containment 回归、标记属性落位跨 500ms 不改变、切页前后同宽度与节点身份、hero；`node e2e/run.mjs mobile-drawer mobile-thermal mobile-shell` 3/3 PASS；最终版全量 `node e2e/run.mjs` 26/26 通过（410998ms）；`agentmap_lint --report` 与 `test_impact_lint --report` 通过。
 - SOLUTION 对照: 宿主依赖/窗口形态/渲染器与实现一致（常驻行布局、当前 entry 根弹性填充、不再按标记自动收起）；需求追溯 R-01-007 一行；核对日期 2026-11-17；DOMAIN 不变量与 PRD AC 一一对应；C-103 取代 C-101 且 PRD 出处已改。
-- commit: ca5789d（实现）
+- commit: 3727a3c（实现）
 - review:
   - 审核方: code-review skill 双轴独立子代理（三轮复审）
   - 目的理解: 删除 C-101 的全局面板自动收起判据，桌面窗格在会话视图与全局面板之间的页面切换期间常驻侧栏右侧；中列始终按「窗格 + 当前 entry」行布局并让当前 entry 根弹性填充；切页不改用户形态/宽度、不重建节点；移动端抽屉不变。

@@ -21,30 +21,40 @@ export default async function mobileResume({ page, url, assert }) {
 
 	// 建立挂起丢弃语义并逼出一次「节流窗口尾排队被吞」。rAF 同帧回调按注册次序执行，
 	// 插件的渲染 rAF 先于探针回调，故 resize#2 落在上次渲染交付后 30ms——wait>0，走
-	// setTimeout 窗口尾排队，timer 被吞后 syncScheduled 永久滞留。
-	await page.evaluate(
-		() =>
-			new Promise((resolve) => {
-				const original = window.setTimeout.bind(window);
-				window.__dapDroppedTimers = 0;
-				window.__dapSuspended = true;
-				window.setTimeout = (fn, ms, ...rest) => {
-					if (window.__dapSuspended && typeof ms === "number" && ms > 0 && ms <= 250) {
-						window.__dapDroppedTimers += 1;
-						return original(() => {}, 2_147_000_000);
-					}
-					return original(fn, ms, ...rest);
-				};
-				window.dispatchEvent(new Event("resize"));
-				window.requestAnimationFrame(() => {
-					original(() => {
-						window.dispatchEvent(new Event("resize"));
-						original(resolve, 150);
-					}, 30);
-				});
-			}),
-	);
-	const drops = await page.evaluate(() => window.__dapDroppedTimers);
+	// setTimeout 窗口尾排队，timer 被吞后 syncScheduled 永久滞留。探针按轮重试：宿主
+	// 渲染相位在负载下会有偏移，单次刺激不保证落在节流窗口内（TODO 已登记的相位敏感
+	// 缺陷），重试至多 15s 直到真的吞掉一次 timer，断言语义不变。
+	await page.evaluate(() => {
+		const original = window.setTimeout.bind(window);
+		window.__dapOriginalTimeout = original;
+		window.__dapDroppedTimers = 0;
+		window.__dapSuspended = true;
+		window.setTimeout = (fn, ms, ...rest) => {
+			if (window.__dapSuspended && typeof ms === "number" && ms > 0 && ms <= 250) {
+				window.__dapDroppedTimers += 1;
+				return original(() => {}, 2_147_000_000);
+			}
+			return original(fn, ms, ...rest);
+		};
+	});
+	const drops = await until("挂起丢弃语义建立（至少一次在途 timer）", async () => {
+		await page.evaluate(
+			() =>
+				new Promise((resolve) => {
+					// 包装器会吞掉 ≤250ms timer，探针自身必须用包装前保存的原生引用。
+					const original = window.__dapOriginalTimeout;
+					window.dispatchEvent(new Event("resize"));
+					window.requestAnimationFrame(() => {
+						original(() => {
+							window.dispatchEvent(new Event("resize"));
+							original(resolve, 150);
+						}, 30);
+					});
+				}),
+		);
+		const count = await page.evaluate(() => window.__dapDroppedTimers);
+		return count > 0 ? count : null;
+	}, 15_000);
 	assert.ok(drops >= 1, "至少丢弃一次在途 timer（挂起丢弃语义已建立）");
 
 	// 回合在宿主侧收尾——对应真机场景「后台过程中会话完成」。
@@ -61,6 +71,10 @@ export default async function mobileResume({ page, url, assert }) {
 	// 回前台：无条件清掉在途 timer 并立即交付一轮渲染，窗格自愈到最新状态。
 	await page.evaluate(() => {
 		window.__dapSuspended = false;
+		if (window.__dapOriginalTimeout) {
+			window.setTimeout = window.__dapOriginalTimeout;
+			delete window.__dapOriginalTimeout;
+		}
 		document.dispatchEvent(new Event("visibilitychange"));
 	});
 	const regions = await until("回前台后窗格自愈到最新状态", async () => {

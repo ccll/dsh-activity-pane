@@ -239,6 +239,15 @@ export async function sendHeroMessage(page, text) {
 	const attemptOnce = async () => {
 		// 首跑公告可能在 goto/networkidle 之后延迟挂载；每轮先处理，避免遮罩吞掉 composer 键盘事件。
 		await dismissNotice(page);
+		// hero 已被迟到的会话切换替换（CI 实测：点 New session 后宿主把上一个会话的切换落地、
+		// hero 被换回会话页，fill 永远写不进）。尚未点过发送就重开 hero 再试；点过发送则按
+		// 已受理处理，避免在已发送的情况下再开一个新会话。
+		if ((await hero.count()) === 0) {
+			if (clickedSend) return { sent: false, accepted: true, note: "hero 消失（已点发送），等待切页" };
+			await page.getByRole("button", { name: "New session" }).first().click({ timeout: 2_000 }).catch(() => {});
+			const reopened = await hero.waitFor({ timeout: 8_000 }).then(() => true).catch(() => false);
+			if (!reopened) return { sent: false, note: "hero 不在场且重开失败" };
+		}
 		// 短超时：切页过程中 hero 节点可能已卸载，避免 fill 落在被移除节点上空等默认 30s。
 		await hero.fill(text, { timeout: 5_000 }).catch(() => {});
 		await page.waitForTimeout(400);
@@ -249,6 +258,7 @@ export async function sendHeroMessage(page, text) {
 		if (!(await waitSendReady(3_000))) return { sent: false, note: "发送按钮未启用" };
 		// 点发送按钮而非仅按 Enter（T-196）：Enter 依赖键盘焦点，宿主替换编辑器节点后发送会被
 		// 静默丢弃（hosted runner 上表现为长时间不离开 hero）；按钮是用户可见的同一动作。
+		clickedSend = true;
 		await sendButton.click({ timeout: 2_000 }).catch(() => {});
 		if (await landed(5_000)) return { sent: true };
 		// 按钮回到 disabled = 草稿已被消费（受理中，切页慢）：只等落地，不再重发。
@@ -261,6 +271,7 @@ export async function sendHeroMessage(page, text) {
 	// 本轮发送是否已被宿主受理：受理后草稿被消费、切页可能晚于 5s 窗口——置位后只等落地，
 	// 不再重填重发（否则会在已受理的发送上叠出第二条消息）。
 	let accepted = false;
+	let clickedSend = false;
 	let note = "尚未尝试";
 	await until(`发送消息「${text}」`, async () => {
 		if (accepted) {

@@ -3,7 +3,9 @@
 // 挂载策略：把窗格作为 AppFrame 中 keyed `main` 槽容器的前置兄弟列插入
 // （`#root [data-slot="main"] || .parentElement` 即中列 flex，dsh 0.1.5 起原
 // `conversation` Slot 迁移为 `main` 的 `conversation` key），让外壳的让步链
-// 挤压中间栏；窄屏（<=767px）转为固定抽屉 + 浮动开关按钮。
+// 挤压中间栏；窄屏（<=767px）转为固定抽屉 + 浮动开关按钮。桌面窗格常驻，
+// 显隐与展开/收起只由用户操作决定，不随主区域在会话视图与全局面板之间切换
+// 而自动隐藏（R-01-007/AC-03、AC-05，C-103）。
 //
 // 数据来源：DSH 原生 `sessions` / `workspaces` 客户端服务（推送式快照）+ `remote`
 // 服务的部署级模型目录（session/modelCatalog）与会话日志分页（session/page，
@@ -34,9 +36,6 @@ const name = "dsh-activity-pane";
 const inject = ["sessions", "workspaces", "uiSession", "remote.session", "jobs", "uiWorkspace"];
 
 const CONVERSATION_SELECTOR = "#root [data-slot=\"main\"]";
-// 全局面板标记（dsh 0.2.2 起）：中间列 mainPanel 在原生页面（插件页、定时任务页、
-// 第三方市场页等）占屏时带此属性；0.2.0 无该标记，判据回退到会话滚动区缺失。
-const GLOBAL_PANEL_ATTR = "data-global-panel";
 const PANE_ATTR = "data-dsh-activity-pane";
 const PANE_CLASS = "dap-pane";
 const LIST_CLASS = "dap-list";
@@ -1742,9 +1741,10 @@ function apply(ctx) {
 		toggle.style.left = `${Math.round(fabEl.offsetLeft + fabEl.offsetWidth + 8)}px`;
 	}
 
-	// 桌面判定与"真实参与布局"：中间列切为行方向，窗格固定宽、会话根弹性填充
-	// 剩余宽度（flex:1 + min-width:0），让会话内容（标题/tabs/滚动区/输入框）
-	// 被真实挤到窗格右侧，且聊天列在增宽的会话带内自动居中。
+	// 桌面判定与"真实参与布局"：中间列切为行方向，窗格固定宽、主内容根弹性填充
+	// 剩余宽度（flex:1 + min-width:0），让会话或全局面板内容被真实挤到窗格右侧；
+	// 聊天列在增宽的会话带内自动居中。窗格显隐与展开/收起只由用户操作决定，
+	// 不随主区域页面切换自动收起（R-01-007/AC-03、AC-05，C-103）。
 	const desktopQuery = window.matchMedia("(min-width: 768px)");
 	/** 找到作为 center 弹性子项的真实会话盒（跳过 display:contents 占位层）。 */
 	function conversationFlexItem(center) {
@@ -1762,6 +1762,34 @@ function apply(ctx) {
 		}
 		return candidate;
 	}
+	/** 当前 main 槽 entry 的根盒（跳过 display:contents 占位层）。全局面板没有会话
+	 *  滚动区，主内容根只能从槽容器的 entry 根取（R-01-007/AC-04）。 */
+	let entryFlexWarned = false;
+	function entryFlexItem(seat) {
+		let node = seat.firstElementChild;
+		while (node !== null) {
+			let display = "";
+			try {
+				display = window.getComputedStyle(node).display;
+			} catch (error) {
+				if (!entryFlexWarned) {
+					entryFlexWarned = true;
+					console.warn("[dsh-activity-pane] 主内容根 display 读取失败，回退会话根锚点", error);
+				}
+				// 读取失败不猜层级：返回 null 由 mainContentFlexItem 回退到滚动区
+				// 锚定的会话根，避免把 flex 落到 display 未知的盒。
+				return null;
+			}
+			if (display !== "contents") return node;
+			node = node.firstElementChild;
+		}
+		return null;
+	}
+	/** 中列当前主内容的弹性盒：优先当前 entry 根（全局面板与页面切换窗口期都能
+	 *  命中），回退到滚动区锚定的会话根（hero/加载态同样有滚动区）。 */
+	function mainContentFlexItem(center, seat) {
+		return entryFlexItem(seat) ?? conversationFlexItem(center);
+	}
 	/** 恢复中间列的外壳默认列布局，返回是否发生变化。 */
 	function resetCenterColumn(center) {
 		let changed = false;
@@ -1775,8 +1803,8 @@ function apply(ctx) {
 		}
 		return changed;
 	}
-	/** 清除会话根的弹性填充，返回是否发生变化。 */
-	function resetConversationFlex(flex) {
+	/** 清除主内容根的弹性填充，返回是否发生变化。 */
+	function resetContentFlex(flex) {
 		if (flex === null) return false;
 		let changed = false;
 		if (flex.style.flex !== "") {
@@ -1789,15 +1817,14 @@ function apply(ctx) {
 		}
 		return changed;
 	}
-	/** 窗格与开关的显隐单点：只写变化的内联 display，返回是否发生变化。
-	 *  隐藏取 display:none 换取零占位——实测隐藏期 scrollTop 读数为 0、恢复后滚动位置
-	 *  保留，且自动滚动有 clientHeight 守卫（T-193），不引入额外布局状态机。 */
-	function setPaneHidden(pane, toggle, hidden) {
+	/** 窗格与开关的可见性单点：桌面窗格常驻，显隐只由用户折叠态决定。当前版本不产生
+	 *  内联 display:none，这里只做防御性清理（宿主重挂载或旧实例窗口期），不提供自动
+	 *  隐藏路径（R-01-007/AC-03、AC-05，C-103）。 */
+	function ensurePaneVisible(pane, toggle) {
 		let changed = false;
-		const next = hidden ? "none" : "";
 		for (const el of [pane, toggle]) {
-			if (el.style.display !== next) {
-				el.style.display = next;
+			if (el.style.display !== "") {
+				el.style.display = "";
 				changed = true;
 			}
 		}
@@ -1811,25 +1838,16 @@ function apply(ctx) {
 		if (!desktopQuery.matches) {
 			// 移动端：抽屉脱离文档流（fixed），不参与主会话布局；恢复外壳默认
 			// 列布局，避免行方向扰动移动端主会话显示（R-01-008）。
-			if (setPaneHidden(pane, toggle, false)) changed = true;
+			if (ensurePaneVisible(pane, toggle)) changed = true;
 			if (resetCenterColumn(center)) changed = true;
-			if (resetConversationFlex(conversationFlexItem(center))) changed = true;
+			if (resetContentFlex(mainContentFlexItem(center, seat))) changed = true;
 			if (changed) notifyLayoutChange();
 			return;
 		}
-		const flex = conversationFlexItem(center);
-		// 全局面板占屏（会话视图不在屏）：恢复外壳列布局、收起窗格/开关，并清掉会话根
-		// 的弹性填充（宿主保留会话 DOM 时也不挤压面板，R-01-007/AC-03）。0.2.2 起优先
-		// 读宿主标记；0.2.0 无标记，以会话滚动区缺失回退——两种宿主都覆盖。
-		const globalPanel = center.hasAttribute(GLOBAL_PANEL_ATTR) || flex === null;
-		if (globalPanel) {
-			if (resetCenterColumn(center)) changed = true;
-			if (resetConversationFlex(flex)) changed = true;
-			if (setPaneHidden(pane, toggle, true)) changed = true;
-			if (changed) notifyLayoutChange();
-			return;
-		}
-		if (setPaneHidden(pane, toggle, false)) changed = true;
+		// 桌面：窗格常驻，用户未折叠时保持展开宽度、折叠后保持窄条；页面切换、
+		// 宿主重渲染与全局面板占屏都不改变该形态（R-01-007/AC-03、AC-05）。
+		// 中列始终为「窗格 + 主内容」行布局，主内容按当前 entry 弹性填充余宽。
+		if (ensurePaneVisible(pane, toggle)) changed = true;
 		if (center.style.flexDirection !== "row") {
 			center.style.flexDirection = "row";
 			changed = true;
@@ -1838,13 +1856,16 @@ function apply(ctx) {
 			center.style.alignItems = "stretch";
 			changed = true;
 		}
-		if (flex.style.flex !== "1 1 0%") {
-			flex.style.flex = "1 1 0%";
-			changed = true;
-		}
-		if (flex.style.minWidth !== "0") {
-			flex.style.minWidth = "0";
-			changed = true;
+		const flex = mainContentFlexItem(center, seat);
+		if (flex !== null) {
+			if (flex.style.flex !== "1 1 0%") {
+				flex.style.flex = "1 1 0%";
+				changed = true;
+			}
+			if (flex.style.minWidth !== "0") {
+				flex.style.minWidth = "0";
+				changed = true;
+			}
 		}
 		if (changed) notifyLayoutChange();
 	}
@@ -5516,7 +5537,9 @@ function apply(ctx) {
 			ancestorObservers.push(observer);
 		}
 
-		// 观察 center 的直接子节点（seat/pane 重挂载）与全局面板标记属性；不观察 pane 子树。
+		// 观察 center 的直接子节点（seat/pane 重挂载）；不观察 pane 子树。全局面板
+		// 切换由槽座子树的 entry 替换唤醒，不再依赖宿主标记做显隐判断
+		// （R-01-007/AC-03，C-103）。
 		centerObserver = new MutationObserver(() => {
 			const nextSeat = document.querySelector(CONVERSATION_SELECTOR);
 			if (nextSeat?.parentElement !== center) {
@@ -5531,7 +5554,7 @@ function apply(ctx) {
 			}
 			queueSync();
 		});
-		centerObserver.observe(center, { childList: true, attributes: true, attributeFilter: [GLOBAL_PANEL_ATTR] });
+		centerObserver.observe(center, { childList: true });
 
 		// 流式更新只来自会话 seat；pane 自身的文字/属性写入不会再触发重绘。
 		conversationObserver = new MutationObserver(queueSync);
@@ -5662,7 +5685,7 @@ function apply(ctx) {
 		if (seat !== null && seat.parentElement !== null) {
 			const center = seat.parentElement;
 			resetCenterColumn(center);
-			resetConversationFlex(conversationFlexItem(center));
+			resetContentFlex(mainContentFlexItem(center, seat));
 		}
 		toggle.remove();
 		document.querySelector(`[${PANE_ATTR}]`)?.remove();

@@ -10,7 +10,7 @@
 // - R-01-001/AC-03～AC-06、R-01-002/AC-06～AC-07（空态/完成/阻塞及三处徽标）、R-01-017/AC-01、R-02-002/AC-01、AC-02 → e2e/specs/auto-update.mjs
 // - R-01-004/AC-01、AC-02 → e2e/specs/long-list.mjs
 // - R-01-019/AC-01～AC-04 → e2e/specs/recent-infinite-scroll.mjs（首批/手动追加/末尾停止/互斥与独立滚动）
-// - R-01-007/AC-01、AC-02、R-01-011/AC-05 → e2e/specs/desktop-layout.mjs
+// - R-01-007/AC-01～AC-05、R-01-011/AC-05 → e2e/specs/desktop-layout.mjs
 // - R-01-008/AC-01、AC-02 点击/键盘、AC-03 鼠标、AC-04 徽标单挂/标题行行首嵌入/不遮挡几何、AC-05、AC-06 点击/键盘 → e2e/specs/mobile-drawer.mjs（AC-03 真触摸、AC-04 行首观感与真机残留人工）
 // - R-01-010/AC-04 → e2e/specs/auto-update.mjs 与 e2e/specs/session-lifecycle.mjs
 // - R-01-001/AC-01、AC-02、R-01-002/AC-03、AC-10、R-01-010/AC-01、AC-02 → e2e/specs/session-lifecycle.mjs

@@ -4,8 +4,8 @@
 
 - 本会话: T-197（需求变更，active → completed）。
   - 分支与提交基点: `t197-pane-visible`，worktree `.worktrees/t197-pane-visible`，基点 `ae18466`（main）。
-  - 可写文件范围: `src/client.mjs`、`scripts/check.mjs`、`e2e/specs/desktop-layout.mjs`、`PRD.md`、`SOLUTION.md`、`DOMAIN.md`、`README.md`、`README.zh-CN.md`、`RATIONALE/C-103-pane-resident-user-controlled-visibility.md`、`tasks/T-197-pane-resident-user-controlled-visibility.md`、`.dsh-plugin/client.js`（构建产物）、本文件。
+  - 可写文件范围: `src/client.mjs`、`scripts/check.mjs`、`scripts/acceptance.mjs`、`e2e/specs/desktop-layout.mjs`、`PRD.md`、`SOLUTION.md`、`DOMAIN.md`、`README.md`、`README.zh-CN.md`、`RATIONALE/C-103-pane-resident-user-controlled-visibility.md`、`tasks/T-197-pane-resident-user-controlled-visibility.md`、`tasks/T-198-cumulative-audit-ca5789d.md`、`CONVENTIONS.md`（仅累计审计复位点行）、`.dsh-plugin/client.js`（构建产物）、本文件。
   - 追加型共享文件单写者: PRD、SOLUTION、DOMAIN、RATIONALE、tasks 由本会话单写；其他会话需要改动时先与本会话协调。
-  - 不写: `.github/workflows/*`、`e2e/boot.mjs`、`e2e/helpers.mjs`、`CONVENTIONS.md` 及他会话的 task 文件。
-- CI 修复会话: 任务、文件范围与提交由该会话自行登记；本会话不触碰其范围。合并顺序由东家决定；若 CI 修复先落 main，本分支合并前需 rebase 到最新 main。
-- 收尾事项与关闭前自查: `check.mjs` 契约、`desktop-layout` 与移动端三 spec 回归、全量 `pnpm verify`、独立双轴评审；T-197 终态证据四行齐备后关闭。本文件随 T-197 提交。
+  - 不写: `.github/workflows/*`、`e2e/boot.mjs`、`e2e/helpers.mjs` 及他会话的 task 文件。
+- CI 修复会话: 任务、文件范围与提交由该会话自行登记；本会话不触碰其范围。该会话已在 main 落 `c4537a4`、`ada45fe`、`d6fcecf`（T-196 修复与关闭）；与本分支无文件重叠，`merge-tree` 预演干净。
+- 收尾事项与关闭前自查: `check.mjs` 契约、`desktop-layout` 与移动端三 spec 回归、全量 `pnpm verify`、独立双轴评审、累计审计 T-198 与 CONVENTIONS 复位点登记；T-197 终态证据四行与 review 三标签齐备后关闭。合并回 main 由东家决定，合并后需重跑 `pnpm verify`（并行 helpers 改动）。本文件随 T-197 关闭提交更新。

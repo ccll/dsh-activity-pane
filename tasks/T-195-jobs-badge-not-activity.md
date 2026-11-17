@@ -6,7 +6,7 @@ id: T-195
 
 # T-195 后台任务只作标注——会话活动归属回归回合状态
 
-状态: active
+状态: completed
 类型: 需求变更
 风险等级: major
 风险面: 对外行为（卡片运行/等待归属、完成提醒成立性、徽标计数口径）
@@ -82,3 +82,13 @@ id: T-195
 - 回归影响：完成提醒/错误提醒的成立性只由 `completions` 决定；子代理与委托周期母卡的运行呈现与时钟门控不受影响；任务子卡仍只在完整档呈现。
 
 ## 终态与证据
+
+- 实现: `src/core.mjs` 令活动归属只由回合状态判定——`buildEntries` 的 `selfActive`/`done`/`err`/`kind`/`isRunningEntry` 去掉 `hasLive`（src/core.mjs:1840-1865）；`buildRecent` 不再排除在跑任务会话、仅在有任务时携带 `liveJobs`（src/core.mjs:1982-1984）；`jobsChipState` 闪烁条件改为等待态且非阻塞等待（src/core.mjs:2339-2347）；`runningClockWanted` 按 kind 判定（src/core.mjs:2208-2215）。`src/client.mjs` 等待态与最近历史卡骨架补数量注节点，`renderJobsChip` 缺节点就地补建（src/client.mjs:3861-3876），`applyJobsChip` 收口数量注与卡根 `data-jobs-blink`（src/client.mjs:3879-3884）并在运行/等待/历史三处调用（4039/4098/4106），CSS 门控与注释同步（src/client.mjs:806-821），删除已无意义的进度冻结谓词。map 同次演进：PRD R-01-023 陈述与 AC-01/AC-02/AC-03/AC-04/AC-11 改写、R-01-025/AC-08 删除失效括注、R-01-023 补出处 C-102；SOLUTION 显示过滤/标注 bullet/等待优先/分区不变量/契约/档位与时钟纪律/渲染器门控七处落点改写并补最近历史条目 `liveJobs?`；DOMAIN「在跑后台任务」词条与层级不变量改写；新增 RATIONALE/C-102。
+- 测试: `node scripts/check.mjs` 全部断言通过（R-01-023 AC-01/AC-02/AC-03/AC-04/AC-11 与 R-01-025/AC-08 锚点、buildRecent 等价用例含在跑任务候选、bundle 契约钉三类骨架与三处写入点及补建分支）。`python3 tools/test_impact_lint.py` 通过：changed=6（~R-01-023/AC-01、AC-02、AC-03、AC-04、AC-11、R-01-025/AC-08），added=0 modified=6 deleted=0。`python3 tools/agentmap_lint.py` 通过（既有风格 warning 不变），追溯矩阵 R-01-023 AC=11 锚点=11。最终全量 `pnpm verify` 通过：VERIFY_EXIT=0，26/26 specs 全绿（429258ms），其中 background-jobs 27.2s PASS（完成提醒呈现 + kind=awaiting + 数量注闪烁 + 圆点停闪 + 运行窗停闪 + 再收口复闪 + 确认后历史卡标注静止 + 档位门控 + 低档静默 + 1Hz 时钟帧）；`background-jobs` 另单独复跑两次 PASS（23.8s/23.9s）。过程事实：全量首跑遇 mobile-thermal 启动窗格数据超时、次跑命中新增 E2E 断言选择器缺陷（按首张完成卡确认会选错会话，已改为按会话 id 锚定）、第三跑遇 background-jobs/density-resource 启动超时与 compact-density 激活竞态；同期机器上有外部 pytest 负载（/tmp/t113-*.log），各 spec 单跑均 PASS，compact-density 无仪器化复跑 3/3 PASS，最终全量 26/26 全绿。
+- SOLUTION 对照: 显示过滤与「不是活动来源」契约 ↔ PRD AC-02 ↔ `buildEntries` 的 show/kind 判定一致；最近历史入选与标注 ↔ AC-01/AC-03 ↔ `buildRecent` 的 `liveJobs` 与三类渲染分支一致（任务结束后条目不再携带 `liveJobs`，标注消失）；闪烁门控 ↔ AC-11 ↔ `jobsChipState` + `data-jobs-blink` + CSS 一致，等待态末行脉冲归 R-01-002/AC-08 已在 PRD/SOLUTION/CSS 注释写明；徽标分子 ↔ AC-04 ↔ `awaitBadgeStats`（total−waiting，含委托周期母卡）一致；档位与时钟纪律 ↔ R-01-025/AC-08 ↔ `runningClockWanted` 与 1Hz 局部刷新一致（等待态母卡不驱动，job 子条目驱动）；DOMAIN 词条与不变量与实现一致。无未处置差距。
+- commit: 08e8a2a
+- review:
+  - 审核方: code-review skill 双轴独立子代理（Standards 轴与 Spec 轴并行、各自独立上下文；同一审核方各复审两轮）
+  - 目的理解: 旧口径把「存在在跑后台任务」当作会话的第三种活动来源——回合已结束的会话被保留在活动区按运行态呈现、完成/错误提醒被抑制，导致「等待任务结果再继续」与「只启动常驻服务、等你决定下一步」两类会话被混为一谈。宿主 `JobView` 无「任务是否被等待」字段、`JobEvent.settled.awaited` 仅在结算时可得，客户端推断不可靠；东家拍板方案三（C-102）：活动归属只由回合状态决定，在跑任务退化为卡片标注（活动区与最近历史卡「后台 ×N」，活动区等待态卡闪烁、历史卡静止）。
+  - 问题与修复: Standards 轴两轮共 9 条、Spec 轴两轮共 8 条，全部处置——删除进度冻结谓词使委托周期母卡进度行恢复（原契约冲突）；统一 `applyJobsChip` 消除重复写入；卡根属性改 `data-jobs-blink` 并统一三类卡片；数量注节点就地补建（C-043 热装惯例）；`SOLUTION` 最近卡片结构补 `liveJobs?` 与徽标分子措辞对齐；补 bundle 契约（三骨架/三写入点/补建）与 E2E「确认后历史卡标注静止」断言；新增 RATIONALE C-102 并把 task 的「方案 C」改称「方案三（标注化）」；按 AC-11 冲突收窄 PRD/SOLUTION 措辞（末行脉冲归 R-01-002/AC-08）；E2E 确认动作改按会话 id 锚定（首轮复审 blocking：取首张完成卡会确认错「e2e:fast」会话）。残留非阻断：阻塞等待不闪仅纯函数断言、任务结束后 chip 隐藏无 DOM 断言、历史卡数量注布局与 HMR 补建无浏览器覆盖、E2E 标题锚定依赖 displayTitle 与标题一致。
+  - 复审结论: Standards 轴复审 2 无 blocking（bundle 与 src 字节一致、lint 与 check 在 /tmp 副本复跑通过）；Spec 轴复审无 blocking（六项发现全部闭合或降为非阻塞残留）；最终全量 `pnpm verify` 26/26 全绿，VERIFY_EXIT=0。non-blocking 通过。

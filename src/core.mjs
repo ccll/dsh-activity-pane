@@ -15,8 +15,8 @@
 //
 // 展示规则：
 //   主会话（非有效子代理行）：running || completed || pendingInteraction 都显示；
-//   存活在跑后台任务（jobsBySession 中 status ∈ {running, stopping}，R-01-023）的主会话
-//   同样按运行态显示并抑制完成/错误提醒；
+//   在跑后台任务（jobsBySession 中 status ∈ {running, stopping}，R-01-023）不改变显示判定与
+//   呈现类别，只在卡片标题行标注数量（活动区与最近历史卡）；
 //   子代理（origin === 'subagent' 且 parentId 有效）：仅 running || pendingInteraction 时显示（结束后即消失）；
 //   pendingInteraction 总是优先视为"等待用户行动"（即使在 running 中）。
 
@@ -1762,9 +1762,9 @@ export function mainTitle(byId, id) {
  * 共用 enterStateAt 单点口径——pending 取 waitingStarts，完成/错误提醒取 completions.lastTurnEnd；
  * 显示侧不回落宿主列表时间——排序键缺失时的回落仅用于排序，显示以 null（不显示）承载。
  * jobsBySession（R-01-023）：快照携带的 `jobsBySession` 任务视图映射——存在在跑后台任务
- * （status ∈ {running, stopping}）的主会话获得第三种自身活动来源：保留在活动区归入运行组、
- * 完成提醒与错误提醒被抑制（AC-01、AC-02）；条目携带 liveJobs（startedAt 升序）供渲染层
- * 标注数量与构建任务行（R-01-023）。子代理行不派生 liveJobs（后台任务当前仅主会话呈现）。
+ * （status ∈ {running, stopping}）不改变会话的活动区归属、呈现类别与完成/错误提醒判定
+ * （AC-02）；条目携带 liveJobs（startedAt 升序）供渲染层标注数量与构建任务行（AC-01），
+ * 子代理行不派生 liveJobs（后台任务当前仅主会话呈现）。
  */
 export function buildEntries(options = {}) {
 	const {
@@ -1837,16 +1837,16 @@ export function buildEntries(options = {}) {
 		const running = row.running === true;
 		const pending = row.pendingInteraction !== undefined;
 		const isSub = hasParent;
-		// 在跑后台任务（R-01-023）：主会话的第三种自身活动来源——liveJobs 非空期间
-		// 完成/错误提醒被抑制（AC-02）、会话保持运行态呈现（AC-01）。
+		// 在跑后台任务（R-01-023）：只作卡片数量标注的输入——liveJobs 非空不改变 show 判定、
+		// 不改变 kind，也不抑制完成/错误提醒（AC-02：活动归属只由回合状态决定）。
 		const liveJobs = isSub ? [] : liveJobsOf(jobsBySession, id);
 		const hasLive = liveJobs.length > 0;
 		// 完成确认（R-01-002/AC-03、AC-05、R-01-010/AC-06）：未确认的完成提醒按自身活动计入。
-		const done = !hasLive && completionReminder(row, completionFor(id, completions), isSub);
+		const done = completionReminder(row, completionFor(id, completions), isSub);
 		// 错误提醒（R-01-002/AC-13，C-043）：最近回合以错误结束的按自身活动计入。
-		const err = !hasLive && errorReminder(row, completionFor(id, completions), isSub);
+		const err = errorReminder(row, completionFor(id, completions), isSub);
 		// 子代理完成且没有活动后代时消失；主会话完成后保留为"等待打开"；母会话在委托周期保持运行呈现（R-01-003/AC-05）。
-		const selfActive = isOwnActiveRow(row, byId) || hasLive;
+		const selfActive = isOwnActiveRow(row, byId);
 		const descendantActive = descendantIds.has(String(id));
 		const delegating = descendantActive || (delegatingIds instanceof Set && delegatingIds.has(String(id)));
 		const show = selfActive || delegating || done || err;
@@ -1858,8 +1858,8 @@ export function buildEntries(options = {}) {
 	// 两组相同时间均回落宿主列表出现顺序，工作区顺序不参与排序。
 	const isRunningEntry = (id) => {
 		const m = meta.get(id);
-		// 在跑后台任务视同运行组（R-01-023/AC-01）：排序键沿用宿主列表时间。
-		return m !== undefined && !m.pending && (m.running || m.delegating || m.hasLive);
+		// 运行组只由回合状态决定（R-01-023/AC-02）：在跑后台任务不参与分组。
+		return m !== undefined && !m.pending && (m.running || m.delegating);
 	};
 	const waitingStartTime = (id) => {
 		if (!(waitingStarts instanceof Map)) return null;
@@ -1945,7 +1945,7 @@ export function buildEntries(options = {}) {
 					? "subagent"
 					: m.pending
 						? "awaiting"
-						: m.running || m.delegating || m.hasLive
+						: m.running || m.delegating
 							? "running"
 							: "awaiting",
 				descendantActive: m.descendantActive,
@@ -2202,17 +2202,15 @@ export function shouldSubscribeToSession(entry, byId = {}) {
 
 /** 运行卡逐秒时钟需求判定（R-01-025/AC-08，T-174）：入参为渲染层已按档位过滤后的活动条目
  *  与轮内订阅集合。条目自身呈现含逐秒推进分量才需要时钟——job 子条目承载任务时长（低档位
- *  已被剔除出列表，天然只在完整档出现）；kind "running" 中开放回合会话（累计运行时长逐秒
- *  推进，R-01-020）与委托周期母会话照常驱动，仅由在跑后台任务支撑运行呈现的母会话
- *  （selfRunning 为假且 liveJobs 非空）自身无逐秒分量不计入；运行中子代理照常驱动。 */
+ *  已被剔除出列表，天然只在完整档出现）；kind "running" 的开放回合会话（累计运行时长逐秒
+ *  推进，R-01-020）与委托周期母会话照常驱动；在跑后台任务不产生运行呈现，等待态母卡
+ *  （回合已结束）自身无逐秒分量，天然不计入；运行中子代理照常驱动。 */
 export function runningClockWanted(entries = [], runLikeIds = new Set()) {
 	const list = Array.isArray(entries) ? entries : [];
 	return list.some(
 		(entry) =>
 			entry?.kind === "job" ||
-			(entry?.kind === "running"
-				? entry.selfRunning === true || (entry?.liveJobs?.length ?? 0) === 0
-				: false) ||
+			entry?.kind === "running" ||
 			(entry?.kind === "subagent" && runLikeIds.has(entry.id)),
 	);
 }
@@ -2271,7 +2269,7 @@ function entryErrorNote(completion) {
 // ---- 后台任务（R-01-023）：在跑活性归一 ----
 
 /** 在跑后台任务的活性状态全集（R-01-023）：stopping 视同在跑——停止请求已发出但
- *  任务尚未结束，呈现与提醒抑制口径与 running 一致。 */
+ *  任务尚未结束，数量标注口径与 running 一致。 */
 const LIVE_JOB_STATUSES = new Set(["running", "stopping"]);
 
 /**
@@ -2332,19 +2330,20 @@ export function jobKindLabel(kind) {
 }
 
 /**
- * 母卡「后台 ×N」数量注的呈现态（R-01-023/AC-01、AC-11）：文本、隐藏与闪烁三态单点
- * 判定。闪烁语义仅覆盖「回合已结束但仍有在跑后台任务」——运行呈现仅由在跑后台任务
- * 支撑的条目（kind "running" 且 selfRunning 为假）闪烁；自身回合运行中（selfRunning
- * 真）与阻塞等待（kind "awaiting"，回合尚未结束）不闪烁。入参缺失或形状非法按无任务
- * 处理（hidden、不闪烁），不抛错。
+ * 卡片「后台 ×N」数量注的呈现态（R-01-023/AC-01、AC-11）：文本、隐藏与闪烁三态单点
+ * 判定。闪烁语义仅覆盖「回合已结束但仍有在跑后台任务」——卡片处于等待态且非阻塞等待
+ * （kind "awaiting" 且无 pendingKind）时闪烁；最近历史卡（kind "recent"）、自身回合
+ * 运行中（selfRunning 真）与阻塞等待不闪烁。入参缺失或形状非法按无任务处理（hidden、
+ * 不闪烁），不抛错。
  */
 export function jobsChipState(entry) {
 	const count = Array.isArray(entry?.liveJobs) ? entry.liveJobs.length : 0;
 	const hidden = !(count > 0);
+	const turnEndedWaiting = entry?.kind === "awaiting" && entry?.pendingKind === undefined;
 	return {
 		text: hidden ? "" : `后台 ×${count}`,
 		hidden,
-		blinking: !hidden && entry.kind === "running" && entry.selfRunning !== true,
+		blinking: !hidden && turnEndedWaiting && entry?.selfRunning !== true,
 	};
 }
 
@@ -2747,8 +2746,6 @@ export function buildRecent(options = {}) {
 		if (completionReminder(row, completionFor(id, completions), false)) continue; // 完成确认中，留在活动区
 		if (errorReminder(row, completionFor(id, completions), false)) continue; // 错误提醒中，留在活动区
 		if (delegatingIds instanceof Set && delegatingIds.has(String(id))) continue; // 委托周期中（含耗尽空窗），留在活动区
-		// 在跑后台任务（R-01-023/AC-01、AC-03）：留在活动区，不落入最近历史。
-		if (liveJobsOf(jobsBySession, id).length > 0) continue;
 		if (isActiveRow(row, byId, activeIds)) continue;
 		const updatedAt = Number(row.updatedAt);
 		if (!Number.isFinite(updatedAt)) continue;
@@ -2775,6 +2772,8 @@ export function buildRecent(options = {}) {
 		// previews 不在此推导：渲染层按需 memo 计算（冷会话由 history 一次性写入 detail.previews）。
 		const previews = details.previews ?? { userPreview: "", agentPreview: "" };
 		const workspace = workspaceIndex.get(String(id)) ?? workspaceInfoForSession(id, items, byId);
+		// 在跑后台任务（R-01-023/AC-01）：历史卡同样标注任务数量（不改变入选判定与排序）。
+		const liveJobs = liveJobsOf(jobsBySession, id);
 		entries.push({
 			id,
 			kind: "recent",
@@ -2787,6 +2786,7 @@ export function buildRecent(options = {}) {
 			userPreview: previews.userPreview ?? "",
 			agentPreview: previews.agentPreview ?? "",
 			isCurrent: current !== null && String(current) === String(id),
+			...(liveJobs.length > 0 ? { liveJobs } : {}),
 			activityAt,
 		});
 	}

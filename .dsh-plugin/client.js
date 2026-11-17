@@ -21,8 +21,8 @@ window.__ModuleLoader__.load({
 //
 // 展示规则：
 //   主会话（非有效子代理行）：running || completed || pendingInteraction 都显示；
-//   存活在跑后台任务（jobsBySession 中 status ∈ {running, stopping}，R-01-023）的主会话
-//   同样按运行态显示并抑制完成/错误提醒；
+//   在跑后台任务（jobsBySession 中 status ∈ {running, stopping}，R-01-023）不改变显示判定与
+//   呈现类别，只在卡片标题行标注数量（活动区与最近历史卡）；
 //   子代理（origin === 'subagent' 且 parentId 有效）：仅 running || pendingInteraction 时显示（结束后即消失）；
 //   pendingInteraction 总是优先视为"等待用户行动"（即使在 running 中）。
 
@@ -1768,9 +1768,9 @@ function mainTitle(byId, id) {
  * 共用 enterStateAt 单点口径——pending 取 waitingStarts，完成/错误提醒取 completions.lastTurnEnd；
  * 显示侧不回落宿主列表时间——排序键缺失时的回落仅用于排序，显示以 null（不显示）承载。
  * jobsBySession（R-01-023）：快照携带的 `jobsBySession` 任务视图映射——存在在跑后台任务
- * （status ∈ {running, stopping}）的主会话获得第三种自身活动来源：保留在活动区归入运行组、
- * 完成提醒与错误提醒被抑制（AC-01、AC-02）；条目携带 liveJobs（startedAt 升序）供渲染层
- * 标注数量与构建任务行（R-01-023）。子代理行不派生 liveJobs（后台任务当前仅主会话呈现）。
+ * （status ∈ {running, stopping}）不改变会话的活动区归属、呈现类别与完成/错误提醒判定
+ * （AC-02）；条目携带 liveJobs（startedAt 升序）供渲染层标注数量与构建任务行（AC-01），
+ * 子代理行不派生 liveJobs（后台任务当前仅主会话呈现）。
  */
 function buildEntries(options = {}) {
 	const {
@@ -1843,16 +1843,16 @@ function buildEntries(options = {}) {
 		const running = row.running === true;
 		const pending = row.pendingInteraction !== undefined;
 		const isSub = hasParent;
-		// 在跑后台任务（R-01-023）：主会话的第三种自身活动来源——liveJobs 非空期间
-		// 完成/错误提醒被抑制（AC-02）、会话保持运行态呈现（AC-01）。
+		// 在跑后台任务（R-01-023）：只作卡片数量标注的输入——liveJobs 非空不改变 show 判定、
+		// 不改变 kind，也不抑制完成/错误提醒（AC-02：活动归属只由回合状态决定）。
 		const liveJobs = isSub ? [] : liveJobsOf(jobsBySession, id);
 		const hasLive = liveJobs.length > 0;
 		// 完成确认（R-01-002/AC-03、AC-05、R-01-010/AC-06）：未确认的完成提醒按自身活动计入。
-		const done = !hasLive && completionReminder(row, completionFor(id, completions), isSub);
+		const done = completionReminder(row, completionFor(id, completions), isSub);
 		// 错误提醒（R-01-002/AC-13，C-043）：最近回合以错误结束的按自身活动计入。
-		const err = !hasLive && errorReminder(row, completionFor(id, completions), isSub);
+		const err = errorReminder(row, completionFor(id, completions), isSub);
 		// 子代理完成且没有活动后代时消失；主会话完成后保留为"等待打开"；母会话在委托周期保持运行呈现（R-01-003/AC-05）。
-		const selfActive = isOwnActiveRow(row, byId) || hasLive;
+		const selfActive = isOwnActiveRow(row, byId);
 		const descendantActive = descendantIds.has(String(id));
 		const delegating = descendantActive || (delegatingIds instanceof Set && delegatingIds.has(String(id)));
 		const show = selfActive || delegating || done || err;
@@ -1864,8 +1864,8 @@ function buildEntries(options = {}) {
 	// 两组相同时间均回落宿主列表出现顺序，工作区顺序不参与排序。
 	const isRunningEntry = (id) => {
 		const m = meta.get(id);
-		// 在跑后台任务视同运行组（R-01-023/AC-01）：排序键沿用宿主列表时间。
-		return m !== undefined && !m.pending && (m.running || m.delegating || m.hasLive);
+		// 运行组只由回合状态决定（R-01-023/AC-02）：在跑后台任务不参与分组。
+		return m !== undefined && !m.pending && (m.running || m.delegating);
 	};
 	const waitingStartTime = (id) => {
 		if (!(waitingStarts instanceof Map)) return null;
@@ -1951,7 +1951,7 @@ function buildEntries(options = {}) {
 					? "subagent"
 					: m.pending
 						? "awaiting"
-						: m.running || m.delegating || m.hasLive
+						: m.running || m.delegating
 							? "running"
 							: "awaiting",
 				descendantActive: m.descendantActive,
@@ -2208,17 +2208,15 @@ function shouldSubscribeToSession(entry, byId = {}) {
 
 /** 运行卡逐秒时钟需求判定（R-01-025/AC-08，T-174）：入参为渲染层已按档位过滤后的活动条目
  *  与轮内订阅集合。条目自身呈现含逐秒推进分量才需要时钟——job 子条目承载任务时长（低档位
- *  已被剔除出列表，天然只在完整档出现）；kind "running" 中开放回合会话（累计运行时长逐秒
- *  推进，R-01-020）与委托周期母会话照常驱动，仅由在跑后台任务支撑运行呈现的母会话
- *  （selfRunning 为假且 liveJobs 非空）自身无逐秒分量不计入；运行中子代理照常驱动。 */
+ *  已被剔除出列表，天然只在完整档出现）；kind "running" 的开放回合会话（累计运行时长逐秒
+ *  推进，R-01-020）与委托周期母会话照常驱动；在跑后台任务不产生运行呈现，等待态母卡
+ *  （回合已结束）自身无逐秒分量，天然不计入；运行中子代理照常驱动。 */
 function runningClockWanted(entries = [], runLikeIds = new Set()) {
 	const list = Array.isArray(entries) ? entries : [];
 	return list.some(
 		(entry) =>
 			entry?.kind === "job" ||
-			(entry?.kind === "running"
-				? entry.selfRunning === true || (entry?.liveJobs?.length ?? 0) === 0
-				: false) ||
+			entry?.kind === "running" ||
 			(entry?.kind === "subagent" && runLikeIds.has(entry.id)),
 	);
 }
@@ -2277,7 +2275,7 @@ function entryErrorNote(completion) {
 // ---- 后台任务（R-01-023）：在跑活性归一 ----
 
 /** 在跑后台任务的活性状态全集（R-01-023）：stopping 视同在跑——停止请求已发出但
- *  任务尚未结束，呈现与提醒抑制口径与 running 一致。 */
+ *  任务尚未结束，数量标注口径与 running 一致。 */
 const LIVE_JOB_STATUSES = new Set(["running", "stopping"]);
 
 /**
@@ -2338,19 +2336,20 @@ function jobKindLabel(kind) {
 }
 
 /**
- * 母卡「后台 ×N」数量注的呈现态（R-01-023/AC-01、AC-11）：文本、隐藏与闪烁三态单点
- * 判定。闪烁语义仅覆盖「回合已结束但仍有在跑后台任务」——运行呈现仅由在跑后台任务
- * 支撑的条目（kind "running" 且 selfRunning 为假）闪烁；自身回合运行中（selfRunning
- * 真）与阻塞等待（kind "awaiting"，回合尚未结束）不闪烁。入参缺失或形状非法按无任务
- * 处理（hidden、不闪烁），不抛错。
+ * 卡片「后台 ×N」数量注的呈现态（R-01-023/AC-01、AC-11）：文本、隐藏与闪烁三态单点
+ * 判定。闪烁语义仅覆盖「回合已结束但仍有在跑后台任务」——卡片处于等待态且非阻塞等待
+ * （kind "awaiting" 且无 pendingKind）时闪烁；最近历史卡（kind "recent"）、自身回合
+ * 运行中（selfRunning 真）与阻塞等待不闪烁。入参缺失或形状非法按无任务处理（hidden、
+ * 不闪烁），不抛错。
  */
 function jobsChipState(entry) {
 	const count = Array.isArray(entry?.liveJobs) ? entry.liveJobs.length : 0;
 	const hidden = !(count > 0);
+	const turnEndedWaiting = entry?.kind === "awaiting" && entry?.pendingKind === undefined;
 	return {
 		text: hidden ? "" : `后台 ×${count}`,
 		hidden,
-		blinking: !hidden && entry.kind === "running" && entry.selfRunning !== true,
+		blinking: !hidden && turnEndedWaiting && entry?.selfRunning !== true,
 	};
 }
 
@@ -2753,8 +2752,6 @@ function buildRecent(options = {}) {
 		if (completionReminder(row, completionFor(id, completions), false)) continue; // 完成确认中，留在活动区
 		if (errorReminder(row, completionFor(id, completions), false)) continue; // 错误提醒中，留在活动区
 		if (delegatingIds instanceof Set && delegatingIds.has(String(id))) continue; // 委托周期中（含耗尽空窗），留在活动区
-		// 在跑后台任务（R-01-023/AC-01、AC-03）：留在活动区，不落入最近历史。
-		if (liveJobsOf(jobsBySession, id).length > 0) continue;
 		if (isActiveRow(row, byId, activeIds)) continue;
 		const updatedAt = Number(row.updatedAt);
 		if (!Number.isFinite(updatedAt)) continue;
@@ -2781,6 +2778,8 @@ function buildRecent(options = {}) {
 		// previews 不在此推导：渲染层按需 memo 计算（冷会话由 history 一次性写入 detail.previews）。
 		const previews = details.previews ?? { userPreview: "", agentPreview: "" };
 		const workspace = workspaceIndex.get(String(id)) ?? workspaceInfoForSession(id, items, byId);
+		// 在跑后台任务（R-01-023/AC-01）：历史卡同样标注任务数量（不改变入选判定与排序）。
+		const liveJobs = liveJobsOf(jobsBySession, id);
 		entries.push({
 			id,
 			kind: "recent",
@@ -2793,6 +2792,7 @@ function buildRecent(options = {}) {
 			userPreview: previews.userPreview ?? "",
 			agentPreview: previews.agentPreview ?? "",
 			isCurrent: current !== null && String(current) === String(id),
+			...(liveJobs.length > 0 ? { liveJobs } : {}),
 			activityAt,
 		});
 	}
@@ -4064,20 +4064,21 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   font-variant-numeric: tabular-nums;
 }
 [data-dsh-activity-pane] .dap-jobs-chip[hidden] { display: none; }
-/* jobs-only 呈现门控（R-01-023/AC-11）：回合已结束仍有在跑后台任务时，卡根打
-   data-jobs-only，数量注以 dap-pulse 同节奏闪烁（与 AC-09 状态点同源同周期）；
-   自身回合运行中与阻塞等待不打标。闪烁由 CSS 动画承载，不引入 JS 周期性工作
-   （R-01-025/AC-08 静默门禁不受影响）。 */
-[data-dsh-activity-pane] .dap-card[data-jobs-only="true"] .dap-jobs-chip {
+/* 等待态数量注闪烁门控（R-01-023/AC-11）：回合已结束（等待态、非阻塞等待）仍有在跑后台
+   任务时，卡根打 data-jobs-blink，数量注以 dap-pulse 同节奏闪烁（与 AC-09 状态点同源同周期）；
+   自身回合运行中、阻塞等待与最近历史卡不打标（blinking 恒假）。闪烁由 CSS 动画承载，
+   不引入 JS 周期性工作（R-01-025/AC-08 静默门禁不受影响）。 */
+[data-dsh-activity-pane] .dap-card[data-jobs-blink="true"] .dap-jobs-chip {
   animation: dap-pulse 1.2s ease-in-out infinite;
 }
 /* 同门控暂停 R-01-009/AC-09 的圆点闪烁承诺：时间线执行中行圆点与卡片标题行状态点
-   静止（着色与光晕不变），数量注成为卡片唯一运动元素——表明会话当前没有 LLM 活动、
-   仅有后台任务活动；状态结束后随卡根属性复位恢复呼吸。 */
-[data-dsh-activity-pane] .dap-card[data-jobs-only="true"] .dap-trace-item[data-status="running"]::before {
+   静止（着色与光晕不变），表明会话当前没有 LLM 活动、仅有后台任务活动；等待态末行
+   胶囊与正文的脉冲由完成/错误提醒语义承载（R-01-002/AC-08），不受本条约束。
+   状态结束后随卡根属性复位恢复呼吸。 */
+[data-dsh-activity-pane] .dap-card[data-jobs-blink="true"] .dap-trace-item[data-status="running"]::before {
   animation: none;
 }
-[data-dsh-activity-pane] .dap-card[data-jobs-only="true"] .dap-dot {
+[data-dsh-activity-pane] .dap-card[data-jobs-blink="true"] .dap-dot {
   animation: none;
 }
 /* 后台任务子卡（R-01-023/AC-05、AC-07）：与子代理卡同构的两行卡面，底色在子代理卡
@@ -6544,7 +6545,7 @@ function apply(ctx) {
 			const row = makeEl("div", "dap-row");
 			// 行内工作区名胶囊（R-01-021/AC-10）：行尾耗时之前，仅紧凑档显示（CSS 门控）；
 			// 固定宽行尾使会话标题起点在各卡间对齐（东家反馈，T-179）。
-			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeWorkspacePill(), makeEl("span", "dap-total-time"));
+			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-jobs-chip"), makeWorkspacePill(), makeEl("span", "dap-total-time"));
 			const userLine = makeEl("div", "dap-history-line");
 			userLine.dataset.role = "user";
 			const userIcon = makeEl("span", "dap-history-icon");
@@ -6565,7 +6566,7 @@ function apply(ctx) {
 			const row = makeEl("div", "dap-row");
 			// 行内工作区名胶囊（R-01-021/AC-10）：行尾耗时之前，仅紧凑档显示（CSS 门控）；
 			// 固定宽行尾使会话标题起点在各卡间对齐（东家反馈，T-179）。
-			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeWorkspacePill(), makeEl("span", "dap-total-time"));
+			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-jobs-chip"), makeWorkspacePill(), makeEl("span", "dap-total-time"));
 			// 紧凑档确认入口（R-01-021/AC-02，C-098）：✓ 图标按钮常驻标题行最右（工作区名
 			// 胶囊之后），仅紧凑档显示，显隐由渲染层每帧赋值。
 			row.append(makeConfirmIconButton());
@@ -7017,15 +7018,6 @@ function apply(ctx) {
 		if (elapsed.textContent !== elapsedText) elapsed.textContent = elapsedText;
 	}
 
-	/** jobs-only 呈现判定（R-01-023/AC-01、AC-11）：liveJobs 非空且自身回合不在跑——
-	 *  呈现冻结（进度行隐藏、数量注闪烁、时间线圆点停闪）。事件帧（renderCardInto）
-	 *  与 1Hz 时钟帧（tickEntryClock）共用同一谓词，取反语义（selfRunning !== true）
-	 *  单点承载，防止两处漂移。core 的 runningClockWanted 有同语义判定但形状与
-	 *  锚定测试不同，不跨层合并。 */
-	function isJobsOnlyEntry(entry) {
-		return Array.isArray(entry.liveJobs) && entry.liveJobs.length > 0 && entry.selfRunning !== true;
-	}
-
 	/** 进度行写入（运行卡与子代理卡共用，R-01-009/AC-06、AC-14）：百分比与填充宽度，
 	 *  未变化跳过 DOM 写。百分比同样写前比对——1Hz 时钟帧（T-189）复用本函数补写，
 	 *  同值写入会替换文本节点并触发无谓的 characterData 变更（background-jobs 静默
@@ -7121,16 +7113,34 @@ function apply(ctx) {
 	/** 后台任务状态的两字中文短语（R-01-023 呈现）：与原生 ui-jobs 状态词同口径。 */
 	const JOB_STATUS_LABELS = { running: "运行中", stopping: "停止中", completed: "已完成", killed: "已终止", failed: "失败" };
 
-	/** 后台任务数量注（R-01-023/AC-01、AC-11）：母卡标题行内 `后台 ×N` 小注；任务本体以 job
-	 *  子卡呈现（R-01-023），本注仅承载数量语义。无 liveJobs 时隐藏节点。闪烁门控
-	 *  （R-01-023/AC-11）：三态由 core 纯函数 jobsChipState 单点判定，闪烁态写
-	 *  data-jobs-only 属性，CSS 动画承载呈现、不引入 JS 周期性工作（R-01-025/AC-08）。 */
+	/** 后台任务数量注与闪烁门控（R-01-023/AC-01、AC-11）：标题行内 `后台 ×N` 小注；任务本体
+	 *  以 job 子卡呈现（R-01-023），本注只承载数量语义，无 liveJobs 时隐藏节点。闪烁三态
+	 *  由 core 纯函数 jobsChipState 单点判定，闪烁态写卡根 data-jobs-blink 属性，CSS 动画
+	 *  承载呈现、不引入 JS 周期性工作（R-01-025/AC-08）。
+	 *  陈旧骨架补建（C-043 热装惯例）：热装新版本后既有等待/历史卡骨架没有数量注节点，
+	 *  就地插入标题行，避免必须重建骨架才出现标注。 */
 	function renderJobsChip(el, entry) {
-		const chip = el.querySelector(".dap-jobs-chip");
-		if (chip === null) return;
-		const { text, hidden, blinking } = jobsChipState(entry);
+		let chip = el.querySelector(".dap-jobs-chip");
+		if (chip === null) {
+			const row = el.querySelector(".dap-row");
+			if (row === null) return;
+			chip = makeEl("span", "dap-jobs-chip");
+			const pill = row.querySelector(".dap-workspace");
+			if (pill !== null) pill.insertAdjacentElement("beforebegin", chip);
+			else row.append(chip);
+		}
+		const { text, hidden } = jobsChipState(entry);
 		if (chip.textContent !== text) chip.textContent = text;
 		if (chip.hidden !== hidden) chip.hidden = hidden;
+	}
+
+	/** 数量注与闪烁门控单点写入（R-01-023/AC-01、AC-11）：运行、等待与最近历史三类卡片共用，
+	 *  避免各分支各写一遍。闪烁态取 jobsChipState 的判定结果写入卡根 data-jobs-blink，CSS
+	 *  据卡根门控数量注脉冲与圆点停闪；按变化写入避免每帧 DOM 属性写。 */
+	function applyJobsChip(el, entry) {
+		renderJobsChip(el, entry);
+		const blink = String(jobsChipState(entry).blinking);
+		if (el.dataset.jobsBlink !== blink) el.dataset.jobsBlink = blink;
 	}
 
 	/** 后台任务子卡渲染（R-01-023/AC-01、AC-05）：状态点着色、标题与随时钟推进的
@@ -7285,24 +7295,15 @@ function apply(ctx) {
 		}
 
 		if (entry.kind === "running") {
-			// 仅在跑后台任务（R-01-023/AC-01）：呈现冻结——隐藏进度行（进度/条纹为回合运行
-			// 语义，不冒充回合执行），时间线保留最后已知状态；任务本体以 job 子卡呈现。
-			const jobsOnly = isJobsOnlyEntry(entry);
-			// jobs-only 门控属性上移卡根（R-01-023/AC-11）：数量注闪烁与时间线圆点/标题点
-			// 停闪共用同一卡根状态，按变化写入避免每帧 DOM 属性写。
-			const jobsOnlyAttr = String(jobsOnly);
-			if (el.dataset.jobsOnly !== jobsOnlyAttr) el.dataset.jobsOnly = jobsOnlyAttr;
-			renderJobsChip(el, entry);
+			// 在跑后台任务（R-01-023/AC-02）：运行呈现由回合状态决定，任务只作数量标注；
+			// 运行卡数量注恒不闪（闪烁只覆盖等待态卡片，AC-11）。
+			applyJobsChip(el, entry);
 			const progressRow = el.querySelector(".dap-progress");
 			// 档位资源纪律（R-01-025/AC-05）：进度行在中间/紧凑档被 CSS 隐藏，不写入；
 			// 切回完整档后随档位签名重渲染恢复。
 			if (progressRow !== null && densityLevel === "full") {
-				if (jobsOnly) {
-					if (!progressRow.hidden) progressRow.hidden = true;
-				} else {
-					renderProgressRow(el, entry.progress);
-					if (progressRow.hidden) progressRow.hidden = false;
-				}
+				renderProgressRow(el, entry.progress);
+				if (progressRow.hidden) progressRow.hidden = false;
 			}
 			const traceContainer = el.querySelector(".dap-trace");
 			// 档位资源纪律（R-01-025/AC-05）：紧凑档不构建被隐藏的时间线内容；
@@ -7354,11 +7355,16 @@ function apply(ctx) {
 					restoreTextField(text, previews[i]);
 				}
 			}
+			// 在跑后台任务标注（R-01-023/AC-01）：最近历史卡同样承载数量注（不闪，AC-11）。
+			applyJobsChip(el, entry);
 			// 档位资源纪律（R-01-025/AC-05）：最近卡统计行在中间/紧凑档不写入。
 			if (densityLevel === "full") renderTokenStats(el, entry);
 		}
 
 		if (entry.kind === "awaiting") {
+			// 在跑后台任务标注（R-01-023/AC-01、AC-11）：等待态卡片照常标注数量；非阻塞
+			// 等待（回合已结束）门控闪烁，阻塞等待与无任务不闪。
+			applyJobsChip(el, entry);
 			const traceContainer = el.querySelector(".dap-trace");
 			// 档位资源纪律（R-01-025/AC-05）：紧凑档不构建被隐藏的时间线内容；
 			// 中间档 lastOnly 单行语义不变（R-01-021/AC-08）。
@@ -7591,7 +7597,7 @@ function apply(ctx) {
 		}
 		if (entry.kind === "running" || entry.kind === "subagent") {
 			const anchor = progressAnchorById.get(entry.id);
-			// 锚点空 = 呈现冻结态（jobs-only 母卡 / 暂停等待子代理）：与事件帧富化分支
+			// 锚点空 = 无推进锚点（委托周期未起算或暂停等待子代理）：与事件帧富化分支
 			// 同判定口径，本帧不补写（进度行/统计行保持事件帧形态）。
 			if (!Number.isFinite(anchor?.anchor)) return;
 			const elapsedMs = Math.max(0, now - anchor.anchor);
@@ -7603,9 +7609,7 @@ function apply(ctx) {
 			const rec = cardsById.get(entry.id);
 			if (rec === undefined) return;
 			renderTokenStats(rec.el, entry);
-			// jobs-only 母卡进度行隐藏（呈现冻结，R-01-023/AC-01）：共享谓词判定，不读
-			// DOM 属性。
-			if (!isJobsOnlyEntry(entry)) renderProgressRow(rec.el, entry.progress);
+			renderProgressRow(rec.el, entry.progress);
 			return;
 		}
 		if (entry.kind === "job") {
@@ -8156,8 +8160,8 @@ function apply(ctx) {
 		const waitingStarts = waitingStartsMemo(busyById, busyVersion);
 		// 在跑后台任务（R-01-023，T-170）：dsh 0.2.0 起 jobsBySession 自列表快照移除，
 		// 改由 jobs 服务的 state.rows（Record<sessionId, JobView[]>）注入
-		// buildEntries/buildRecent——liveJobs 非空的主会话保留活动区、归运行组并抑制
-		// 完成/错误提醒；roster 订阅经 syncJobsWatches 对列表全会话建立。
+		// buildEntries/buildRecent——在跑任务只作卡片数量标注（活动区与历史卡），不参与
+		// 活动归属与提醒判定；roster 订阅经 syncJobsWatches 对列表全会话建立。
 		// currentId 单点（T-183/T-186）：覆盖层不改 retainedBy，覆盖前后 currentId 同值——
 		// 对原始快照算一次，经 options.currentId 注入 buildEntries/buildRecent（两函数
 		// 内部的 currentIdOf O(名册) 重扫/帧随位置参数收敛一并消除；TODO 既有登记同窗完成）。
@@ -8167,7 +8171,7 @@ function apply(ctx) {
 		const builtActive = buildEntries({ snapshot, workspaceItems, detailsById: sessionDetailsById, completions: completeAcksById, delegatingIds, archivedIds: archivedSessionIds, waitingStarts, jobsBySession, currentId });
 		// 任务子卡档位门控（R-01-023/AC-10、R-01-025/AC-08，T-174）：中间/紧凑档不呈现
 		// 后台任务子卡——剔除 job 子条目后其随钟时长不再注入渲染签名；任务视图订阅
-		// （syncJobsWatches）与母会话 liveJobs（数量注、活动区保留、提醒抑制）不受影响。
+		// （syncJobsWatches）与母会话 liveJobs（数量注）不受影响。
 		const active = densityLevel === "full" ? builtActive : builtActive.filter((entry) => entry.kind !== "job");
 		// 轮内订阅仅对"运行中"会话建立（主会话 + 运行中的子代理），保持在运行中的订阅
 		// 数量 == 运行中会话数量（R-02-004/AC-01）；暂停等待的子代理只显示标题。
@@ -8175,8 +8179,8 @@ function apply(ctx) {
 			active.filter((entry) => shouldSubscribeToSession(entry, snapshot?.byId ?? {})).map((entry) => entry.id),
 		);
 		// 运行卡时钟：需求判定收口在 core（runningClockWanted，R-01-025/AC-08，T-174）——
-		// 仅由在跑后台任务支撑运行呈现的母会话自身无逐秒推进分量，低档位不为其维持
-		// 逐秒时钟；开放回合会话、委托周期母会话与运行中子代理照常驱动（R-01-009/AC-14）。
+		// 在跑后台任务不产生运行呈现，等待态母卡自身无逐秒推进分量，低档位不为其维持
+		// 逐秒时钟；开放回合会话、委托周期母卡与运行中子代理照常驱动（R-01-009/AC-14）。
 		syncLiveness(runLikeIds, runningClockWanted(active, runLikeIds));
 		for (const entry of active) {
 			const liveRecord = livenessById.get(entry.id);

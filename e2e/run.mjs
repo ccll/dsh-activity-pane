@@ -62,9 +62,22 @@ async function runSpec(name) {
 		const browserStart = Date.now();
 		// Native scrollbar hit-testing is part of the UI contract; Playwright's
 		// headless default adds --hide-scrollbars, so keep the real gutter.
-		browser = await chromium.launch({ ignoreDefaultArgs: ["--hide-scrollbars"] });
+		// 资源与降频（T-197 发布门禁定位）：内存压力下 headless renderer 会崩溃成
+		// 白屏，表现为不同 spec 的随机等待超时；限制 V8 堆并关闭后台定时器/窗口
+		// 降频，显式记录 renderer crash 以便区分环境崩溃与真实断言失败。
+		browser = await chromium.launch({
+			ignoreDefaultArgs: ["--hide-scrollbars"],
+			args: [
+				"--disable-dev-shm-usage",
+				"--js-flags=--max-old-space-size=512",
+				"--disable-background-timer-throttling",
+				"--disable-renderer-backgrounding",
+				"--disable-backgrounding-occluded-windows",
+			],
+		});
 		context = await browser.newContext(mod.contextOptions ?? {});
 		page = await context.newPage();
+		page.on("crash", () => console.error(`e2e: ${name} page crashed（renderer 崩溃，非断言失败）`));
 		browserMs = Date.now() - browserStart;
 		const specStart = Date.now();
 		await spec({ browser, page, url: env.url, mock: env.mock, assert });

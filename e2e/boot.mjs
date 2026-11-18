@@ -159,7 +159,10 @@ export async function bootE2e({ mobileShell = false, pluginRoot = repoRoot } = {
 			mark("shell");
 		}
 
-		web = spawn("dsh", ["web", "--port", "0"], { env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+		// --no-open（T-197 发布门禁根因）：不禁止时每个 spec 都会用系统默认浏览器
+		// 打开一次 UI，全量 26 spec × 多轮 e2e 会累积成百上千个 Chrome 标签渲染
+		// 进程，占满内存后令后续 headless renderer 崩溃成白屏（随机 spec 假失败）。
+		web = spawn("dsh", ["web", "--port", "0", "--no-open"], { env, stdio: ["ignore", "pipe", "pipe"], detached: true });
 		// 保留 web stderr 尾部供 spec 失败时取证（宿主侧错误不在浏览器控制台出现）。
 		web.stderr.on("data", (data) => {
 			webStderr.push(String(data));

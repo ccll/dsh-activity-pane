@@ -85,6 +85,15 @@ owner: agent 主笔，项目属主审批
 - 锚点与判据不耦合宿主哈希类，宿主改版即碎。
 - 锚点优先宿主语义属性（data-slot 等）加实测几何。
 - 真机事实取证手段：构建内临时诊断码（渲染状态码由东家截图回报），用后即撤、不进提交；一次诊断码往返定位了四轮未解的根因（T-164）。
+
+## e2e 运行环境与 flake 排查（T-197 教训）
+
+- e2e 启动 `dsh web` 必须带 `--no-open`：否则每个 spec 都用系统默认浏览器打开 UI，全量多轮后默认 Chrome 实例累积大量标签渲染进程、耗尽内存，令后续 headless renderer 崩溃成白屏（表现为随机 spec 假失败）。
+- headless Chromium 固定 `--disable-dev-shm-usage`、`--js-flags=--max-old-space-size=512`，关闭后台定时器/窗口降频；`page.on("crash")` 必须记录，失败时先区分 renderer 崩溃与断言失败。
+- spec 等待条件用会话 id/状态等身份判据，不得用「下标 + 几何可见」判定当前卡；跳转后列表重排会让下标失效。
+- 相位敏感探针（如 mobile-resume 的挂起丢弃语义）用有界重试建立前置条件，不得单次刺激后直接断言。
+- flake 排查顺序：失败截图是否整页白屏 → 进程 `cgroup`/可执行路径归属（`dsh-subprocess-*` 还是 playwright 路径）→ 内存/交换与 Chrome renderer 计数；先排环境再改断言，不得逐个放宽断言。
+- 发布门禁出现「不同 spec 轮流失败、单跑均绿」时，按环境资源耗尽处理；关闭 Chrome 后必须复核 `free -h` 与 `pgrep -f '^/opt/google/chrome/chrome' | wc -l` 的回收结果。
 - 开发探针与东家同实例（主 dsh 环境），差异在客户端壳层；遇「桌面复现不出」先做壳层对齐，再迭代修复。
 
 ## 构建与开发工作流

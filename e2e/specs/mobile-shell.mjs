@@ -146,30 +146,38 @@ export default async function mobileShellSpec({ page, url, assert }) {
 				return r.width > 0 && r.height > 0 &&
 					r.left < tr.right && r.right > tr.left && r.top < tr.bottom && r.bottom > tr.top;
 			};
-			const tabOverlaps = [...document.querySelectorAll('[role="tablist"] button, [role="tablist"] a')].filter(intersects);
-			const hardOverlaps = [...document.querySelectorAll("button, [role='button'], a, input, textarea, select")]
-				.filter((el) => el !== toggle && el !== shellToggle && !toggle.contains(el) && !el.contains(toggle))
-				.filter((el) => !el.closest('[role="tablist"]'))
-				.filter(intersects).length;
-			const tabHijack = tabOverlaps.some((el) => {
-				const textRect = (() => {
-					const range = document.createRange();
-					range.selectNodeContents(el);
-					return range.getBoundingClientRect();
-				})();
-				const textOverlap = textRect.width > 0 && textRect.height > 0 &&
-					textRect.left < tr.right && textRect.right > tr.left && textRect.top < tr.bottom && textRect.bottom > tr.top;
-				const elRect = el.getBoundingClientRect();
-				const x = Math.max(elRect.left, tr.left) + 2;
-				const y = Math.max(elRect.top, tr.top) + 2;
-				const top = document.elementFromPoint(x, y);
-				return textOverlap || top === null || !(top === toggle || toggle.contains(top));
-			});
+			const tabButtons = [...document.querySelectorAll('[role="tablist"] button, [role="tablist"] a')];
+			const tabbed = tabButtons.length > 0;
+			const interactives = [...document.querySelectorAll("button, [role='button'], a, input, textarea, select")]
+				.filter((el) => el !== toggle && el !== shellToggle && !toggle.contains(el) && !el.contains(toggle));
+			// 壳层代际：3.3.x 带标签行时按「非标签控件硬不相交 + 标签可见文本不叠 +
+			// 叠置带命中归开关」；3.2.0 无标签行时维持严格命中盒不相交（旧口径）。
+			let overlapped;
+			if (tabbed) {
+				const hardOverlaps = interactives.filter((el) => !el.closest('[role="tablist"]')).filter(intersects).length;
+				const tabHijack = tabButtons.filter(intersects).some((el) => {
+					const textRect = (() => {
+						const range = document.createRange();
+						range.selectNodeContents(el);
+						return range.getBoundingClientRect();
+					})();
+					const textOverlap = textRect.width > 0 && textRect.height > 0 &&
+						textRect.left < tr.right && textRect.right > tr.left && textRect.top < tr.bottom && textRect.bottom > tr.top;
+					const elRect = el.getBoundingClientRect();
+					const x = Math.max(elRect.left, tr.left) + 2;
+					const y = Math.max(elRect.top, tr.top) + 2;
+					const top = document.elementFromPoint(x, y);
+					return textOverlap || top === null || !(top === toggle || toggle.contains(top));
+				});
+				overlapped = hardOverlaps > 0 || tabHijack;
+			} else {
+				overlapped = interactives.filter(intersects).length > 0;
+			}
 			return {
 				shell: [sr.x, sr.y, sr.width, sr.height],
 				toggle: [tr.x, tr.y, tr.width, tr.height],
-				overlapped: hardOverlaps > 0 || tabHijack,
-				tabbed: document.querySelector('[role="tablist"]') !== null,
+				overlapped,
+				tabbed,
 				inSessionSlot: toggle.closest('[data-slot="conversation.session.header"]') !== null,
 			};
 		}));
@@ -181,8 +189,9 @@ export default async function mobileShellSpec({ page, url, assert }) {
 		active.toggle[0] >= active.shell[0] + active.shell[2] - 0.5,
 		`开关位于壳层左座开关右侧（开关 x=${active.toggle[0]} ≥ 壳层开关右缘 ${active.shell[0] + active.shell[2]}，R-01-008/AC-04）`,
 	);
-	assert.equal(active.overlapped, false, "active 开关不遮挡可见控件且叠置带命中归开关（含壳层左座开关，T-171、T-203）");
-	assert.ok(active.tabbed, "壳层会话头存在 Chat/Trajectory 标签行（叠置带命中判定的前提）");
+	assert.equal(active.overlapped, false, active.tabbed
+		? "active 开关不遮挡可见控件且叠置带命中归开关（含壳层左座开关，T-171、T-203）"
+		: "active 开关严格不与任何可交互元素命中盒相交（3.2.0 无标签行代际，T-171）");
 	assert.ok(
 		Math.abs(active.toggle[3] - 38) <= 1 && active.toggle[2] >= 44,
 		`入口命中盒至少 44×38px（实测 ${active.toggle[2]}×${active.toggle[3]}，R-01-008/AC-07）`,

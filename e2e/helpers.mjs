@@ -189,10 +189,10 @@ export function sessionComposer(page) {
 /** mock LLM 固定输出（与 e2e/mock-llm.mjs 剧本一致），spec 断言复用避免多处硬编码。 */
 export const MOCK_FAST_REPLY = "E2E 快速回合已完成。";
 export const MOCK_ERROR_MESSAGE = "E2E 模型故障探针";
-/** 隔离环境卡面显示的模型名（boot.mjs 种子 deepseek-flash，显示名经宿主模型目录映射）。
- *  宿主 0.2.2-rc.5 起目录显示名为 DeepSeek-V4.1-Flash（0.1.5/0.2.0 为 DeepSeek-V41-Flash，
- *  T-159）；宿主升级模型目录时同步本常量，勿改断言口径。 */
-export const MOCK_MODEL = "DeepSeek-V4.1-Flash";
+/** 隔离环境卡面显示的模型名前缀（boot.mjs 种子 deepseek-flash，显示名经宿主目录映射）。
+ *  宿主 0.2.0-rc.2 显示 DeepSeek-V41-Flash、0.2.2-rc.5 显示 DeepSeek-V4.1-Flash：两者
+ *  共享 DeepSeek-V4 前缀，断言取前缀 + reasoning level，避免钉死宿主目录的显示格式（T-159、T-203）。 */
+export const MOCK_MODEL = "DeepSeek-V4";
 /** 等待卡状态年龄的相对时间分级文案（R-01-002/AC-14）：与历史卡 fmtRelativeAge 分级一致。 */
 export const RELATIVE_AGE_PATTERN = /^(?:刚刚|\d+分钟前|\d+小时前|\d+天前|\d+周前|\d+个月前|\d+年前)$/;
 

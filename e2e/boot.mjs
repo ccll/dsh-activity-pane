@@ -146,12 +146,16 @@ export async function bootE2e({ mobileShell = false, pluginRoot = repoRoot } = {
 
 		if (mobileShell) {
 			try {
-				// 钉 3.3.6：3.2.0 在宿主 0.2.2-rc.5 上整页空白（壳层客户端与 0.2.2 UI API
-				// 不兼容），两个移动 spec 均失败；3.3.6 的 peer 范围即 0.2.2-rc.1+。
-				// 3.2.1 起 header 新增 Chat/Trajectory 顶部标签页，须由 spec 复核其 bbox 与
-				// 窗格开关 44×38 命中盒（R-01-008/AC-07）不叠置；如叠置则回到规格层讨论，
-				// 不得为通过而放宽防误触断言。
-				await execFileAsync("dsh", ["plugin", "--profile", "web", "add", "dsh-web-mobile@3.3.6"], { env });
+				// 壳层版本按宿主代际选择：0.2.2+ 用 3.3.6（3.2.0 在新宿主整页空白），
+				// 0.2.0/0.2.1（CI clean runner 仍为 0.2.0-rc.2）用 3.2.0——3.3.x 的 peer
+				// 范围要求 0.2.2-rc.1+，在旧宿主会被插件管理器拒绝并令 spec 跳过。
+				// 3.2.1 起 header 新增 Chat/Trajectory 标签页，spec 按有无标签行分别判定叠置。
+				const { stdout: hostVersion } = await execFileAsync("dsh", ["--version"], { env });
+				const parsed = /(\d+)\.(\d+)\.(\d+)/.exec(String(hostVersion));
+				const modernHost = parsed !== null &&
+					(Number(parsed[1]) > 0 || Number(parsed[2]) > 2 || (Number(parsed[2]) === 2 && Number(parsed[3]) >= 2));
+				const shellVersion = modernHost ? "3.3.6" : "3.2.0";
+				await execFileAsync("dsh", ["plugin", "--profile", "web", "add", `dsh-web-mobile@${shellVersion}`], { env });
 			} catch (error) {
 				const detail = String(error?.stderr ?? error?.message ?? error).split("\n").filter(Boolean).slice(-3).join(" ");
 				const skip = new Error(`移动壳层 dsh-web-mobile 不可安装，spec 跳过：${detail}`);

@@ -5202,21 +5202,42 @@ assert.ok(
 		&& !bundle.includes("color-mix(in srgb, #f06a72 40%, transparent)"),
 	"三类等待卡描边统一 34%、描边与外环强度一致（R-01-002/AC-08）",
 );
-// R-01-002/AC-06 数量徽标底色与卡面严格同值：三类底色各须在卡面与徽标两处出现（深浅同法）。
-for (const [label, value] of [
-	["完成提醒", "rgba(31, 36, 33, 0.97)"],
-	["阻塞等待", "rgba(42, 40, 30, 0.97)"],
-	["错误提醒", "rgba(37, 31, 32, 0.97)"],
-	["浅色完成提醒", "color-mix(in srgb, var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237)) 55%, #fff)"],
-	["浅色阻塞等待", "color-mix(in srgb, rgb(253, 244, 208) 55%, #fff)"],
-	["浅色错误提醒", "color-mix(in srgb, rgb(252, 233, 234) 55%, #fff)"],
-]) {
-	const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	assert.ok(
-		(bundle.match(new RegExp(escaped, "g")) ?? []).length >= 2,
-		`${label}数量徽标底色与卡面同值（R-01-002/AC-06）`,
-	);
-}
+// R-01-002/AC-06 数量徽标底色与卡面严格同值：卡面与徽标两侧分别以同一字面值断言，
+// 任一侧漂移即失败（按出现次数计数不区分卡面/徽标，无法防单侧漂移）。
+assert.ok(
+	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] {\n  --dap-wait-color: #f5c542;\n  border-color: color-mix(in srgb, #f5c542 34%, transparent);') &&
+		bundle.includes("background: rgba(42, 40, 30, 0.97);") &&
+		bundle.includes("[data-dsh-activity-pane] .dap-rail-count[data-awaiting] {\n  background: rgba(42, 40, 30, 0.97);") &&
+		bundle.includes(".dap-toggle[data-awaiting] .dap-toggle-count {\n  background: rgba(42, 40, 30, 0.97);"),
+	"阻塞等待卡面与窄条/移动开关徽标同用 rgba(42,40,30,.97)（R-01-002/AC-06）",
+);
+assert.ok(
+	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {\n  --dap-wait-color: #f06a72;\n  border-color: color-mix(in srgb, #f06a72 34%, transparent);') &&
+		bundle.includes("background: rgba(37, 31, 32, 0.97);") &&
+		bundle.includes('.dap-toggle[data-awaiting][data-tone="error"] .dap-toggle-count {\n  background: rgba(37, 31, 32, 0.97);'),
+	"错误提醒卡面与徽标同用 rgba(37,31,32,.97)（R-01-002/AC-06）",
+);
+assert.ok(
+	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {\n  --dap-wait-color: #58c98f;\n  border-color: color-mix(in srgb, #58c98f 34%, transparent);') &&
+		bundle.includes("background: rgba(31, 36, 33, 0.97);") &&
+		bundle.includes('.dap-toggle[data-awaiting][data-tone="done"] .dap-toggle-count {\n  background: rgba(31, 36, 33, 0.97);'),
+	"完成提醒卡面与徽标同用 rgba(31,36,33,.97)（R-01-002/AC-06）",
+);
+assert.ok(
+	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] {\n  background: color-mix(in srgb, rgb(253, 244, 208) 55%, #fff);') &&
+		bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting],\nbody:not([data-ds-dark-theme]) .dap-toggle[data-awaiting] .dap-toggle-count {\n  background: color-mix(in srgb, rgb(253, 244, 208) 55%, #fff);"),
+	"浅色阻塞等待卡面与徽标同用向白收的金色底（R-01-002/AC-06）",
+);
+assert.ok(
+	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {\n  background: color-mix(in srgb, var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237)) 55%, #fff);') &&
+		bundle.includes("body:not([data-ds-dark-theme]) .dap-toggle[data-awaiting][data-tone=\"done\"] .dap-toggle-count {\n  background: color-mix(in srgb, var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237)) 55%, #fff);"),
+	"浅色完成提醒卡面与徽标同用 success 别名向白收（R-01-002/AC-06）",
+);
+assert.ok(
+	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {\n  background: color-mix(in srgb, rgb(252, 233, 234) 55%, #fff);') &&
+		bundle.includes("body:not([data-ds-dark-theme]) .dap-toggle[data-awaiting][data-tone=\"error\"] .dap-toggle-count {\n  background: color-mix(in srgb, rgb(252, 233, 234) 55%, #fff);"),
+	"浅色错误提醒卡面与徽标同用淡红向白收（R-01-002/AC-06）",
+);
 assert.ok(
 	!bundle.includes('.dap-card[data-kind="awaiting"][data-wait="done"] .dap-badge') &&
 		bundle.includes('[data-dsh-activity-pane] .dap-capsule {\n  flex: none; display: inline-flex; align-items: center; gap: 4px;') &&

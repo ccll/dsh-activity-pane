@@ -165,11 +165,10 @@ export default async function visualHierarchy({ page, url, assert }) {
 		[143, 188, 255].every((value, index) => Math.abs(currentBorder[index] - value) <= 3),
 		`深色前台态取 #8fbcff（实际 ${currentBorder.map((value) => Math.round(value)).join(",")}）`,
 	);
-	// AC-06 底色子句：前台态卡面保持活动卡基色，等待卡只许轻微色偏（禁止整卡铺色）。
-	const currentChannels = channelsOf(foreground.current.background);
-	assert.ok(currentChannels, `前台态底色可解析（${foreground.current.background}）`);
-	const fillDelta = doneChannels.slice(0, 3).map((value, index) => Math.abs(value - currentChannels[index]));
-	assert.ok(Math.max(...fillDelta) <= 16, `完成卡底色相对当前卡基色仅轻微色偏（Δ=${fillDelta.map((value) => Math.round(value)).join("/")}）`);
+	// AC-06 底色子句：等待卡底色相对活动卡基色只许轻微色偏（禁止整卡铺色）。
+	// 当前卡在此场景同为完成提醒卡，不能拿它当基色，取活动卡基色 rgb(29,31,37)。
+	const fillDelta = doneChannels.slice(0, 3).map((value, index) => Math.abs(value - [29, 31, 37][index]));
+	assert.ok(Math.max(...fillDelta) <= 16, `完成卡底色相对活动卡基色仅轻微色偏（Δ=${fillDelta.map((value) => Math.round(value)).join("/")}）`);
 
 	// R-01-006/AC-03：切到全局面板——当前卡仍选中但转后台态，蓝色可辨、弱于前台态。
 	await page.getByRole("button", { name: "Plugins", exact: true }).first().click();
@@ -271,6 +270,11 @@ export default async function visualHierarchy({ page, url, assert }) {
 	assert.ok(
 		lightDone[1] - Math.max(lightDone[0], lightDone[2]) <= 8,
 		`浅色完成提醒卡底色向白收、仅保留轻微绿色色偏（rgb=${lightDone.map((value) => Math.round(value)).join(",")}）`,
+	);
+	const lightFillDelta = lightDone.slice(0, 3).map((value, index) => Math.abs(value - 255));
+	assert.ok(
+		Math.max(...lightFillDelta) <= 16,
+		`浅色完成卡底色相对活动卡白基色仅轻微色偏（Δ=${lightFillDelta.map((value) => Math.round(value)).join("/")}）`,
 	);
 	// R-01-006/AC-03 浅色后台态：描边 30%，仍低于完成提醒卡（34%）。
 	await page.getByRole("button", { name: "Plugins", exact: true }).first().click();

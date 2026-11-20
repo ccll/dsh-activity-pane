@@ -10,7 +10,7 @@ id: T-199
 类型: 需求变更
 风险等级: major
 风险面: 对外行为（卡片激活跳转与卡面视觉层级）、契约（check.mjs 视觉契约串与 PRD 验收点）
-关联需求: R-01-006/AC-03、AC-04、AC-05、AC-06（新增）；R-01-002/AC-04（补句）；R-01-008/AC-06（增在屏条件）
+关联需求: R-01-006/AC-03、AC-04、AC-05、AC-06（新增）；R-01-002/AC-04（补句）；R-01-008/AC-06（面板在屏时分流，会话视图行为不变）
 决策依据: C-104
 实证验收: 否
 
@@ -34,6 +34,7 @@ id: T-199
 1. 判据: `src/navigation.mjs` 新增纯函数 `isSessionDisplayed({ targetId, currentId, panelId })`（选中且 `panelId === null`）；`shouldDismissDrawerOnActivation` 同以在屏为条件（面板在屏时激活转为真实导航意图）。
 2. 面板态来源: 客户端读 `ctx.get("layout")?.panelInfo?.getSnapshot?.()?.activePanelId`（软依赖，缺失按前台），订阅 `panelInfo` 快照变化触发 `queueSync`，并把面板态并入渲染签名。
 3. 激活三分支: 已在屏 → 桌面无操作、移动端收抽屉；选中但面板在屏 → `openSession` 一次且不排重试链（宿主 `replaceMain(..., 'reveal')` 同步 `selectPanel(null)`）；其余走既有 `attemptOpen`（重试链取消判据保持按选中，避免链条把用户从面板拽回会话页）。
+   - 抽屉语义（R-01-008/AC-06）：会话视图下抽屉打开时激活当前卡仍只收抽屉；面板在屏时该激活按 R-01-006/AC-04 走 reveal 并收起抽屉，属新增分流，不改写原 AC 的会话视图行为。
 4. 属性: 卡片 `data-current` 保持选中语义，新增 `data-foreground` = 选中且在屏；暗态规则 `[data-current]:not([data-foreground])`。
 5. 视觉阶梯（R-01-006/AC-06，C-104）:
    - 前台态: 深色 `#8fbcff` 描边 90% + `0 0 0 1.5px` 60% + `0 0 16px` 45% + `inset 0 0 10px` 20%；浅色 `#2f7cf6` 描边 88% + 1.5px 55% + 16px 30% + inset 12%。
@@ -44,7 +45,7 @@ id: T-199
 ## 测试计划
 
 - `node scripts/check.mjs`: 新增 `isSessionDisplayed` 单测（在屏/面板在屏/非当前/空目标/数字与字符串 id）与 `shouldDismissDrawerOnActivation` 面板在屏用例；契约串更新（前台态三层、暗态规则、等待三类描边统一 34%、徽标与卡面同值、档位无关、`data-foreground` 写入、panelInfo 订阅）；跨卡强度断言（前台态外环 1.5px/光晕 16px 大于等待卡、后台态描边 32%/30% 低于等待卡 34%）。
-- `node e2e/run.mjs desktop-layout`: 扩展面板页用例——切 Plugins 后当前卡有 `data-current`、无 `data-foreground`，描边与外环 alpha 落在后台态区间；点击该卡后面板关闭（`conversationScroll === true`）且 `data-foreground` 落位、前台态光晕半径与外环宽度恢复；经原生侧栏槽位返回会话同样恢复；完成提醒卡与当前卡同屏时，前台态外环宽/光晕半径/描边 alpha 均大于完成卡；浅色前台/后台态与紧凑档光效同验。
+- `node e2e/run.mjs visual-hierarchy`: 面板页用例——切 Plugins 后当前卡有 `data-current`、无 `data-foreground`，描边与外环 alpha 落在后台态区间；点击该卡后面板关闭（`conversationScroll === true`）且 `data-foreground` 落位、前台态光晕半径与外环宽度恢复；经原生侧栏槽位返回会话同样恢复；完成提醒卡与当前卡同屏时，前台态外环宽/光晕半径/描边 alpha 均大于完成卡；浅色前台/后台态与紧凑档光效同验。
 - 移动端抽屉：面板在屏时的激活分流由 `scripts/check.mjs` 的 `shouldDismissDrawerOnActivation` 面板用例覆盖；移动壳层打开全局面板的观感路径由人工验收清单复核（移动壳层面板入口与抽屉叠加属真机路径）。
 - `pnpm verify:fast` 与全量 `node e2e/run.mjs`；真实宿主双主题截图供东家观感验收。
 
@@ -59,7 +60,7 @@ id: T-199
 | R-01-002/AC-08 | 改写（强度一致） | UNIT/E2E | update | `scripts/check.mjs` 三类描边统一 34% 断言；e2e 后台态与完成卡描边比较 |
 | R-01-002/AC-04 | 改写（补句） | UNIT/E2E | update | 等待三类配色契约串更新；e2e 完成卡底色色偏断言 |
 | R-01-008/AC-06 | 改写（增在屏条件） | UNIT | update | `shouldDismissDrawerOnActivation` 面板在屏用例 |
-| R-01-005 | 增强（面板页的同会话激活） | UNIT/E2E | update | `isSessionDisplayed` 单测与 desktop-layout 点击路径 |
+| R-01-005 | 增强（面板页的同会话激活） | UNIT/E2E | update | `isSessionDisplayed` 单测与 `e2e/specs/visual-hierarchy.mjs` 点击路径 |
 | SOLUTION | 产品契约、交互面、窗格渲染器段改写 | UNIT/E2E | update | 契约串与浏览器断言同步 |
 | DOMAIN | 当前会话/前台态/后台态术语与不变量 | UNIT | update | `check.mjs` 断言 bundle 承载 `data-foreground` 与暗态规则 |
 
@@ -71,7 +72,7 @@ id: T-199
 | 异常 | 适用：`layout` 服务缺失按前台回退；`openSession` 不可用不发起；面板关闭失败不排重试链 | `scripts/check.mjs::isSessionDisplayed` |
 | 边界配置 | 适用：完成提醒卡即当前会话的叠加、浅色主题取色、紧凑/中间档 | `scripts/check.mjs::data-foreground`、`e2e/specs/visual-hierarchy.mjs::R-01-002/AC-04` |
 | 副作用 | 适用：`data-current` 语义不变、滚动锚定与轨道测量不因外环改变、徽标底色与卡面同值 | `scripts/check.mjs::renderCardIntoList(activeList, entry, cardsById, index, 1, colorByWorkspace, foreground)`、`e2e/specs/long-list.mjs::data-current` |
-| 主题 | 适用：深浅主题前台/后台/等待卡取值分别校验 | `scripts/check.mjs::panelInfo?.subscribe` |
+| 主题 | 适用：深浅主题前台/后台/等待卡取值分别校验 | `scripts/check.mjs::#2f7cf6` |
 | 移动端 | 适用：抽屉打开 + 面板在屏的激活分流 | `scripts/check.mjs::panelId: "plugins"` |
 
 ## 自查清单

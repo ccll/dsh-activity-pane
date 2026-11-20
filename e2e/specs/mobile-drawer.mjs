@@ -38,6 +38,16 @@ export default async function mobileDrawer({ page, url, assert }) {
 	await sendHeroMessage(page, TITLE_A);
 	await newSessionWithMessage(page, TITLE_B);
 	await until("当前为会话乙", () => mainAreaHas(page, TITLE_B));
+	// 宿主 0.2.2 在窄视口把侧栏收进抽屉，New session 随侧栏 visibility:hidden；
+	// newSessionWithMessage 以页面内 click 触发同一处理器后，宿主可能把窄侧栏
+	// 抽屉展开（焦点落入侧栏）。这里按真实用户路径收起抽屉，恢复默认隐藏态。
+	await until("宿主侧栏抽屉收起", async () =>
+		page.evaluate(() => {
+			const drawer = document.querySelector("[data-sidebar-drawer]");
+			if (drawer === null || drawer.getAttribute("data-sidebar-collapsed") === "true") return true;
+			document.querySelector('[aria-label="Collapse sidebar"]')?.click();
+			return null;
+		}));
 
 	// R-01-008/AC-01：默认隐藏在屏外，不占主会话宽度。
 	const hiddenBox = await until("窗格挂载", () => paneBox(page));
@@ -128,7 +138,7 @@ export default async function mobileDrawer({ page, url, assert }) {
 		const el = document.querySelector(".dap-toggle");
 		return el ? Number(getComputedStyle(el).zIndex) : null;
 	});
-	assert.equal(embeddedZ, 1, "嵌入态 z-index 归位为 1，低于宿主任何覆盖层（T-167 层级逃逸根除）");
+	assert.equal(embeddedZ, 2, "嵌入态 z-index 2：高于壳层标签行容器（1）且远低于宿主覆盖层（T-167、T-203）");
 
 	// R-01-008/AC-04：外层胶囊壳去除（T-168，只留内部涂色的计数胶囊）——开关本体
 	// 无描边、无底色、无投影，可见形态即 .dap-toggle-count 徽标本体。

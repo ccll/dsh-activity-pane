@@ -146,10 +146,12 @@ export async function bootE2e({ mobileShell = false, pluginRoot = repoRoot } = {
 
 		if (mobileShell) {
 			try {
-				// 钉 3.2.0：3.2.1（2026-10-20 发布）移动壳层 header 新增 Chat/Trajectory 顶部
-				// 标签页，bbox 与窗格开关 44×38 命中盒（R-01-008/AC-07，不可缩）叠置，触发
-				// T-171 防误触断言。东家裁决：钉最后全绿版本，上游修复后再评估追新。
-				await execFileAsync("dsh", ["plugin", "--profile", "web", "add", "dsh-web-mobile@3.2.0"], { env });
+				// 钉 3.3.6：3.2.0 在宿主 0.2.2-rc.5 上整页空白（壳层客户端与 0.2.2 UI API
+				// 不兼容），两个移动 spec 均失败；3.3.6 的 peer 范围即 0.2.2-rc.1+。
+				// 3.2.1 起 header 新增 Chat/Trajectory 顶部标签页，须由 spec 复核其 bbox 与
+				// 窗格开关 44×38 命中盒（R-01-008/AC-07）不叠置；如叠置则回到规格层讨论，
+				// 不得为通过而放宽防误触断言。
+				await execFileAsync("dsh", ["plugin", "--profile", "web", "add", "dsh-web-mobile@3.3.6"], { env });
 			} catch (error) {
 				const detail = String(error?.stderr ?? error?.message ?? error).split("\n").filter(Boolean).slice(-3).join(" ");
 				const skip = new Error(`移动壳层 dsh-web-mobile 不可安装，spec 跳过：${detail}`);

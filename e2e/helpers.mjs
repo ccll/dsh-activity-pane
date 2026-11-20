@@ -189,9 +189,10 @@ export function sessionComposer(page) {
 /** mock LLM 固定输出（与 e2e/mock-llm.mjs 剧本一致），spec 断言复用避免多处硬编码。 */
 export const MOCK_FAST_REPLY = "E2E 快速回合已完成。";
 export const MOCK_ERROR_MESSAGE = "E2E 模型故障探针";
-/** 隔离环境卡面显示的模型名（boot.mjs 种子 deepseek-flash，显示名经宿主模型目录映射；
- *  DeepSeek-V41-Flash 为 0.1.5/0.2.0 宿主目录共有条目，T-159）。 */
-export const MOCK_MODEL = "DeepSeek-V41-Flash";
+/** 隔离环境卡面显示的模型名（boot.mjs 种子 deepseek-flash，显示名经宿主模型目录映射）。
+ *  宿主 0.2.2-rc.5 起目录显示名为 DeepSeek-V4.1-Flash（0.1.5/0.2.0 为 DeepSeek-V41-Flash，
+ *  T-159）；宿主升级模型目录时同步本常量，勿改断言口径。 */
+export const MOCK_MODEL = "DeepSeek-V4.1-Flash";
 /** 等待卡状态年龄的相对时间分级文案（R-01-002/AC-14）：与历史卡 fmtRelativeAge 分级一致。 */
 export const RELATIVE_AGE_PATTERN = /^(?:刚刚|\d+分钟前|\d+小时前|\d+天前|\d+周前|\d+个月前|\d+年前)$/;
 
@@ -290,18 +291,28 @@ export async function sendHeroMessage(page, text) {
 }
 
 /** 从会话页新建会话：点 sidebar New session 并等 hero 在场，再发送。 */
+/** 点击宿主按钮；窄视口下按钮可能随收起侧栏 visibility:hidden（仍绑定 React 处理器），
+ *  普通点击不可达时以页面内 click() 触发同一处理器——只用于创建会话的铺垫动作，
+ *  被测断言仍走真实 UI。 */
+async function clickHostButton(page, name) {
+	const locator = page.getByRole("button", { name }).first();
+	const clicked = await locator.click({ timeout: 2_000 }).then(() => true).catch(() => false);
+	if (clicked) return true;
+	return page.evaluate((label) => {
+		const button = [...document.querySelectorAll("button")].find((el) => el.getAttribute("aria-label") === label);
+		if (!button) return false;
+		button.click();
+		return true;
+	}, name);
+}
+
 export async function newSessionWithMessage(page, text) {
 	// 首跑公告可能晚于 openApp 的 dismiss 窗口挂载（T-159），裸点击会被遮罩拦截
 	// （今日全量 verify 两轮各命中 recent-infinite-scroll/repo-entry 同签名）：
 	// 先清公告再点击，点击被拦截则整轮重试，与 sendHeroMessage 同型循环。
 	await until("New session 点击落地", async () => {
 		await dismissNotice(page);
-		const clicked = await page
-			.getByRole("button", { name: "New session" })
-			.first()
-			.click({ timeout: 2_000 })
-			.then(() => true)
-			.catch(() => false);
+		const clicked = await clickHostButton(page, "New session");
 		return clicked ? true : null;
 	}, 30_000);
 	await until("hero composer 出现", async () => {

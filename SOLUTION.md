@@ -173,11 +173,10 @@ flowchart LR
     - 锚为 dsh-web-mobile 侧栏展开按钮语义属性 `data-mobile-nav="toggle"`/`"fab"`，互斥，取首个在屏者。
     - 挂载点为宿主 frame：`[data-shell-overlay]` 的 parentElement，与壳层 findFrame 同源。
     - 形态为 absolute 内联钉位：锚右缘 + 8px，垂直居中。
-    - 贴靠几何取锚的布局坐标 `offsetLeft/Top/Width/Height`（T-172）。
-      - 锚与开关同为 frame 直系子项，offsetParent 同为 frame。
-      - 布局坐标即 frame 内坐标本身，与 frame 位移无关。
-      - 视口 rect 含 frame 自身位移，烘进 frame 内坐标会重复计入。
-      - 缺陷后果：滚动/回弹期每次重落位相对锚多漂一份位移。
+    - 贴靠几何取锚与 frame 的 rect 差 `fabRect.left/top - frameRect.left/top`（T-172、T-203）。
+      - frame 自身位移（滚动/回弹）在差中抵消，重落位幂等，与布局坐标口径等价。
+      - 不依赖 offsetParent：3.3.x 壳层把 ⊡ 移入 transform 容器后，锚的 offsetParent 不再是 frame。
+      - 直接取视口 rect 绝对值会把 frame 位移重复计入，滚动期每次重落位相对锚漂移一份。
   - hero 态 `z-index: 1060` 等同页面内容层：低于壳层遮罩（1250）、宿主抽屉（1300）与宿主菜单（1100），抽屉滑入被逐步遮挡；数值耦合壳层层契约，壳层改版会漂移，记录为边界。
   - 标题行与侧栏展开按钮均不可得时，未落位开关不渲染（不可嵌即不渲染，fail-visible）。
   - 已落位开关在锚缺失期间保留原位（T-168）。

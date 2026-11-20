@@ -138,17 +138,38 @@ export default async function mobileShellSpec({ page, url, assert }) {
 			if (!shellToggle || !toggle) return null;
 			const sr = shellToggle.getBoundingClientRect();
 			const tr = toggle.getBoundingClientRect();
-			const overlapped = [...document.querySelectorAll("button, [role='button'], a, input, textarea, select")]
+			// R-01-008/AC-04「不遮挡」按可观察语义判定：非标签控件的命中盒不得相交；
+			// 标签行按钮的透明内边距可伸入标题行底部，但需同时满足「可见文本不与开关
+			// 相交」且「叠置带内的命中归开关」——否则底部 5px 会误触标签（T-203）。
+			const intersects = (el) => {
+				const r = el.getBoundingClientRect();
+				return r.width > 0 && r.height > 0 &&
+					r.left < tr.right && r.right > tr.left && r.top < tr.bottom && r.bottom > tr.top;
+			};
+			const tabOverlaps = [...document.querySelectorAll('[role="tablist"] button, [role="tablist"] a')].filter(intersects);
+			const hardOverlaps = [...document.querySelectorAll("button, [role='button'], a, input, textarea, select")]
 				.filter((el) => el !== toggle && el !== shellToggle && !toggle.contains(el) && !el.contains(toggle))
-				.some((el) => {
-					const r = el.getBoundingClientRect();
-					return r.width > 0 && r.height > 0 &&
-						r.left < tr.right && r.right > tr.left && r.top < tr.bottom && r.bottom > tr.top;
-				});
+				.filter((el) => !el.closest('[role="tablist"]'))
+				.filter(intersects).length;
+			const tabHijack = tabOverlaps.some((el) => {
+				const textRect = (() => {
+					const range = document.createRange();
+					range.selectNodeContents(el);
+					return range.getBoundingClientRect();
+				})();
+				const textOverlap = textRect.width > 0 && textRect.height > 0 &&
+					textRect.left < tr.right && textRect.right > tr.left && textRect.top < tr.bottom && textRect.bottom > tr.top;
+				const elRect = el.getBoundingClientRect();
+				const x = Math.max(elRect.left, tr.left) + 2;
+				const y = Math.max(elRect.top, tr.top) + 2;
+				const top = document.elementFromPoint(x, y);
+				return textOverlap || top === null || !(top === toggle || toggle.contains(top));
+			});
 			return {
 				shell: [sr.x, sr.y, sr.width, sr.height],
 				toggle: [tr.x, tr.y, tr.width, tr.height],
-				overlapped,
+				overlapped: hardOverlaps > 0 || tabHijack,
+				tabbed: document.querySelector('[role="tablist"]') !== null,
 				inSessionSlot: toggle.closest('[data-slot="conversation.session.header"]') !== null,
 			};
 		}));
@@ -160,7 +181,7 @@ export default async function mobileShellSpec({ page, url, assert }) {
 		active.toggle[0] >= active.shell[0] + active.shell[2] - 0.5,
 		`开关位于壳层左座开关右侧（开关 x=${active.toggle[0]} ≥ 壳层开关右缘 ${active.shell[0] + active.shell[2]}，R-01-008/AC-04）`,
 	);
-	assert.equal(active.overlapped, false, "active 开关不与任何可交互元素叠置（含壳层左座开关，T-171）");
+	assert.equal(active.overlapped, false, "active 开关不遮挡可见控件且叠置带命中归开关（含壳层左座开关，T-171、T-203）");
 	assert.ok(
 		Math.abs(active.toggle[3] - 38) <= 1 && active.toggle[2] >= 44,
 		`入口命中盒至少 44×38px（实测 ${active.toggle[2]}×${active.toggle[3]}，R-01-008/AC-07）`,

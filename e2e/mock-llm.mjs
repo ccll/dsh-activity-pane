@@ -77,7 +77,12 @@ function messagesScenarioTexts(body) {
 function pickScenario({ toolTexts, userTexts }) {
 	const runtime = userTexts.some((text) => text.includes("e2e:runtime"));
 	if (toolTexts.some((text) => text.includes("e2e-job-tick"))) return runtime ? "slow" : "fast";
-	if (toolTexts.some((text) => text.includes("background job"))) return "jobread";
+	// 宿主 0.2.2 的 job_output 首读可能尚未收到输出（job 刚启动，读结果无 tick 行）；
+	// 首读完成后无论输出是否为空都收口，避免剧本在同一条 job_output 上无限循环。
+	// 仍保证 job_output 至少被真实调用一次（jobread 只在 job 启动结果之后、读结果之前命中）。
+	const jobStarted = toolTexts.some((text) => text.includes("background job"));
+	const jobRead = jobStarted && toolTexts.some((text) => !text.includes("background job"));
+	if (jobStarted) return jobRead ? (runtime ? "slow" : "fast") : "jobread";
 	if (toolTexts.length > 0) return runtime ? "slow" : "fast";
 	for (let i = userTexts.length - 1; i >= 0; i -= 1) {
 		const match = userTexts[i].match(/e2e:(longstream|slow|multiask|ask|runtime|error|fast|job)/);

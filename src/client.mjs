@@ -1131,12 +1131,12 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
    兄弟、仍远低于宿主任何覆盖层（移动壳层抽屉 1300 / 遮罩 1250 / 菜单 1100），
    抽屉滑入即被正常遮挡；同时免疫宿主 header 内 absolute 装饰的意外覆盖。 */
 .dap-toggle[data-embedded] {
-  position: static;
+  position: relative;
   margin-right: 8px;
   flex: none;
   width: max-content; max-width: 64px; min-width: 44px;
   height: 38px; min-height: 38px;
-  z-index: 1;
+  z-index: 2;
 }
 /* hero 形态（T-167）：标题行不可得（宿主 data-phase="hero"，英雄页/空白会话）
    时贴靠宿主侧栏展开按钮（dsh-web-mobile ⊡，data-mobile-nav="fab"/"toggle"）
@@ -1752,9 +1752,9 @@ function apply(ctx) {
 				const current = parseFloat(toggle.style.marginLeft) || 0;
 				const next = Math.max(0, Math.round(current + anchorRight + 8 - rect.left));
 				toggle.style.marginLeft = next > 0 ? `${next}px` : "";
-				// 3.3.x 壳层在标题行下新增 Chat/Trajectory 标签行，标签命中盒上缘伸入
-				// 标题行底部；开关按 R-01-008/AC-07 在该壳层降为 33px 并顶对齐，命中盒
-				// 不相交。无标签行（桌面/无壳层）恢复 38px 与居中。
+				// 3.3.x 壳层在标题行下新增 Chat/Trajectory 标签行，标签的透明命中带上缘
+				// 伸入标题行底部；开关保持 44×38 并以 relative+z-index 2 置顶，叠置带命中
+				// 归开关，标签可见文字（y≥40）不被遮挡（R-01-008/AC-04，T-203）。
 				toggle.style.height = "";
 				toggle.style.minHeight = "";
 				toggle.style.alignSelf = "";
@@ -1810,15 +1810,10 @@ function apply(ctx) {
 		toggle.setAttribute("data-hero", "");
 		// 定位关键量内联钉死（T-164 策略）：absolute 几何不依赖样式表状态；
 		// 38 为样式表 height 缺省，量测失败时保底。
-		// 几何取锚的布局坐标（offsetLeft/Top/Width/Height）而非视口 rect（T-172）：
-		// 两者同为 frame 直系子项、offsetParent 同为 frame，布局坐标即 frame 内
-		// absolute 坐标本身；视口 rect 含 frame 自身位移（iOS rubber-band/滚动期
-		// 合成层位移），烘进 frame 内坐标等于把该位移重复计入一次——位移期间每次
-		// 重落位都让开关相对 ⊡ 多漂一份位移（实测 40px 位移重落位后总位移 80px），
-		// 且离散重落位呈顿挫。布局坐标不受祖先 transform 影响，重落位幂等稳定。
-		// 3.3.x 壳层把 ⊡ 移入带 transform 的头部容器，offsetParent 不再是 frame；
-		// 因此几何取「相对 frame 的 rect 差」：frame 自身位移（rubber-band/滚动）在差值中
-		// 抵消，重落位仍幂等，与 T-172 的布局坐标口径等价。
+		// 几何取「相对 frame 的 rect 差」（T-172、T-203）：frame 自身位移（rubber-band/
+		// 滚动期合成层位移）在差中抵消，重落位幂等，与布局坐标口径等价；且不依赖
+		// offsetParent——3.3.x 壳层把 ⊡ 移入带 transform 的头部容器，offsetParent 不再是
+		// frame，旧的 offsetLeft 算式会把开关落在壳层开关左侧。
 		const frameRect = frame.getBoundingClientRect();
 		const fabRect = fabEl.getBoundingClientRect();
 		const toggleHeight = toggle.offsetHeight || 38;

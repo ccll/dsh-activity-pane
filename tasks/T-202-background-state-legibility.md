@@ -6,7 +6,7 @@ id: T-202
 
 # T-202 后台态当前会话的可辨度加强（东家视觉反馈）
 
-状态: active
+状态: completed
 类型: 缺陷修复
 风险等级: major
 风险面: 对外行为（卡片视觉层级与前台/后台态对比）
@@ -77,3 +77,13 @@ id: T-202
 - 后台态参数、PRD AC-03 口径、DOMAIN/SOLUTION 与 check/e2e 断言随本提交落地；回归与观感证据在收口提交补齐。
 
 ## 终态与证据
+
+- 实现: 94a8664（最终值，05c0cd3 的首轮值已被其取代）——后台态描边 50%/46%、外环 1px 42%/38%、柔光 14px/12px 26%/20%、轻内发光 10%/8%；PRD R-01-006/AC-03 经东家确认改为「不得以整卡底色或彩色铺面形成比等待卡更强的色块，等待卡保持最高色彩存在感」；DOMAIN 后台态定义同步；SOLUTION 数值行与 check.mjs 契约串同步；后台态规则不含 `background`，不以铺色压过等待卡。
+- 测试: `node scripts/check.mjs` 全断言通过（含深/浅后台态规则无 background）；`node e2e/run.mjs visual-hierarchy` 通过（后台描边 ≥0.4、≤0.55、> 完成卡、< 前台；环宽/光晕半径 < 前台；浅色三层对照）；受影响 6 spec 全绿（visual-hierarchy/compact-density/desktop-layout/auto-update/error-reminder/long-list，129798ms）；`pnpm verify:fast` 通过；深/浅后台态截图存 `.staging/visual-hierarchy/*-background-top.png`。
+- SOLUTION 对照: SOLUTION 产品契约第 398 行后台态数值与描述同实现一致（50%/46%、1px 42%/38%、14/12px 26%/20%、inset 10%/8%）；DOMAIN「前台态外环宽度、光晕半径与描边不透明度均大于后台态」逐项成立（1.5>1、16>14、90/88>50/46）；等待卡整卡绿色铺面与脉冲保留（色彩存在感最高）；PRD AC-03 新口径与 e2e「后台描边 > 等待卡、等待卡保留绿色铺面」互证。
+- commit: 05c0cd3、94a8664、本收口提交
+- review:
+  - 审核方: review-standards 独立子代理（两轮：首轮两条 blocking，复审通过）
+  - 目的理解: 东家反馈后台态蓝框过暗；在「明显可辨、但不如前台夺目、不以整卡铺色压过等待卡」的区间内加强后台态，同时保持前台 > 等待卡 > 后台的三层关系与 DOMAIN 不变量。
+  - 问题与修复: 首轮 blocking 2——后台外环 1.5px 与前台等宽，违反 DOMAIN「前台外环宽于后台态」；后台环/柔光强于等待卡，违反 AC-03 原字面口径。处置：经东家确认把 AC-03 改为「不以整卡底色或彩色铺面形成更强色块」，外环回落到 1px（窄于前台 1.5px），描边/柔光提升到可辨档；复审判定两条 blocking 清零。non-blocking 3 项已修：task 文本残留旧约束、浅色 e2e 未与等待卡比较、后台态「不添加铺色」缺少自动断言；均已补断言/改文本。
+  - 复审结论: 通过（复审 blocking 清零；浅色与底色断言补齐后可关闭）。

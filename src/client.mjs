@@ -572,13 +572,15 @@ const CSS = `
     inset 0 0 10px color-mix(in srgb, var(--dap-current-color) 20%, transparent);
 }
 /* 当前会话后台态（R-01-006/AC-03、AC-06，C-104）：选中但主区域显示全局面板——保留蓝色
-   可辨、强度低于前台态且不强于等待三类卡。须定义在等待当前卡组合之后（同优先级后定义者胜，
-   完成提醒卡即当前会话时同样转后台态）。 */
+   可辨、强度低于前台态且不强于等待三类卡。东家反馈后台态蓝框过暗：以 1.5px 外环 + 更大柔光
+   + 轻内发光提升可辨度，不抬描边 alpha（仍低于等待三类卡 34%）。须定义在等待当前卡组合之后
+   （同优先级后定义者胜，完成提醒卡即当前会话时同样转后台态）。 */
 [data-dsh-activity-pane] .dap-card[data-current]:not([data-foreground]) {
-  border-color: color-mix(in srgb, var(--dap-current-color) 32%, transparent);
+  border-color: color-mix(in srgb, var(--dap-current-color) 33%, transparent);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--dap-current-color) 14%, transparent),
-    0 0 10px color-mix(in srgb, var(--dap-current-color) 10%, transparent);
+    0 0 0 1.5px color-mix(in srgb, var(--dap-current-color) 34%, transparent),
+    0 0 14px color-mix(in srgb, var(--dap-current-color) 24%, transparent),
+    inset 0 0 10px color-mix(in srgb, var(--dap-current-color) 10%, transparent);
 }
 /* 所有卡片统一提供可见的悬停反馈；不覆盖当前/等待态自身的颜色语义。 */
 [data-dsh-activity-pane] .dap-card:hover {
@@ -1271,12 +1273,14 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current] 
     0 0 16px color-mix(in srgb, var(--dap-current-color) 30%, transparent),
     inset 0 0 10px color-mix(in srgb, var(--dap-current-color) 12%, transparent);
 }
-/* 当前会话后台态（R-01-006/AC-03、AC-06）：须定义在浅色前台态之后同优先级后定义者胜。 */
+/* 当前会话后台态（R-01-006/AC-03、AC-06）：浅色同样改用 1.5px 外环 + 柔光 + 轻内发光，
+   描边 31% 仍低于等待三类卡；须定义在浅色前台态之后同优先级后定义者胜。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current]:not([data-foreground]) {
-  border-color: color-mix(in srgb, var(--dap-current-color) 30%, transparent);
+  border-color: color-mix(in srgb, var(--dap-current-color) 31%, transparent);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--dap-current-color) 12%, transparent),
-    0 0 10px color-mix(in srgb, var(--dap-current-color) 8%, transparent);
+    0 0 0 1.5px color-mix(in srgb, var(--dap-current-color) 30%, transparent),
+    0 0 12px color-mix(in srgb, var(--dap-current-color) 18%, transparent),
+    inset 0 0 10px color-mix(in srgb, var(--dap-current-color) 8%, transparent);
 }
 
 /* 等待三类卡浅色底色向白收（C-104）：保留类别色偏但不再整卡铺亮，强度低于当前会话前台态。 */

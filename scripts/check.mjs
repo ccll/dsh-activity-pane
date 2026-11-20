@@ -5084,7 +5084,7 @@ assert.ok(!bundle.includes(".dap-toggle {\n  position: fixed;"), "浮动开关�
 assert.ok(bundle.includes('toggle.style.position = "relative"'), "嵌入态以 relative 建立定位上下文（不改变布局盒，T-203）");
 assert.ok(bundle.includes('toggle.style.zIndex = "2"'), "嵌入态 z-index 2 高于壳层标签行容器（1），叠置带命中归开关（T-203）");
 assert.ok(bundle.includes("toggle.style.marginLeft"), "嵌入态按宿主左侧控件右缘 + 8px 让位（窄视口浮动侧栏开关，T-203）");
-assert.ok(bundle.includes(".dap-toggle[data-embedded] {\n  position: static;\n  margin-right: 8px;\n  flex: none;\n  width: max-content; max-width: 64px; min-width: 44px;\n  height: 38px; min-height: 38px;\n  z-index: 1;\n}"), "嵌入态钉住 44px 最小宽与 38px 高并层级归位 z-index:1（R-01-008/AC-07）");
+assert.ok(bundle.includes(".dap-toggle[data-embedded] {\n  position: relative;\n  margin-right: 8px;\n  flex: none;\n  width: max-content; max-width: 64px; min-width: 44px;\n  height: 38px; min-height: 38px;\n  z-index: 2;\n}"), "嵌入态钉住 44px 最小宽与 38px 高并 z-index:2 高于标签行（R-01-008/AC-07、T-203）");
 assert.ok(bundle.includes(".dap-toggle[data-hero] {\n  position: absolute;\n  z-index: 1060;\n}"), "hero 态 absolute 页面层 z-index:1060（低于壳层遮罩 1250/抽屉 1300/菜单 1100）");
 assert.ok(bundle.includes("target.insertBefore(toggle, cluster)"), "开关落位插入嵌入行首个内容簇之前（行首参与布局；嵌入靶点为 headerLeading 或会话头标题行，T-171）");
 assert.ok(bundle.includes("target.prepend(toggle)"), "无标题簇时开关落位嵌入行行首");

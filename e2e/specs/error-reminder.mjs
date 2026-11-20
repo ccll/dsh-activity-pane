@@ -42,7 +42,7 @@ export default async function errorReminder({ page, url, mock, assert }) {
 	assert.ok(errorBadge && /^\d+\/\d+$/.test(errorBadge.text), "错误提醒时列头保持 n/m 计数（R-01-001/AC-04～AC-06）");
 	assert.deepEqual(
 		{ tone: errorBadge.tone, background: errorBadge.background, animation: errorBadge.animation },
-		{ tone: "error", background: "rgba(40, 29, 31, 0.97)", animation: "dap-await-pulse" },
+		{ tone: "error", background: "rgba(37, 31, 32, 0.97)", animation: "dap-await-pulse" },
 		"错误提醒优先驱动红色数量徽标并脉冲（R-01-002/AC-06）",
 	);
 	const pane = page.locator("[data-dsh-activity-pane]");

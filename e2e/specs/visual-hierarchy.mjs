@@ -170,37 +170,41 @@ export default async function visualHierarchy({ page, url, assert }) {
 	const fillDelta = doneChannels.slice(0, 3).map((value, index) => Math.abs(value - [29, 31, 37][index]));
 	assert.ok(Math.max(...fillDelta) <= 16, `完成卡底色相对活动卡基色仅轻微色偏（Δ=${fillDelta.map((value) => Math.round(value)).join("/")}）`);
 
-	// R-01-006/AC-03：切到全局面板——当前卡仍选中但转后台态，蓝色可辨、弱于前台态。
+	// R-01-006/AC-03：切到全局面板——当前卡仍选中但转后台态，蓝色明显可辨、全面弱于前台态；
+	// 等待卡仍以整卡底色与脉冲保持最高色彩存在感（后台态不以铺色压过它）。
 	await page.getByRole("button", { name: "Plugins", exact: true }).first().click();
 	const background = await until("当前会话转为后台态", async () => {
 		const state = await visual();
 		if (state?.current === null || state.current.current !== true || state.current.foreground !== false) return null;
 		// 卡片无 transition；仍用 until 规避属性写入与样式刷新同帧的读取差。
-		return borderAlpha(state.current.border) <= 0.34 ? state : null;
+		return borderAlpha(state.current.border) >= 0.4 ? state : null;
 	});
 	assert.ok(
-		borderAlpha(background.current.border) <= 0.34,
-		`后台态描边显著低于前台态（实际 alpha=${borderAlpha(background.current.border)}）`,
+		borderAlpha(background.current.border) <= 0.55,
+		`后台态描边明显可辨但未到前台强度（实际 alpha=${borderAlpha(background.current.border)}）`,
 	);
 	assert.ok(
-		borderAlpha(background.current.border) < borderAlpha(background.a.border),
-		`后台态描边不高于同屏等待提醒卡（后台 ${borderAlpha(background.current.border)} vs 完成卡 ${borderAlpha(background.a.border)}）`,
+		borderAlpha(background.current.border) > borderAlpha(background.a.border),
+		`后台态蓝框强于等待卡描边、仍少于前台态（后台 ${borderAlpha(background.current.border)} vs 完成卡 ${borderAlpha(background.a.border)}）`,
 	);
 	assert.ok(
 		borderAlpha(background.current.border) < borderAlpha(foreground.current.border),
 		"后台态描边低于前台态",
 	);
-	// 东家反馈后台态过暗：以 1.5px 外环 + 更大柔光 + 轻内发光提升可辨度，但仍全面弱于前台态。
-	assert.ok(shadowHas(background.current.shadow, "1.5px"), "后台态外环加厚到 1.5px");
+	assert.ok(shadowHas(background.current.shadow, "1px"), "后台态外环 1px（前台为 1.5px）");
 	assert.ok(shadowHas(background.current.shadow, "14px"), "后台态柔光 14px（前台为 16px）");
 	assert.ok(shadowHas(background.current.shadow, "inset"), "后台态带轻内发光");
+	assert.ok(
+		ringWidthOf(background.current.shadow) < ringWidthOf(foreground.current.shadow),
+		`后台态外环窄于前台态（${ringWidthOf(background.current.shadow)} vs ${ringWidthOf(foreground.current.shadow)}）`,
+	);
 	assert.ok(
 		glowRadiusOf(background.current.shadow) < glowRadiusOf(foreground.current.shadow),
 		`后台态光晕半径小于前台态（${glowRadiusOf(background.current.shadow)} vs ${glowRadiusOf(foreground.current.shadow)}）`,
 	);
 	assert.ok(
-		ringWidthOf(background.current.shadow) === ringWidthOf(foreground.current.shadow) && foregroundRing > 0,
-		"后台态外环与前台态同宽但 alpha 更低（形状同族、强度分层）",
+		doneChannels[1] > Math.max(doneChannels[0], doneChannels[2]),
+		"等待卡保留整卡绿色铺面（色彩存在感仍高于后台态）",
 	);
 	assert.ok(
 		background.count === foreground.count,
@@ -235,7 +239,7 @@ export default async function visualHierarchy({ page, url, assert }) {
 	await page.getByRole("button", { name: "Plugins", exact: true }).first().click();
 	await until("再次进入全局面板", async () => {
 		const state = await visual();
-		return state?.current?.foreground === false && borderAlpha(state.current.border) <= 0.34 ? true : null;
+		return state?.current?.foreground === false && borderAlpha(state.current.border) >= 0.4 ? true : null;
 	});
 	// 只点原生侧栏的会话行：标题取自当前卡的 .dap-title（会话标题，不是 prompt），
 	// 且锚定在外壳 sidebar.workspaces 槽位内，避免落到窗格卡片自身的 AC-04 路径。
@@ -286,15 +290,27 @@ export default async function visualHierarchy({ page, url, assert }) {
 		Math.max(...lightFillDelta) <= 16,
 		`浅色完成卡底色相对活动卡白基色仅轻微色偏（Δ=${lightFillDelta.map((value) => Math.round(value)).join("/")}）`,
 	);
-	// R-01-006/AC-03 浅色后台态：描边 31%，仍低于完成提醒卡（34%）。
+	// R-01-006/AC-03 浅色后台态：描边 46%，明显可辨但仍低于浅色前台态（88%）。
 	await page.getByRole("button", { name: "Plugins", exact: true }).first().click();
 	const lightBackground = await until("浅色后台态生效", async () => {
 		const state = await visual();
-		return state?.current?.foreground === false && borderAlpha(state.current.border) <= 0.34 ? state : null;
+		return state?.current?.foreground === false && borderAlpha(state.current.border) >= 0.4 ? state : null;
 	});
 	assert.ok(
-		borderAlpha(lightBackground.current.border) < borderAlpha(lightBackground.a.border),
-		"浅色后台态描边仍低于完成提醒卡",
+		borderAlpha(lightBackground.current.border) <= 0.55,
+		`浅色后台态描边可辨且未到前台强度（实际 alpha=${borderAlpha(lightBackground.current.border)}）`,
+	);
+	assert.ok(
+		borderAlpha(lightBackground.current.border) < borderAlpha(light.current.border),
+		"浅色后台态描边低于浅色前台态",
+	);
+	assert.ok(
+		borderAlpha(lightBackground.current.border) > borderAlpha(lightBackground.a.border),
+		"浅色后台态蓝框强于等待卡描边、仍少于前台态",
+	);
+	assert.ok(
+		ringWidthOf(lightBackground.current.shadow) < ringWidthOf(light.current.shadow),
+		"浅色后台态外环窄于前台态",
 	);
 	await page.evaluate(() => document.body.setAttribute("data-ds-dark-theme", ""));
 }

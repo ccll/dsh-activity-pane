@@ -182,6 +182,7 @@ export default async function mobileShellSpec({ page, url, assert }) {
 		`开关位于壳层左座开关右侧（开关 x=${active.toggle[0]} ≥ 壳层开关右缘 ${active.shell[0] + active.shell[2]}，R-01-008/AC-04）`,
 	);
 	assert.equal(active.overlapped, false, "active 开关不遮挡可见控件且叠置带命中归开关（含壳层左座开关，T-171、T-203）");
+	assert.ok(active.tabbed, "壳层会话头存在 Chat/Trajectory 标签行（叠置带命中判定的前提）");
 	assert.ok(
 		Math.abs(active.toggle[3] - 38) <= 1 && active.toggle[2] >= 44,
 		`入口命中盒至少 44×38px（实测 ${active.toggle[2]}×${active.toggle[3]}，R-01-008/AC-07）`,

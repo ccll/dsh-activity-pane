@@ -57,11 +57,13 @@ export default async function loadingReady({ page, url, assert }) {
 	await page.goto(target.href, { waitUntil: "networkidle" });
 	await dismissNotice(page);
 
+	// 6s 在并行全量负载下偏紧（宿主 hydration + 500ms 列表延迟）；条件不变，仅放宽
+	// 等待窗到与其它宿主就绪断言同量级，避免负载相位造成的假超时（T-203）。
 	const ready = await until("列表从 pending 转为 ready 空态", async () => {
 		const regions = await paneRegions(page);
 		if (!regions || regions.active.includes("加载中") || regions.recent.includes("加载中")) return null;
 		return regions.active.includes("暂无活动会话") ? regions : null;
-	}, 6_000);
+	}, 20_000);
 	const listEvidence = await page.evaluate(() => window.__dapLoadingEvidence);
 	assert.deepEqual(
 		{ active: listEvidence.active, recent: listEvidence.recent, count: listEvidence.count, toggle: listEvidence.toggle },

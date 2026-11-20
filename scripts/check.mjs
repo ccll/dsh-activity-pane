@@ -5081,7 +5081,9 @@ assert.ok(
 // 嵌入态整体逃逸宿主抽屉之上（T-167 根因）。
 assert.ok(!bundle.includes("z-index: 2147482991"), "浮动开关不再携带顶层 z-index（层级逃逸根因已除）");
 assert.ok(!bundle.includes(".dap-toggle {\n  position: fixed;"), "浮动开关基规则不再携带 fixed 兜底定位");
-assert.ok(bundle.includes('toggle.style.position = "static"'), "嵌入态以内联样式钉死 position:static（不依赖样式表状态）");
+assert.ok(bundle.includes('toggle.style.position = "relative"'), "嵌入态以 relative 建立定位上下文（不改变布局盒，T-203）");
+assert.ok(bundle.includes('toggle.style.zIndex = "2"'), "嵌入态 z-index 2 高于壳层标签行容器（1），叠置带命中归开关（T-203）");
+assert.ok(bundle.includes("toggle.style.marginLeft"), "嵌入态按宿主左侧控件右缘 + 8px 让位（窄视口浮动侧栏开关，T-203）");
 assert.ok(bundle.includes(".dap-toggle[data-embedded] {\n  position: static;\n  margin-right: 8px;\n  flex: none;\n  width: max-content; max-width: 64px; min-width: 44px;\n  height: 38px; min-height: 38px;\n  z-index: 1;\n}"), "嵌入态钉住 44px 最小宽与 38px 高并层级归位 z-index:1（R-01-008/AC-07）");
 assert.ok(bundle.includes(".dap-toggle[data-hero] {\n  position: absolute;\n  z-index: 1060;\n}"), "hero 态 absolute 页面层 z-index:1060（低于壳层遮罩 1250/抽屉 1300/菜单 1100）");
 assert.ok(bundle.includes("target.insertBefore(toggle, cluster)"), "开关落位插入嵌入行首个内容簇之前（行首参与布局；嵌入靶点为 headerLeading 或会话头标题行，T-171）");
@@ -5098,10 +5100,10 @@ assert.ok(bundle.includes('button[data-mobile-nav="toggle"], button[data-mobile-
 assert.ok(bundle.includes('document.querySelector("[data-shell-overlay]")?.parentElement'), "hero 落位挂宿主 frame（data-shell-overlay 的 parentElement，与壳层 findFrame 同源）");
 assert.ok(bundle.includes('toggle.setAttribute("data-hero", "")'), "hero 落位写入 data-hero 标记");
 assert.ok(bundle.includes('toggle.style.position = "absolute"'), "hero 态以内联样式钉死 position:absolute（T-164 策略）");
-assert.ok(bundle.includes("fabEl.offsetWidth + 8"), "hero 贴靠锚点右侧 8px（与 C-091 算式同源）");
-assert.ok(bundle.includes("fabEl.offsetHeight - toggleHeight"), "hero 贴靠与锚点垂直居中");
-assert.ok(bundle.includes("fabEl.offsetTop + (fabEl.offsetHeight - toggleHeight) / 2"), "hero 贴靠几何取锚布局坐标（offsetLeft/Top，T-172：视口 rect 含 frame 自身位移，烘进 frame 内坐标会把位移重复计入）");
-assert.ok(!bundle.includes("fabRect"), "hero 贴靠不再使用视口 rect 烘几何（T-172 位移重复计入根因）");
+assert.ok(bundle.includes("fabRect.left - frameRect.left + fabRect.width + 8"), "hero 贴靠锚点右侧 8px（frame 相对 rect 差，C-091）");
+assert.ok(bundle.includes("fabRect.height - toggleHeight"), "hero 贴靠与锚点垂直居中");
+assert.ok(bundle.includes("fabRect.top - frameRect.top + (fabRect.height - toggleHeight) / 2"), "hero 贴靠几何取 frame 相对 rect 差（T-172：frame 自身位移在差中抵消；不依赖 offsetParent，3.3.x 壳层锚已移入 transform 容器）");
+assert.ok(!bundle.includes("fabEl.offsetLeft") && !bundle.includes("fabEl.offsetTop"), "hero 贴靠不再依赖锚的 offsetParent 偏移（3.3.x 壳层 offsetParent 不再等于 frame）");
 assert.ok(bundle.includes("if (frame === null && toggle.parentElement !== null) toggle.remove();"), "开关摘除仅限壳层结构缺失且已挂载（锚缺失期间已落位开关保留原位，未落位不渲染，fail-visible，C-093、T-168）");
 assert.ok(bundle.includes("const ON_SCREEN_X = -10;"), "在屏判据阈值具名常量（hero 锚在屏判据）");
 assert.ok(bundle.includes('"<span class=\\"dap-toggle-count\\"></span>"'), "开关为徽标单挂骨架：仅计数徽标，无图标与文字标签");

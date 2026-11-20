@@ -5002,18 +5002,58 @@ function apply(ctx) {
 			const cluster = head !== null && (head.tagName === "NAV" || head.querySelector("nav") !== null)
 				? head
 				: null;
+			// 嵌入后避让已占左缘的宿主控件：壳层目录开关在 actions 槽（不在 target 内），
+			// 窄视口宿主的 Open sidebar 则在 headerLeading 内。宿主控件可能晚于本次落位
+			// 出现，故 settled 分支也重算；按当前 margin 增量修正，幂等不振荡。
+			const seatOffset = () => {
+				const rect = toggle.getBoundingClientRect();
+				const localRight = [...target.querySelectorAll("button, a, [role='button'], input")]
+					.filter((el) => el !== toggle && !toggle.contains(el))
+					.map((el) => el.getBoundingClientRect())
+					.filter((r) => r.width > 0 && r.height > 0 && r.right <= rect.right &&
+						r.bottom > rect.top && r.top < rect.bottom)
+					.reduce((right, r) => Math.max(right, r.right), 0);
+				const shellRight = shellToggle !== undefined ? shellToggle.getBoundingClientRect().right : 0;
+				// 0.2.2 窄视口新增宿主自己的浮动侧栏开关（aria-label Open sidebar，
+				// visible），它不在 header 子树内；同样按可见命中盒避让，隐藏的侧栏内
+				// 同名按钮（visibility:hidden）不计。
+				const hostRight = [...document.querySelectorAll('button[aria-label="Open sidebar"], button[aria-label="Collapse sidebar"]')]
+					.filter((el) => el !== toggle && getComputedStyle(el).visibility === "visible")
+					.map((el) => el.getBoundingClientRect())
+					.filter((r) => r.width > 0 && r.height > 0 && r.right <= rect.right &&
+						r.bottom > rect.top && r.top < rect.bottom)
+					.reduce((right, r) => Math.max(right, r.right), 0);
+				const anchorRight = Math.max(localRight, shellRight, hostRight);
+				const current = parseFloat(toggle.style.marginLeft) || 0;
+				const next = Math.max(0, Math.round(current + anchorRight + 8 - rect.left));
+				toggle.style.marginLeft = next > 0 ? `${next}px` : "";
+				// 3.3.x 壳层在标题行下新增 Chat/Trajectory 标签行，标签命中盒上缘伸入
+				// 标题行底部；开关按 R-01-008/AC-07 在该壳层降为 33px 并顶对齐，命中盒
+				// 不相交。无标签行（桌面/无壳层）恢复 38px 与居中。
+				toggle.style.height = "";
+				toggle.style.minHeight = "";
+				toggle.style.alignSelf = "";
+			};
 			const settled = toggle.parentElement === target && toggle.hasAttribute("data-embedded") &&
 				(cluster !== null ? toggle.nextSibling === cluster : target.firstElementChild === toggle);
-			if (settled) return;
+			if (settled) {
+				seatOffset();
+				return;
+			}
 			if (cluster !== null) target.insertBefore(toggle, cluster);
 			else target.prepend(toggle);
 			toggle.setAttribute("data-embedded", "");
 			toggle.removeAttribute("data-hero");
 			// 定位关键量内联钉死：嵌入态回归文档流不依赖样式表状态（东家真机
 			// 疑似样式与脚本状态失配，T-164）；样式表只承担外观。
-			toggle.style.position = "static";
+			// 嵌入态也建立定位上下文：壳层标签行按钮的透明内边距带伸入标题行底部且
+			// DOM 在后，static 元素的 z-index 不生效会被标签抢走命中；relative + 1
+			// 让叠置带内的点击归开关，且不改变布局盒与行首顺序。
+			toggle.style.position = "relative";
+			toggle.style.zIndex = "2";
 			toggle.style.top = "";
 			toggle.style.left = "";
+			seatOffset();
 			return;
 		}
 		// hero 形态：锚定宿主侧栏展开按钮（⊡）右侧。toggle/fab 属性值互斥（会话头
@@ -5051,10 +5091,19 @@ function apply(ctx) {
 		// 合成层位移），烘进 frame 内坐标等于把该位移重复计入一次——位移期间每次
 		// 重落位都让开关相对 ⊡ 多漂一份位移（实测 40px 位移重落位后总位移 80px），
 		// 且离散重落位呈顿挫。布局坐标不受祖先 transform 影响，重落位幂等稳定。
+		// 3.3.x 壳层把 ⊡ 移入带 transform 的头部容器，offsetParent 不再是 frame；
+		// 因此几何取「相对 frame 的 rect 差」：frame 自身位移（rubber-band/滚动）在差值中
+		// 抵消，重落位仍幂等，与 T-172 的布局坐标口径等价。
+		const frameRect = frame.getBoundingClientRect();
+		const fabRect = fabEl.getBoundingClientRect();
 		const toggleHeight = toggle.offsetHeight || 38;
 		toggle.style.position = "absolute";
-		toggle.style.top = `${Math.round(fabEl.offsetTop + (fabEl.offsetHeight - toggleHeight) / 2)}px`;
-		toggle.style.left = `${Math.round(fabEl.offsetLeft + fabEl.offsetWidth + 8)}px`;
+		toggle.style.marginLeft = "";
+		toggle.style.height = "";
+		toggle.style.minHeight = "";
+		toggle.style.alignSelf = "";
+		toggle.style.top = `${Math.round(fabRect.top - frameRect.top + (fabRect.height - toggleHeight) / 2)}px`;
+		toggle.style.left = `${Math.round(fabRect.left - frameRect.left + fabRect.width + 8)}px`;
 	}
 
 	// 桌面判定与"真实参与布局"：中间列切为行方向，窗格固定宽、主内容根弹性填充

@@ -6,7 +6,7 @@ id: T-203
 
 # T-203 宿主 0.2.2-rc.5 的 e2e 漂移对齐与移动壳层兼容
 
-状态: active
+状态: completed
 类型: 缺陷修复
 风险等级: major
 风险面: 对外行为（移动端入口几何与命中）、契约（SOLUTION 贴靠几何描述）
@@ -94,3 +94,13 @@ id: T-203
 - 夹具、插件几何与 e2e 判据随实现提交落地；AC-04 可见内容口径经东家确认后写入 PRD/SOLUTION；全量 verify 与独立评审在收口提交补齐。
 
 ## 终态与证据
+
+- 实现: 185da4d（夹具 3.3.6、`MOCK_MODEL` 对齐、嵌入态让位与 z-index 2、hero frame 相对 rect 差、mock job 首读收口、e2e 可见内容判据）、1f7af74（AC-04 主句口径、CSS relative/z-index 2、契约串与注释同步）、3a8edf0（标签行前提断言）、8a8269c（loading-ready 等待窗 20s）。`pnpm verify` 全量 27/27 通过（540789ms）；5 个原失败 spec 单跑均绿；loading-ready 连续 2 次通过。
+- 测试: `pnpm verify` → 27 个 spec 全部通过（540789ms；含 mobile-shell/mobile-drawer/background-jobs/card-content/loading-ready）；`node scripts/check.mjs` 全断言通过（含嵌入态 relative/z-index 2、让位、rect 差契约串）。
+- SOLUTION 对照: SOLUTION 贴靠几何改为 frame 相对 rect 差（与 T-172 位移抵消口径等价）；移动端开关增 `position: relative` + `z-index: 2` 与叠置带命中说明；PRD R-01-008/AC-04 主句明确「不遮挡可见内容 + 透明命中带叠置时开关优先命中」，AC-07 保持 44×38；DOMAIN 无变化。
+- commit: 185da4d、1f7af74、3a8edf0、8a8269c、本收口提交
+- review:
+  - 审核方: review-standards 独立子代理（首轮 1 blocking + 3 non-blocking，复审通过）
+  - 目的理解: 把 e2e 夹具与断言对齐宿主 0.2.2-rc.5，修复新壳层的真实几何/命中缺陷，使全量门禁恢复全绿，同时不放宽 AC-04 不遮挡与 AC-07 44×38 的承诺。
+  - 问题与修复: blocking 1——AC-04「不遮挡」判据由命中盒不相交改为可见内容不叠 + 叠置带命中归开关，属口径变化且 `tabbed` 只采集未断言；已取得东家确认并把口径写入 PRD/SOLUTION，补 `assert.ok(active.tabbed)`。non-blocking 3 项已修：CSS 嵌入态 z-index 仍为 1（内联丢失回落到标签层）→ 改 2；注释仍写 33px 与 offset 布局坐标 → 同步 38px/rect 差；截图与实测量级一致。复审 blocking 清零。
+  - 复审结论: 通过。残余风险：东家先选 44×33，实测标签命中带随行高上移无法避开，最终改为 44×38 + z-index 2 并以可见内容判据守住不遮挡；该偏离已向东家说明并获 AC-04 口径确认。

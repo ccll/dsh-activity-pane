@@ -5563,8 +5563,8 @@ assert.ok(
 	"后台态规则定义在等待当前卡组合之后（0-4-0 同优先级）",
 );
 assert.ok(
-	bundle.includes("[data-dsh-activity-pane] .dap-card[data-current]:not([data-foreground]) {\n  border-color: color-mix(in srgb, var(--dap-current-color) 32%, transparent);\n  box-shadow:\n    0 0 0 1px color-mix(in srgb, var(--dap-current-color) 14%, transparent),\n    0 0 10px color-mix(in srgb, var(--dap-current-color) 10%, transparent);\n}"),
-	"深色后台态：32% 描边 + 1px 外环 + 10px 光晕，低于等待三类卡（统一 34%）且仍为蓝色可辨（R-01-006/AC-03，C-104）",
+	bundle.includes("[data-dsh-activity-pane] .dap-card[data-current]:not([data-foreground]) {\n  border-color: color-mix(in srgb, var(--dap-current-color) 33%, transparent);\n  box-shadow:\n    0 0 0 1.5px color-mix(in srgb, var(--dap-current-color) 34%, transparent),\n    0 0 14px color-mix(in srgb, var(--dap-current-color) 24%, transparent),\n    inset 0 0 10px color-mix(in srgb, var(--dap-current-color) 10%, transparent);\n}"),
+	"深色后台态：33% 描边 + 1.5px 外环 + 14px 柔光 + 轻内发光，描边仍低于等待三类卡（34%）且明显可辨（R-01-006/AC-03，C-104）",
 );
 assert.ok(
 	!bundle.includes('[data-density="compact"] .dap-card[data-current]') &&
@@ -5572,8 +5572,8 @@ assert.ok(
 	"前台/后台态与等待卡降权规则不按显示档位分叉，三档同值（R-01-006/AC-06）",
 );
 assert.ok(
-	bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current]:not([data-foreground]) {\n  border-color: color-mix(in srgb, var(--dap-current-color) 30%, transparent);\n  box-shadow:\n    0 0 0 1px color-mix(in srgb, var(--dap-current-color) 12%, transparent),\n    0 0 10px color-mix(in srgb, var(--dap-current-color) 8%, transparent);\n}"),
-	"浅色后台态：30% 描边 + 1px 外环 + 10px 光晕，低于前台态与等待三类卡（R-01-006/AC-03，C-104）",
+	bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current]:not([data-foreground]) {\n  border-color: color-mix(in srgb, var(--dap-current-color) 31%, transparent);\n  box-shadow:\n    0 0 0 1.5px color-mix(in srgb, var(--dap-current-color) 30%, transparent),\n    0 0 12px color-mix(in srgb, var(--dap-current-color) 18%, transparent),\n    inset 0 0 10px color-mix(in srgb, var(--dap-current-color) 8%, transparent);\n}"),
+	"浅色后台态：31% 描边 + 1.5px 外环 + 12px 柔光 + 轻内发光，描边仍低于等待三类卡（R-01-006/AC-03，C-104）",
 );
 // R-01-006/AC-06 视觉阶梯：等待三类描边统一 34%、当前前台态 90%/88%，后台态居中偏低。
 const waitRingAt = bundle.indexOf("box-shadow: 0 0 0 1px color-mix(in srgb, var(--dap-wait-color) 22%, transparent), 0 4px 12px rgba(0,0,0,.22);");

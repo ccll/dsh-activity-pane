@@ -184,14 +184,24 @@ export default async function visualHierarchy({ page, url, assert }) {
 	);
 	assert.ok(
 		borderAlpha(background.current.border) < borderAlpha(background.a.border),
-		`后台态不强于同屏等待提醒卡（后台 ${borderAlpha(background.current.border)} vs 完成卡 ${borderAlpha(background.a.border)}）`,
+		`后台态描边不高于同屏等待提醒卡（后台 ${borderAlpha(background.current.border)} vs 完成卡 ${borderAlpha(background.a.border)}）`,
 	);
 	assert.ok(
 		borderAlpha(background.current.border) < borderAlpha(foreground.current.border),
 		"后台态描边低于前台态",
 	);
-	assert.ok(shadowHas(background.current.shadow, "10px"), "后台态光晕收小到 10px");
-	assert.ok(!shadowHas(background.current.shadow, "inset"), "后台态不保留内发光");
+	// 东家反馈后台态过暗：以 1.5px 外环 + 更大柔光 + 轻内发光提升可辨度，但仍全面弱于前台态。
+	assert.ok(shadowHas(background.current.shadow, "1.5px"), "后台态外环加厚到 1.5px");
+	assert.ok(shadowHas(background.current.shadow, "14px"), "后台态柔光 14px（前台为 16px）");
+	assert.ok(shadowHas(background.current.shadow, "inset"), "后台态带轻内发光");
+	assert.ok(
+		glowRadiusOf(background.current.shadow) < glowRadiusOf(foreground.current.shadow),
+		`后台态光晕半径小于前台态（${glowRadiusOf(background.current.shadow)} vs ${glowRadiusOf(foreground.current.shadow)}）`,
+	);
+	assert.ok(
+		ringWidthOf(background.current.shadow) === ringWidthOf(foreground.current.shadow) && foregroundRing > 0,
+		"后台态外环与前台态同宽但 alpha 更低（形状同族、强度分层）",
+	);
 	assert.ok(
 		background.count === foreground.count,
 		`页面切换不改变窗格卡片集合（前后 ${foreground.count}/${background.count}）`,
@@ -276,11 +286,11 @@ export default async function visualHierarchy({ page, url, assert }) {
 		Math.max(...lightFillDelta) <= 16,
 		`浅色完成卡底色相对活动卡白基色仅轻微色偏（Δ=${lightFillDelta.map((value) => Math.round(value)).join("/")}）`,
 	);
-	// R-01-006/AC-03 浅色后台态：描边 30%，仍低于完成提醒卡（34%）。
+	// R-01-006/AC-03 浅色后台态：描边 31%，仍低于完成提醒卡（34%）。
 	await page.getByRole("button", { name: "Plugins", exact: true }).first().click();
 	const lightBackground = await until("浅色后台态生效", async () => {
 		const state = await visual();
-		return state?.current?.foreground === false && borderAlpha(state.current.border) <= 0.3 ? state : null;
+		return state?.current?.foreground === false && borderAlpha(state.current.border) <= 0.34 ? state : null;
 	});
 	assert.ok(
 		borderAlpha(lightBackground.current.border) < borderAlpha(lightBackground.a.border),

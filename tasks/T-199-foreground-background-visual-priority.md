@@ -6,7 +6,7 @@ id: T-199
 
 # T-199 当前会话前台/后台态与视觉优先级——完成提醒降权、面板页激活修复
 
-状态: active
+状态: completed
 类型: 需求变更
 风险等级: major
 风险面: 对外行为（卡片激活跳转与卡面视觉层级）、契约（check.mjs 视觉契约串与 PRD 验收点）
@@ -82,3 +82,13 @@ id: T-199
 - 回归影响：`data-current` 仍表示选中（既有 e2e 选择器与滚动锚定不变）；重试链取消判据仍按选中判定；数量徽标底色与卡面严格一致；轨道线测量不因外环变化偏移。
 
 ## 终态与证据
+
+- 实现: b4b704d 主实现（`data-current` 与新增 `data-foreground` 分离、`activePanelId()` 读 `layout.panelInfo` 并入渲染签名、`installPanelSubscription` 补订、激活三分支：已在屏无操作/面板在屏 reveal 不排重试链/其余 `attemptOpen`；视觉阶梯前台态 1.5px 外环 + 16px 光晕 + 内发光、后台态 32%/30%、等待三类统一 34% 且徽标同值）与 c40499b、41d0017 两笔评审修复；PRD R-01-006 增 AC-03～AC-06、R-01-002/AC-04 补句，SOLUTION/DOMAIN/README/人工验收清单与 C-104 同步。实现期间发现并移除卡片 `transition`：其 0-3-0 优先级覆盖 `.dap-move-ghost` 的过渡，导致迁移动画 ghost 永不回收（compact-density 完成卡计数不降），由 e2e 捕获后修正。
+- 测试: `pnpm verify:fast` 通过；`node scripts/check.mjs` 全断言通过；受影响 10 spec 全绿（visual-hierarchy/desktop-layout/compact-density/auto-update/error-reminder/navigation/long-list/session-lifecycle/completion-sync/density-resource，其中 navigation 子集首轮一次摘要在 until 与二次读取间的宿主选择竞态，单发两次均绿，属既有 flake）；全量 `node e2e/run.mjs` 22/27（656692ms），5 项失败（background-jobs/card-content/loading-ready/mobile-drawer/mobile-shell）在改动前 bundle 基线（`git stash` src/navigation/bundle）以同一等待失败复现：宿主模型显示名为 DeepSeek-V4.1-Flash 而 spec 常量仍为 DeepSeek-V41-Flash、移动壳层 New session/send 未受理，非本次回归；pre-push 在该环境仍被这 5 项阻断，已登记为环境漂移与后续跟进。
+- SOLUTION 对照: PRD R-01-006/AC-03～AC-06 与 R-01-002/AC-04 补句 ↔ SOLUTION 产品契约第 398～399 行与窗格渲染器第 462 行一致（面板态判定、`data-current`/`data-foreground` 分工、三分支激活、数值 90%/88%、32%/30%、34%）；DOMAIN「当前会话/前台态/后台态」与跨模块不变量同口径；C-104 记录决策与被否方案；AC-08 强度一致由统一 34% 兑现。
+- commit: b4b704d、c40499b、41d0017、7812952（窗口复位前的收口提交）
+- review:
+  - 审核方: review-standards 与 review-spec 独立子代理（Spec/Standards 双轴，初轮与复审各一轮；与实现上下文分离）
+  - 目的理解: 让窗格跨页常驻时当前会话在面板页仍可辨认且一次激活回到前台，并把「选中」与「正在查看」拆成两维：前台态为最高视觉层、后台态可辨但不强于等待卡、等待三类降权且强度一致；同时修复面板页点击无反应的到达判据缺陷（C-104）。
+  - 问题与修复: 初轮 blocking 2——AC-08 要求三类等待卡强度一致而实现 34%/40% 分档，已统一为 34%；全量门禁未绿，已以改动前 bundle 基线复现证明 5 项失败为环境漂移并写入本证据。non-blocking 13 项已修复或登记：layout 订阅晚到不补订（改为 render 前补订）、移动端从面板返回未抑制软键盘（补 1200ms 窗）、e2e 浅色取色与侧栏锚定可绕过（改校验 #2f7cf6 与 `[data-slot="sidebar.workspaces"]`）、外环/光晕仅字符串包含（改为宽度/半径/alpha 数值比较）、底色断言以当前卡为基色恒真（改活动卡基色）、徽标同值仅按次数（改卡面/徽标两侧字面值）、重复 `jobsUnsubscribe` 退订、文档「在屏态」未登记术语与证据路径漂移、task 证据位置与 AC-08 测试影响行。复审两轴 blocking 清零。
+  - 复审结论: 通过（Spec/Standards 两轴）；残余风险：`layout.panelInfo.subscribe` 首次抛错后不重试直到服务代际变化；全量 pre-push 仍被 5 项环境漂移失败阻断，需另开修复宿主/harness 对齐的跟进项。

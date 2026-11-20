@@ -47,6 +47,22 @@ const channelsOf = (color) => {
 /** 断言 box-shadow 含指定长度的外环/光晕（computed 值已把 color-mix 解析为 rgba）。 */
 const shadowHas = (shadow, token) => typeof shadow === "string" && shadow.includes(token);
 
+/** computed box-shadow 中「0 0 0 Npx」外环的宽度（无外环为 0）。 */
+const ringWidthOf = (shadow) => Number(/0px 0px 0px ([\d.]+)px/.exec(String(shadow ?? ""))?.[1] ?? 0);
+
+/** computed box-shadow 中「0 0 Npx」外光晕的半径（无此类光晕为 0；不含 inset）。 */
+const glowRadiusOf = (shadow) => Number(/0px 0px ([\d.]+)px 0px(?! inset)/.exec(String(shadow ?? ""))?.[1] ?? 0);
+
+/** 按窗格密度控件循环到指定档位。 */
+const setDensity = async (page, level) => {
+	await until(`档位切到 ${level}`, async () => {
+		const density = await page.evaluate(() => document.querySelector("[data-dsh-activity-pane]")?.getAttribute("data-density"));
+		if (density === level) return true;
+		await page.evaluate(() => document.querySelector("[data-dsh-activity-pane] .dap-density")?.click());
+		return null;
+	}, 10_000);
+};
+
 export default async function visualHierarchy({ page, url, assert }) {
 	await openApp(page, url);
 	// 深浅主题分别校验：先固定深色主题（宿主默认可能为浅色）。
@@ -132,13 +148,35 @@ export default async function visualHierarchy({ page, url, assert }) {
 		doneChannels[1] - Math.max(doneChannels[0], doneChannels[2]) <= 6,
 		`完成提醒卡底色仅保留轻微绿色色偏（rgb=${doneChannels.map((value) => Math.round(value)).join(",")}）`,
 	);
+	// AC-06 三项数值比较：外环宽度、光晕半径、描边不透明度均须前台态更大。
+	const foregroundRing = ringWidthOf(foreground.current.shadow);
+	const doneRing = ringWidthOf(foreground.a.shadow);
+	const foregroundGlow = glowRadiusOf(foreground.current.shadow);
+	const doneGlow = glowRadiusOf(foreground.a.shadow);
+	assert.ok(foregroundRing >= 1.5 && foregroundRing > doneRing, `前台态外环宽于完成卡（${foregroundRing} vs ${doneRing}）`);
+	assert.ok(foregroundGlow >= 16 && foregroundGlow > doneGlow, `前台态光晕半径大于完成卡（${foregroundGlow} vs ${doneGlow}）`);
+	assert.ok(
+		borderAlpha(foreground.current.border) > borderAlpha(foreground.a.border),
+		"前台态描边不透明度高于完成卡",
+	);
+	const currentBorder = channelsOf(foreground.current.border);
+	assert.ok(currentBorder, `前台态描边色可解析（${foreground.current.border}）`);
+	assert.ok(
+		[143, 188, 255].every((value, index) => Math.abs(currentBorder[index] - value) <= 3),
+		`深色前台态取 #8fbcff（实际 ${currentBorder.map((value) => Math.round(value)).join(",")}）`,
+	);
+	// AC-06 底色子句：前台态卡面保持活动卡基色，等待卡只许轻微色偏（禁止整卡铺色）。
+	const currentChannels = channelsOf(foreground.current.background);
+	assert.ok(currentChannels, `前台态底色可解析（${foreground.current.background}）`);
+	const fillDelta = doneChannels.slice(0, 3).map((value, index) => Math.abs(value - currentChannels[index]));
+	assert.ok(Math.max(...fillDelta) <= 16, `完成卡底色相对当前卡基色仅轻微色偏（Δ=${fillDelta.map((value) => Math.round(value)).join("/")}）`);
 
 	// R-01-006/AC-03：切到全局面板——当前卡仍选中但转后台态，蓝色可辨、弱于前台态。
 	await page.getByRole("button", { name: "Plugins", exact: true }).first().click();
 	const background = await until("当前会话转为后台态", async () => {
 		const state = await visual();
 		if (state?.current === null || state.current.current !== true || state.current.foreground !== false) return null;
-		// 描边有 0.15s 过渡：等到后台态数值落定再断言，避免读到过渡中间帧。
+		// 卡片无 transition；仍用 until 规避属性写入与样式刷新同帧的读取差。
 		return borderAlpha(state.current.border) <= 0.34 ? state : null;
 	});
 	assert.ok(
@@ -175,13 +213,27 @@ export default async function visualHierarchy({ page, url, assert }) {
 	);
 	assert.ok(shadowHas(restored.current.shadow, "16px") && shadowHas(restored.current.shadow, "inset"), "回前台后外环与内发光恢复");
 
+	// R-01-006/AC-06 档位无关：紧凑档前台态仍保留外环与内发光（视觉规则不按档位分叉）。
+	await setDensity(page, "compact");
+	const compact = await until("紧凑档保持前台态光效", async () => {
+		const state = await visual();
+		return state?.current?.foreground === true && ringWidthOf(state.current.shadow) >= 1.5 ? state : null;
+	});
+	assert.ok(shadowHas(compact.current.shadow, "inset"), "紧凑档前台态同样带内发光");
+	await setDensity(page, "full");
+
 	// R-01-006/AC-05：再次切到面板后经原生侧栏返回会话——当前卡不依赖自身激活即恢复前台态。
 	await page.getByRole("button", { name: "Plugins", exact: true }).first().click();
 	await until("再次进入全局面板", async () => {
 		const state = await visual();
 		return state?.current?.foreground === false && borderAlpha(state.current.border) <= 0.34 ? true : null;
 	});
-	await page.getByText(TITLE_B, { exact: true }).filter({ visible: true }).first().click();
+	// 只点原生侧栏的会话行：标题取自当前卡的 .dap-title（会话标题，不是 prompt），
+	// 且锚定在外壳 sidebar.workspaces 槽位内，避免落到窗格卡片自身的 AC-04 路径。
+	const currentTitle = (await page.locator("[data-dsh-activity-pane] .dap-card[data-current] .dap-title").innerText()).trim();
+	const sidebarRow = page.locator('[data-slot="sidebar.workspaces"]').getByText(currentTitle, { exact: true }).first();
+	assert.ok((await sidebarRow.count()) > 0, "原生侧栏存在当前会话行（非窗格标题）");
+	await sidebarRow.click();
 	const sidebarReturn = await until("经原生侧栏返回后恢复前台态", async () => {
 		const state = await visual();
 		if (state?.current?.foreground !== true) return null;
@@ -208,11 +260,27 @@ export default async function visualHierarchy({ page, url, assert }) {
 		borderAlpha(light.a.border) < borderAlpha(light.current.border),
 		"浅色下完成提醒卡描边仍弱于当前会话前台态",
 	);
+	const lightBorder = channelsOf(light.current.border);
+	assert.ok(lightBorder, `浅色前台态描边色可解析（${light.current.border}）`);
+	assert.ok(
+		[47, 124, 246].every((value, index) => Math.abs(lightBorder[index] - value) <= 3),
+		`浅色前台态取深档蓝 #2f7cf6（实际 ${lightBorder.map((value) => Math.round(value)).join(",")}）`,
+	);
 	const lightDone = channelsOf(light.a.background);
 	assert.ok(lightDone, `浅色完成提醒卡底色可解析（实际 ${light.a.background}）`);
 	assert.ok(
 		lightDone[1] - Math.max(lightDone[0], lightDone[2]) <= 8,
 		`浅色完成提醒卡底色向白收、仅保留轻微绿色色偏（rgb=${lightDone.map((value) => Math.round(value)).join(",")}）`,
+	);
+	// R-01-006/AC-03 浅色后台态：描边 30%，仍低于完成提醒卡（34%）。
+	await page.getByRole("button", { name: "Plugins", exact: true }).first().click();
+	const lightBackground = await until("浅色后台态生效", async () => {
+		const state = await visual();
+		return state?.current?.foreground === false && borderAlpha(state.current.border) <= 0.3 ? state : null;
+	});
+	assert.ok(
+		borderAlpha(lightBackground.current.border) < borderAlpha(lightBackground.a.border),
+		"浅色后台态描边仍低于完成提醒卡",
 	);
 	await page.evaluate(() => document.body.setAttribute("data-ds-dark-theme", ""));
 }

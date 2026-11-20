@@ -3811,8 +3811,8 @@ const CSS = `
    与旧琥珀底差异须一眼可辨，东家视觉反馈）；完成提醒采用绿色成功
    色系——深色取宿主 success 三级背景同款暗绿（green-900），底色仅保留轻微绿色色偏；
    错误提醒采用红色错误色系（与时间线错误分组行同源 #f06a72），警示会话出错。
-   --dap-wait-color 供状态点与末行胶囊共用的类别色相。三类卡整体降权（C-104）：底色向
-   活动卡底色收窄、描边与外环收小、投影减弱，不再以整卡铺色压过当前会话前台态。 */
+   --dap-wait-color 供状态点与末行胶囊共用的类别色相。三类卡整体降权（C-104）：描边统一 34%、外环 22%，底色向
+   活动卡底色收窄、投影减弱，不再以整卡铺色压过当前会话前台态；强度一致仅色相随类别区分。 */
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"],
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"],
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {
@@ -3820,7 +3820,7 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] {
   --dap-wait-color: #f5c542;
-  border-color: color-mix(in srgb, #f5c542 40%, transparent);
+  border-color: color-mix(in srgb, #f5c542 34%, transparent);
   /* 金黄底：r/g 通道接近（明度较琥珀底更亮）、b 通道明显压低，扫一眼即金黄而非橙棕。 */
   background: rgba(42, 40, 30, 0.97);
 }
@@ -3833,7 +3833,7 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {
   --dap-wait-color: #f06a72;
-  border-color: color-mix(in srgb, #f06a72 40%, transparent);
+  border-color: color-mix(in srgb, #f06a72 34%, transparent);
   background: rgba(37, 31, 32, 0.97);
 }
 /* 等待卡同为当前会话时描边/光晕回归蓝色前台态（R-01-006/AC-01、AC-06）：基态 [data-current]
@@ -6160,16 +6160,27 @@ function apply(ctx) {
 			return null;
 		}
 	}
+	/** 全局面板态订阅（R-01-006/AC-03、AC-05，C-104）：layout 服务可能晚于插件挂载注册
+	 *  或被代际替换，故不并入 installServiceSubscriptions 的一次性代际分支，而在 setup
+	 *  与每轮节流渲染前按服务身份补订/换订。页面切换不改其它渲染签名分量，缺少本订阅
+	 *  时当前卡的前台/后台态只能等下一次其它事件才刷新。 */
+	function installPanelSubscription() {
+		const next = ctx.get("layout") ?? null;
+		if (next === layoutService) return;
+		panelUnsubscribe?.();
+		layoutService = next;
+		try {
+			panelUnsubscribe = layoutService?.panelInfo?.subscribe?.(queueSync) ?? null;
+		} catch {
+			panelUnsubscribe = null;
+		}
+	}
 	function installServiceSubscriptions() {
 		const nextSessions = ctx.get("sessions");
 		const nextWorkspaces = ctx.get("workspaces");
 		const nextUiSession = ctx.get("uiSession");
 		const nextJobs = ctx.get("jobs");
-		const nextLayout = ctx.get("layout");
-		if (
-			nextSessions === sessions && nextWorkspaces === workspaces && nextUiSession === uiSession
-			&& nextJobs === jobs && nextLayout === layoutService
-		) return;
+		if (nextSessions === sessions && nextWorkspaces === workspaces && nextUiSession === uiSession && nextJobs === jobs) return;
 
 		// 服务代际更替：旧代际上登记的 retain 引用与 jobs roster 订阅一并释放——
 		// 引用的 binding 在代际终结后访问即失败（dsh 0.2.0 retain 语义）。
@@ -6180,20 +6191,10 @@ function apply(ctx) {
 		workspaceUnsubscribe?.();
 		pendingUnsubscribe?.();
 		jobsUnsubscribe?.();
-		panelUnsubscribe?.();
 		sessions = nextSessions ?? null;
 		workspaces = nextWorkspaces ?? null;
 		uiSession = nextUiSession ?? null;
 		jobs = nextJobs ?? null;
-		layoutService = nextLayout ?? null;
-		try {
-			// 全局面板在屏与否只进渲染签名与激活分流（R-01-006/AC-03、AC-04，C-104）：
-			// 页面切换不改其它签名分量，必须单独订阅驱动一轮重绘，当前卡的前台/后台态
-			// 才会随 panelInfo 快照变化即时刷新。
-			panelUnsubscribe = layoutService?.panelInfo?.subscribe?.(queueSync) ?? null;
-		} catch {
-			panelUnsubscribe = null;
-		}
 		try {
 			sessionUnsubscribe = sessions?.list?.subscribe?.(queueSync) ?? null;
 		} catch {
@@ -7954,7 +7955,11 @@ function apply(ctx) {
 				// 在同一同步调用内 selectPanel(null) 关闭面板并显示会话，选中未变，无需到达
 				// 重试链；移动端抽屉打开时同时收起，使「回到会话」直达对话。
 				if (panelId !== null && currentId !== null && String(sessionId) === String(currentId)) {
-					openSession(ctx.get("uiWorkspace"), openTargetFor(sessionId));
+					// 宿主 reveal 与 selection 同提交周期聚焦 composer：移动端先武装抑制窗，
+					// 否则从面板返回会话会直接弹出软键盘（与 attemptOpen 首发同窗宽）。
+					if (mobile) suppressComposerAutofocus(document, setTimeout, 1200);
+					if (!openSession(ctx.get("uiWorkspace"), openTargetFor(sessionId)))
+						console.warn("[dsh-activity-pane] 全局面板返回导航未受理");
 					if (mobile && document.querySelector(`[${PANE_ATTR}]`)?.getAttribute("data-open") === "true")
 						togglePane(false);
 					return;
@@ -8215,6 +8220,7 @@ function apply(ctx) {
 
 	function render() {
 		installFrameObserver();
+		installPanelSubscription();
 		const pane = ensurePane();
 		if (pane === null) return;
 		if (pane !== renderedPane) {
@@ -8956,6 +8962,7 @@ function apply(ctx) {
 	const onResize = () => queueSync();
 	desktopQuery.addEventListener("change", onResize);
 
+	installPanelSubscription();
 	installServiceSubscriptions();
 	queueSync();
 
@@ -8967,7 +8974,6 @@ function apply(ctx) {
 		sessionUnsubscribe?.();
 		workspaceUnsubscribe?.();
 		pendingUnsubscribe?.();
-		jobsUnsubscribe?.();
 		panelUnsubscribe?.();
 		layoutService = null;
 		acksSource?.close();

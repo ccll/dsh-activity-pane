@@ -5193,6 +5193,30 @@ assert.ok(
 	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {\n  background: color-mix(in srgb, rgb(252, 233, 234) 55%, #fff);\n}'),
 	"浅色主题错误提醒卡取淡红错误底并向白收（R-01-002/AC-13，C-043、C-104）",
 );
+// R-01-002/AC-08 三类等待卡描边/外环强度一致（C-104）：统一 34%，强度只由色相区分。
+assert.ok(
+	bundle.includes("border-color: color-mix(in srgb, #f5c542 34%, transparent);")
+		&& bundle.includes("border-color: color-mix(in srgb, #58c98f 34%, transparent);")
+		&& bundle.includes("border-color: color-mix(in srgb, #f06a72 34%, transparent);")
+		&& !bundle.includes("color-mix(in srgb, #f5c542 40%, transparent)")
+		&& !bundle.includes("color-mix(in srgb, #f06a72 40%, transparent)"),
+	"三类等待卡描边统一 34%、描边与外环强度一致（R-01-002/AC-08）",
+);
+// R-01-002/AC-06 数量徽标底色与卡面严格同值：三类底色各须在卡面与徽标两处出现（深浅同法）。
+for (const [label, value] of [
+	["完成提醒", "rgba(31, 36, 33, 0.97)"],
+	["阻塞等待", "rgba(42, 40, 30, 0.97)"],
+	["错误提醒", "rgba(37, 31, 32, 0.97)"],
+	["浅色完成提醒", "color-mix(in srgb, var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237)) 55%, #fff)"],
+	["浅色阻塞等待", "color-mix(in srgb, rgb(253, 244, 208) 55%, #fff)"],
+	["浅色错误提醒", "color-mix(in srgb, rgb(252, 233, 234) 55%, #fff)"],
+]) {
+	const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	assert.ok(
+		(bundle.match(new RegExp(escaped, "g")) ?? []).length >= 2,
+		`${label}数量徽标底色与卡面同值（R-01-002/AC-06）`,
+	);
+}
 assert.ok(
 	!bundle.includes('.dap-card[data-kind="awaiting"][data-wait="done"] .dap-badge') &&
 		bundle.includes('[data-dsh-activity-pane] .dap-capsule {\n  flex: none; display: inline-flex; align-items: center; gap: 4px;') &&
@@ -5519,13 +5543,18 @@ assert.ok(
 );
 assert.ok(
 	bundle.includes("[data-dsh-activity-pane] .dap-card[data-current]:not([data-foreground]) {\n  border-color: color-mix(in srgb, var(--dap-current-color) 32%, transparent);\n  box-shadow:\n    0 0 0 1px color-mix(in srgb, var(--dap-current-color) 14%, transparent),\n    0 0 10px color-mix(in srgb, var(--dap-current-color) 10%, transparent);\n}"),
-	"深色后台态：32% 描边 + 1px 外环 + 10px 光晕，低于等待三类卡（34%/40%）且仍为蓝色可辨（R-01-006/AC-03，C-104）",
+	"深色后台态：32% 描边 + 1px 外环 + 10px 光晕，低于等待三类卡（统一 34%）且仍为蓝色可辨（R-01-006/AC-03，C-104）",
+);
+assert.ok(
+	!bundle.includes('[data-density="compact"] .dap-card[data-current]') &&
+		!bundle.includes('[data-density="medium"] .dap-card[data-current]'),
+	"前台/后台态与等待卡降权规则不按显示档位分叉，三档同值（R-01-006/AC-06）",
 );
 assert.ok(
 	bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current]:not([data-foreground]) {\n  border-color: color-mix(in srgb, var(--dap-current-color) 30%, transparent);\n  box-shadow:\n    0 0 0 1px color-mix(in srgb, var(--dap-current-color) 12%, transparent),\n    0 0 10px color-mix(in srgb, var(--dap-current-color) 8%, transparent);\n}"),
 	"浅色后台态：30% 描边 + 1px 外环 + 10px 光晕，低于前台态与等待三类卡（R-01-006/AC-03，C-104）",
 );
-// R-01-006/AC-06 视觉阶梯：等待三类描边不高于 40%、当前前台态 90%/88%，后台态居中偏低。
+// R-01-006/AC-06 视觉阶梯：等待三类描边统一 34%、当前前台态 90%/88%，后台态居中偏低。
 const waitRingAt = bundle.indexOf("box-shadow: 0 0 0 1px color-mix(in srgb, var(--dap-wait-color) 22%, transparent), 0 4px 12px rgba(0,0,0,.22);");
 assert.ok(waitRingAt > 0, "等待三类外环收小到 22% 且投影减弱（R-01-006/AC-06，C-104）");
 assert.ok(

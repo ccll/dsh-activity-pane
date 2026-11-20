@@ -24,13 +24,27 @@ export function bindCardActivation(card, open) {
 }
 
 /**
- * 判定卡片激活是否转为收起移动端抽屉（R-01-008/AC-06）：移动断点内抽屉打开、
- * 且激活目标已是当前会话时，激活不再发起切换（避免无意义 open 与重试链），
- * 改为收起抽屉直达会话。纯函数，无 DOM 假设。
+ * 判定会话是否正在前台显示（R-01-006/AC-03）：宿主列表快照的选中会话对应 target，
+ * 且主区域没有全局面板占屏。窗格跨页常驻后「选中」不再是「正在查看」的充分条件——
+ * 面板页（插件、插件市场等）只改布局 store、不改 selection，必须并入 panelId 维度。
+ * panelId 为 null/undefined 表示会话视图在屏；服务缺失时调用方按 null 传入即退回旧语义。
  */
-export function shouldDismissDrawerOnActivation({ targetId, currentId, mobile, drawerOpen } = {}) {
+export function isSessionDisplayed({ targetId, currentId = null, panelId = null } = {}) {
+	if (typeof targetId !== "string" || targetId === "") return false;
+	if (panelId !== null && panelId !== undefined) return false;
+	if (currentId === null || currentId === undefined) return false;
+	return String(targetId) === String(currentId);
+}
+
+/**
+ * 判定卡片激活是否转为收起移动端抽屉（R-01-008/AC-06）：移动断点内抽屉打开、
+ * 且会话正在前台显示时，激活不再发起切换（避免无意义 open 与重试链），改为收起
+ * 抽屉直达会话；全局面板在屏时激活是「回到会话」的真实意图，不得被收抽屉吞掉
+ *（R-01-006/AC-04）。纯函数，无 DOM 假设。
+ */
+export function shouldDismissDrawerOnActivation({ targetId, currentId, mobile, drawerOpen, panelId = null } = {}) {
 	if (mobile !== true || drawerOpen !== true) return false;
-	return typeof targetId === "string" && targetId !== "" && targetId === currentId;
+	return isSessionDisplayed({ targetId, currentId, panelId });
 }
 
 /**

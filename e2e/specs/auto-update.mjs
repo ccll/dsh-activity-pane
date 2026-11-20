@@ -106,7 +106,7 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	});
 	assert.equal(doneHeader.text, "0/1", "列头数量徽标显示运行中数/活动主会话总数（完成提醒不计入分子）（R-01-001/AC-04）");
 	assert.equal(doneHeader.title, badgeTip(0, 1), "列头数量徽标悬停 tips 简明说明运行中/总会话（R-01-001/AC-08）");
-	assert.equal(doneHeader.background, "rgba(32, 41, 35, 0.97)", "完成提醒列头徽标使用完成卡绿色底色");
+	assert.equal(doneHeader.background, "rgba(31, 36, 33, 0.97)", "完成提醒列头徽标使用完成卡绿色底色");
 	assert.equal(doneHeader.animation, "dap-await-pulse", "存在等待行动时列头徽标开启脉冲");
 	assert.equal(doneHeader.duration, "1.2s", "列头数量胶囊使用与等待卡末行相同的固定 1.2s 周期（R-01-002/AC-07）");
 	const donePulse = await pulseSnapshot(page);
@@ -124,7 +124,7 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	});
 	assert.deepEqual(
 		{ text: doneRail.text, title: doneRail.title, background: doneRail.background, duration: doneRail.duration, animation: doneRail.animation },
-		{ text: "0/1", title: badgeTip(0, 1), background: "rgba(32, 41, 35, 0.97)", duration: "1.2s", animation: "dap-await-pulse" },
+		{ text: "0/1", title: badgeTip(0, 1), background: "rgba(31, 36, 33, 0.97)", duration: "1.2s", animation: "dap-await-pulse" },
 		"折叠窄条徽标与列头使用同一运行中分子、完成 tone、底色与固定脉冲（R-01-001/AC-08）",
 	);
 	assert.ok(Number.isFinite(doneRail.currentTime) && doneRail.currentTime < 250, `折叠切换后窄条胶囊应从统一相位起步，实际 ${doneRail.currentTime}ms`);
@@ -141,7 +141,7 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	});
 	assert.deepEqual(
 		{ text: doneToggle.text, title: doneToggle.title, background: doneToggle.background, duration: doneToggle.duration, animation: doneToggle.animation },
-		{ text: "0/1", title: badgeTip(0, 1), background: "rgba(32, 41, 35, 0.97)", duration: "1.2s", animation: "dap-await-pulse" },
+		{ text: "0/1", title: badgeTip(0, 1), background: "rgba(31, 36, 33, 0.97)", duration: "1.2s", animation: "dap-await-pulse" },
 		"移动开关徽标与列头使用同一运行中分子、完成 tone、底色与固定脉冲",
 	);
 	assert.ok(Number.isFinite(doneToggle.currentTime) && doneToggle.currentTime < 250, `切到移动端后活动按钮胶囊应从统一相位起步，实际 ${doneToggle.currentTime}ms`);
@@ -214,7 +214,7 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 		return value?.tone === "blocked" ? value : null;
 	});
 	assert.match(blockedBadge.text, /^\d+\/\d+$/, "阻塞等待时列头保持 n/m 计数（R-01-001/AC-04～AC-06）");
-	assert.equal(blockedBadge.background, "rgba(46, 42, 26, 0.97)", "阻塞等待时列头徽标使用与阻塞卡一致的金色底（R-01-002/AC-06）");
+	assert.equal(blockedBadge.background, "rgba(42, 40, 30, 0.97)", "阻塞等待时列头徽标使用与阻塞卡一致的金色底（R-01-002/AC-06）");
 	assert.equal(blockedBadge.animation, "dap-await-pulse", "阻塞等待时列头徽标持续脉冲（R-01-002/AC-06）");
 	assert.equal(blockedBadge.duration, "1.2s", "等待占比变化后列头数量胶囊仍保持固定 1.2s 周期（R-01-002/AC-07）");
 	const blockedPulse = await pulseSnapshot(page);

@@ -3152,13 +3152,27 @@ function bindCardActivation(card, open) {
 }
 
 /**
- * 判定卡片激活是否转为收起移动端抽屉（R-01-008/AC-06）：移动断点内抽屉打开、
- * 且激活目标已是当前会话时，激活不再发起切换（避免无意义 open 与重试链），
- * 改为收起抽屉直达会话。纯函数，无 DOM 假设。
+ * 判定会话是否正在前台显示（R-01-006/AC-03）：宿主列表快照的选中会话对应 target，
+ * 且主区域没有全局面板占屏。窗格跨页常驻后「选中」不再是「正在查看」的充分条件——
+ * 面板页（插件、插件市场等）只改布局 store、不改 selection，必须并入 panelId 维度。
+ * panelId 为 null/undefined 表示会话视图在屏；服务缺失时调用方按 null 传入即退回旧语义。
  */
-function shouldDismissDrawerOnActivation({ targetId, currentId, mobile, drawerOpen } = {}) {
+function isSessionDisplayed({ targetId, currentId = null, panelId = null } = {}) {
+	if (typeof targetId !== "string" || targetId === "") return false;
+	if (panelId !== null && panelId !== undefined) return false;
+	if (currentId === null || currentId === undefined) return false;
+	return String(targetId) === String(currentId);
+}
+
+/**
+ * 判定卡片激活是否转为收起移动端抽屉（R-01-008/AC-06）：移动断点内抽屉打开、
+ * 且会话正在前台显示时，激活不再发起切换（避免无意义 open 与重试链），改为收起
+ * 抽屉直达会话；全局面板在屏时激活是「回到会话」的真实意图，不得被收抽屉吞掉
+ *（R-01-006/AC-04）。纯函数，无 DOM 假设。
+ */
+function shouldDismissDrawerOnActivation({ targetId, currentId, mobile, drawerOpen, panelId = null } = {}) {
 	if (mobile !== true || drawerOpen !== true) return false;
-	return typeof targetId === "string" && targetId !== "" && targetId === currentId;
+	return isSessionDisplayed({ targetId, currentId, panelId });
 }
 
 /**
@@ -3404,18 +3418,18 @@ const CSS = `
      任一等待行动即脉冲：三类等待行动行为一致（C-037）。
      底色跟随等待构成（C-040、C-043）：默认金（阻塞在即），tone=done 取完成提醒同款暗绿、
      tone=error 取错误提醒同款暗红（错误 > 阻塞 > 完成 优先级）。 */
-  background: rgba(46, 42, 26, 0.97);
+  background: rgba(42, 40, 30, 0.97);
   animation: dap-await-pulse 1.2s ease-in-out infinite;
 }
 [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="done"],
 [data-dsh-activity-pane] .dap-rail-count[data-awaiting][data-tone="done"],
 .dap-toggle[data-awaiting][data-tone="done"] .dap-toggle-count {
-  background: rgba(32, 41, 35, 0.97);
+  background: rgba(31, 36, 33, 0.97);
 }
 [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="error"],
 [data-dsh-activity-pane] .dap-rail-count[data-awaiting][data-tone="error"],
 .dap-toggle[data-awaiting][data-tone="error"] .dap-toggle-count {
-  background: rgba(40, 29, 31, 0.97);
+  background: rgba(37, 31, 32, 0.97);
 }
 @keyframes dap-await-pulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
 /* 单一滚动区：活动区与最近历史同一容器滚动；touch-action/overscroll 防止
@@ -3685,7 +3699,7 @@ const CSS = `
   color: color-mix(in srgb, currentColor 60%, transparent);
 }
 [data-dsh-activity-pane] .dap-rail-count[data-awaiting] {
-  background: rgba(46, 42, 26, 0.97);
+  background: rgba(42, 40, 30, 0.97);
   animation: dap-await-pulse 1.2s ease-in-out infinite;
 }
 /* 桌面拖拽调宽手柄（R-01-015）：右缘 6px 透明命中区，拖拽实时写入 --dap-width；
@@ -3780,45 +3794,66 @@ const CSS = `
   border-color: rgba(255, 255, 255, 0.08);
   opacity: 0.8;
 }
+/* 当前会话前台态（R-01-006/AC-01、AC-06，C-104）：窗格最高视觉层——外环、外光晕与
+   内发光三层叠加，强调预算落在形状而非铺色。加粗以 box-shadow 外环实现，不改
+   border-width 与布局盒；外光晕两侧受 .dap-list 横向 8px 内边距裁切，可见「发光」
+   由内发光与外环承担（C-104）。--dap-current-color 供等待当前卡组合规则复用。 */
 [data-dsh-activity-pane] .dap-card[data-current] {
-  border-color: color-mix(in srgb, #65a0ff 75%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, #65a0ff 45%, transparent), 0 0 12px color-mix(in srgb, #65a0ff 30%, transparent);
+  --dap-current-color: #8fbcff;
+  border-color: color-mix(in srgb, var(--dap-current-color) 90%, transparent);
+  box-shadow:
+    0 0 0 1.5px color-mix(in srgb, var(--dap-current-color) 60%, transparent),
+    0 0 16px color-mix(in srgb, var(--dap-current-color) 45%, transparent),
+    inset 0 0 10px color-mix(in srgb, var(--dap-current-color) 20%, transparent);
 }
-/* 等待三类卡面按色彩语义分野（R-01-002/AC-03、AC-04、AC-13，C-040、C-043）：阻塞等待
+/* 等待三类卡面按色彩语义分野（R-01-002/AC-03、AC-04、AC-13，C-040、C-043、C-104）：阻塞等待
    采用金色系催促尽快响应（自琥珀 #e8a33d 调亮调纯为金黄 #f5c542，底色同步提亮提黄——
    与旧琥珀底差异须一眼可辨，东家视觉反馈）；完成提醒采用绿色成功
    色系——深色取宿主 success 三级背景同款暗绿（green-900），底色仅保留轻微绿色色偏；
    错误提醒采用红色错误色系（与时间线错误分组行同源 #f06a72），警示会话出错。
-   --dap-wait-color 供状态点与末行胶囊共用的类别色相。 */
+   --dap-wait-color 供状态点与末行胶囊共用的类别色相。三类卡整体降权（C-104）：底色向
+   活动卡底色收窄、描边与外环收小、投影减弱，不再以整卡铺色压过当前会话前台态。 */
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"],
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"],
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dap-wait-color) 35%, transparent), 0 6px 16px rgba(0,0,0,.3);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dap-wait-color) 22%, transparent), 0 4px 12px rgba(0,0,0,.22);
 }
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] {
   --dap-wait-color: #f5c542;
-  border-color: color-mix(in srgb, #f5c542 55%, transparent);
+  border-color: color-mix(in srgb, #f5c542 40%, transparent);
   /* 金黄底：r/g 通道接近（明度较琥珀底更亮）、b 通道明显压低，扫一眼即金黄而非橙棕。 */
-  background: rgba(46, 42, 26, 0.97);
+  background: rgba(42, 40, 30, 0.97);
 }
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {
   --dap-wait-color: #58c98f;
-  border-color: color-mix(in srgb, #58c98f 55%, transparent);
-  /* 底色仅保留轻微绿色色偏（g 通道高于 r/b 均值约 +7.5，与金色面的暖偏同级），
-     不用宿主 green-900 全饱和值——整卡大面积铺色时过绿过亮抢视线（东家视觉反馈）。 */
-  background: rgba(32, 41, 35, 0.97);
+  border-color: color-mix(in srgb, #58c98f 34%, transparent);
+  /* 底色仅保留轻微绿色色偏（g 通道高于 r/b 均值约 +4），且弱于当前会话前台态；
+     不用宿主 green-900 全饱和值——整卡大面积铺色时过绿过亮抢视线（东家视觉反馈，C-104）。 */
+  background: rgba(31, 36, 33, 0.97);
 }
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {
   --dap-wait-color: #f06a72;
-  border-color: color-mix(in srgb, #f06a72 55%, transparent);
-  background: rgba(40, 29, 31, 0.97);
+  border-color: color-mix(in srgb, #f06a72 40%, transparent);
+  background: rgba(37, 31, 32, 0.97);
 }
-/* 等待卡同为当前会话时描边/光晕回归蓝色高亮（R-01-006/AC-01）：基态 [data-current]
-   与 [data-kind="awaiting"] 同优先级且定义在前，深色下被橙色描边顶掉；组合选择器
-   （0-4-0）压过两者，深浅主题同值。等待状态仍由圆点、等待徽标与底色承载。 */
+/* 等待卡同为当前会话时描边/光晕回归蓝色前台态（R-01-006/AC-01、AC-06）：基态 [data-current]
+   与 [data-kind="awaiting"] 同优先级且定义在前，深色下被等待色描边顶掉；组合选择器
+   （0-4-0）压过两者。等待状态仍由圆点、等待徽标与底色承载。 */
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-current] {
-  border-color: color-mix(in srgb, #65a0ff 75%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, #65a0ff 45%, transparent), 0 0 12px color-mix(in srgb, #65a0ff 30%, transparent);
+  border-color: color-mix(in srgb, var(--dap-current-color) 90%, transparent);
+  box-shadow:
+    0 0 0 1.5px color-mix(in srgb, var(--dap-current-color) 60%, transparent),
+    0 0 16px color-mix(in srgb, var(--dap-current-color) 45%, transparent),
+    inset 0 0 10px color-mix(in srgb, var(--dap-current-color) 20%, transparent);
+}
+/* 当前会话后台态（R-01-006/AC-03、AC-06，C-104）：选中但主区域显示全局面板——保留蓝色
+   可辨、强度低于前台态且不强于等待三类卡。须定义在等待当前卡组合之后（同优先级后定义者胜，
+   完成提醒卡即当前会话时同样转后台态）。 */
+[data-dsh-activity-pane] .dap-card[data-current]:not([data-foreground]) {
+  border-color: color-mix(in srgb, var(--dap-current-color) 32%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--dap-current-color) 14%, transparent),
+    0 0 10px color-mix(in srgb, var(--dap-current-color) 10%, transparent);
 }
 /* 所有卡片统一提供可见的悬停反馈；不覆盖当前/等待态自身的颜色语义。 */
 [data-dsh-activity-pane] .dap-card:hover {
@@ -4397,7 +4432,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 /* 徽标等待态：执行色底 + 呼吸动画（有待执行行动时点亮）。 */
 .dap-toggle[data-awaiting] .dap-toggle-count {
-  background: rgba(46, 42, 26, 0.97);
+  background: rgba(42, 40, 30, 0.97);
   animation: dap-await-pulse 1.2s ease-in-out infinite;
 }
 /* 移动端抽屉透明遮罩：抽屉打开时铺满视口、点击收起抽屉（R-01-008/AC-03）。
@@ -4499,41 +4534,54 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="rec
   background: rgb(243, 244, 246);
   border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
 }
-/* 当前会话高亮（R-01-006/AC-01）：蓝色描边/光晕两主题同值，但浅色块必须在
-   [data-kind] 覆盖之后重声明——浅色 .dap-card/:hover/[data-kind] 规则的优先级均高于
-   基态 [data-current] 规则，不重声明则浅色下选中描边与光晕被顶掉。 */
+/* 当前会话前台态（R-01-006/AC-01、AC-06）：浅色底上亮蓝对比不足，取深一档蓝
+   #2f7cf6；光晕 alpha 亦低于深色（浅底大光晕易发脏）。浅色块必须在 [data-kind] 覆盖
+   之后重声明——浅色 .dap-card/:hover/[data-kind] 规则的优先级均高于基态 [data-current]
+   规则，不重声明则浅色下选中描边与光晕被顶掉。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current] {
-  border-color: color-mix(in srgb, #65a0ff 75%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, #65a0ff 45%, transparent), 0 0 12px color-mix(in srgb, #65a0ff 30%, transparent);
+  --dap-current-color: #2f7cf6;
+  border-color: color-mix(in srgb, var(--dap-current-color) 88%, transparent);
+  box-shadow:
+    0 0 0 1.5px color-mix(in srgb, var(--dap-current-color) 55%, transparent),
+    0 0 16px color-mix(in srgb, var(--dap-current-color) 30%, transparent),
+    inset 0 0 10px color-mix(in srgb, var(--dap-current-color) 12%, transparent);
+}
+/* 当前会话后台态（R-01-006/AC-03、AC-06）：须定义在浅色前台态之后同优先级后定义者胜。 */
+body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current]:not([data-foreground]) {
+  border-color: color-mix(in srgb, var(--dap-current-color) 30%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--dap-current-color) 12%, transparent),
+    0 0 10px color-mix(in srgb, var(--dap-current-color) 8%, transparent);
 }
 
+/* 等待三类卡浅色底色向白收（C-104）：保留类别色偏但不再整卡铺亮，强度低于当前会话前台态。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] {
-  background: rgb(253, 244, 208);
+  background: color-mix(in srgb, rgb(253, 244, 208) 55%, #fff);
 }
 /* 完成提醒卡浅色主题取宿主 success 三级背景别名（R-01-002/AC-04，C-040）：淡绿成功底。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {
-  background: var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237));
+  background: color-mix(in srgb, var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237)) 55%, #fff);
 }
 /* 错误提醒卡浅色主题：与深色错误红同源的淡红错误底（C-043）。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {
-  background: rgb(252, 233, 234);
+  background: color-mix(in srgb, rgb(252, 233, 234) 55%, #fff);
 }
 /* 数量徽标等待态浅色主题覆盖：默认金色跟随阻塞卡、tone=done 跟随完成卡别名、
-  tone=error 跟随错误卡淡红（R-01-002/AC-06，无描边与外环）。 */
+  tone=error 跟随错误卡淡红（R-01-002/AC-06，无描边与外环；底色与卡面同值）。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting],
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting],
 body:not([data-ds-dark-theme]) .dap-toggle[data-awaiting] .dap-toggle-count {
-  background: rgb(253, 244, 208);
+  background: color-mix(in srgb, rgb(253, 244, 208) 55%, #fff);
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="done"],
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting][data-tone="done"],
 body:not([data-ds-dark-theme]) .dap-toggle[data-awaiting][data-tone="done"] .dap-toggle-count {
-  background: var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237));
+  background: color-mix(in srgb, var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237)) 55%, #fff);
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="error"],
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting][data-tone="error"],
 body:not([data-ds-dark-theme]) .dap-toggle[data-awaiting][data-tone="error"] .dap-toggle-count {
-  background: rgb(252, 233, 234);
+  background: color-mix(in srgb, rgb(252, 233, 234) 55%, #fff);
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-pct {
   color: var(--dsw-alias-state-success-primary, #22c55e);
@@ -4713,6 +4761,9 @@ function apply(ctx) {
 	let workspaceUnsubscribe = null;
 	let pendingUnsubscribe = null;
 	let jobsUnsubscribe = null;
+	/** 布局 store 服务代际与其 panelInfo 订阅（R-01-006/AC-03、AC-05，C-104）。 */
+	let layoutService = null;
+	let panelUnsubscribe = null;
 	// jobs 快照的窗格相关签名基线（T-181 ①）：脏检查跳过签名不变的推送帧。
 	let lastJobsSignature = null;
 	/** jobs 快照 rows 读取单点（T-181 ①）：订阅回调与基线重置共用同一取法。 */
@@ -6098,12 +6149,27 @@ function apply(ctx) {
 		jobWatchById.clear();
 	}
 
+	/** 当前全局面板 id（R-01-006/AC-03、AC-04，C-104）：布局 store 的
+	 *  `panelInfo.activePanelId` 为 null 表示主区域显示会话视图，非 null 表示插件页等
+	 *  全局面板在屏。软依赖——服务缺失或读取失败按会话视图（null）处理，退回窗格跨页
+	 *  常驻前的语义，不产生永久后台态。 */
+	function activePanelId() {
+		try {
+			return ctx.get("layout")?.panelInfo?.getSnapshot?.()?.activePanelId ?? null;
+		} catch {
+			return null;
+		}
+	}
 	function installServiceSubscriptions() {
 		const nextSessions = ctx.get("sessions");
 		const nextWorkspaces = ctx.get("workspaces");
 		const nextUiSession = ctx.get("uiSession");
 		const nextJobs = ctx.get("jobs");
-		if (nextSessions === sessions && nextWorkspaces === workspaces && nextUiSession === uiSession && nextJobs === jobs) return;
+		const nextLayout = ctx.get("layout");
+		if (
+			nextSessions === sessions && nextWorkspaces === workspaces && nextUiSession === uiSession
+			&& nextJobs === jobs && nextLayout === layoutService
+		) return;
 
 		// 服务代际更替：旧代际上登记的 retain 引用与 jobs roster 订阅一并释放——
 		// 引用的 binding 在代际终结后访问即失败（dsh 0.2.0 retain 语义）。
@@ -6114,10 +6180,20 @@ function apply(ctx) {
 		workspaceUnsubscribe?.();
 		pendingUnsubscribe?.();
 		jobsUnsubscribe?.();
+		panelUnsubscribe?.();
 		sessions = nextSessions ?? null;
 		workspaces = nextWorkspaces ?? null;
 		uiSession = nextUiSession ?? null;
 		jobs = nextJobs ?? null;
+		layoutService = nextLayout ?? null;
+		try {
+			// 全局面板在屏与否只进渲染签名与激活分流（R-01-006/AC-03、AC-04，C-104）：
+			// 页面切换不改其它签名分量，必须单独订阅驱动一轮重绘，当前卡的前台/后台态
+			// 才会随 panelInfo 快照变化即时刷新。
+			panelUnsubscribe = layoutService?.panelInfo?.subscribe?.(queueSync) ?? null;
+		} catch {
+			panelUnsubscribe = null;
+		}
 		try {
 			sessionUnsubscribe = sessions?.list?.subscribe?.(queueSync) ?? null;
 		} catch {
@@ -7835,7 +7911,7 @@ function apply(ctx) {
 
 	/** 渲染某一张卡片进指定列表容器（活动/历史通用）。index 是条目在卡片序列中的
 	 * 序号，offset 是容器内首个卡片前的非卡片子节点数（活动区有轨道层、历史区有段头）。 */
-	function renderCardIntoList(list, entry, reuseMap, index, offset, colorByWorkspace) {
+	function renderCardIntoList(list, entry, reuseMap, index, offset, colorByWorkspace, foreground) {
 		let rec = reuseMap.get(entry.id);
 		if (rec === undefined) {
 			const el = document.createElement("div");
@@ -7848,20 +7924,39 @@ function apply(ctx) {
 				if (typeof ctx.get("uiWorkspace")?.openSession !== "function") return;
 				lastActivatedId = sessionId;
 				// 新激活意图取代一切旧重试链，避免过期链条稍后把当前会话拽回旧目标；
-				// 收起抽屉的分支同样是最新意图，必须先取消挂起链条再 return。
+				// 其余分支同样是最新意图，必须先取消挂起链条再分流。
 				cancelStaleOpenRetries({ activatedId: sessionId });
-				// 二次激活当前会话卡片：移动断点抽屉打开时收起抽屉直达会话
-				//（R-01-008/AC-06），不发起会话切换。
+				const currentId = currentIdOf(getSnapshot(sessions, "list"));
+				const panelId = activePanelId();
+				const mobile = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`).matches;
+				// 二次激活当前会话卡片：移动断点抽屉打开且会话正在前台时收起抽屉直达会话
+				//（R-01-008/AC-06），不发起会话切换。全局面板在屏时该激活是「回到会话」的
+				// 真实意图，不得被收抽屉吞掉（R-01-006/AC-04）。
 				if (
 					shouldDismissDrawerOnActivation({
 						targetId: sessionId,
-						currentId: currentIdOf(getSnapshot(sessions, "list")),
-						mobile: window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`).matches,
+						currentId,
+						mobile,
 						drawerOpen:
 							document.querySelector(`[${PANE_ATTR}]`)?.getAttribute("data-open") === "true",
+						panelId,
 					})
 				) {
 					togglePane(false);
+					return;
+				}
+				// 已在前台（选中且主区域显示会话视图）：桌面无操作，不重复发起导航与重试链。
+				if (isSessionDisplayed({ targetId: sessionId, currentId, panelId })) {
+					cancelOpenRetry(sessionId);
+					return;
+				}
+				// 选中但全局面板在屏（R-01-006/AC-04，C-104）：宿主 openSession 的 reveal 语义
+				// 在同一同步调用内 selectPanel(null) 关闭面板并显示会话，选中未变，无需到达
+				// 重试链；移动端抽屉打开时同时收起，使「回到会话」直达对话。
+				if (panelId !== null && currentId !== null && String(sessionId) === String(currentId)) {
+					openSession(ctx.get("uiWorkspace"), openTargetFor(sessionId));
+					if (mobile && document.querySelector(`[${PANE_ATTR}]`)?.getAttribute("data-open") === "true")
+						togglePane(false);
 					return;
 				}
 				attemptOpen(sessionId, 0);
@@ -7885,7 +7980,10 @@ function apply(ctx) {
 			rec.kind = entry.kind;
 		}
 		rec.el.style.marginLeft = `${(entry.depth ?? 0) * INDENT_PX}px`;
+		// 选中态与在屏态分离（R-01-006/AC-03、AC-06，C-104）：data-current 只表示宿主选中，
+		// data-foreground 表示该会话的对话正在主区域显示——后者驱动前台/后台态的亮度差异。
 		rec.el.toggleAttribute("data-current", entry.isCurrent);
+		rec.el.toggleAttribute("data-foreground", entry.isCurrent && foreground === true);
 		rec.el.toggleAttribute("data-awaiting", entry.kind === "awaiting");
 		// 等待三类（R-01-002/AC-08、AC-13，C-043）：blocked=阻塞等待（金色卡面、胶囊+正文闪烁），
 		// done=完成提醒（绿色成功卡面、胶囊+正文闪烁、按钮不闪），error=错误提醒（红色卡面、
@@ -8482,7 +8580,11 @@ function apply(ctx) {
 				entry.jobsAgeSec = Math.floor(Date.now() / 1000);
 			}
 		}
-		const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature, awaitAgeSignature, densityLevel]);
+		// 全局面板在屏与否参与签名（R-01-006/AC-03、AC-05，C-104）：面板切换不改其它
+		// 签名分量，不并入则当前卡的前台/后台态不会随页面切换刷新。
+		const panelId = activePanelId();
+		const foreground = panelId === null;
+		const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature, awaitAgeSignature, densityLevel, panelId]);
 		if (sig === lastSig) return;
 		const colorByWorkspace = resolveWorkspaceColors(visibleEntries.map((entry) => entry.workspaceKey));
 		// 跨区迁移（双向，R-01-010/AC-07）：DOM 写入前量取旧卡矩形并克隆 ghost。
@@ -8523,7 +8625,7 @@ function apply(ctx) {
 		const aliveActive = new Set();
 		for (const [index, entry] of active.entries()) {
 			try {
-				renderCardIntoList(activeList, entry, cardsById, index, 1, colorByWorkspace);
+				renderCardIntoList(activeList, entry, cardsById, index, 1, colorByWorkspace, foreground);
 			} catch (error) {
 				renderOk = false;
 				logCardRenderError(entry.id, error);
@@ -8540,7 +8642,7 @@ function apply(ctx) {
 		// 历史区容器首个子节点是段头（.dap-recent-head），卡片从 offset 1 开始。
 		for (const [index, entry] of recent.entries()) {
 			try {
-				renderCardIntoList(recentSection, entry, recentCardsById, index, 1, colorByWorkspace);
+				renderCardIntoList(recentSection, entry, recentCardsById, index, 1, colorByWorkspace, foreground);
 			} catch (error) {
 				renderOk = false;
 				logCardRenderError(entry.id, error);
@@ -8865,6 +8967,9 @@ function apply(ctx) {
 		sessionUnsubscribe?.();
 		workspaceUnsubscribe?.();
 		pendingUnsubscribe?.();
+		jobsUnsubscribe?.();
+		panelUnsubscribe?.();
+		layoutService = null;
 		acksSource?.close();
 		acksSource = null;
 		busySource?.close();

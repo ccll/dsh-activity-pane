@@ -1,4 +1,4 @@
-// R-01-008/AC-04（真移动壳层代差回归，T-171）：隔离环境按 spec 声明另装
+// （真移动壳层代差回归，T-171）：隔离环境按 spec 声明另装
 // dsh-web-mobile 手机壳层，以移动视口（390×844）+ 触屏 + 移动 UA 验证两类
 // 壳层代差回归：
 // ① hero 空白会话页：壳层以 display:none 隐藏空 header（其设计为「抽屉入口
@@ -47,7 +47,7 @@ export default async function mobileShellSpec({ page, url, assert }) {
 	}, 20_000);
 
 	// hero：壳层以 display:none 隐藏空 header；开关必须不在该隐藏链内，
-	// 且按贴靠算式落在壳层 ⊡ 右侧 8px、垂直居中（AC-04 hero 分支）。
+	// 且按贴靠算式落在壳层 ⊡ 右侧 8px、垂直居中（hero 分支）。
 	const hero = await until("hero 态壳层 ⊡ 与开关状态", () =>
 		page.evaluate(() => {
 			const fab = document.querySelector('button[data-mobile-nav="fab"]');
@@ -75,7 +75,7 @@ export default async function mobileShellSpec({ page, url, assert }) {
 		const [tx, ty, tw, th] = hero.toggle;
 		assert.ok(
 			Math.abs(tx - Math.round(fx + fw + 8)) <= 2 && Math.abs(ty - Math.round(fy + (fh - th) / 2)) <= 2,
-			`hero 开关贴靠 ⊡ 右侧 8px 垂直居中（开关 [${[tx, ty].map(Math.round)}] vs ⊡ [${[fx, fy, fw, fh].map(Math.round)}]，R-01-008/AC-04）`,
+			`hero 开关贴靠 ⊡ 右侧 8px 垂直居中（开关 [${[tx, ty].map(Math.round)}] vs ⊡ [${[fx, fy, fw, fh].map(Math.round)}]）`,
 		);
 		// 位移耦合回归（T-172）：视口层位移（iOS rubber-band 同类，布局不变）期间
 		// 摘除开关并唤醒守卫重落位，重落位几何必须取锚布局坐标——视口 rect 烘进
@@ -112,7 +112,7 @@ export default async function mobileShellSpec({ page, url, assert }) {
 		assert.equal(hero.inHeader, true, "hero header 可见时开关嵌入 header（壳层改版兜底，T-171）");
 	}
 
-	// hero 态开关可操作：点击展开插件抽屉后收起还原（AC-01）。
+	// hero 态开关可操作：点击展开插件抽屉后收起还原。
 	await page.locator(".dap-toggle").click();
 	await until("hero 态开关展开抽屉", async () => {
 		const box = await paneBox(page);
@@ -138,7 +138,7 @@ export default async function mobileShellSpec({ page, url, assert }) {
 			if (!shellToggle || !toggle) return null;
 			const sr = shellToggle.getBoundingClientRect();
 			const tr = toggle.getBoundingClientRect();
-			// R-01-008/AC-04「不遮挡」按可观察语义判定：非标签控件的命中盒不得相交；
+			// 「不遮挡」按可观察语义判定：非标签控件的命中盒不得相交；
 			// 标签行按钮的透明内边距可伸入标题行底部，但需同时满足「可见文本不与开关
 			// 相交」且「叠置带内的命中归开关」——否则底部 5px 会误触标签（T-203）。
 			const intersects = (el) => {
@@ -184,17 +184,17 @@ export default async function mobileShellSpec({ page, url, assert }) {
 	assert.ok(active.shell[2] > 0, `壳层左座目录开关在屏（壳层前提，实测 [${active.shell.map(Math.round)}]）`);
 	const activeHidden = await hiddenByDisplayNone(page, ".dap-toggle");
 	assert.equal(activeHidden, false, "active 开关可见（壳层代差回归 T-171）");
-	assert.equal(active.inSessionSlot, true, "active 开关嵌入会话头标题行槽（真标题行行首，R-01-008/AC-04）");
+	assert.equal(active.inSessionSlot, true, "active 开关嵌入会话头标题行槽（真标题行行首）");
 	assert.ok(
 		active.toggle[0] >= active.shell[0] + active.shell[2] - 0.5,
-		`开关位于壳层左座开关右侧（开关 x=${active.toggle[0]} ≥ 壳层开关右缘 ${active.shell[0] + active.shell[2]}，R-01-008/AC-04）`,
+		`开关位于壳层左座开关右侧（开关 x=${active.toggle[0]} ≥ 壳层开关右缘 ${active.shell[0] + active.shell[2]}）`,
 	);
 	assert.equal(active.overlapped, false, active.tabbed
 		? "active 开关不遮挡可见控件且叠置带命中归开关（含壳层左座开关，T-171、T-203）"
 		: "active 开关严格不与任何可交互元素命中盒相交（3.2.0 无标签行代际，T-171）");
 	assert.ok(
 		Math.abs(active.toggle[3] - 38) <= 1 && active.toggle[2] >= 44,
-		`入口命中盒至少 44×38px（实测 ${active.toggle[2]}×${active.toggle[3]}，R-01-008/AC-07）`,
+		`入口命中盒至少 44×38px（实测 ${active.toggle[2]}×${active.toggle[3]}）`,
 	);
 
 	// 点窗格开关只开插件抽屉，不误开宿主抽屉（壳层左座冲突回归）。

@@ -1,4 +1,3 @@
-// R-01-002/AC-05、R-01-002/AC-10、R-01-002/AC-11、R-01-002/AC-12、R-01-002/AC-14
 // 完成确认跨客户端同步与恢复：同一服务的两个独立 browser context 同时观察提醒，
 // 一端确认后另一端自动解除；刷新/重新连接后保持已确认状态。
 
@@ -26,20 +25,20 @@ export default async function completionSync({ browser, page, url, assert }) {
 			}, 20_000);
 		}
 
-		// R-01-002/AC-14：完成提醒卡类型胶囊右侧显示进入完成状态的相对时间。
+		// 完成提醒卡类型胶囊右侧显示进入完成状态的相对时间。
 		const doneAge = await until("完成提醒卡显示进入状态相对时间", () =>
 			page.locator('[data-dsh-activity-pane] .dap-card[data-wait="done"] .dap-await-age')
 				.first().textContent().then((text) => (text ?? "").trim() || null),
 		);
-		assert.match(doneAge, RELATIVE_AGE_PATTERN, "完成提醒胶囊右侧显示相对时间分级文案（R-01-002/AC-14）");
+		assert.match(doneAge, RELATIVE_AGE_PATTERN, "完成提醒胶囊右侧显示相对时间分级文案");
 
-		// R-01-002/AC-05：B 打开提醒卡后提醒仍保持，不能以浏览动作隐式解除。
+		// B 打开提醒卡后提醒仍保持，不能以浏览动作隐式解除。
 		await activateCard(secondPage, TITLE);
 		await until("客户端 B 打开完成会话", () => mainAreaHas(secondPage, TITLE));
 		const openedRegions = await paneRegions(secondPage);
 		assert.ok(openedRegions.active.includes(TITLE) && openedRegions.active.includes("已完成"), "打开会话不解除完成提醒");
 
-		// R-01-002/AC-12：未确认提醒在刷新建立新连接后由宿主持久状态恢复。
+		// 未确认提醒在刷新建立新连接后由宿主持久状态恢复。
 		await openApp(secondPage, url);
 		await ensureFullDensity(secondPage);
 		await until("未确认提醒刷新后恢复", async () => {
@@ -47,7 +46,7 @@ export default async function completionSync({ browser, page, url, assert }) {
 			return regions?.active.includes(TITLE) && regions.active.includes("已完成") ? regions : null;
 		}, 20_000);
 
-		// R-01-002/AC-10、AC-11：A 只点击一次确认；B 不经刷新自动解除并迁入历史。
+		// A 只点击一次确认；B 不经刷新自动解除并迁入历史。
 		await clickCardButton(page, TITLE, "移入历史");
 		await until("客户端 B 同步解除完成提醒", async () => {
 			const regions = await paneRegions(secondPage);
@@ -60,7 +59,7 @@ export default async function completionSync({ browser, page, url, assert }) {
 		}, 20_000);
 		assert.ok(aRegions.recent.includes(TITLE), "确认端同样迁入最近历史区");
 
-		// R-01-002/AC-12：刷新建立新连接后从宿主持久状态恢复，不重新出现完成提醒。
+		// 刷新建立新连接后从宿主持久状态恢复，不重新出现完成提醒。
 		await openApp(secondPage, url);
 		await ensureFullDensity(secondPage);
 		await until("刷新后保持已确认状态", async () => {

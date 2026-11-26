@@ -89,7 +89,7 @@ export async function setHostDrawerCollapsed(page, collapsed) {
 }
 
 /** 将窗格切到完整呈现档：默认中间档的时间线只渲染最新一行（lastOnly），依赖用户指令
- *  锚行等完整时间线内容的断言需先切档（默认中间档见 R-01-021/AC-06）。 */
+ *  锚行等完整时间线内容的断言需先切档（默认中间档见）。 */
 export async function ensureFullDensity(page) {
 	await until("窗格切换至完整呈现", async () => {
 		const density = await page.evaluate(() => document.querySelector("[data-dsh-activity-pane]")?.getAttribute("data-density"));
@@ -193,7 +193,7 @@ export const MOCK_ERROR_MESSAGE = "E2E 模型故障探针";
  *  宿主 0.2.0-rc.2 显示 DeepSeek-V41-Flash、0.2.2-rc.5 显示 DeepSeek-V4.1-Flash：两者
  *  共享 DeepSeek-V4 前缀，断言取前缀 + reasoning level，避免钉死宿主目录的显示格式（T-159、T-203）。 */
 export const MOCK_MODEL = "DeepSeek-V4";
-/** 等待卡状态年龄的相对时间分级文案（R-01-002/AC-14）：与历史卡 fmtRelativeAge 分级一致。 */
+/** 等待卡状态年龄的相对时间分级文案：与历史卡 fmtRelativeAge 分级一致。 */
 export const RELATIVE_AGE_PATTERN = /^(?:刚刚|\d+分钟前|\d+小时前|\d+天前|\d+周前|\d+个月前|\d+年前)$/;
 
 /** 在 hero 首页 composer 填入消息并发送；

@@ -1,4 +1,3 @@
-// R-01-006/AC-03、AC-04、AC-05、AC-06、R-01-002/AC-04
 // 当前会话前台/后台态与视觉优先级：前台态为窗格最高视觉层（1.5px 外环 + 16px 光晕 +
 // 内发光），等待提醒卡降权（描边 ≤40%、外环 22%、底色向卡片底色收窄），全局面板在屏时
 // 当前卡转后台态（保留蓝色、明显弱于前台态），激活当前卡一次即关闭面板并恢复前台态，
@@ -116,7 +115,7 @@ export default async function visualHierarchy({ page, url, assert }) {
 			};
 		}, { a: TITLE_A, b: TITLE_B });
 
-	// R-01-006/AC-06：前台态为最高视觉层——1.5px 外环、16px 光晕、内发光，描边近满强度。
+	// 前台态为最高视觉层——1.5px 外环、16px 光晕、内发光，描边近满强度。
 	const foreground = await until("当前会话处于前台态", async () => {
 		const state = await visual();
 		return state?.current?.foreground === true ? state : null;
@@ -130,7 +129,7 @@ export default async function visualHierarchy({ page, url, assert }) {
 	assert.ok(shadowHas(foreground.current.shadow, "16px"), "前台态外环光晕 16px");
 	assert.ok(shadowHas(foreground.current.shadow, "inset"), "前台态带内发光");
 
-	// R-01-002/AC-04、R-01-006/AC-06：完成提醒卡降权——描边与光晕均弱于前台态，底色只留色偏。
+	// 完成提醒卡降权——描边与光晕均弱于前台态，底色只留色偏。
 	assert.ok(foreground.a, "会话 A 的完成提醒卡仍在窗格（非同屏比较不能成立）");
 	assert.ok(
 		borderAlpha(foreground.a.border) <= 0.4,
@@ -148,7 +147,7 @@ export default async function visualHierarchy({ page, url, assert }) {
 		doneChannels[1] - Math.max(doneChannels[0], doneChannels[2]) <= 6,
 		`完成提醒卡底色仅保留轻微绿色色偏（rgb=${doneChannels.map((value) => Math.round(value)).join(",")}）`,
 	);
-	// AC-06 三项数值比较：外环宽度、光晕半径、描边不透明度均须前台态更大。
+	//  三项数值比较：外环宽度、光晕半径、描边不透明度均须前台态更大。
 	const foregroundRing = ringWidthOf(foreground.current.shadow);
 	const doneRing = ringWidthOf(foreground.a.shadow);
 	const foregroundGlow = glowRadiusOf(foreground.current.shadow);
@@ -165,12 +164,12 @@ export default async function visualHierarchy({ page, url, assert }) {
 		[143, 188, 255].every((value, index) => Math.abs(currentBorder[index] - value) <= 3),
 		`深色前台态取 #8fbcff（实际 ${currentBorder.map((value) => Math.round(value)).join(",")}）`,
 	);
-	// AC-06 底色子句：等待卡底色相对活动卡基色只许轻微色偏（禁止整卡铺色）。
+	//  底色子句：等待卡底色相对活动卡基色只许轻微色偏（禁止整卡铺色）。
 	// 当前卡在此场景同为完成提醒卡，不能拿它当基色，取活动卡基色 rgb(29,31,37)。
 	const fillDelta = doneChannels.slice(0, 3).map((value, index) => Math.abs(value - [29, 31, 37][index]));
 	assert.ok(Math.max(...fillDelta) <= 16, `完成卡底色相对活动卡基色仅轻微色偏（Δ=${fillDelta.map((value) => Math.round(value)).join("/")}）`);
 
-	// R-01-006/AC-03：切到全局面板——当前卡仍选中但转后台态，蓝色明显可辨、全面弱于前台态；
+	// 切到全局面板——当前卡仍选中但转后台态，蓝色明显可辨、全面弱于前台态；
 	// 等待卡仍以整卡底色与脉冲保持最高色彩存在感（后台态不以铺色压过它）。
 	await page.getByRole("button", { name: "Plugins", exact: true }).first().click();
 	const background = await until("当前会话转为后台态", async () => {
@@ -211,7 +210,7 @@ export default async function visualHierarchy({ page, url, assert }) {
 		`页面切换不改变窗格卡片集合（前后 ${foreground.count}/${background.count}）`,
 	);
 
-	// R-01-006/AC-04：面板页激活当前卡——一次激活即关闭面板、显示会话并恢复前台态。
+	// 面板页激活当前卡——一次激活即关闭面板、显示会话并恢复前台态。
 	await page.locator("[data-dsh-activity-pane] .dap-card[data-current]").click();
 	const restored = await until("激活当前卡回到会话并恢复前台态", async () => {
 		const state = await visual();
@@ -226,7 +225,7 @@ export default async function visualHierarchy({ page, url, assert }) {
 	);
 	assert.ok(shadowHas(restored.current.shadow, "16px") && shadowHas(restored.current.shadow, "inset"), "回前台后外环与内发光恢复");
 
-	// R-01-006/AC-06 档位无关：紧凑档前台态仍保留外环与内发光（视觉规则不按档位分叉）。
+	//  档位无关：紧凑档前台态仍保留外环与内发光（视觉规则不按档位分叉）。
 	await setDensity(page, "compact");
 	const compact = await until("紧凑档保持前台态光效", async () => {
 		const state = await visual();
@@ -235,14 +234,14 @@ export default async function visualHierarchy({ page, url, assert }) {
 	assert.ok(shadowHas(compact.current.shadow, "inset"), "紧凑档前台态同样带内发光");
 	await setDensity(page, "full");
 
-	// R-01-006/AC-05：再次切到面板后经原生侧栏返回会话——当前卡不依赖自身激活即恢复前台态。
+	// 再次切到面板后经原生侧栏返回会话——当前卡不依赖自身激活即恢复前台态。
 	await page.getByRole("button", { name: "Plugins", exact: true }).first().click();
 	await until("再次进入全局面板", async () => {
 		const state = await visual();
 		return state?.current?.foreground === false && borderAlpha(state.current.border) >= 0.4 ? true : null;
 	});
 	// 只点原生侧栏的会话行：标题取自当前卡的 .dap-title（会话标题，不是 prompt），
-	// 且锚定在外壳 sidebar.workspaces 槽位内，避免落到窗格卡片自身的 AC-04 路径。
+	// 且锚定在外壳 sidebar.workspaces 槽位内，避免落到窗格卡片自身的  路径。
 	const currentTitle = (await page.locator("[data-dsh-activity-pane] .dap-card[data-current] .dap-title").innerText()).trim();
 	const sidebarRow = page.locator('[data-slot="sidebar.workspaces"]').getByText(currentTitle, { exact: true }).first();
 	assert.ok((await sidebarRow.count()) > 0, "原生侧栏存在当前会话行（非窗格标题）");
@@ -258,7 +257,7 @@ export default async function visualHierarchy({ page, url, assert }) {
 		`侧栏返回后当前卡恢复前台态描边（实际 alpha=${borderAlpha(sidebarReturn.current.border)}）`,
 	);
 
-	// R-01-006/AC-06 浅色主题：前台态取深档蓝（#2f7cf6）且描边仍高于等待提醒卡；
+	//  浅色主题：前台态取深档蓝（#2f7cf6）且描边仍高于等待提醒卡；
 	// 完成提醒卡底色向白收（绿通道偏差不超过轻微色偏）。
 	await page.evaluate(() => document.body.removeAttribute("data-ds-dark-theme"));
 	const light = await until("浅色主题前台态生效", async () => {
@@ -290,7 +289,7 @@ export default async function visualHierarchy({ page, url, assert }) {
 		Math.max(...lightFillDelta) <= 16,
 		`浅色完成卡底色相对活动卡白基色仅轻微色偏（Δ=${lightFillDelta.map((value) => Math.round(value)).join("/")}）`,
 	);
-	// R-01-006/AC-03 浅色后台态：描边 46%，明显可辨但仍低于浅色前台态（88%）。
+	//  浅色后台态：描边 46%，明显可辨但仍低于浅色前台态（88%）。
 	await page.getByRole("button", { name: "Plugins", exact: true }).first().click();
 	const lightBackground = await until("浅色后台态生效", async () => {
 		const state = await visual();

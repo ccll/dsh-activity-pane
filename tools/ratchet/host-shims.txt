@@ -1,0 +1,10 @@
+# 宿主 shim 只减清单：一行一个 src/<file>:<line>，指向因宿主 0.2.0/0.2.2 行为差异而存在的补丁点。
+# 宿主升级消除某处差异后删条目；源码行号漂移时同步更新（清单须按码位字典序）。
+src/client.mjs:13
+src/client.mjs:1742
+src/client.mjs:19
+src/client.mjs:2982
+src/client.mjs:5612
+src/core.mjs:1713
+src/core.mjs:8
+src/navigation.mjs:51

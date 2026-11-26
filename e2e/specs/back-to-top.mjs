@@ -1,4 +1,3 @@
-// R-01-018/AC-01、R-01-018/AC-02、R-01-018/AC-03、R-01-018/AC-04、R-01-018/AC-05
 // 回到顶部：滚动超阈值出现悬浮按钮、键盘激活回顶（减弱动态时直接定位）、回顶后隐藏、
 // 移动抽屉同样提供而折叠窄条不显示、纯图标无文字且有不透明底色与可访问名称。
 
@@ -61,19 +60,19 @@ export default async function backToTop({ page, url, assert }) {
 		return scroll && scroll.scrollTop <= 1 && button?.hidden ? true : null;
 	}));
 
-	// R-01-018/AC-01：未滚动时不显示按钮；滚过阈值后右下角出现。
+	// 未滚动时不显示按钮；滚过阈值后右下角出现。
 	assert.equal((await topButtonState(page)).visible, false, "顶部时不显示回到顶部按钮");
 	const box = await paneBox(page);
 	await wheelOver(page, box, 400, 12);
 	await until("滚动后按钮出现", async () => ((await topButtonState(page)).visible ? true : null));
 	const state = await topButtonState(page);
-	// R-01-018/AC-05：纯图标（无文字）、不透明底色、可访问名称（aria-label 命中）。
+	// 纯图标（无文字）、不透明底色、可访问名称（aria-label 命中）。
 	assert.equal(state.text, "", "按钮无文字（纯图标）");
 	assert.ok(!state.bg.includes("rgba") || !state.bg.endsWith(", 0)"), `底色不透明（${state.bg}）`);
-	// R-01-018/AC-01（右下角）：按钮贴合窗格右缘与底缘。
+	// （右下角）：按钮贴合窗格右缘与底缘。
 	assert.ok(state.right >= box.x + box.width - 40 && state.bottom >= box.y + box.height - 40, `按钮位于窗格右下角（right=${Math.round(state.right)} bottom=${Math.round(state.bottom)}，pane right=${Math.round(box.x + box.width)} bottom=${Math.round(box.y + box.height)}）`);
 
-	// R-01-018/AC-02、AC-03：Enter 激活回顶——顶部卡片重新可见、按钮隐藏。
+	// Enter 激活回顶——顶部卡片重新可见、按钮隐藏。
 	assert.equal(await cardVisibleInPane(page, TOP_TITLE()), false, "前置：滚走后顶部卡片不可见");
 	const topButton = page.getByRole("button", { name: "回到顶部" });
 	await topButton.focus();
@@ -81,7 +80,7 @@ export default async function backToTop({ page, url, assert }) {
 	const topTitle = TOP_TITLE();
 	await untilBackToTop(page, topTitle, "Enter 激活回顶完成且按钮隐藏");
 
-	// R-01-018/AC-02（减弱动态）：直接定位不做平滑滚动——点击后极短窗口内首卡即回视野。
+	// （减弱动态）：直接定位不做平滑滚动——点击后极短窗口内首卡即回视野。
 	await page.emulateMedia({ reducedMotion: "reduce" });
 	await wheelOver(page, box, 400, 12);
 	await until("减弱动态下按钮出现", async () => ((await topButtonState(page)).visible ? true : null));
@@ -90,7 +89,7 @@ export default async function backToTop({ page, url, assert }) {
 	assert.equal(await cardVisibleInPane(page, TOP_TITLE()), true, "减弱动态时直接定位回顶（无平滑过程）");
 	await page.emulateMedia({ reducedMotion: null });
 
-	// R-01-018/AC-04（窄条）：折叠后即使此前有滚动也不显示按钮。
+	// （窄条）：折叠后即使此前有滚动也不显示按钮。
 	await page.getByRole("button", { name: "收起活动会话窗格" }).click();
 	await until("折叠为窄条", async () => {
 		const candidate = page.getByRole("button", { name: /活动会话/ }).last();
@@ -101,7 +100,7 @@ export default async function backToTop({ page, url, assert }) {
 	await page.getByRole("button", { name: /活动会话/ }).last().click();
 	await until("展开恢复", async () => ((await paneBox(page)).width > 100 ? true : null));
 
-	// R-01-018/AC-04（移动抽屉）：抽屉内滚动后同样提供按钮。
+	// （移动抽屉）：抽屉内滚动后同样提供按钮。
 	await page.setViewportSize({ width: 375, height: 700 });
 	const toggle = await until("浮动开关出现", async () => {
 		const candidate = page.getByRole("button", { name: "切换活动会话窗格" });
@@ -115,7 +114,7 @@ export default async function backToTop({ page, url, assert }) {
 	});
 	await wheelOver(page, drawerBox, 400, 12);
 	await until("抽屉内滚动后按钮出现", async () => ((await topButtonState(page)).visible ? true : null));
-	// R-01-018/AC-04（抽屉内可用）：抽屉中点击同样回顶并隐藏。
+	// （抽屉内可用）：抽屉中点击同样回顶并隐藏。
 	await page.getByRole("button", { name: "回到顶部" }).click();
 	await untilBackToTop(page, topTitle, "抽屉内回顶完成且按钮隐藏");
 }

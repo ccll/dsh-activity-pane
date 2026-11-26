@@ -1,4 +1,3 @@
-// R-01-004/AC-01、R-01-004/AC-02、R-01-005/AC-01、R-01-006/AC-02
 // 长列表：活动卡片超出窗格可视高度时窗格内可滚动查看全部卡片；
 // 窗格内滚动时主会话内容滚动位置不变（滚动隔离）；原生侧栏选中会话后当前卡片完整可见。
 
@@ -23,7 +22,7 @@ async function mainScrollTops(page) {
 
 /** 主会话区可滚动元素的稳定等待：0.1.5 宿主会话为流式渲染，切换会话后正文 flowItem
  *  容器仍会在数秒内逐项就绪（变为可滚动）。这份与窗格无关的宿主侧收敛不得参与滚动
- *  隔离基线，先等可滚动集合连续两次采样一致再取基线（R-01-004/AC-02 断言本身不变）。 */
+ *  隔离基线，先等可滚动集合连续两次采样一致再取基线（断言本身不变）。 */
 async function waitMainScrollablesStable(page) {
 	const box = await paneBox(page);
 	const describe = (paneRight) =>
@@ -63,13 +62,13 @@ export default async function longList({ page, url, assert }) {
 		await newSessionWithMessage(page, title(n));
 	}
 	// 创建为逐条 UI 自动化，全套件并发下典型耗时 19~20s；宿主高负载时会超过 30s。
-	// 断言语义只要求全部卡片最终进入活动区（R-01-004/AC-01），不锚定创建时长。
+	// 断言语义只要求全部卡片最终进入活动区，不锚定创建时长。
 	await until(`${SESSION_COUNT} 张卡片全部进入活动区`, async () => {
 		const count = await page.locator("[data-dsh-activity-pane]").getByText("探针", { exact: false }).count();
 		return count >= SESSION_COUNT ? true : null;
 	}, 60_000);
 
-	// R-01-006/AC-02：原生左侧栏选择一张较早会话后，当前卡片应以最小距离滚入窗格可视区域。
+	// 原生左侧栏选择一张较早会话后，当前卡片应以最小距离滚入窗格可视区域。
 	const nativeSessionRows = page.locator('[role="tree"][aria-label="Sessions"] [role="treeitem"][aria-selected="false"]');
 	await until("原生侧栏展示可切换会话", async () => (await nativeSessionRows.count()) >= 2 ? true : null);
 	const paneScroll = page.locator("[data-dsh-activity-pane] .dap-scroll");
@@ -132,7 +131,7 @@ export default async function longList({ page, url, assert }) {
 	await paneScroll.evaluate((el) => { el.scrollTop = 0; });
 	await until("恢复窗格滚动起点", () => paneScroll.evaluate((el) => el.scrollTop === 0));
 
-	// R-01-006/AC-02 缺陷回归：当前完成卡确认迁入历史后，自动定位不能追随历史卡，
+	//  缺陷回归：当前完成卡确认迁入历史后，自动定位不能追随历史卡
 	// 应让位给仍在活动区的相邻会话，避免活动窗格焦点滚到历史区。
 	await paneScroll.evaluate((el) => {
 		const originalScrollTo = el.scrollTo.bind(el);
@@ -200,7 +199,7 @@ export default async function longList({ page, url, assert }) {
 		delete el.scrollTo;
 	});
 
-	// R-01-004/AC-01：列表超高时排序在底部的卡片初始不可见，窗格内滚动后可见（全部卡片可达）。
+	// 列表超高时排序在底部的卡片初始不可见，窗格内滚动后可见（全部卡片可达）。
 	// T-133 起活动区「运行中置顶、等待/完成按进入状态时刻倒序」（阻塞等待自 T-141 起
 	// 取进入等待时刻，完成/错误提醒取回合结束登记时刻），底卡是等待/完成组中最早进入
 	// 状态者；卡片展示标题可能同文（mock 回复相同），按 DOM 末卡位置断言。
@@ -217,7 +216,7 @@ export default async function longList({ page, url, assert }) {
 	await until("底卡初始不可见（列表超高）", async () => ((await bottomCardVisible()) ? null : true));
 	const box = await paneBox(page);
 
-	// R-01-004/AC-03：调宽手柄保持在 pane 右缘，但不遮挡 native scrollbar；
+	// 调宽手柄保持在 pane 右缘，但不遮挡 native scrollbar；
 	// 鼠标进入窗格即显示滚动条，手柄只提供 cursor affordance、不绘制高亮。
 	const scroll = page.locator("[data-dsh-activity-pane] .dap-scroll");
 	const resize = page.locator("[data-dsh-activity-pane] .dap-resize");
@@ -298,7 +297,7 @@ export default async function longList({ page, url, assert }) {
 	await wheelOver(page, box, 400, 20);
 	await until("滚动后底卡可见", bottomCardVisible);
 
-	// R-01-004/AC-02：窗格滚动不影响主会话滚动位置。
+	// 窗格滚动不影响主会话滚动位置。
 	// 切到长文会话，把主会话向下滚动到非零位置，再在窗格内滚动。
 	await page.locator("[data-dsh-activity-pane]").getByText(LONG_TITLE, { exact: false }).first().click();
 	await until("主会话区出现长文", () => mainAreaHas(page, "慢速输出片段 24/24"));

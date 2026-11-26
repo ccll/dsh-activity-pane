@@ -23,8 +23,8 @@ export default async function incrementalFoldEquivalence({ page, url, assert }) 
 		const regions = await paneRegions(page);
 		return regions?.active.includes(LAST_CHUNK) ? regions : null;
 	}, 30_000);
-	// 锚行语义（R-01-012/AC-13）：完整档下用户指令行停留为首行锚行。
+	// 锚行语义：完整档下用户指令行停留为首行锚行。
 	const settled = await paneRegions(page);
-	assert.ok(settled.active.includes("增量等价探针"), "用户指令行作为锚行保留在时间线首行（R-01-012/AC-13）");
+	assert.ok(settled.active.includes("增量等价探针"), "用户指令行作为锚行保留在时间线首行");
 	assert.ok(settled.active.includes(LAST_CHUNK), "落定后时间线含完整累积正文（流式行合并语义保持）");
 }

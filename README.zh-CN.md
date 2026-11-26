@@ -69,6 +69,12 @@ npm 包内置预构建产物，无需本地构建步骤。安装后如窗格未�
 
 如果这个插件让您的 DSH 会话管理更顺手，欢迎到 [GitHub](https://github.com/ccll/dsh-activity-pane) 点一个 ⭐——只需一秒，就能帮更多 DSH 用户发现它。想法与问题欢迎到 [Issues](https://github.com/ccll/dsh-activity-pane/issues) 与 [Discussions](https://github.com/ccll/dsh-activity-pane/discussions) 提交。
 
+## 参与贡献
+
+工作单元是 GitHub issue，改动通过 PR 合入。认领协议、提交约定与门禁见 [CONTRIBUTING.md](CONTRIBUTING.md)；进度看 `docs/roadmap.md`，实现结构看 `docs/architecture.md`；agent 从 [AGENTS.md](AGENTS.md) 进入。
+
+开 PR 前先跑 `node tools/xtask.mjs ci`。
+
 ## 许可证
 
 MIT，完整文本见 [LICENSE](LICENSE)。

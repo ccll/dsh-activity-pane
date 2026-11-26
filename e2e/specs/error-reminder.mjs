@@ -1,6 +1,5 @@
-// R-01-002/AC-05、R-01-002/AC-06、R-01-002/AC-09、R-01-002/AC-10、R-01-002/AC-12、R-01-002/AC-13、R-01-002/AC-14、R-01-009/AC-12、R-01-009/AC-13
 // mock LLM HTTP failure → Agent error turn/end → Host completion registry → SSE → browser error card。
-// AC-05 此处覆盖打开会话不解除；切换保持由 core 契约覆盖。AC-13 此处覆盖错误成立，活动后代抑制与新回合覆盖由 core 契约覆盖。
+//  此处覆盖打开会话不解除；切换保持由 core 契约覆盖。 此处覆盖错误成立，活动后代抑制与新回合覆盖由 core 契约覆盖。
 
 import {
 MOCK_ERROR_MESSAGE, RELATIVE_AGE_PATTERN, activateCard, activityAcks, ensureFullDensity, openApp, paneRegions, sendHeroMessage, until
@@ -39,11 +38,11 @@ export default async function errorReminder({ page, url, mock, assert }) {
 			animation: getComputedStyle(count).animationName,
 		};
 	});
-	assert.ok(errorBadge && /^\d+\/\d+$/.test(errorBadge.text), "错误提醒时列头保持 n/m 计数（R-01-001/AC-04～AC-06）");
+	assert.ok(errorBadge && /^\d+\/\d+$/.test(errorBadge.text), "错误提醒时列头保持 n/m 计数");
 	assert.deepEqual(
 		{ tone: errorBadge.tone, background: errorBadge.background, animation: errorBadge.animation },
 		{ tone: "error", background: "rgba(37, 31, 32, 0.97)", animation: "dap-await-pulse" },
-		"错误提醒优先驱动红色数量徽标并脉冲（R-01-002/AC-06）",
+		"错误提醒优先驱动红色数量徽标并脉冲",
 	);
 	const pane = page.locator("[data-dsh-activity-pane]");
 	const errorCard = pane.locator(`[role="button"]`).filter({ hasText: TITLE }).first();
@@ -51,8 +50,8 @@ export default async function errorReminder({ page, url, mock, assert }) {
 	const errorElapsed = await until("错误提醒统计行保留上一轮耗时", () =>
 		errorCard.locator(".dap-token-stats .dap-token-time").textContent().then((text) => (text ?? "").trim() || null),
 	);
-	assert.match(errorElapsed, /^(?:\d+s|\d+m\d+s|\d+h\d+m\d+s)$/, "错误提醒统计行最右侧显示固定上一轮耗时（R-01-009/AC-12）");
-	// R-01-009/AC-13：错误等待卡沿用列表投影中的可用 token 字段，缺失速率不伪造。
+	assert.match(errorElapsed, /^(?:\d+s|\d+m\d+s|\d+h\d+m\d+s)$/, "错误提醒统计行最右侧显示固定上一轮耗时");
+	// 错误等待卡沿用列表投影中的可用 token 字段，缺失速率不伪造。
 	const errorStats = await until("错误提醒统计行状态就绪", () =>
 		errorCard.locator(".dap-token-stats").evaluate((stats) => ({
 			hidden: stats.hidden,
@@ -60,16 +59,16 @@ export default async function errorReminder({ page, url, mock, assert }) {
 			time: stats.querySelector(".dap-token-time")?.textContent.trim() ?? "",
 		})).catch(() => null),
 	);
-	assert.equal(errorStats.hidden, false, "错误提醒存在可用 token 字段时显示统计行（R-01-009/AC-13）");
-	assert.match(errorStats.main, /输入/, "错误提醒统计行保留计费输入 token（R-01-009/AC-13）");
-	assert.match(errorStats.main, /输出/, "错误提醒统计行保留输出 token（R-01-009/AC-13）");
-	assert.equal(errorStats.time, errorElapsed, "错误提醒耗时与 token 统计字段位于同一行（R-01-009/AC-12、AC-13）");
-	assert.equal(await errorCard.locator(".dap-await-head .dap-token-time").count(), 0, "错误提醒胶囊同行不重复显示耗时（R-01-009/AC-12）");
-	// R-01-002/AC-14：错误提醒胶囊右侧显示进入错误状态的相对时间。
+	assert.equal(errorStats.hidden, false, "错误提醒存在可用 token 字段时显示统计行");
+	assert.match(errorStats.main, /输入/, "错误提醒统计行保留计费输入 token");
+	assert.match(errorStats.main, /输出/, "错误提醒统计行保留输出 token");
+	assert.equal(errorStats.time, errorElapsed, "错误提醒耗时与 token 统计字段位于同一行");
+	assert.equal(await errorCard.locator(".dap-await-head .dap-token-time").count(), 0, "错误提醒胶囊同行不重复显示耗时");
+	// 错误提醒胶囊右侧显示进入错误状态的相对时间。
 	const errorAge = await until("错误提醒显示进入状态相对时间", () =>
 		errorCard.locator(".dap-await-age").textContent().then((text) => (text ?? "").trim() || null),
 	);
-	assert.match(errorAge, RELATIVE_AGE_PATTERN, "错误提醒胶囊右侧显示相对时间分级文案（R-01-002/AC-14）");
+	assert.match(errorAge, RELATIVE_AGE_PATTERN, "错误提醒胶囊右侧显示相对时间分级文案");
 
 	await activateCard(page, TITLE);
 	await until("打开会话不解除错误提醒", async () => {
@@ -91,7 +90,7 @@ export default async function errorReminder({ page, url, mock, assert }) {
 	const refreshedErrorElapsed = await until("刷新后恢复错误提醒耗时", () =>
 		errorCard.locator(".dap-token-stats .dap-token-time").textContent().then((text) => (text ?? "").trim() || null),
 	);
-	assert.equal(refreshedErrorElapsed, errorElapsed, "错误提醒刷新后仍保留同一轮耗时（R-01-009/AC-12）");
+	assert.equal(refreshedErrorElapsed, errorElapsed, "错误提醒刷新后仍保留同一轮耗时");
 	const refreshedErrorStats = await until("刷新后恢复错误提醒统计行状态", () =>
 		errorCard.locator(".dap-token-stats").evaluate((stats) => ({
 			hidden: stats.hidden,
@@ -99,14 +98,14 @@ export default async function errorReminder({ page, url, mock, assert }) {
 			time: stats.querySelector(".dap-token-time")?.textContent.trim() ?? "",
 		})).catch(() => null),
 	);
-	assert.equal(refreshedErrorStats.hidden, false, "错误提醒刷新后仍显示可用 token 统计行（R-01-009/AC-13）");
-	assert.match(refreshedErrorStats.main, /输入/, "错误提醒刷新后恢复计费输入 token（R-01-009/AC-13）");
-	assert.match(refreshedErrorStats.main, /输出/, "错误提醒刷新后恢复输出 token（R-01-009/AC-13）");
-	assert.equal(refreshedErrorStats.time, refreshedErrorElapsed, "错误提醒刷新后耗时仍位于 token 统计行（R-01-009/AC-12、AC-13）");
-	assert.equal(await errorCard.locator(".dap-await-head .dap-token-time").count(), 0, "错误提醒刷新后胶囊同行不重复显示耗时（R-01-009/AC-12）");
-	// R-01-002/AC-14：刷新后状态年龄由宿主持久登记恢复，仍显示相对时间。
+	assert.equal(refreshedErrorStats.hidden, false, "错误提醒刷新后仍显示可用 token 统计行");
+	assert.match(refreshedErrorStats.main, /输入/, "错误提醒刷新后恢复计费输入 token");
+	assert.match(refreshedErrorStats.main, /输出/, "错误提醒刷新后恢复输出 token");
+	assert.equal(refreshedErrorStats.time, refreshedErrorElapsed, "错误提醒刷新后耗时仍位于 token 统计行");
+	assert.equal(await errorCard.locator(".dap-await-head .dap-token-time").count(), 0, "错误提醒刷新后胶囊同行不重复显示耗时");
+	// 刷新后状态年龄由宿主持久登记恢复，仍显示相对时间。
 	const refreshedErrorAge = await until("刷新后恢复进入状态相对时间", () =>
 		errorCard.locator(".dap-await-age").textContent().then((text) => (text ?? "").trim() || null),
 	);
-	assert.match(refreshedErrorAge, RELATIVE_AGE_PATTERN, "错误提醒刷新后仍显示状态年龄（R-01-002/AC-14）");
+	assert.match(refreshedErrorAge, RELATIVE_AGE_PATTERN, "错误提醒刷新后仍显示状态年龄");
 }

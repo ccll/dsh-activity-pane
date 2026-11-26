@@ -1,4 +1,3 @@
-// R-01-001/AC-03～AC-06、R-01-002/AC-02、AC-06～AC-09、AC-14、R-01-009/AC-02、R-01-009/AC-03、R-01-009/AC-12、R-01-009/AC-13、R-01-010/AC-04、R-01-017/AC-01、R-02-002/AC-01、R-02-002/AC-02
 // 状态自动更新（出现/完成/等待出现/等待解除四类变化，无需手动刷新）、活动区空态、
 // 折叠时间线不依赖 dsh-auto-collapse（本隔离环境按构造不含该插件，全套件功能断言
 // 即「不降级」证据）、外壳重挂载恢复不重复、全程控制台无插件报错与未捕获异常。
@@ -62,7 +61,7 @@ function pulsePhaseDelta(values, period = 1200) {
 }
 
 export default async function autoUpdate({ page, url, mock, assert }) {
-	// R-02-002/AC-02：全程收集控制台错误，结束后断言无插件报错。
+	// 全程收集控制台错误，结束后断言无插件报错。
 	const consoleErrors = [];
 	page.on("console", (msg) => {
 		// 浏览器对 ≥400 资源响应的通用 "Failed to load resource" 文案是宿主侧环境噪声
@@ -77,18 +76,18 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	await ensureFullDensity(page);
 	await page.evaluate(() => document.body.setAttribute("data-ds-dark-theme", ""));
 
-	// R-01-010/AC-04：无活动会话时活动区显示明确空态。
+	// 无活动会话时活动区显示明确空态。
 	// 宽限 30s：观测到宿主 sessions 服务偶发推送停滞（窗格滞留「加载中…」，见 TODO 缺陷线索）。
 	await until("活动区空态提示", async () => {
 		const regions = await paneRegions(page);
 		return regions && regions.active.includes("暂无活动会话") ? regions : null;
 	}, 30_000);
 	const emptyBadge = await badgeSnapshot(page, "header");
-	assert.equal(emptyBadge?.text, "0/0", "空态数量徽标显示 0/0（R-01-001/AC-06）");
-	assert.equal(emptyBadge?.awaiting, false, "无等待行动时数量徽标不进入等待态（R-01-002/AC-06）");
-	assert.equal(emptyBadge?.animation, "none", "无等待行动时数量徽标停止脉冲（R-01-002/AC-06）");
+	assert.equal(emptyBadge?.text, "0/0", "空态数量徽标显示 0/0");
+	assert.equal(emptyBadge?.awaiting, false, "无等待行动时数量徽标不进入等待态");
+	assert.equal(emptyBadge?.animation, "none", "无等待行动时数量徽标停止脉冲");
 
-	// R-01-001/AC-03：会话开始运行与结束的状态变化自动反映到窗格，无需手动刷新。
+	// 会话开始运行与结束的状态变化自动反映到窗格，无需手动刷新。
 	await sendHeroMessage(page, TITLE_A);
 	await until("新会话自动出现在活动区", async () => {
 		const regions = await paneRegions(page);
@@ -99,16 +98,16 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 		return regions && regions.active.includes("已完成") ? regions : null;
 	});
 
-	// R-01-001/AC-04～AC-06、R-01-002/AC-06～AC-07：三处数量徽标实际呈现同一 n/m、tone、底色与脉冲周期。
+	// 三处数量徽标实际呈现同一 n/m、tone、底色与脉冲周期。
 	const doneHeader = await until("完成提醒列头徽标就绪", async () => {
 		const value = await badgeSnapshot(page, "header");
 		return value?.tone === "done" ? value : null;
 	});
-	assert.equal(doneHeader.text, "0/1", "列头数量徽标显示运行中数/活动主会话总数（完成提醒不计入分子）（R-01-001/AC-04）");
-	assert.equal(doneHeader.title, badgeTip(0, 1), "列头数量徽标悬停 tips 简明说明运行中/总会话（R-01-001/AC-08）");
+	assert.equal(doneHeader.text, "0/1", "列头数量徽标显示运行中数/活动主会话总数（完成提醒不计入分子）");
+	assert.equal(doneHeader.title, badgeTip(0, 1), "列头数量徽标悬停 tips 简明说明运行中/总会话");
 	assert.equal(doneHeader.background, "rgba(31, 36, 33, 0.97)", "完成提醒列头徽标使用完成卡绿色底色");
 	assert.equal(doneHeader.animation, "dap-await-pulse", "存在等待行动时列头徽标开启脉冲");
-	assert.equal(doneHeader.duration, "1.2s", "列头数量胶囊使用与等待卡末行相同的固定 1.2s 周期（R-01-002/AC-07）");
+	assert.equal(doneHeader.duration, "1.2s", "列头数量胶囊使用与等待卡末行相同的固定 1.2s 周期");
 	const donePulse = await pulseSnapshot(page);
 	assert.deepEqual(donePulse.map(({ name, duration }) => ({ name, duration })), [
 		{ name: "dap-await-pulse", duration: "1.2s" },
@@ -125,7 +124,7 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	assert.deepEqual(
 		{ text: doneRail.text, title: doneRail.title, background: doneRail.background, duration: doneRail.duration, animation: doneRail.animation },
 		{ text: "0/1", title: badgeTip(0, 1), background: "rgba(31, 36, 33, 0.97)", duration: "1.2s", animation: "dap-await-pulse" },
-		"折叠窄条徽标与列头使用同一运行中分子、完成 tone、底色与固定脉冲（R-01-001/AC-08）",
+		"折叠窄条徽标与列头使用同一运行中分子、完成 tone、底色与固定脉冲",
 	);
 	assert.ok(Number.isFinite(doneRail.currentTime) && doneRail.currentTime < 250, `折叠切换后窄条胶囊应从统一相位起步，实际 ${doneRail.currentTime}ms`);
 	await page.getByRole("button", { name: /活动会话/ }).last().click();
@@ -153,14 +152,14 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	await page.getByRole("button", { name: "收起活动会话窗格" }).click();
 	await page.setViewportSize(DESKTOP_VIEWPORT);
 
-	// R-01-017/AC-01：本隔离环境未安装 dsh-auto-collapse，时间线仍以折叠分组呈现
+	// 本隔离环境未安装 dsh-auto-collapse，时间线仍以折叠分组呈现
 	// （上下文注入合并为分组行），窗格功能不降级。
 	await until("折叠分组行呈现（无 dsh-auto-collapse 依赖）", async () => {
 		const regions = await paneRegions(page);
 		return regions?.active.includes("上下文注入") ? regions : null;
 	});
 
-	// R-02-002/AC-01：会话切换/导航触发外壳视图更替后，窗格保持恰好一个实例。
+	// 会话切换/导航触发外壳视图更替后，窗格保持恰好一个实例。
 	await newSessionWithMessage(page, TITLE_B);
 	await until("第二会话出现在活动区", async () => {
 		const regions = await paneRegions(page);
@@ -174,7 +173,7 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	const regionsAfterSwitch = await paneRegions(page);
 	assert.ok(regionsAfterSwitch.active.includes(TITLE_A) && regionsAfterSwitch.active.includes(TITLE_B), "两张卡片在重挂载后保持");
 
-	// R-01-001/AC-03、R-01-009/AC-02、AC-03：先完成一轮，再让同一会话进入 runtime ask tool，
+	// 先完成一轮，再让同一会话进入 runtime ask tool
 	// 窗格呈现已落定的工具分组；回答后同一会话进入 slow 流式输出并原地更新时间线。
 	await newSessionWithMessage(page, `e2e:fast ${TITLE_RUNTIME}`);
 	const runtimeCard = page.locator('[data-dsh-activity-pane] [role="button"][data-current]').first();
@@ -202,24 +201,24 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	assert.deepEqual(
 		singleQuestionList,
 		{ capsule: "提问中", tag: "UL", items: ["E2E 探针问题：是否继续？"] },
-		"单问题待回复卡使用「提问中」胶囊与 ul/li bullet list（R-01-002/AC-02、R-01-002/AC-09）",
+		"单问题待回复卡使用「提问中」胶囊与 ul/li bullet list",
 	);
-	// R-01-002/AC-14：阻塞等待卡胶囊右侧显示进入等待的相对时间（openWaitStart 起算）。
+	// 阻塞等待卡胶囊右侧显示进入等待的相对时间（openWaitStart 起算）。
 	const blockedAge = await until("阻塞等待卡显示进入等待相对时间", () =>
 		runtimeCard.locator(".dap-await-age").textContent().then((text) => (text ?? "").trim() || null),
 	);
-	assert.match(blockedAge, RELATIVE_AGE_PATTERN, "阻塞等待胶囊右侧显示相对时间分级文案（R-01-002/AC-14）");
+	assert.match(blockedAge, RELATIVE_AGE_PATTERN, "阻塞等待胶囊右侧显示相对时间分级文案");
 	const blockedBadge = await until("阻塞等待徽标就绪", async () => {
 		const value = await badgeSnapshot(page, "header");
 		return value?.tone === "blocked" ? value : null;
 	});
-	assert.match(blockedBadge.text, /^\d+\/\d+$/, "阻塞等待时列头保持 n/m 计数（R-01-001/AC-04～AC-06）");
-	assert.equal(blockedBadge.background, "rgba(42, 40, 30, 0.97)", "阻塞等待时列头徽标使用与阻塞卡一致的金色底（R-01-002/AC-06）");
-	assert.equal(blockedBadge.animation, "dap-await-pulse", "阻塞等待时列头徽标持续脉冲（R-01-002/AC-06）");
-	assert.equal(blockedBadge.duration, "1.2s", "等待占比变化后列头数量胶囊仍保持固定 1.2s 周期（R-01-002/AC-07）");
+	assert.match(blockedBadge.text, /^\d+\/\d+$/, "阻塞等待时列头保持 n/m 计数");
+	assert.equal(blockedBadge.background, "rgba(42, 40, 30, 0.97)", "阻塞等待时列头徽标使用与阻塞卡一致的金色底");
+	assert.equal(blockedBadge.animation, "dap-await-pulse", "阻塞等待时列头徽标持续脉冲");
+	assert.equal(blockedBadge.duration, "1.2s", "等待占比变化后列头数量胶囊仍保持固定 1.2s 周期");
 	const blockedPulse = await pulseSnapshot(page);
 	assert.ok(pulsePhaseDelta(blockedPulse) < 80, `新增阻塞等待后数量胶囊与等待卡末行应重新同相，实际最大相位差 ${pulsePhaseDelta(blockedPulse)}ms`);
-	// R-01-009/AC-12：已有上一轮时阻塞等待卡在 token 统计行最右侧保留固定耗时。
+	// 已有上一轮时阻塞等待卡在 token 统计行最右侧保留固定耗时。
 	const blockedElapsed = await until("阻塞等待统计行保留上一轮耗时", () =>
 		runtimeCard.evaluate((card) => {
 			const stats = card.querySelector(".dap-token-stats");
@@ -233,8 +232,8 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 			};
 		}),
 	);
-	assert.match(blockedElapsed.text, /^(?:\d+s|\d+m\d+s|\d+h\d+m\d+s)$/, "阻塞等待统计行最右侧显示固定上一轮耗时（R-01-009/AC-12）");
-	// R-01-020/AC-07：提问等待期间标题行总耗时冻结——等待区间不计入累计。
+	assert.match(blockedElapsed.text, /^(?:\d+s|\d+m\d+s|\d+h\d+m\d+s)$/, "阻塞等待统计行最右侧显示固定上一轮耗时");
+	// 提问等待期间标题行总耗时冻结——等待区间不计入累计。
 	const blockedTotalStart = await until("阻塞等待标题行总耗时呈现", () =>
 		runtimeCard.evaluate((card) => {
 			const total = card.querySelector(".dap-total-time");
@@ -245,11 +244,11 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	);
 	await page.waitForTimeout(2_200);
 	const blockedTotalEnd = await runtimeCard.evaluate((card) => card.querySelector(".dap-total-time")?.textContent.trim() ?? null);
-	assert.equal(blockedTotalEnd, blockedTotalStart, "提问等待期间标题行总耗时冻结，等待时长不计入（R-01-020/AC-07）");
-	assert.equal(blockedElapsed.sameRow, true, "阻塞等待耗时位于 token 统计行（R-01-009/AC-12）");
-	assert.equal(blockedElapsed.rightAligned, true, "阻塞等待耗时贴合 token 统计行最右侧（R-01-009/AC-12）");
-	assert.equal(blockedElapsed.headTime, "", "阻塞等待胶囊同行不重复显示耗时（R-01-009/AC-12）");
-	// R-01-009/AC-13：阻塞等待卡同样保留进入等待前最后已知的 token 统计。
+	assert.equal(blockedTotalEnd, blockedTotalStart, "提问等待期间标题行总耗时冻结，等待时长不计入");
+	assert.equal(blockedElapsed.sameRow, true, "阻塞等待耗时位于 token 统计行");
+	assert.equal(blockedElapsed.rightAligned, true, "阻塞等待耗时贴合 token 统计行最右侧");
+	assert.equal(blockedElapsed.headTime, "", "阻塞等待胶囊同行不重复显示耗时");
+	// 阻塞等待卡同样保留进入等待前最后已知的 token 统计。
 	const blockedStats = await until("阻塞等待保留上一轮统计", async () => runtimeCard.evaluate((card) => {
 		const stats = card.querySelector(".dap-token-stats");
 		const main = stats?.querySelector(".dap-token-main");
@@ -261,36 +260,36 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 			beforeAwaitingFoot: stats.nextElementSibling === foot,
 		};
 	}));
-	assert.match(blockedStats.main, /tok\/s/, "阻塞等待统计行保留 tok/s 输出速率（R-01-009/AC-13）");
-	assert.match(blockedStats.main, /缓存 \d+%/, "阻塞等待统计行保留缓存命中率（R-01-009/AC-13）");
-	assert.match(blockedStats.main, /输入/, "阻塞等待统计行保留计费输入 token（R-01-009/AC-13）");
-	assert.match(blockedStats.main, /输出/, "阻塞等待统计行保留输出 token（R-01-009/AC-13）");
-	assert.equal(blockedStats.beforeAwaitingFoot, true, "阻塞等待统计行位于时间线之后、等待提示之前（R-01-009/AC-13）");
-	assert.equal(blockedStats.time, blockedElapsed.text, "阻塞等待耗时与 token 统计字段位于同一行（R-01-009/AC-12、AC-13）");
+	assert.match(blockedStats.main, /tok\/s/, "阻塞等待统计行保留 tok/s 输出速率");
+	assert.match(blockedStats.main, /缓存 \d+%/, "阻塞等待统计行保留缓存命中率");
+	assert.match(blockedStats.main, /输入/, "阻塞等待统计行保留计费输入 token");
+	assert.match(blockedStats.main, /输出/, "阻塞等待统计行保留输出 token");
+	assert.equal(blockedStats.beforeAwaitingFoot, true, "阻塞等待统计行位于时间线之后、等待提示之前");
+	assert.equal(blockedStats.time, blockedElapsed.text, "阻塞等待耗时与 token 统计字段位于同一行");
 	await page.waitForTimeout(1_300);
 	assert.equal(
 		((await runtimeCard.locator(".dap-token-stats .dap-token-time").textContent()) ?? "").trim(),
 		blockedElapsed.text,
-		"阻塞等待期间耗时保持冻结，不把等待时间计入（R-01-009/AC-12）",
+		"阻塞等待期间耗时保持冻结，不把等待时间计入",
 	);
 	assert.equal(
 		((await runtimeCard.locator(".dap-token-main").textContent()) ?? "").trim(),
 		blockedStats.main,
-		"阻塞等待期间 token 统计保持冻结（R-01-009/AC-13）",
+		"阻塞等待期间 token 统计保持冻结",
 	);
 	await openApp(page, url);
 	await ensureFullDensity(page);
 	const refreshedBlockedElapsed = await until("刷新后恢复阻塞等待耗时", () =>
 		runtimeCard.locator(".dap-token-stats .dap-token-time").textContent().then((text) => (text ?? "").trim() || null),
 	);
-	assert.equal(refreshedBlockedElapsed, blockedElapsed.text, "阻塞等待刷新后仍保留同一轮耗时（R-01-009/AC-12）");
+	assert.equal(refreshedBlockedElapsed, blockedElapsed.text, "阻塞等待刷新后仍保留同一轮耗时");
 	const refreshedBlockedStats = await until("刷新后恢复阻塞等待统计", () =>
 		runtimeCard.locator(".dap-token-main").textContent().then((text) => (text ?? "").trim() || null),
 	);
-	assert.match(refreshedBlockedStats, /tok\/s/, "阻塞等待刷新后恢复 tok/s 输出速率（R-01-009/AC-13）");
-	assert.match(refreshedBlockedStats, /缓存 \d+%/, "阻塞等待刷新后恢复缓存命中率（R-01-009/AC-13）");
-	assert.match(refreshedBlockedStats, /输入/, "阻塞等待刷新后恢复计费输入 token（R-01-009/AC-13）");
-	assert.match(refreshedBlockedStats, /输出/, "阻塞等待刷新后恢复输出 token（R-01-009/AC-13）");
+	assert.match(refreshedBlockedStats, /tok\/s/, "阻塞等待刷新后恢复 tok/s 输出速率");
+	assert.match(refreshedBlockedStats, /缓存 \d+%/, "阻塞等待刷新后恢复缓存命中率");
+	assert.match(refreshedBlockedStats, /输入/, "阻塞等待刷新后恢复计费输入 token");
+	assert.match(refreshedBlockedStats, /输出/, "阻塞等待刷新后恢复输出 token");
 	await page.getByText("确认继续执行").click();
 	await page.getByRole("button", { name: "Submit", exact: true }).click();
 	const earlyChunk = await until("时间线出现早期流式正文", async () => {
@@ -315,7 +314,7 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 	const slowAfterRuntime = mock.scenarioLog.indexOf("slow", runtimeIndex + 1);
 	assert.ok(runtimeIndex >= 0 && slowAfterRuntime > runtimeIndex, `runtime 应在 tool 请求后进入 slow，实际：${mock.scenarioLog}`);
 
-	// R-01-002/AC-02、R-01-002/AC-09：多个可展示问题使用 ol/li，编号来自原始问题位置。
+	// 多个可展示问题使用 ol/li，编号来自原始问题位置。
 	await newSessionWithMessage(page, TITLE_MULTI_ASK);
 	const multiAskCard = page.locator('[data-dsh-activity-pane] [role="button"]').filter({ hasText: TITLE_MULTI_ASK }).first();
 	const multiQuestionList = await until("多问题编号列表就绪", async () =>
@@ -337,10 +336,10 @@ export default async function autoUpdate({ page, url, mock, assert }) {
 			tag: "OL",
 			items: [{ value: 1, text: "E2E 多问第一题？" }, { value: 2, text: "E2E 多问第二题？" }],
 		},
-		"多问题待回复卡使用「提问中」胶囊与 ol/li 编号列表（R-01-002/AC-02、R-01-002/AC-09）",
+		"多问题待回复卡使用「提问中」胶囊与 ol/li 编号列表",
 	);
 
-	// R-02-002/AC-02：加载、运行、等待、切换全程控制台无插件报错、无未捕获异常
+	// 加载、运行、等待、切换全程控制台无插件报错、无未捕获异常
 	// （控制台监听在 goto 之前挂接，槽座出现前的早期阶段也在覆盖范围内）。
 	const pluginErrors = consoleErrors.filter((text) => text.includes("dsh-activity-pane"));
 	assert.deepEqual(pluginErrors, [], `控制台无插件报错，实际：${pluginErrors}`);

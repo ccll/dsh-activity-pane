@@ -142,6 +142,30 @@ const FORBIDDEN_TRACKED = [
 	{ label: "receipts/", test: (path) => /^receipts\//.test(path) },
 ];
 
+/**
+ * 提交身份：占位符身份会让提交在托管平台上无法归属到真实账号，
+ * 而且只能靠改写历史补救——所以在提交时就拒绝。
+ */
+function checkIdentity(rep) {
+	const read = (key) => (git(["config", "--get", key], { allowFail: true }) ?? "").trim();
+	const name = read("user.name");
+	const email = read("user.email");
+	if (!name || !email) {
+		rep.fail("policy/身份", "未配置 user.name / user.email；提交无法归属到真实账号");
+		return;
+	}
+	const placeholderName = /^(test|user|dev|admin|root|your ?name)$/i.test(name);
+	const placeholderEmail = /@example\.(com|org|net)$/i.test(email) || /^(test|user|dev|admin)@/i.test(email);
+	if (placeholderName || placeholderEmail) {
+		rep.fail(
+			"policy/身份",
+			`提交身份是占位符 ${name} <${email}>；请设置真实身份：git config --local user.name "<你的名字>" && git config --local user.email "<你的邮箱>"`,
+		);
+		return;
+	}
+	rep.ok("policy/身份", `提交身份 ${name} <${email}>`);
+}
+
 function checkForbiddenPaths(rep) {
 	const trackedText = git(["ls-files"], { allowFail: true });
 	if (trackedText === null) {
@@ -184,6 +208,12 @@ export function runPolicy(rep, argv = []) {
 		rep.fail("policy/参数", error.message);
 		return;
 	}
+
+	// 分支保护：仅 --push（pre-push）时禁止 main。
+	// 身份只在真正产生或推送提交时校验：CI 的 checkout 没有 user.* 配置，
+	// 那里不产生提交，校验它只会误伤。
+	if (opts.message || opts.push) checkIdentity(rep);
+	else rep.skip("policy/身份", "非提交路径（ci / --replay），不校验身份");
 
 	// 分支保护：仅 --push（pre-push）时禁止 main。
 	if (opts.push) {

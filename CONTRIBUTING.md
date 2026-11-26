@@ -10,6 +10,8 @@
 - 宿主运行时由 CI 与环境变量 `DSH_RUNTIME_PATH` 提供；本地跑 e2e 前确认 `dsh --version`。
 - 安装：`pnpm install --frozen-lockfile`。
 
+提交身份必须是真实账号：`git config --local user.name "<你的名字>"` 与 `git config --local user.email "<你的邮箱>"`。仓库本地配置优先于全局配置，占位符身份会让提交在 GitHub 上归属不到你的账号，且只能靠改写历史补救——`xtask policy` 会在提交时直接拒绝。
+
 本地挂载插件时注意副作用：`dsh plugin --profile web add` 会改写 profile 的 `package.json` 并把插件写进 `dsh.profile.bundles`。只想离线试一下时用 `cordis_define` / `cordis_run`，不要动 profile。
 
 `pre-push` 会跑全量门禁，耗时 7–11 分钟。期间 github.com 的 SSH 连接会空闲，需要应用层保活：`~/.ssh/config` 里为 `Host github.com` 设 `ServerAliveInterval 30` 与 `ServerAliveCountMax 10`，否则推送会在门禁跑完后因空闲被掐断。

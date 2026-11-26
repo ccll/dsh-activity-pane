@@ -64,9 +64,9 @@ jobs:
         run: |
           issue=$(printf '%s' "$PR_BODY" | grep -oE 'Fixes #[0-9]+' | head -1 | grep -oE '[0-9]+')
           if [ -z "$issue" ]; then echo "正文未写 \`Fixes #<issue>\`。"; exit 1; fi
-          lower=$(gh pr list --state open --json number,body --jq \
-            --argjson pr "$PR" --arg issue "$issue" \
-            '[.[] | select(.number < $pr and ((.body // "") | test("Fixes #" + $issue + "([^0-9]|$)")))] | length')
+          lower=$(gh pr list --state open --limit 100 --json number,body \
+            | jq --argjson pr "$PR" --arg issue "$issue" \
+              '[.[] | select(.number < $pr and ((.body // "") | test("Fixes #" + $issue + "([^0-9]|$)")))] | length')
           if [ "$lower" != "0" ]; then
             echo "同一 issue 下已有编号更小的开放 PR（$lower 个）：编号最小者胜，请关闭本 PR 或改认领其它 issue。"
             exit 1

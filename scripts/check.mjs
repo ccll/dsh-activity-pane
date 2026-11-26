@@ -1,8 +1,7 @@
 // dsh-activity-pane 核心单元检查与 client bundle 契约校验。
 //
-// 测试锚点：本文件被 CONVENTIONS.md 的 `测试锚点路径` 登记为测试文件，
-// 以一行的 `// R-gg-nnn/AC-nn` 注释锚定 PRD 验收点；GUI 交互类验收点
-// 见 scripts/acceptance.mjs（人工验收清单）。
+// 行为回归按区域分节断言；浏览器交互类验收见 e2e/specs/（Playwright）
+// 与 scripts/acceptance.mjs（人工清单）。
 import assert from "node:assert/strict";
 import { readFile, mkdir } from "node:fs/promises";
 import { execFileSync } from "node:child_process";

@@ -154,10 +154,11 @@ function checkForbiddenPaths(rep) {
 	if (offenders.length === 0) rep.ok("policy/禁止路径", "无禁止跟踪路径");
 	else rep.fail("policy/禁止路径", offenders.slice(0, 8).join("、") + (offenders.length > 8 ? `（共 ${offenders.length}）` : ""));
 
-	// 新文件不得重新引入退役 ID。
+	// 新文件不得重新引入退役 ID。历史档案层（决策与工作史）按定义引用旧编号，豁免。
 	const newFiles = statusEntries()
 		.filter((entry) => entry.status.includes("A") || entry.status === "??")
-		.map((entry) => entry.path);
+		.map((entry) => entry.path)
+		.filter((path) => !path.startsWith("docs/decisions/") && !path.startsWith("docs/archive/"));
 	const offendersByToken = [];
 	for (const path of newFiles) {
 		const absolute = join(ROOT, path);

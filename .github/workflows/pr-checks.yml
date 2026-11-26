@@ -60,9 +60,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          issue=$(gh pr view "$PR" --json title --jq '.title' | grep -oE '#[0-9]+' | head -1 | tr -d '#')
-          if [ -z "$issue" ]; then echo "标题未引用 issue 号。"; exit 1; fi
+          issue=$(printf '%s' "$PR_BODY" | grep -oE 'Fixes #[0-9]+' | head -1 | grep -oE '[0-9]+')
+          if [ -z "$issue" ]; then echo "正文未写 \`Fixes #<issue>\`。"; exit 1; fi
           lower=$(gh pr list --state open --search "in:title #$issue" --json number --jq \
             "[.[] | select(.number < $PR)] | length" 2>/dev/null || echo 0)
           if [ "$lower" != "0" ]; then

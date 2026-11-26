@@ -1,5 +1,4 @@
-// R-01-007/AC-01、R-01-007/AC-02、R-01-007/AC-03、R-01-007/AC-04、R-01-007/AC-05、
-// R-01-011/AC-03、R-01-011/AC-04、R-01-011/AC-05
+// 、
 // 桌面贴边布局：窗格作为外壳侧栏右侧的常驻列，不随主区域在会话视图与全局面板之间切换
 // 而显隐；展开/收起只由用户操作决定，主内容按当前页面弹性填充窗格右侧余宽。
 
@@ -97,20 +96,20 @@ export default async function desktopLayout({ page, url, assert }) {
 	await openApp(page, url);
 	await sendHeroMessage(page, "e2e:fast 桌面布局探针");
 
-	// R-01-007/AC-01：桌面宽度（1280 > 767）下窗格为侧栏右侧通高贴边列。
+	// 桌面宽度（1280 > 767）下窗格为侧栏右侧通高贴边列。
 	const box = await until("窗格出现", () => paneBox(page));
 	const composerBox = await sessionComposer(page).boundingBox();
 	assert.ok(box.x >= 0 && box.width > 0, "窗格在视口内");
 	assert.ok(box.y <= 1, "窗格通高贴边（顶缘与外壳侧栏对齐）");
 	assert.ok(box.x + box.width <= composerBox.x + 1, `窗格在主会话左侧（窗格右缘 ${box.x + box.width} ≤ 主会话左缘 ${composerBox.x}）`);
 
-	// R-01-007/AC-02：窗格不阻止主会话操作——composer 可聚焦、可输入。
+	// 窗格不阻止主会话操作——composer 可聚焦、可输入。
 	const composer = sessionComposer(page);
 	await composer.click();
 	await composer.pressSequentially("主会话可正常输入");
 	assert.equal((await composer.textContent())?.trim(), "主会话可正常输入", "主会话 composer 可正常输入");
 
-	// AC-04 用户既选宽度：先把窗格拖宽到非默认值，供页面往返后的宽度断言。
+	//  用户既选宽度：先把窗格拖宽到非默认值，供页面往返后的宽度断言。
 	const edgeX = box.x + box.width;
 	const midY = box.y + box.height / 2;
 	await page.mouse.move(edgeX - 2, midY);
@@ -122,7 +121,7 @@ export default async function desktopLayout({ page, url, assert }) {
 		return b && b.width > box.width + 20 ? b : null;
 	});
 
-	// R-01-011/AC-03、AC-05（T-144 顶缘同位语义）：Space 激活标题区收起，控件顶缘保持在窗格顶部同一屏幕位置。
+	// （T-144 顶缘同位语义）：Space 激活标题区收起，控件顶缘保持在窗格顶部同一屏幕位置。
 	const header = page.getByRole("button", { name: "收起活动会话窗格" });
 	const headerBox = await header.boundingBox();
 	assert.ok(headerBox, "展开态标题行控件存在");
@@ -137,7 +136,7 @@ export default async function desktopLayout({ page, url, assert }) {
 		return b && b.width < STRIP_MAX_WIDTH_PX && b.height > STRIP_MIN_HEIGHT_PX ? candidate : null;
 	});
 	const stripBox = await strip.boundingBox();
-	// R-01-011/AC-05（T-144 措辞演进）：仓库入口独立区占标题行最左后，收起控件（标题区）
+	// （T-144 措辞演进）：仓库入口独立区占标题行最左后，收起控件（标题区）
 	// 与展开控件（窄条）的横向起点必然不同——同位语义收敛为顶缘同位：窄条顶缘与标题行
 	// 顶缘同位，且窄条贴窗格左缘通高。
 	const pane = await paneBox(page);
@@ -145,7 +144,7 @@ export default async function desktopLayout({ page, url, assert }) {
 		Math.abs(stripBox.y - headerBox.y) <= POSITION_TOLERANCE_PX && Math.abs(stripBox.x - pane.x) <= POSITION_TOLERANCE_PX,
 		`窄条顶缘与标题行同位且贴窗格左缘（strip ${stripBox.x},${stripBox.y} vs header ${headerBox.x},${headerBox.y}、pane x=${pane.x}）`,
 	);
-	// R-01-011/AC-04：窄条整体为原生按钮，Enter 激活后展开恢复。
+	// 窄条整体为原生按钮，Enter 激活后展开恢复。
 	await strip.focus();
 	await strip.press("Enter");
 	await until("Enter 激活窄条展开恢复", async () => {
@@ -153,7 +152,7 @@ export default async function desktopLayout({ page, url, assert }) {
 		return b && Math.abs(b.x - headerBox.x) <= POSITION_TOLERANCE_PX && Math.abs(b.y - headerBox.y) <= POSITION_TOLERANCE_PX ? true : null;
 	});
 
-	// R-01-007/AC-03、AC-05（T-197，C-103）：折叠态切到全局面板——窗格保持窄条可见，
+	// （T-197，C-103）：折叠态切到全局面板——窗格保持窄条可见
 	// 面板占窗格右侧余宽；页面切换不由代码改变用户折叠形态。
 	await header.press("Space");
 	await until("再次折叠为窄条", async () => {
@@ -211,7 +210,7 @@ export default async function desktopLayout({ page, url, assert }) {
 		true,
 		"返回会话未重建窗格节点",
 	);
-	// AC-04 宽度：展开后回到用户此前的窗格宽度（拖拽后的非默认值）。
+	//  宽度：展开后回到用户此前的窗格宽度（拖拽后的非默认值）。
 	const stripBack = page.getByRole("button", { name: /活动会话/ }).last();
 	await stripBack.click();
 	const expanded = await until("展开后窗格宽度保持", async () => {
@@ -230,7 +229,7 @@ export default async function desktopLayout({ page, url, assert }) {
 		window.__e2ePaneExpanded = document.querySelector("[data-dsh-activity-pane]");
 	});
 
-	// R-01-007/AC-04（T-197、#5 缺陷回归）：展开态切到 containment 全局面板——面板根
+	// （T-197、#5 缺陷回归）：展开态切到 containment 全局面板——面板根
 	// 仍从窗格右侧取得弹性余宽而不是塌成窄条，窗格保持用户宽度。
 	await page.evaluate((css) => {
 		const style = document.createElement("style");

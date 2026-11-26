@@ -1,4 +1,3 @@
-// R-01-014/AC-01、R-01-014/AC-03、R-01-014/AC-06、R-02-003/AC-01
 // 同一页面连接世代内：列表 pending→ready 落到真实空态；真实 slow 卡先呈现标题/时间线，model detail 后补齐。
 
 import { dismissNotice, ensureFullDensity, injectMobileFabAnchor, MOCK_MODEL, paneRegions, sendHeroMessage, until } from "../helpers.mjs";
@@ -10,7 +9,7 @@ export default async function loadingReady({ page, url, assert }) {
 	await page.addInitScript(({ detailTitle, model }) => {
 		window.__dapLoadingEvidence = { active: false, recent: false, count: false, toggle: false, detailWithoutModel: false, detailWithModel: false };
 		// 镜像部署环境（T-167）：部署侧 hero 页有 dsh-web-mobile 的 ⊡ 锚承载开关
-		// hero 贴靠落位；本 e2e 壳层无该插件，注入模拟锚使 R-01-014/AC-06 的
+		// hero 贴靠落位；本 e2e 壳层无该插件，注入模拟锚使  的
 		// 移动端加载指示覆盖仍可观察。
 		const injectWhenReady = () => {
 			const frame = document.querySelector("[data-shell-overlay]")?.parentElement;
@@ -83,6 +82,6 @@ export default async function loadingReady({ page, url, assert }) {
 		const value = await page.evaluate(() => window.__dapLoadingEvidence);
 		return value.detailWithoutModel && value.detailWithModel ? value : null;
 	});
-	assert.equal(detailEvidence.detailWithoutModel, true, "真实卡片标题与用户时间线先呈现，不等待 model detail（R-01-014/AC-03）");
-	assert.equal(detailEvidence.detailWithModel, true, "同一卡片随后就地补齐 model 与 reasoning（R-01-014/AC-03）");
+	assert.equal(detailEvidence.detailWithoutModel, true, "真实卡片标题与用户时间线先呈现，不等待 model detail");
+	assert.equal(detailEvidence.detailWithModel, true, "同一卡片随后就地补齐 model 与 reasoning");
 }

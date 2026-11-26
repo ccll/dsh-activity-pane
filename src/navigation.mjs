@@ -24,7 +24,7 @@ export function bindCardActivation(card, open) {
 }
 
 /**
- * 判定会话是否正在前台显示（R-01-006/AC-03）：宿主列表快照的选中会话对应 target，
+ * 判定会话是否正在前台显示：宿主列表快照的选中会话对应 target
  * 且主区域没有全局面板占屏。窗格跨页常驻后「选中」不再是「正在查看」的充分条件——
  * 面板页（插件、插件市场等）只改布局 store、不改 selection，必须并入 panelId 维度。
  * panelId 为 null/undefined 表示会话视图在屏；服务缺失时调用方按 null 传入即退回旧语义。
@@ -37,10 +37,10 @@ export function isSessionDisplayed({ targetId, currentId = null, panelId = null 
 }
 
 /**
- * 判定卡片激活是否转为收起移动端抽屉（R-01-008/AC-06）：移动断点内抽屉打开、
+ * 判定卡片激活是否转为收起移动端抽屉：移动断点内抽屉打开、
  * 且会话正在前台显示时，激活不再发起切换（避免无意义 open 与重试链），改为收起
  * 抽屉直达会话；全局面板在屏时激活是「回到会话」的真实意图，不得被收抽屉吞掉
- *（R-01-006/AC-04）。纯函数，无 DOM 假设。
+ *。纯函数，无 DOM 假设。
  */
 export function shouldDismissDrawerOnActivation({ targetId, currentId, mobile, drawerOpen, panelId = null } = {}) {
 	if (mobile !== true || drawerOpen !== true) return false;
@@ -67,7 +67,7 @@ export function openSession(uiWorkspace, target) {
 /**
  * 以最小必要距离把卡片滚入窗格滚动视口；不会居中，也不会滚动外层页面。
  * 默认使用原生 smooth scroll，调用方可传 auto 适配降低动效偏好；缺少 scrollTo 或 options 不受支持时回退为同步滚动
- * （R-01-006/AC-02）。
+ * 。
  */
 export function scrollCardIntoView(scroll, card, behavior = "smooth") {
 	if (typeof scroll?.getBoundingClientRect !== "function" || typeof card?.getBoundingClientRect !== "function")
@@ -106,7 +106,7 @@ export function scrollCardIntoView(scroll, card, behavior = "smooth") {
 export const COMPOSER_SELECTOR = "[data-composer-input]";
 
 /**
- * 抑制切换会话后原生 composer 的自动聚焦（R-01-005/AC-01 移动端回归）。
+ * 抑制切换会话后原生 composer 的自动聚焦（移动端回归）。
  * dsh-client-ui-conversation 的 composer 在 sessionId 变化的 effect 里
  * focus 输入框（桌面便于立即输入）；移动视口下该聚焦会弹出软键盘遮挡会话。
  * open 成功后立即 blur 一次（覆盖 composer 已持焦的情形），并在短暂窗口内
@@ -128,7 +128,7 @@ export function suppressComposerAutofocus(doc, scheduleTimeout = setTimeout, win
  * 抽屉与浮动开关位于遮罩之上，能到达遮罩的点击必然来自抽屉外部，
  * 无需 contains 判定。触摸轻点经浏览器 tap→click 合成事件覆盖
  * （与浮动开关、× 与卡片的既有交互一致，故仅绑 click），
- * 不额外绑 touch 事件以避免双触发与滑动误收起（R-01-008/AC-03）。
+ * 不额外绑 touch 事件以避免双触发与滑动误收起。
  */
 export function bindBackdropDismiss(backdrop, dismiss) {
 	if (typeof backdrop?.addEventListener !== "function" || typeof dismiss !== "function")

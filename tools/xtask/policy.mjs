@@ -210,7 +210,10 @@ export function runPolicy(rep, argv = []) {
 	}
 
 	// 分支保护：仅 --push（pre-push）时禁止 main。
-	checkIdentity(rep);
+	// 身份只在真正产生或推送提交时校验：CI 的 checkout 没有 user.* 配置，
+	// 那里不产生提交，校验它只会误伤。
+	if (opts.message || opts.push) checkIdentity(rep);
+	else rep.skip("policy/身份", "非提交路径（ci / --replay），不校验身份");
 
 	// 分支保护：仅 --push（pre-push）时禁止 main。
 	if (opts.push) {

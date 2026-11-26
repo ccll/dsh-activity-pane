@@ -1,12 +1,9 @@
 #!/usr/bin/env bash
+# 标题：emoji 中文类型(scope): 结果；正文：## 原因 / ## 影响 / ## 取舍。
 set -euo pipefail
 export LC_ALL=C
 root="$(git rev-parse --show-toplevel)"
-if command -v mise >/dev/null 2>&1; then
-  mise x -- python "$root/tools/agentmap_validate_commit_msg.py" "$1"
-else
-  python3 "$root/tools/agentmap_validate_commit_msg.py" "$1"
-fi
+node "$root/tools/xtask.mjs" policy --message "$1"
 
 for hook in "$root"/.githooks/commit-msg.d/*.sh; do
   [[ -e "$hook" ]] || continue

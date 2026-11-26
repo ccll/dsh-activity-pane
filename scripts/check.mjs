@@ -5741,16 +5741,16 @@ assert.ok(e2eHelperSource.includes("const PANE_READY_TIMEOUT_MS = 30_000"), "单
 assert.ok(!e2eHelperSource.includes("ERR_PANE_STALL"), "helpers 不保留列表停滞专用恢复错误码");
 assert.ok(e2eHelperSource.includes('throw new Error("窗格列表加载失败")'), "明确列表失败立即抛错，不等待超时或进入恢复");
 
-// ---- GitHub CI 触发策略（C-050，T-086）----
+// ---- GitHub CI 触发策略（RFC-0002：main 改为 PR 门禁，取代 C-050/C-060 的 PR 结论）----
 const ciWorkflowSource = await readFile(join(root, ".github/workflows/ci.yml"), "utf8");
 const ciTriggerBlock = ciWorkflowSource.match(/^on:\n([\s\S]*?)^permissions:/m)?.[1] ?? "";
 assert.equal(
 	ciTriggerBlock,
-	"  workflow_dispatch:\n  push:\n    branches: [main]\n\n",
-	"hosted CI trigger 仅允许 workflow_dispatch 与 main push，不得加入 PR、tag 或其它 push filter",
+	"  workflow_dispatch:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\n\n",
+	"hosted CI trigger 允许 workflow_dispatch、main push 与 main pull_request，不得加入 tag 或其它 push filter",
 );
 assert.ok(!ciWorkflowSource.includes("runner.tool_cache"), "job 级 env 不引用尚不可用的 runner context");
-assert.ok(ciWorkflowSource.includes("fetch-depth: 0"), "CI checkout 保留完整历史以验证 terminal task commit 证据");
+assert.ok(ciWorkflowSource.includes("fetch-depth: 0"), "CI checkout 保留完整历史以支撑 diff 基线与发布校验");
 assert.ok(ciWorkflowSource.includes("timeout-minutes: 30"), "顺序 E2E 拥有明确 hosted timeout");
 assert.ok(ciWorkflowSource.includes("node-version: 24.16.0"), "hosted Node 与本地稳定基线一致");
 

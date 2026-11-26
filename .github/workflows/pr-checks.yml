@@ -1,0 +1,78 @@
+name: PR checks
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  protocol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.16.0
+
+      - name: 标题与正文格式（与 commit-msg 同一套正则）
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          node --input-type=module -e '
+            const title = process.env.PR_TITLE ?? "";
+            const body = process.env.PR_BODY ?? "";
+            const ok = /^(⭐|✨|🐛|📝|🧪|📌|🧹|⚙️|♻️|🚀)\s(功能|改进|修复|文档|测试|计划|维护|配置|重构|发布)\([a-z0-9][a-z0-9-]*\):\s\S/.test(title)
+              && [...title].length <= 100;
+            if (!ok) {
+              console.error("标题须为 `emoji 中文类型(scope): 中文结果描述`，且不超过 100 字：", title);
+              process.exit(1);
+            }
+            if (!/Fixes #\d+/.test(body)) {
+              console.error("正文首段须含 `Fixes #<issue>`。");
+              process.exit(1);
+            }
+            if (!/## 原因/.test(body) || !/## 影响/.test(body) || !/## 取舍/.test(body)) {
+              console.error("正文须含 `## 原因`、`## 影响`、`## 取舍` 三段。");
+              process.exit(1);
+            }
+          '
+
+      - name: 认领提交存在（claim: #N）
+        run: |
+          git log --format=%s "origin/main..HEAD" | tee /tmp/subjects.txt
+          grep -qE '^claim: #[0-9]+$' /tmp/subjects.txt || {
+            echo "缺少认领提交：第一个提交应为空提交 `claim: #N`。"; exit 1; }
+
+      - name: 编号最小者胜
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          issue=$(gh pr view "$PR" --json title --jq '.title' | grep -oE '#[0-9]+' | head -1 | tr -d '#')
+          if [ -z "$issue" ]; then echo "标题未引用 issue 号。"; exit 1; fi
+          lower=$(gh pr list --state open --search "in:title #$issue" --json number --jq \
+            "[.[] | select(.number < $PR)] | length" 2>/dev/null || echo 0)
+          if [ "$lower" != "0" ]; then
+            echo "同一 issue 下已有编号更小的开放 PR（$lower 个）：编号最小者胜，请关闭本 PR 或改认领其它 issue。"
+            exit 1
+          fi
+
+      - name: 分支命名
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          echo "$HEAD_REF" | grep -qE '^(claim|fix|feat|docs|perf|refactor)/[0-9]+-[a-z0-9-]+$' || {
+            echo "分支名须为 `<claim|fix|feat|docs|perf|refactor>/<issue>-<slug>`：$HEAD_REF"; exit 1; }

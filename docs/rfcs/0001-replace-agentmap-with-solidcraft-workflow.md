@@ -24,7 +24,7 @@ AgentMap 在本仓库运行了约 14 周，积累了完整的意图层与审计�
 
 - 意图层只保留 `docs/roadmap.md`（愿景、目标、非目标、里程碑）；工作单元由 GitHub issue 承载，不再有 task 文档。
 - 当前真相层 = `docs/architecture.md`（加 `docs/design/*.md` 下钻）+ `docs/glossary.md` + `docs/compatibility.md`。
-- 决策层 = `docs/rfcs/NNNN-*.md`，承接原 RATIONALE。
+- 决策层 = `docs/rfcs/NNNN-*.md`（新层生效后的决定）+ `docs/decisions/C-nnn-*.md`（原 RATIONALE，只追加保留编号）。
 - 规则层 = `AGENTS.md` 路由（≤5,600 字符，一行一条硬规则并点名执行器）+ `.agents/skills/`（每个 ≤3,600 字符）。
 - 执行层 = `tools/xtask.mjs` 子命令；凡规则必须由子命令执行，无执行器者删除或标 advisory。
 - 质量裁决 = tests + goldens + `tools/ratchet/`（只减清单）+ bundle 字节与性能预算。
@@ -50,7 +50,7 @@ AgentMap 在本仓库运行了约 14 周，积累了完整的意图层与审计�
 | PRD.md | 62 KB / 28 R / 191 AC / 5 M | docs/roadmap.md | AC 与 ID 全部删除 |
 | SOLUTION.md | 138 KB | docs/architecture.md + docs/design/*.md | 追溯索引删除，保留当前真相 |
 | DOMAIN.md | 24 KB | docs/glossary.md | 术语全保留 |
-| RATIONALE/ | 103 条 | docs/rfcs/NNNN-*.md | git mv；纯流程决策不入 RFC |
+| RATIONALE/ | 103 条 | docs/decisions/C-nnn-*.md | git mv，保留编号；只追加，跨层引用写 `取代: C-nnn` |
 | tasks/ | 203 个 | docs/archive/worklog.md + git 历史 | 一行一个索引 |
 | receipts/ | 2 份 | docs/receipts/ | 保留并由 compatibility 引用 |
 | CONVENTIONS.md | 11.6 KB | CONTRIBUTING.md + xtask | 可机械化的全部进检查 |
@@ -62,7 +62,7 @@ AgentMap 在本仓库运行了约 14 周，积累了完整的意图层与审计�
 1. P0 立项与骨架（本 RFC、docs 目录、xtask 契约）。
 2. P1 新层成形（architecture、glossary、roadmap、compatibility、rfcs、skills、AGENTS 路由、xtask 子命令、ratchet）。
 3. P2 关旧闸（删除 python 工具与钩子调用，改 package.json / ci.yml / .gitignore）。
-4. P3 迁移历史并删除旧层（tasks → worklog，RATIONALE → rfcs，删除 PRD/SOLUTION/DOMAIN/CONVENTIONS/tasks/receipts 原位）。
+4. P3 迁移历史并删除旧层（tasks → worklog，RATIONALE → docs/decisions，删除 PRD/SOLUTION/DOMAIN/CONVENTIONS/tasks/receipts 原位）。
 5. P4 剥离 2,397 处 AC 锚点（src 锚点与 `pnpm build:client` 同提交）。
 6. P5 新门禁接管并验证（xtask ci 全绿、27 个 e2e spec 全绿、bundle 可复现、ci.yml 加 pull_request）。
 7. P6 取消跟踪 tmp-rc-diff（1,193 个文件，占跟踪文件 75%）。

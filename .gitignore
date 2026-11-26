@@ -4,4 +4,3 @@ node_modules/
 .dsh_better_edit/
 e2e/fail-*.png
 .cache/
-tools/__pycache__/

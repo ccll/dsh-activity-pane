@@ -1,4 +1,3 @@
-// R-01-015/AC-01、R-01-015/AC-02、R-01-015/AC-03、R-01-015/AC-04
 // 桌面拖拽调宽：拖拽右缘实时调宽且主会话让位、宽度夹取 [200,480]、
 // 折叠窄条不可拖拽、刷新后恢复上次宽度。
 
@@ -31,10 +30,10 @@ export default async function resize({ page, url, assert }) {
 	await sendHeroMessage(page, "e2e:fast 调宽探针");
 	const initialBox = await until("窗格出现", () => paneBox(page));
 	const initialWidth = initialBox.width;
-	// R-01-015/AC-04（默认宽度）：全新环境（无站点数据）下窗格为默认 280px。
+	// （默认宽度）：全新环境（无站点数据）下窗格为默认 280px。
 	assert.ok(Math.abs(initialWidth - 280) <= 4, `默认宽度 280px（实际 ${initialWidth}）`);
 
-	// R-01-015/AC-01：拖拽右缘实时调宽，主会话内容同步让位。
+	// 拖拽右缘实时调宽，主会话内容同步让位。
 	const composerX = async () => (await sessionComposer(page).boundingBox()).x;
 	const mainBefore = await composerX();
 	// 「实时」：拖拽进行中（未松手）宽度已随指针变化。
@@ -51,7 +50,7 @@ export default async function resize({ page, url, assert }) {
 	assert.ok(widened > initialWidth + 40, `拖拽后窗格变宽（${initialWidth} → ${widened}）`);
 	assert.ok((await composerX()) > mainBefore, "主会话内容同步让位（composer 右移）");
 
-	// R-01-015/AC-02：宽度夹取——大幅度越过两端仍落在 [200, 480]。
+	// 宽度夹取——大幅度越过两端仍落在 [200, 480]。
 	await dragPaneEdge(page, 10);
 	const narrow = await paneWidth(page);
 	assert.ok(Math.abs(narrow - MIN_WIDTH) <= 4, `拖到极左夹取到 ${MIN_WIDTH}（实际 ${narrow}）`);
@@ -59,7 +58,7 @@ export default async function resize({ page, url, assert }) {
 	const wide = await paneWidth(page);
 	assert.ok(Math.abs(wide - MAX_WIDTH) <= 4, `拖到极右夹取到 ${MAX_WIDTH}（实际 ${wide}）`);
 
-	// R-01-015/AC-03（桌面折叠窄条）：折叠后右缘拖拽不再调宽。
+	// （桌面折叠窄条）：折叠后右缘拖拽不再调宽。
 	await page.getByRole("button", { name: "收起活动会话窗格" }).click();
 	const stripBox = await until("折叠为窄条", async () => {
 		const candidate = page.getByRole("button", { name: /活动会话/ }).last();
@@ -73,7 +72,7 @@ export default async function resize({ page, url, assert }) {
 	await page.getByRole("button", { name: /活动会话/ }).last().click();
 	await until("展开恢复", async () => ((await paneWidth(page)) >= MIN_WIDTH ? true : null));
 
-	// R-01-015/AC-04：刷新后恢复上次调整的宽度（当前为夹取后的 480）。
+	// 刷新后恢复上次调整的宽度（当前为夹取后的 480）。
 	await page.reload({ waitUntil: "networkidle" });
 	const restored = await until("刷新后窗格恢复", async () => {
 		const b = await paneBox(page);

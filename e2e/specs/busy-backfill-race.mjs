@@ -1,5 +1,4 @@
-// R-01-020/AC-01、R-01-020/AC-03、R-01-020/AC-05
-// 懒回填 GET 与 SSE 全量快照的竞态契约（T-175 复盘发现的 flake 根因，见 tasks/T-175）：
+// 懒回填 GET 与 SSE 全量快照的竞态契约（T-175 复盘发现的 flake 根因）：
 // ① 场景 1——回填响应可能先于宿主登记 turn/start 发出（卡片渲染早于登记）、迟到落地；
 //    若客户端仍对该响应用全量应用（clear + 重放），陈旧空快照会清除既有 busy 记录、
 //    运行卡标题行累计运行时长在回合中段消失。修复后按 id 只补缺，标签持续可见。
@@ -39,7 +38,7 @@ function sleep(ms) {
 }
 
 export default async function busyBackfillRace({ page, url, assert }) {
-	// ---- 场景 1：陈旧空快照迟到，不得清除运行中的累计时长（R-01-020/AC-03） ----
+	// ---- 场景 1：陈旧空快照迟到，不得清除运行中的累计时长 ----
 	// 先扣住 /busy/stream（连接发起被延迟，放行后原样透传，SSE 流不被缓冲），
 	// 再把 /busy GET 延迟返回空快照 {}。
 	let stubbedGets = 0;
@@ -67,9 +66,9 @@ export default async function busyBackfillRace({ page, url, assert }) {
 	// 放行 SSE：连接建立即收全量快照（含运行中回合），记录填充、标签首现。
 	releaseStream();
 	const firstText = await until("运行卡标题行出现累计运行时长", () => busyLabelProbe(page, TITLE));
-	assert.ok(/^\d+s$/.test(firstText), `首现即实时秒读（R-01-020/AC-01，实际：${firstText}）`);
+	assert.ok(/^\d+s$/.test(firstText), `首现即实时秒读（实际：${firstText}）`);
 
-	// 首现后连续采样 6s：标签只允许极短渲染抖动，不得出现成段消失（AC-03 竞态契约）。
+	// 首现后连续采样 6s：标签只允许极短渲染抖动，不得出现成段消失（竞态契约）。
 	let samples = 0;
 	let missing = 0;
 	let currentStreak = 0;
@@ -94,10 +93,10 @@ export default async function busyBackfillRace({ page, url, assert }) {
 	);
 	assert.ok(
 		missing <= MAX_MISSING_SAMPLES,
-		`累计运行时长在回填响应落地后持续可见，成段消失不超过 ${MAX_MISSING_SAMPLES} 个采样周期（R-01-020/AC-03，样本 ${samples} 缺席 ${missing}，最后读数：${lastText}）`,
+		`累计运行时长在回填响应落地后持续可见，成段消失不超过 ${MAX_MISSING_SAMPLES} 个采样周期（样本 ${samples} 缺席 ${missing}，最后读数：${lastText}）`,
 	);
 
-	// ---- 场景 2：SSE 不可用时 GET 回填仍填充缺失会话（R-01-020/AC-05） ----
+	// ---- 场景 2：SSE 不可用时 GET 回填仍填充缺失会话 ----
 	// 同 context 第二页 goto 会因宿主应用的多页持久连接卡 networkidle 超时（实测），
 	// 必须开新 context 做页面隔离；断言 SSE 连接被拒后 GET 回填数据仍被应用。
 	const page2 = await page.context().browser().newContext().then((context) => context.newPage());
@@ -119,7 +118,7 @@ export default async function busyBackfillRace({ page, url, assert }) {
 
 	// SSE 拒连后无广播可用，标签出现即证明 GET 回填数据被应用（applyBusyBackfill 生效）。
 	const downgradedText = await until("SSE 不可用时 GET 回填仍驱动累计运行时长显示", () => busyLabelProbe(page2, TITLE2), 15_000);
-	assert.ok(/^\d+s$/.test(downgradedText), `降级路径显示实时秒读（R-01-020/AC-05，实际：${downgradedText}）`);
+	assert.ok(/^\d+s$/.test(downgradedText), `降级路径显示实时秒读（实际：${downgradedText}）`);
 
 	// 持续走字：读数推进改为轮询等待（T-189）。固定 0.9s 窗存在双重时序边缘：秒读
 	// 四舍五入桶（"3s" 覆盖 2.5s–3.5s 实时区间）可能整窗不跨桶边界；且 1Hz 时钟帧
@@ -133,7 +132,7 @@ export default async function busyBackfillRace({ page, url, assert }) {
 	assert.ok(backfillGets >= 1, "SSE 拒连后回填 GET 确实发生（路由失配会使降级验证空转）");
 	assert.ok(
 		advancedText !== null,
-		`降级路径读数持续在场且单调递增（R-01-020/AC-05，${downgradedText} → ${advancedText ?? "未推进"}）`,
+		`降级路径读数持续在场且单调递增（${downgradedText} → ${advancedText ?? "未推进"}）`,
 	);
 	await page2.close();
 }

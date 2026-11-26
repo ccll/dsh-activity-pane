@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
 //
 // 展示规则：
 //   主会话（非有效子代理行）：running || completed || pendingInteraction 都显示；
-//   在跑后台任务（jobsBySession 中 status ∈ {running, stopping}，R-01-023）不改变显示判定与
+//   在跑后台任务（jobsBySession 中 status ∈ {running, stopping}）不改变显示判定与
 //   呈现类别，只在卡片标题行标注数量（活动区与最近历史卡）；
 //   子代理（origin === 'subagent' 且 parentId 有效）：仅 running || pendingInteraction 时显示（结束后即消失）；
 //   pendingInteraction 总是优先视为"等待用户行动"（即使在 running 中）。
@@ -32,7 +32,7 @@ const PENDING_LABELS = {
 	question: "提问中",
 };
 
-/** 阻塞等待备注行动作说明（R-01-002/AC-09）：说明等待的具体动作与「不答就无法继续」的后果。 */
+/** 阻塞等待备注行动作说明：说明等待的具体动作与「不答就无法继续」的后果。 */
 const PENDING_NOTES = {
 	approval: "等待你确认授权后继续",
 	"plan-review": "等待你审查计划后继续",
@@ -44,7 +44,7 @@ const PENDING_NOTES = {
 const PENDING_UNKNOWN_LABEL = "待处理";
 const PENDING_UNKNOWN_NOTE = "等待你处理后继续";
 
-/** 完成提醒正文行（R-01-002/AC-09，C-040、C-043）：引导继续对话或移入历史——「已完成」
+/** 完成提醒正文行（C-040、C-043）：引导继续对话或移入历史——「已完成」
  *  语义已由首行胶囊承载，正文不再重复；文案长度受末行宽度约束——须与「移入历史」
  *  按钮同排在默认窗格宽度下单行完整可见。 */
 const ROUND_DONE_NOTE = "继续对话，或移入历史";
@@ -53,10 +53,10 @@ const ROUND_DONE_NOTE = "继续对话，或移入历史";
  *  错误信息只为提示用户会话出错了，超长正文无展示价值；与提问列表单项上界同量级。 */
 const ERROR_NOTE_MAX = 120;
 
-/** 错误提醒正文回落文案（R-01-002/AC-13，C-043）：error 回合无可用错误信息时使用。 */
+/** 错误提醒正文回落文案（C-043）：error 回合无可用错误信息时使用。 */
 const ERROR_NOTE_FALLBACK = "回合以错误结束，请检查会话";
 
-/** 错误信息截断（R-01-002/AC-13，C-043）：按 Unicode 码点截断至 ERROR_NOTE_MAX（省略号
+/** 错误信息截断（C-043）：按 Unicode 码点截断至 ERROR_NOTE_MAX（省略号
  *  不计入上限、属展示截断信号）；非字符串返回空串（宿主侧仅字符串入参，防御性边界）。
  *  截断在宿主登记时执行一次、渲染侧直接消费已截断的 lastTurnEndError；共享核心承载便于
  *  单一事实源与可执行验证（Spec 轴审核：截断须有测试锚点）。 */
@@ -119,7 +119,7 @@ const TOOL_LABELS = {
 	ask_user_question: "提问",
 };
 
-/** 桌面窗格拖拽调宽边界（R-01-015）：拖拽实时夹取与 localStorage 恢复共用的同源常量。 */
+/** 桌面窗格拖拽调宽边界：拖拽实时夹取与 localStorage 恢复共用的同源常量。 */
 const PANE_WIDTH_MIN = 200;
 const PANE_WIDTH_MAX = 480;
 const PANE_WIDTH_DEFAULT = 280;
@@ -137,18 +137,18 @@ function clampPaneWidth(raw) {
 
 /**
  * 把任意输入（localStorage 字符串等）归一为合法卡片显示档位：
- * 仅 'full'/'medium'/'compact' 为合法档位，其余（含缺失/非法值）回退默认中间档（R-01-021/AC-06）。
+ * 仅 'full'/'medium'/'compact' 为合法档位，其余（含缺失/非法值）回退默认中间档。
  */
 function normalizeDensity(raw) {
 	return raw === "compact" || raw === "medium" || raw === "full" ? raw : "medium";
 }
 
-/** 显示档位的循环次序：紧凑 → 中间 → 完整 → 紧凑——信息量自小到大（R-01-021/AC-01）。 */
+/** 显示档位的循环次序：紧凑 → 中间 → 完整 → 紧凑——信息量自小到大。 */
 const DENSITY_ORDER = ["compact", "medium", "full"];
 
 /**
  * 返回循环切换后的下一显示档位：紧凑 → 中间 → 完整 → 紧凑；
- * 输入先经 normalizeDensity 归一，非法值视作中间档（R-01-021/AC-01）。
+ * 输入先经 normalizeDensity 归一，非法值视作中间档。
  */
 function nextDensity(value) {
 	const index = DENSITY_ORDER.indexOf(normalizeDensity(value));
@@ -156,9 +156,9 @@ function nextDensity(value) {
 }
 
 /**
- * 档位资源纪律谓词（R-01-025/AC-01）：紧凑呈现档下主会话日志窗口不建立或保持。
- * 子代理日志窗口承载标题行可见的模型上下文（R-01-012/AC-17），恒不裁剪；
- * 输入档位经 normalizeDensity 归一，非法值视作中间档即不裁剪（R-01-025/AC-01）。
+ * 档位资源纪律谓词：紧凑呈现档下主会话日志窗口不建立或保持。
+ * 子代理日志窗口承载标题行可见的模型上下文，恒不裁剪；
+ * 输入档位经 normalizeDensity 归一，非法值视作中间档即不裁剪。
  */
 function logWindowSuppressed(densityLevel, isSubagent) {
 	return normalizeDensity(densityLevel) === "compact" && isSubagent !== true;
@@ -319,7 +319,7 @@ function askStatusSummary(root, status) {
 	return null;
 }
 
-/** 取 ask_user_question 参数中的结构化问题预览（R-01-002/AC-09，C-064）：逐条取
+/** 取 ask_user_question 参数中的结构化问题预览（C-064）：逐条取
  *  问题正文物理首行（正文缺失时回落 header，仍不可得则跳过该条），剥除行尾多余
  *  冒号，并保留原始 1 基序号；最多返回 3 条，仍有可展示问题时 omitted=true。
  *  结构不符或全部问题均不可得返回 null，由调用方回落动作说明。 */
@@ -395,7 +395,7 @@ function timelineToolItem(root, fallbackView = null, cwd = "") {
 		text: name,
 		summary: detail,
 		detail,
-		// 结构化提问预览随工作项携带（R-01-002/AC-09，C-064），供待回复卡渲染原生列表。
+		// 结构化提问预览随工作项携带（C-064），供待回复卡渲染原生列表。
 		question: name === "ask_user_question" ? askQuestionsPreview(argsRaw) : null,
 		status,
 	};
@@ -475,10 +475,10 @@ function chatNodeAt(nodes, key) {
 	}
 }
 
-/** 子代理模型读取的触发信号（R-01-012/AC-17）：快照最新一个助手节点已定案
+/** 子代理模型读取的触发信号：快照最新一个助手节点已定案
  *  （status === "settled"，即其 assistant/message 事件已落宿主日志，尾页读取必命中）
  *  时为 true。只检查最新一个助手节点——它随流式推送翻转为 settled 的那一刻即产生
- *  触发，尾扫即停、近 O(1)，完全挂在既有订阅推送上（R-02-004）；工具密集期 4 行折叠窗口
+ *  触发，尾扫即停、近 O(1)，完全挂在既有订阅推送上；工具密集期 4 行折叠窗口
  *  可能不含助手行，故不看折叠时间线而直接读快照。流式未定案/中断/无快照为 false。 */
 function chatLatestAssistantSettled(snapshot) {
 	const chat = snapshot?.chat;
@@ -494,7 +494,7 @@ function chatLatestAssistantSettled(snapshot) {
 
 /** 尾部反向收集原始工作项（不含 live 合并），取够 want 个可转换项或耗尽 order 即停。
  *  continueToUser：取够后以廉价结构检查（isUserChatNode：非 hidden 的 user/steering 且含非空文本块）继续前走至最近一个未收集的用户节点（含
- *  steering），命中才转换并入队首——供指令锚行派生（R-01-012/AC-12），不为找锚做全序转换。 */
+ *  steering），命中才转换并入队首——供指令锚行派生，不为找锚做全序转换。 */
 function rawTailItems(snapshot, want, cwd = "", continueToUser = false) {
 	const chat = snapshot?.chat;
 	const order = Array.isArray(chat?.order) ? chat.order : [];
@@ -558,7 +558,7 @@ function mergeLiveItems(items, snapshot, max, cwd = "") {
 		: items;
 }
 
-/** R-01-009/AC-10：会话运行中（无 pending）、无执行中项且尾部为已定案非用户项时，
+/** ：会话运行中（无 pending）、无执行中项且尾部为已定案非用户项时
  *  克隆提升为 running 作为 agent 工作中的持续标志；error/stopped 与用户输入项不提升。
  *  descendantActive：存在活动后代（委托周期呈现）视同运行中。 */
 function promoteRunningTail(timeline, snapshot, descendantActive = false) {
@@ -598,7 +598,7 @@ function conversationWorkItems(snapshot, limit = 4, cwd = "") {
 	return settleWhenIdle(promoteRunningTail(full.slice(-max), snapshot), snapshotIdle(snapshot));
 }
 
-/** 折叠分组硬边界：用户输入项与含正文输出的 assistant 项（R-01-017/AC-02）。 */
+/** 折叠分组硬边界：用户输入项与含正文输出的 assistant 项。 */
 function isFoldBoundary(item) {
 	if (item.kind === "user") return true;
 	return item.kind === "assistant" && typeof item.text === "string" && item.text.trim() !== "";
@@ -616,7 +616,7 @@ function foldMemberOf(item) {
 			summary: typeof item.summary === "string" ? item.summary : "",
 			text: "",
 			icon: typeof item.icon === "string" ? item.icon : undefined,
-			// 结构化提问预览穿透折叠层（R-01-002/AC-09，C-064），供待回复卡渲染列表。
+			// 结构化提问预览穿透折叠层（C-064），供待回复卡渲染列表。
 			question: isQuestionPreview(item.question) ? item.question : null,
 			status: item.status,
 			live: item.live === true,
@@ -635,7 +635,7 @@ function foldMemberOf(item) {
 
 /** 组行派生：镜像 dsh-auto-collapse updateChip 标题/状态优先级（vendor 移植，C-016）——
  *  running tool > running think > 运行了命令/编辑了文件 > 已思考，context 连续段独立成组；
- *  含思考的完成组组摘要携带推理文本内容（R-01-017/AC-03、AC-04），纯工具完成组回退末位工具摘要；
+ *  含思考的完成组组摘要携带推理文本内容，纯工具完成组回退末位工具摘要；
  *  tool 组行图标统一命令图标 IconApiOutline14（与 auto-collapse 工具 chip 同源，C-016）。 */
 function buildFoldRow(run) {
 	const members = run.members;
@@ -675,7 +675,7 @@ function buildFoldRow(run) {
 	let summary = runningTool?.summary ?? runningThink?.summary ?? "";
 	if (status !== "running" && run.cat === "work") {
 		if (summary === "") {
-			// AC-04：含思考分组从最后一条思考向前取首个非空推理文本摘录。
+			// 含思考分组从最后一条思考向前取首个非空推理文本摘录。
 			for (let i = thinkMembers.length - 1; i >= 0 && summary === ""; i -= 1) {
 				summary = cleanPreview(thinkMembers[i].text, 88) ?? "";
 			}
@@ -691,7 +691,7 @@ function buildFoldRow(run) {
 		text: "",
 		summary,
 		detail: null,
-		// 组内末条提问正文上浮组行（R-01-002/AC-09）；无提问成员时为 null。
+		// 组内末条提问正文上浮组行；无提问成员时为 null。
 		question: toolMembers.map((m) => m.question).filter(Boolean).pop() ?? null,
 		status,
 		live: members.some((member) => member.live === true),
@@ -699,7 +699,7 @@ function buildFoldRow(run) {
 	};
 }
 
-/** 把扁平工作项序列折叠成分组行（R-01-017）：硬边界为用户输入与含正文 assistant 项，
+/** 把扁平工作项序列折叠成分组行：硬边界为用户输入与含正文 assistant 项
  *  含正文 assistant 的 reasoning 先并入当前分组再闭组（splitThinkByBody 前置语义）；
  *  连续 context 独立成组；其余未知项原样透传。最多返回最近 limit 个显示行。 */
 function foldWorkGroups(items, limit = 4) {
@@ -724,8 +724,8 @@ function foldWorkGroups(items, limit = 4) {
 			const thinkMember = foldMemberOf(item);
 			run.members.push(thinkMember.status === "running" ? { ...thinkMember, status: "done" } : thinkMember);
 			run.keys.push(String(item.id ?? ""));
-			// 推理文本已并入当前组（组摘要承载，AC-04）；正文行剥离推理展示并跳过原生行匹配，
-			// 避免同一推理文本在组行与下一行重复呈现（R-01-017/AC-02 验收修正）。
+			// 推理文本已并入当前组（组摘要承载）；正文行剥离推理展示并跳过原生行匹配
+			// 避免同一推理文本在组行与下一行重复呈现（验收修正）。
 			const body = { ...item, label: "助手", summary: item.text, detail: null, stripNative: true };
 			flush();
 			rows.push(body);
@@ -757,7 +757,7 @@ function eventOf(entry) {
 	return isRecord(entry?.event) ? entry.event : entry;
 }
 
-/** 可锚用户行判定：非空文本的用户输入行（R-01-012/AC-12 口径，快照与 history 路径共用）。 */
+/** 可锚用户行判定：非空文本的用户输入行（口径，快照与 history 路径共用）。 */
 function isAnchorableUserRow(row) {
 	return row?.kind === "user" && typeof row.text === "string" && row.text.trim() !== "";
 }
@@ -774,7 +774,7 @@ function currentActivityIndex(rows) {
 	return runningIndex;
 }
 
-/** 指令锚行与工作行统一选择（R-01-009/AC-11、R-01-012/AC-12～AC-15、C-039）：
+/** 指令锚行与工作行统一选择（C-039）
  *  可锚用户行作为普通显示行参与尾部窗口滚动，滚动至显示第一行时停留为指令锚行
  *  （满窗几何为其后显示行数 ≥ max-1；时间线不足一窗时自然窗口首行的可锚用户行直接停留）。
  *  已存在停留锚行（窗口内停留锚行或 fallbackAnchor 充当窗口外停留锚行）时，滚动至显示
@@ -846,7 +846,7 @@ function selectTimelineRows(full, max, fallbackAnchor = null) {
 		: [pin(fallback), ...workRows(list, max - 1)];
 }
 
-/** 折叠分组时间线（R-01-017）：渲染层时间线的唯一来源——无条件折叠分组，不做任何探测切换。
+/** 折叠分组时间线：渲染层时间线的唯一来源——无条件折叠分组，不做任何探测切换。
  *  指数扩窗收集尾部原始项（分组数不足 limit 时 ×3 → ×8 → 全序）+ live 合并 + 分组 +
  *  尾部提升，长会话典型情况不触碰全序扫描。
  *  idle：渲染层判定的非执行呈现（等待响应/暂停，快照为冻结值、pending 不可得）——为 true 时残留 running 全部落定。 */
@@ -861,7 +861,7 @@ function foldedConversationTimeline(snapshot, limit = 4, cwd = "", descendantAct
 		const merged = mergeLiveItems(items, snapshot, Number.MAX_SAFE_INTEGER, cwd);
 		const full = foldWorkGroups(settle ? settleWhenIdle(merged, true) : merged, Number.MAX_SAFE_INTEGER);
 		if (full.length >= max || want === Number.MAX_SAFE_INTEGER) {
-			// 指令锚行窗口选择与冷 history 路径共用（selectTimelineRows，R-01-012/AC-12～AC-15）；
+			// 指令锚行窗口选择与冷 history 路径共用（selectTimelineRows）；
 			// settle/尾部提升出口归一为 finish。
 			const finish = (rows) => (settle ? rows : promoteRunningTail(rows, snapshot, descendantActive));
 			return finish(selectTimelineRows(full, max, fallbackAnchor));
@@ -960,9 +960,9 @@ function historyToolResultRoot(data, resultView, callInfo = null) {
 }
 
 /** 冷会话 history 回溯深翻：自尾页起按 beforeSeq 向前翻页，直至命中最近一条用户消息
- * （messagePreviews 的 userPreview 非空，R-01-013/AC-03）、或翻尽
+ * （messagePreviews 的 userPreview 非空）、或翻尽
  * （hasMore=false/无更多事件/业务错误 null）；requireOpenTurnStart 为 true 时
- * （运行会话开放回合起点兜底，R-01-009/AC-06）命中用户消息后开放回合起点未命中
+ * （运行会话开放回合起点兜底）命中用户消息后开放回合起点未命中
  * 仍继续深翻直至起点命中或翻尽。maxPages 仅作显式护栏（默认 Infinity 即不设页数
  * 上限——用户消息必然存在于会话最早段，翻尽必终止，无需预置页数界）。fetchPage
  * (beforeSeq) 注入实际读取（返回 `{events, hasMore}` 或 null），便于纯函数单测；
@@ -1003,7 +1003,7 @@ async function pagedHistoryEvents({ fetchPage, maxPages = Infinity, requireOpenT
  *  条目随 attempt 出窗，durable assistant/message 自然接管。tool-call-delta 不折叠——
  *  tool/call 以 durable 事件落定后经既有 call/result 配对路径呈现。
  *  tool/result 落定同 callId 的 call 项（原位替换，name/arguments/callView 由 call 事件补齐）：
- *  history 是冻结过去，call 事件单独留存会成为永久 running 幽灵行（R-01-016/AC-01）。 */
+ *  history 是冻结过去，call 事件单独留存会成为永久 running 幽灵行。 */
 /** 逐条折叠处理（T-185 抽取）：单条历史事件 → 时间线条目的全部逻辑——live-chunk
  *  累积、tool/result 原位替换、tool/call 配对登记、普通条目 push。全量重建与
  *  增量追加共用同一实现，杜绝双实现漂移。 */
@@ -1112,7 +1112,7 @@ function foldedTimelineFromFoldState(state, limit = 4, settleIdle = false) {
 	return selectTimelineRows(foldWorkGroups(settled, Number.MAX_SAFE_INTEGER), max);
 }
 
-/** 冷 history 折叠分组时间线（R-01-017、R-01-012/AC-12～AC-15）：页内全部事件映射折叠后
+/** 冷 history 折叠分组时间线：页内全部事件映射折叠后
  *  套用与快照路径同一窗口/锚行选择（selectTimelineRows），最近用户消息滚动触顶后停留为
  *  首行锚行。settleIdle：阻塞等待呈现（pendingText 存在）下折叠前把残留 running 行落定，
  *  组标题/状态由已定案成员派生（「运行了命令」而非「运行」蓝闪），与快照路径的
@@ -1125,7 +1125,7 @@ function foldedHistoryTimeline(history, limit = 4, cwd = "", settleIdle = false)
 	return selectTimelineRows(foldWorkGroups(settled, Number.MAX_SAFE_INTEGER), max);
 }
 
-/** history 指令锚行提取（R-01-012/AC-12 快照窗口外兜底）：尾部反向取最近一条非空文本的
+/** history 指令锚行提取（快照窗口外兜底）：尾部反向取最近一条非空文本的
  *  真实用户消息（source.kind === "user"），归一为带 anchor 标记的用户行；无则返回 null。 */
 function historyInstructionAnchor(history) {
 	const list = Array.isArray(history) ? history : [];
@@ -1140,7 +1140,7 @@ function historyInstructionAnchor(history) {
 }
 
 
-/** 开放回合起点兜底提取（R-01-009/AC-06）：history 事件尾部反向扫描，最近一条边界事件
+/** 开放回合起点兜底提取：history 事件尾部反向扫描，最近一条边界事件
  *  为 turn/start 即存在开放回合、返回其时刻；为 turn/end 则无开放回合返回 null。
  *  minTurn：快照已知的最晚回合号——history 开放回合落后于此（拉取后已切换新回合）时
  *  判为陈旧返回 null。turn/start 时刻非法或输入非数组归一 null。 */
@@ -1181,7 +1181,7 @@ function messagePreviews({ snapshot = null, history = [] } = {}) {
 	}
 	if (!user || !agent) {
 		// history 事件按时间正序（旧→新）：尾部反向扫描取最近命中，首个非空即最近
-		// （R-01-013/AC-03、AC-04；深翻多页场景下必须取最近而非最早）。
+		// （；深翻多页场景下必须取最近而非最早）。
 		for (let i = (Array.isArray(history) ? history : []).length - 1; i >= 0 && (!user || !agent); i -= 1) {
 			const entry = history[i];
 			const event = entry?.event ?? entry;
@@ -1212,11 +1212,11 @@ function modelMetadata(models) {
 	};
 }
 
-/** 子代理模型溯源（R-01-012/AC-17）：从 history 事件流尾扫最近一条携带模型溯源的
+/** 子代理模型溯源：从 history 事件流尾扫最近一条携带模型溯源的
  *  `assistant/message` 事件，取 `message.source.model`。返回值 reasoning 恒为空串，
  *  effort 由调用方以 `reasoningEffortFromHistoryEvents` 同页折叠；无命中（空事件、
  *  无助手消息或溯源缺失）返回 null，调用方保持模型区空白、不以 preset 或母会话
- *  模型冒充（R-01-012/AC-18）。 */
+ *  模型冒充。 */
 function modelFromHistoryEvents(history) {
 	const entries = Array.isArray(history) ? history : [];
 	for (let i = entries.length - 1; i >= 0; i -= 1) {
@@ -1230,11 +1230,11 @@ function modelFromHistoryEvents(history) {
 	return null;
 }
 
-/** 子代理 reasoning effort（R-01-012/AC-17）：history 尾扫最新一条 `request/header`
+/** 子代理 reasoning effort：history 尾扫最新一条 `request/header`
  *  事件，取 `config.reasoningEffort`——宿主的会话选择即从该折叠读取。命中最新请求头
  *  即停：更早请求头属已废弃纪元，即使声明过 effort 也不再回扫。最新请求头未声明
  *  effort 或页内无请求头（超长子会话的 header 在日志开头、可能落在尾页窗口之外）
- *  返回 null，调用方回落目录条目 `reasoning` 后保持空值（R-01-012/AC-18）。 */
+ *  返回 null，调用方回落目录条目 `reasoning` 后保持空值。 */
 function reasoningEffortFromHistoryEvents(history) {
 	const entries = Array.isArray(history) ? history : [];
 	for (let i = entries.length - 1; i >= 0; i -= 1) {
@@ -1249,10 +1249,10 @@ function reasoningEffortFromHistoryEvents(history) {
 	return null;
 }
 
-/** 模型目录分组的 modelId → {name, reasoning} 索引（R-01-012/AC-17）：溯源
+/** 模型目录分组的 modelId → {name, reasoning} 索引：溯源
  *  `source.model` 是 provider 侧 id，显示名需经目录分组解析；同一部署的目录分组在
  *  主/子会话间共享，条目 `reasoning` 是请求头 effort 不可得时的回退来源。畸形条目
- *  跳过；目录缺失返回空索引，调用方回退显示原始溯源 id（R-01-012/AC-18）。 */
+ *  跳过；目录缺失返回空索引，调用方回退显示原始溯源 id。 */
 function catalogModelEntries(groups) {
 	const entries = {};
 	for (const group of Array.isArray(groups) ? groups : []) {
@@ -1322,14 +1322,14 @@ function pendingText(kind) {
 	return PENDING_LABELS[kind] ?? PENDING_UNKNOWN_LABEL;
 }
 
-/** 等待卡普通末行提示（R-01-002/AC-09，C-040、C-064）：待确认/待审查说明动作
+/** 等待卡普通末行提示（C-040、C-064）：待确认/待审查说明动作
  *  与后果；待回复在结构化问题不可得时回落动作说明；完成提醒固定引导新指令或移入历史。 */
 function awaitNoteText(waitClass, pendingKind) {
 	if (waitClass === "done") return ROUND_DONE_NOTE;
 	return PENDING_NOTES[pendingKind] ?? PENDING_UNKNOWN_NOTE;
 }
 
-/** 计数徽标底色跟随等待构成（R-01-002/AC-06，C-040、C-043）：按 错误 > 阻塞 > 完成
+/** 计数徽标底色跟随等待构成（C-040、C-043）：按 错误 > 阻塞 > 完成
  *  的优先级取色——存在任一错误提醒主会话即取 `'error'`（红=最紧迫），否则存在阻塞
  *  等待主会话取 `'blocked'`（金催促），等待全部为完成提醒时取 `'done'`（绿=已完成
  *  不急）；无等待行动或仅运行卡时返回 null。子代理不计入。 */
@@ -1345,7 +1345,7 @@ function awaitBadgeTone(entries) {
 }
 
 /** 时间线末条 ask_user_question 工作项携带的结构化提问预览；折叠组行同样上浮该字段。
- *  不存在时返回 null（R-01-002/AC-09，C-064）。 */
+ *  不存在时返回 null（C-064）。 */
 function timelineQuestionPreview(timeline) {
 	const rows = Array.isArray(timeline) ? timeline : [];
 	for (let i = rows.length - 1; i >= 0; i -= 1) {
@@ -1357,8 +1357,8 @@ function timelineQuestionPreview(timeline) {
 
 /** 数量徽标统计：只统计主会话——分子为等待行动（awaiting，含完成提醒）的主会话数，
  *  分母为其加运行中（running，含委托周期保持运行呈现）主会话之和；子代理不计入
- *  （R-01-001/AC-05）。blocked 为其中阻塞等待（待确认/待审查/待回复）的主会话数，
- *  仅用于徽标 aria 文案的计数说明；脉冲门控已由 waiting 单参数承载（R-01-002/AC-06，C-037）。
+ *  。blocked 为其中阻塞等待（待确认/待审查/待回复）的主会话数
+ *  仅用于徽标 aria 文案的计数说明；脉冲门控已由 waiting 单参数承载（C-037）。
  *  空列表返回 { waiting: 0, blocked: 0, total: 0 }。 */
 function awaitBadgeStats(entries) {
 	let waiting = 0;
@@ -1375,13 +1375,13 @@ function awaitBadgeStats(entries) {
 	return { waiting, blocked, total };
 }
 
-/** 数量标识呈现态（R-01-014/AC-06）：列表在途（loading）时不冒充计数——归一为
+/** 数量标识呈现态：列表在途（loading）时不冒充计数——归一为
  *  loading 呈现（加载指示 + 加载中 aria 文案，不等待、不脉冲）；否则归一为 count
  *  呈现（n/m 文本 + 计数 aria 文案 + 悬停 tips 文案）。分子为正在运行的主会话数
  *  （running = total − waiting）——随会话逐一完成递减至 0，与等待行动数互补
- *  （R-01-001/AC-04、AC-05）；awaiting 表达「存在等待行动」——底色经
+ *  ；awaiting 表达「存在等待行动」——底色经
  *  awaitBadgeTone（错误 > 阻塞 > 完成，红/金/绿）与脉冲门控同一信号：任一等待行动
- *  （阻塞等待、完成提醒或错误提醒）即脉冲（R-01-002/AC-06，C-037、C-043）。
+ *  （阻塞等待、完成提醒或错误提醒）即脉冲（C-037、C-043）。
  *  blocked 入参只用于 aria 文案的计数说明，不再驱动门控。错误轴不算在途，维持计数呈现。 */
 function countBadgeState(listState, waiting, total, blocked = 0) {
 	if (listState === "loading") return { mode: "loading", text: "", ariaText: "活动会话计数加载中", tip: "", awaiting: false };
@@ -1430,7 +1430,7 @@ function pruneInvisibleEntries(maps, visibleIds) {
 	}
 }
 
-/** 订阅清理（R-01-012/AC-16）：不可见 id 的订阅先 unsubscribe 再除名——监听器不得残留；
+/** 订阅清理：不可见 id 的订阅先 unsubscribe 再除名——监听器不得残留；
  *  单个 unsubscribe 抛错吞掉，不阻断其余订阅的清理。 */
 function pruneSubscriptions(subscriptions, visibleIds) {
 	if (!(subscriptions instanceof Map)) return;
@@ -1445,7 +1445,7 @@ function pruneSubscriptions(subscriptions, visibleIds) {
 }
 
 /**
- * 会话的工作区归属归一（R-01-003/AC-08）：在 title 归属判定的同一路径上同时
+ * 会话的工作区归属归一：在 title 归属判定的同一路径上同时
  * 返回工作区身份 key（路径优先、名称兜底），供徽标色相派生；无归属时两者皆空。
  */
 /** 工作区索引（T-183）：一次遍历工作区清单构建 会话id → {title, key} 查找表，
@@ -1480,7 +1480,7 @@ function buildWorkspaceIndex(workspaceItems) {
 }
 
 /**
- * statusSnapshot 覆盖层构建（R-01-002/AC-03，dsh 0.2.0 起 sessionStatus 统一状态面）：
+ * statusSnapshot 覆盖层构建（dsh 0.2.0 起 sessionStatus 统一状态面）
  * 把状态面快照携带的 pendingInteraction.kind 回填到行副本上，等待卡分类
  * （awaiting/blocked/提问中）保持既有单一口径。状态面缺席或基快照无 byId 记录时
  * 原样返回基快照（覆盖层不生效形态）。
@@ -1516,7 +1516,7 @@ function createStatusOverlayMemo() {
 	};
 }
 
-/** waitingStarts 派生（R-01-001/AC-07，T-141）：busy 记账中 openWaitStart 为毫秒数的
+/** waitingStarts 派生（T-141）：busy 记账中 openWaitStart 为毫秒数的
  *  会话进入阻塞等待时刻表（Map id → 毫秒），其余记录不派生；只读 busyById。 */
 function waitingStartsFrom(busyById) {
 	const waitingStarts = new Map();
@@ -1580,12 +1580,12 @@ function identityHash(text) {
 }
 
 // 避红基色色相弧 [30°,320°] 的起点与取值数（30 + hash % 291）；背景变体
-// 以同一弧宽的商派生，共享常量避免两处口径漂移（R-01-003/AC-09、C-077）。
+// 以同一弧宽的商派生，共享常量避免两处口径漂移（C-077）。
 const WORKSPACE_HUE_ARC_START = 30;
 const WORKSPACE_HUE_ARC_SIZE = 291;
 
 /**
- * 工作区徽标基色色相（R-01-003/AC-08、AC-09）：以工作区身份为唯一输入的纯函数，
+ * 工作区徽标基色色相：以工作区身份为唯一输入的纯函数
  * 在避开红色警戒区的色相弧 [30°,320°] 上均匀取色，输出 [30,320] 整数；哈希
  * 机制见 {@link identityHash}。同一身份恒得同一基色色相，与工作区列表顺序、
  * 会话状态及持久化存储无关，页面刷新后不变；空身份返回 null。
@@ -1636,7 +1636,7 @@ function hueDistance(a, b) {
 }
 
 /**
- * 同屏工作区复合颜色槽位消解（R-01-003/AC-08、AC-12）：逐身份纯映射——每个
+ * 同屏工作区复合颜色槽位消解：逐身份纯映射——每个
  * 身份独立地以其 32 位雪崩哈希派生前景与背景槽位，身份之间互不影响，创建、
  * 移除或变更其它工作区不改变既有工作区的颜色（C-077）；前景取基色色相在 12 个
  * 前景槽位中环形距离最近者（平局取低槽位），背景变体取 floor(hash / 弧宽) % 3。
@@ -1750,7 +1750,7 @@ function mainTitle(byId, id) {
  * currentId 纳入入参：渲染层对原始快照算一次后帧内复用，消除函数内 currentIdOf 的
  * O(名册) 重扫（覆盖层不改 retainedBy，覆盖前后 currentId 同值——T-183 结论）；
  * undefined 判缺省，保留一次 currentIdOf 兜底，直调方无需感知。
- * completions（完成确认与错误提醒，R-01-002/AC-05、AC-13、R-01-010/AC-06）：Map id →
+ * completions（完成确认与错误提醒）：Map id →
  * { lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }，由渲染层从宿主侧 ack 状态
  * 通道注入；其中完成提醒成立（completionReminder）或错误提醒成立（errorReminder）的
  * 主会话按 awaiting 保留在活动区。delegatingIds（委托周期集合，渲染层由 progressAnchor
@@ -1759,17 +1759,17 @@ function mainTitle(byId, id) {
  * 始终为当帧原始后代活性（供进度锚点记账判定耗尽），不受 delegatingIds 影响。
  * archivedIds（工作区服务的注册表全局归档集合）：归档会话及其有效子代理子树不产出活动条目，
  * 普通 fork 仅因共享来源 parentId 不受影响；避免会话服务仍保留旧行或完成提醒时在窗格中滞留。
- * waitingStarts（进入阻塞等待的时刻，R-01-001/AC-07）：Map id → 毫秒时刻，取宿主回合记账的
+ * waitingStarts（进入阻塞等待的时刻）：Map id → 毫秒时刻，取宿主回合记账的
  * `openWaitStart`（approval/asked 与 ask_user_question tool/call 边界）；阻塞等待发生时本回合
  * 尚未结束、`lastTurnEnd` 仍是上一回合的旧时刻，不能作为等待进行中会话的排序键（T-141）；
  * 非 Map、缺失记录或值非有限数字（含 null/空串等 Number 归一为 0 的形状）均视为无数据，
  * 回落宿主列表时间。
- * stateAt（进入当前等待行动状态的时刻，R-01-002/AC-14）：仅 awaiting 条目携带，与排序键
+ * stateAt（进入当前等待行动状态的时刻）：仅 awaiting 条目携带，与排序键
  * 共用 enterStateAt 单点口径——pending 取 waitingStarts，完成/错误提醒取 completions.lastTurnEnd；
  * 显示侧不回落宿主列表时间——排序键缺失时的回落仅用于排序，显示以 null（不显示）承载。
- * jobsBySession（R-01-023）：快照携带的 `jobsBySession` 任务视图映射——存在在跑后台任务
+ * jobsBySession：快照携带的 `jobsBySession` 任务视图映射——存在在跑后台任务
  * （status ∈ {running, stopping}）不改变会话的活动区归属、呈现类别与完成/错误提醒判定
- * （AC-02）；条目携带 liveJobs（startedAt 升序）供渲染层标注数量与构建任务行（AC-01），
+ * ；条目携带 liveJobs（startedAt 升序）供渲染层标注数量与构建任务行
  * 子代理行不派生 liveJobs（后台任务当前仅主会话呈现）。
  */
 function buildEntries(options = {}) {
@@ -1843,15 +1843,15 @@ function buildEntries(options = {}) {
 		const running = row.running === true;
 		const pending = row.pendingInteraction !== undefined;
 		const isSub = hasParent;
-		// 在跑后台任务（R-01-023）：只作卡片数量标注的输入——liveJobs 非空不改变 show 判定、
-		// 不改变 kind，也不抑制完成/错误提醒（AC-02：活动归属只由回合状态决定）。
+		// 在跑后台任务：只作卡片数量标注的输入——liveJobs 非空不改变 show 判定、
+		// 不改变 kind，也不抑制完成/错误提醒（活动归属只由回合状态决定）。
 		const liveJobs = isSub ? [] : liveJobsOf(jobsBySession, id);
 		const hasLive = liveJobs.length > 0;
-		// 完成确认（R-01-002/AC-03、AC-05、R-01-010/AC-06）：未确认的完成提醒按自身活动计入。
+		// 完成确认：未确认的完成提醒按自身活动计入。
 		const done = completionReminder(row, completionFor(id, completions), isSub);
-		// 错误提醒（R-01-002/AC-13，C-043）：最近回合以错误结束的按自身活动计入。
+		// 错误提醒（C-043）：最近回合以错误结束的按自身活动计入。
 		const err = errorReminder(row, completionFor(id, completions), isSub);
-		// 子代理完成且没有活动后代时消失；主会话完成后保留为"等待打开"；母会话在委托周期保持运行呈现（R-01-003/AC-05）。
+		// 子代理完成且没有活动后代时消失；主会话完成后保留为"等待打开"；母会话在委托周期保持运行呈现。
 		const selfActive = isOwnActiveRow(row, byId);
 		const descendantActive = descendantIds.has(String(id));
 		const delegating = descendantActive || (delegatingIds instanceof Set && delegatingIds.has(String(id)));
@@ -1859,12 +1859,12 @@ function buildEntries(options = {}) {
 		meta.set(id, { row, running, pending, isSub, show, done, err, descendantActive, delegating, hasLive, liveJobs, depth: 0 });
 	}
 
-	// 主会话分两组排序（R-01-001/AC-07，键口径契约详见上方 JSDoc）：运行中主会话置顶、
+	// 主会话分两组排序（键口径契约详见上方 JSDoc）：运行中主会话置顶、
 	// 组内按宿主列表时间从新到旧；等待/完成组排后、组内按进入状态时刻从新到旧；
 	// 两组相同时间均回落宿主列表出现顺序，工作区顺序不参与排序。
 	const isRunningEntry = (id) => {
 		const m = meta.get(id);
-		// 运行组只由回合状态决定（R-01-023/AC-02）：在跑后台任务不参与分组。
+		// 运行组只由回合状态决定：在跑后台任务不参与分组。
 		return m !== undefined && !m.pending && (m.running || m.delegating);
 	};
 	const waitingStartTime = (id) => {
@@ -1875,7 +1875,7 @@ function buildEntries(options = {}) {
 		if (typeof value !== "number") return null;
 		return Number.isFinite(value) ? value : null;
 	};
-	// 进入状态时刻单点（R-01-002/AC-14，排序键 R-01-001/AC-07 同源）：阻塞等待取
+	// 进入状态时刻单点（排序键  同源）：阻塞等待取
 	// waitingStarts，完成/错误提醒取最近一次回合结束登记时刻；有效性口径单点收紧——
 	// 仅真实数字作数，Number(null)/Number("") 归一的 0 陷阱两侧同样不作数。
 	const enterStateAt = (id, pending) => {
@@ -1932,12 +1932,12 @@ function buildEntries(options = {}) {
 			const workspace = m.isSub
 				? { title: "", key: "" }
 				: workspaceIndex.get(String(id)) ?? workspaceInfoForSession(id, workspaceItems ?? [], byId);
-			// 完成确认判定单点（R-01-002，C-040、C-064）：pendingText/waitClass/noteText/questionPreview 共用；
+			// 完成确认判定单点（C-040、C-064）：pendingText/waitClass/noteText/questionPreview 共用；
 			// 错误提醒（C-043）优先于完成提醒（同一回合登记只能有一个 lastTurnEndKind）。
 			const doneWait = !m.pending && m.done && !m.running && !m.delegating;
 			const errWait = !m.pending && m.err && !m.running && !m.delegating;
 			const errorNote = entryErrorNote(completionFor(id, completions));
-			// 进入状态时刻（R-01-002/AC-14）：仅 awaiting 条目携带，与排序键共用 enterStateAt
+			// 进入状态时刻：仅 awaiting 条目携带，与排序键共用 enterStateAt
 			// 单点口径；显示侧不回落宿主列表时间，不可得即为 null（节点隐藏），避免把
 			// 回退值冒充真实进入时刻。
 			const stateAt = m.pending || doneWait || errWait ? enterStateAt(id, m.pending) : undefined;
@@ -1968,7 +1968,7 @@ function buildEntries(options = {}) {
 				isCurrent: current !== null && String(current) === String(id),
 				// 完成提醒卡不显示类型徽标（C-040）：pendingText 仅为阻塞等待承载。
 				pendingText: m.pending ? pendingText(m.row.pendingInteraction) : undefined,
-				// 等待三类（R-01-002，C-043）：blocked=阻塞等待（金色）、error=错误提醒（红色）、
+				// 等待三类（C-043）：blocked=阻塞等待（金色）、error=错误提醒（红色）、
 				// done=完成提醒（绿色）；错误提醒优先于完成提醒（同一登记只有一个结束原因）。
 				waitClass: m.pending
 					? "blocked"
@@ -1985,18 +1985,18 @@ function buildEntries(options = {}) {
 						: doneWait
 							? ROUND_DONE_NOTE
 							: undefined,
-				// 在跑后台任务（R-01-023/AC-01）：仅 liveJobs 非空时携带（startedAt 升序），
+				// 在跑后台任务：仅 liveJobs 非空时携带（startedAt 升序）
 				// 渲染层据此在标题行标注数量；任务本体以下一线条目呈现（kind: "job"）。
 				liveJobs: m.hasLive ? m.liveJobs : undefined,
 				selfRunning: m.row.running === true,
 				stateAt,
 				questionPreview: m.pending && m.row.pendingInteraction === "question" ? (questionPreview ?? null) : undefined,
 			});
-			// 后台任务子条目（R-01-023）：与子代理同形的缩进子卡，跟随母会话在其全部
-			// 子代理之前（即母亲条目的直接后继）；结束即随 liveJobs 清空而消失（R-01-023/AC-03）。
+			// 后台任务子条目：与子代理同形的缩进子卡，跟随母会话在其全部
+			// 子代理之前（即母亲条目的直接后继）；结束即随 liveJobs 清空而消失。
 			// 复合 id 在去重视野（entries/visited/cardsById）中唯一，且携 jobs 前缀与子代理
-			// 会话 id 空间天然隔离；层级连接线与子代理同规则参与 trackRuns（R-01-003/AC-04），
-			// 仍不参与徽标计数（kind 过滤，R-01-023/AC-04）。
+			// 会话 id 空间天然隔离；层级连接线与子代理同规则参与 trackRuns
+			// 仍不参与徽标计数（kind 过滤）。
 			if (m.hasLive && !m.isSub) {
 				for (const job of m.liveJobs) {
 					entries.push({
@@ -2028,7 +2028,7 @@ function buildEntries(options = {}) {
 	return entries;
 }
 /**
- * 把活动条目压成母会话轨道运行（R-01-003/AC-04）：每个拥有可见直属子代理或后台
+ * 把活动条目压成母会话轨道运行：每个拥有可见直属子代理或后台
  * 任务子卡的母会话一条，记录全部可见直属子级 id（有序，末位即末级）与子级深度，
  * 供渲染层测量后绘制整条连续轨道与接入横线。条目按 preorder 排列，同一直属
  * 子级组天然连续。直属性按「条目深度 = 母会话条目深度 + 1」判定（与条目
@@ -2043,7 +2043,7 @@ function trackRuns(entries) {
 	const runs = new Map();
 	for (const entry of list) {
 		if (entry?.id == null || entry?.parentId == null || (entry.depth ?? 0) < 1) continue;
-		// 子代理与后台任务子卡一视同仁（R-01-003/AC-04）：两类直属子级同规则上轨。
+		// 子代理与后台任务子卡一视同仁：两类直属子级同规则上轨。
 		if (entry.kind !== "subagent" && entry.kind !== "job") continue;
 		const pid = String(entry.parentId);
 		const parentDepth = depthById.get(pid);
@@ -2112,7 +2112,7 @@ function cardSignature(entries) {
 			entry.waitClass ?? null,
 			entry.noteText ?? null,
 			entry.questionPreview ?? null,
-			// 进入状态时刻参与签名（R-01-002/AC-14）：数据到达/更替（回填、SSE）驱动重绘。
+			// 进入状态时刻参与签名：数据到达/更替（回填、SSE）驱动重绘。
 			entry.stateAt ?? null,
 			entry.activityAt ?? null,
 			entry.progress ?? null,
@@ -2120,23 +2120,23 @@ function cardSignature(entries) {
 			entry.loadingTimeline ?? null,
 			entry.loadingPreviews ?? null,
 			entry.tokenStats ?? [entry.outputTokens ?? null, entry.inputTokens ?? null, entry.cacheHitPct ?? null, entry.rateTokS ?? null, entry.elapsedMs ?? null],
-			// 累计运行时长参与签名（R-01-020）：回填/SSE 推送与逐秒推进都要驱动重绘。
+			// 累计运行时长参与签名：回填/SSE 推送与逐秒推进都要驱动重绘。
 			entry.totalBusyMs ?? null,
-			// 在跑后台任务（R-01-023）：任务视图随快照推送帧刷新，进入/退出在跑态驱动重绘；
+			// 在跑后台任务：任务视图随快照推送帧刷新，进入/退出在跑态驱动重绘；
 			// job 子卡状态翻转与秒桶（渲染期注入的任务行时长推进）同入签名。
 			entry.liveJobs ?? null,
 			entry.jobStatus ?? null,
-			// 自身回合运行态入签名（R-01-023/AC-11）：任务在跑期间自身回合结束/重启驱动
+			// 自身回合运行态入签名：任务在跑期间自身回合结束/重启驱动
 			// 数量注闪烁门控重绘（liveJobs 不变时其余签名分量可能全部不变）。
 			entry.selfRunning ?? null,
-			// jobKind 不入签名（R-01-023/AC-05）：同一 jobId 的工具类型由发起方定死恒定，
+			// jobKind 不入签名：同一 jobId 的工具类型由发起方定死恒定
 			// 签名分量永不变化；任务视图整体（liveJobs，含 kind）已随推送帧入签名。
 			entry.jobsAgeSec ?? null,
 		]),
 	);
 }
 
-// ---- 列表加载态（R-01-014）、最近历史区（R-01-010）与运行统计（R-01-009） ----
+// ---- 列表加载态、最近历史区与运行统计 ----
 
 /** 会话列表加载态：快照缺失或 `phase === "pending"` → "loading"（列表在途，禁止空态冒充）；
  *  `state === "error"` 或携带 `error` → "error"（前向兼容带错误轴的快照形态）；
@@ -2195,21 +2195,21 @@ function activeSessionIds(byId = {}) {
 	return lineageActiveIds(byId, true);
 }
 
-/** 「存在活动后代」的母会话集合（不含活动会话自身），供 buildEntries 判定委托周期（R-01-003/AC-05）。 */
+/** 「存在活动后代」的母会话集合（不含活动会话自身），供 buildEntries 判定委托周期。 */
 function descendantActiveIds(byId = {}, isExcluded = null) {
 	return lineageActiveIds(byId, false, isExcluded);
 }
 
 /** 判断活动条目是否需要建立轮内状态订阅：以宿主 running 为准、与呈现 kind 解耦——
- *  委托周期中保持运行呈现的母会话不建立订阅（R-02-004/AC-01）。 */
+ *  委托周期中保持运行呈现的母会话不建立订阅。 */
 function shouldSubscribeToSession(entry, byId = {}) {
 	return entry?.id != null && byId?.[entry.id]?.running === true;
 }
 
-/** 运行卡逐秒时钟需求判定（R-01-025/AC-08，T-174）：入参为渲染层已按档位过滤后的活动条目
+/** 运行卡逐秒时钟需求判定（T-174）：入参为渲染层已按档位过滤后的活动条目
  *  与轮内订阅集合。条目自身呈现含逐秒推进分量才需要时钟——job 子条目承载任务时长（低档位
  *  已被剔除出列表，天然只在完整档出现）；kind "running" 的开放回合会话（累计运行时长逐秒
- *  推进，R-01-020）与委托周期母会话照常驱动；在跑后台任务不产生运行呈现，等待态母卡
+ *  推进）与委托周期母会话照常驱动；在跑后台任务不产生运行呈现，等待态母卡
  *  （回合已结束）自身无逐秒分量，天然不计入；运行中子代理照常驱动。 */
 function runningClockWanted(entries = [], runLikeIds = new Set()) {
 	const list = Array.isArray(entries) ? entries : [];
@@ -2227,7 +2227,7 @@ function isActiveRow(row, byId = {}, activeIds = null) {
 	return activeIds instanceof Set && row?.id != null && activeIds.has(String(row.id));
 }
 
-/** 取某会话的完成确认记账（R-01-002/AC-03）：completions 为 Map id → { lastTurnEnd, ackedAt }，
+/** 取某会话的完成确认记账：completions 为 Map id → { lastTurnEnd, ackedAt }
  *  恒为普通对象或 null；不抛错、不信任入参形状。 */
 function completionFor(id, completions) {
 	if (!(completions instanceof Map)) return null;
@@ -2235,7 +2235,7 @@ function completionFor(id, completions) {
 }
 
 /**
- * 完成确认判定（R-01-002/AC-03、AC-05、R-01-010/AC-06）：会话存在 `lastTurnEnd > ackedAt`
+ * 完成确认判定：会话存在 `lastTurnEnd > ackedAt`
  * 的未确认完成时成立——解除仅经显式确认（ackedAt 前移）或新回合完成（lastTurnEnd 前移，
  * 旧提醒被新回合更替）；打开会话、切换当前会话与页面刷新均不解除。仅主会话参与；
  * 成立与否只依赖宿主持久状态，不依赖客户端在线观测。running/阻塞等待/委托周期的
@@ -2252,7 +2252,7 @@ function completionReminder(row, completion, isSub = false) {
 }
 
 /**
- * 错误提醒判定（R-01-002/AC-13，C-043）：主会话最近一个回合以不可恢复错误结束
+ * 错误提醒判定（C-043）：主会话最近一个回合以不可恢复错误结束
  * （宿主登记的 `lastTurnEndKind === 'error'`）时成立——随新回合结束（kind 被新 reason
  * 覆盖）解除；不消费 ack 游标、无确认按钮；成立与否只依赖宿主持久状态，刷新/重连恢复。
  * running/阻塞等待/委托周期的呈现抑制由调用方（buildEntries 的 waitClass 判定）处理。
@@ -2263,7 +2263,7 @@ function errorReminder(row, completion, isSub = false) {
 	return record !== null && record.lastTurnEndKind === "error";
 }
 
-/** 错误提醒正文（R-01-002/AC-09、AC-13，C-043）：宿主登记的 lastTurnEndError（截断后
+/** 错误提醒正文（C-043）：宿主登记的 lastTurnEndError（截断后
  *  的错误信息）或回落固定文案；不冒充具体错误。调用方（buildEntries 的 errWait 判定）
  *  已保证错误提醒成立，本函数只做文本取舍。 */
 function entryErrorNote(completion) {
@@ -2272,18 +2272,18 @@ function entryErrorNote(completion) {
 	return typeof message === "string" && message !== "" ? message : ERROR_NOTE_FALLBACK;
 }
 
-// ---- 后台任务（R-01-023）：在跑活性归一 ----
+// ---- 后台任务：在跑活性归一 ----
 
-/** 在跑后台任务的活性状态全集（R-01-023）：stopping 视同在跑——停止请求已发出但
+/** 在跑后台任务的活性状态全集：stopping 视同在跑——停止请求已发出但
  *  任务尚未结束，数量标注口径与 running 一致。 */
 const LIVE_JOB_STATUSES = new Set(["running", "stopping"]);
 
 /**
- * 归一会话的在跑后台任务列表（R-01-023/AC-01）：取快照 `jobsBySession[id]` 中
+ * 归一会话的在跑后台任务列表：取快照 `jobsBySession[id]` 中
  * status ∈ {running, stopping} 的任务视图，按 startedAt 升序（最早在前）。
  * jobsBySession 缺失、非记录、条目非记录或字段非法均按无任务/剔除处理，不抛错。
  * 返回 `{ id, kind, label, status, startedAt }` 的新数组（不泄漏宿主对象引用；
- * `kind` 为任务发起工具的类型原文，供任务卡工具名行消费，R-01-023/AC-05）。
+ * `kind` 为任务发起工具的类型原文，供任务卡工具名行消费）。
  */
 function liveJobsOf(jobsBySession, id) {
 	if (!isRecord(jobsBySession)) return [];
@@ -2296,7 +2296,7 @@ function liveJobsOf(jobsBySession, id) {
 		live.push({
 			id: typeof job.id === "string" ? job.id : "",
 			kind: typeof job.kind === "string" ? job.kind : "",
-			// label 纯空白视为任务内容不可得（R-01-023/AC-06 的数据源头）：不渲染空白行，
+			// label 纯空白视为任务内容不可得（的数据源头）：不渲染空白行
 			// 不以占位文本补位；非空白保留原文（不额外 trim，显示层忠实原文）。
 			label: typeof job.label === "string" && job.label.trim() !== "" ? job.label : "",
 			status: job.status,
@@ -2308,8 +2308,8 @@ function liveJobsOf(jobsBySession, id) {
 }
 
 /** jobs 快照的窗格相关签名（T-181 ①）：对全会话 live 任务行做稳定序列化。窗格对
- *  jobs 状态的全部消费都经 liveJobsOf（提升活动区 R-01-023/AC-01、数量徽标 AC-04、
- *  任务子卡 AC-05），签名不变的推送帧不含可观察变化，订阅侧据此跳过渲染轮。
+ *  jobs 状态的全部消费都经 liveJobsOf（提升活动区 、数量徽标 、
+ *  任务子卡），签名不变的推送帧不含可观察变化，订阅侧据此跳过渲染轮。
  *  五元组 id/kind/label/status/startedAt 即 liveJobsOf 的完整输出面；任务运行中的
  *  输出流量不改变五元组，签名保持稳定。键序无关（parts 排序后拼接）。 */
 function jobsPaneSignature(jobsBySession) {
@@ -2324,7 +2324,7 @@ function jobsPaneSignature(jobsBySession) {
 	return parts.join("\n");
 }
 
-/** 后台任务工具名的友好显示映射（R-01-023/AC-05）：bash→Bash、pwsh→PowerShell、
+/** 后台任务工具名的友好显示映射：bash→Bash、pwsh→PowerShell、
  *  subagent→子代理；未知 kind 原样显示，非字符串或空串视为不可得（返回空串）。
  *  与 client 渲染层 JOB_STATUS_LABELS（状态词文案）分层：本表居 core 因核心与
  *  渲染两层共用且需 Node 单测钉住映射，状态词仅渲染层消费。 */
@@ -2336,7 +2336,7 @@ function jobKindLabel(kind) {
 }
 
 /**
- * 卡片「后台 ×N」数量注的呈现态（R-01-023/AC-01、AC-11）：文本、隐藏与闪烁三态单点
+ * 卡片「后台 ×N」数量注的呈现态：文本、隐藏与闪烁三态单点
  * 判定。闪烁语义仅覆盖「回合已结束但仍有在跑后台任务」——卡片处于等待态且非阻塞等待
  * （kind "awaiting" 且无 pendingKind）时闪烁；最近历史卡（kind "recent"）、自身回合
  * 运行中（selfRunning 真）与阻塞等待不闪烁。入参缺失或形状非法按无任务处理（hidden、
@@ -2354,7 +2354,7 @@ function jobsChipState(entry) {
 }
 
 /**
- * 活动区→历史区迁移检测（R-01-010/AC-07）：上一帧活动区 id 在本帧离开活动区且出现于
+ * 活动区→历史区迁移检测：上一帧活动区 id 在本帧离开活动区且出现于
  * 历史区即判定为一次迁移；彻底消失（归档、不再被会话服务列出）不判定。prevActiveIds 为上一帧
  * 已渲染的活动区 id 集合，active/recent 为本帧派生条目。
  */
@@ -2370,7 +2370,7 @@ function movedToRecentIds(prevActiveIds, active, recent) {
 }
 
 /**
- * 历史区→活动区迁移检测（R-01-010/AC-07）：上一帧历史区 id 在本帧离开历史区且出现于
+ * 历史区→活动区迁移检测：上一帧历史区 id 在本帧离开历史区且出现于
  * 活动区即判定为一次反向迁移；彻底消失（归档、不再被会话服务列出）不判定。prevRecentIds 为上一帧
  * 已渲染的历史区 id 集合，active/recent 为本帧派生条目。与 movedToRecentIds 镜像对称。
  */
@@ -2386,7 +2386,7 @@ function movedToActiveIds(prevRecentIds, active, recent) {
 }
 
 /** 从 history 事件提取最后回合结束时刻（最后一条 `turn/end` 的有效 time）：
- *  尾部反向扫描，`time` 非有限值的 `turn/end` 跳过继续向前；全部无有效时刻返回 null（R-01-010/AC-08）。 */
+ *  尾部反向扫描，`time` 非有限值的 `turn/end` 跳过继续向前；全部无有效时刻返回 null。 */
 function lastTurnEndFromEvents(events) {
 	const list = Array.isArray(events) ? events : [];
 	for (let i = list.length - 1; i >= 0; i -= 1) {
@@ -2418,7 +2418,7 @@ function durationTime(value) {
 
 /**
  * 从 history 重放回合/等待边界事件，提取最近一个已结束回合的运行过程耗时（busy 口径：
- * 起止差值扣除回合内阻塞等待，与 R-01-020 累计口径一致，恒不大于该回合墙钟时长）。
+ * 起止差值扣除回合内阻塞等待，与  累计口径一致，恒不大于该回合墙钟时长）。
  * 回合起止不完整、时间逆序或回合运行段不为正时忽略该回合；无可得回合返回 null。
  */
 function lastTurnBusyFromEvents(events) {
@@ -2512,7 +2512,7 @@ function settleTurnClose(next, time) {
 }
 
 /**
- * 会话回合统计记账的单步转移（R-01-020）：对单个回合/等待边界事件应用后返回新状态。
+ * 会话回合统计记账的单步转移：对单个回合/等待边界事件应用后返回新状态。
  * 状态 `{ busyMs, openTurnStart, openWaitStart, openWaitKind, openWaitId, waitedMs }`——
  * busyMs 为运行过程时长的累计（null 表示尚无任何有效回合计时），openTurnStart 为当前
  * 开放回合起点，openWaitStart/openWaitKind/openWaitId 为当前未配对等待区间（回合内
@@ -2525,7 +2525,7 @@ function settleTurnClose(next, time) {
  * `time − openTurnStart − waitedMs` 结算回合。start 覆盖式登记（串行回合下最后一个
  * start 为当前回合），end 配对最近 start；起点缺失或时间逆序的回合跳过累加、仅清空
  * 状态。event 兼容 history 条目包装与裸事件（eventOf 解包），宿主实时登记与回填共用
- * 同一转移，保证口径一致（R-01-020/AC-02）。
+ * 同一转移，保证口径一致。
  */
 function applyTurnEventToStats(state, entry) {
 	const event = eventOf(entry);
@@ -2578,7 +2578,7 @@ function applyTurnEventToStats(state, entry) {
 /**
  * busy 记账字段归一：null/undefined 直通为 null（「无数据」语义），仅真实有限数字
  * 保留。必须先判空再走 Number()——Number(null) === 0 会把「无开放回合」误归一为
- * epoch 0，令合成值膨胀为 now−0（R-01-020/AC-06 回归）。
+ * epoch 0，令合成值膨胀为 now−0（回归）。
  */
 function normalizeBusyMs(value) {
 	if (value === null || value === undefined) return null;
@@ -2587,7 +2587,7 @@ function normalizeBusyMs(value) {
 }
 
 /**
- * 标题行累计运行时长的显示合成（R-01-020/AC-01、AC-03、AC-06、AC-07）：已完成回合
+ * 标题行累计运行时长的显示合成：已完成回合
  * 累计加开放回合的实时已耗时（扣除回合内已配对等待与进行中的未配对等待）；两者皆
  * 不可得时返回 null（调用方不显示，不以 0 冒充）。now 缺失或无效时不推进实时增量，
  * 只返回已完成累计。等待期间 `(now − openTurnStart)` 与 `(now − openWaitStart)` 两项
@@ -2605,7 +2605,7 @@ function totalBusyDisplayMs({ busyMs = null, openTurnStart = null, waitedMs = nu
 }
 
 /**
- * 回合统计记账的统一收敛（R-01-020/AC-04、AC-05）：对全会话事件列表重放出下一份
+ * 回合统计记账的统一收敛：对全会话事件列表重放出下一份
  * 记账，宿主侧懒回填与启动扫描共用。路径选择——无记录、强制重放、持久化水位非法、
  * 或水位超前于日志最大 seq（事件 seq 空间被重编，如 dsh 0.1.5 V3 迁移）时从空状态
  * 全量重放（超前水位会把后续全部实时事件封死在守卫之外，openTurnStart 永不清空、
@@ -2669,7 +2669,7 @@ function reconcileTurnStats(current, records, { closeOpenTurn = false, forceFres
 }
 
 /**
- * 会话级登记串行化（R-01-020/AC-02）：宿主存储域的 `KvTable.put` 先异步落盘、落盘完成
+ * 会话级登记串行化：宿主存储域的 `KvTable.put` 先异步落盘、落盘完成
  * 后才更新内存快照，因此同一会话的两个边界事件 handler 并发执行时，后到事件会在先到
  * 事件落盘前读到旧状态，其效果被当作「无效果」永久丢弃（实测：`ask_user_question` 的
  * `tool/call` 与 11ms 后的 `tool/result` 交错，等待区间悬挂到 `turn/end` 强制结算，
@@ -2698,7 +2698,7 @@ function createSessionEventSerializer() {
  * 构建历史区条目：当前非活动的**主会话**，按最后活动时间从新到旧返回完整候选集合。
  * 子代理是临时工作单元，不入历史区；归档、空会话、完成/错误提醒与委托周期中的会话
  * 也不入历史区。历史区不再按时间窗口或条数截断；turnEnds（id → 已知回合结束时刻）驱动
- * activityAt 精化（R-01-010、R-01-019）。
+ * activityAt 精化。
  */
 /** buildRecent 的 limit 有效性口径：仅接受非负有限数字，其余形态按全量候选处理。 */
 const isCountLimit = (value) => Number.isFinite(value) && value >= 0;
@@ -2707,7 +2707,7 @@ const isCountLimit = (value) => Number.isFinite(value) && value >= 0;
  * 构建历史区条目：当前非活动的**主会话**，按最后活动时间从新到旧返回候选集合。
  * 子代理是临时工作单元，不入历史区；归档、空会话、完成/错误提醒与委托周期中的会话
  * 也不入历史区。历史区不再按时间窗口或条数截断；turnEnds（id → 已知回合结束时刻）驱动
- * activityAt 精化（R-01-010、R-01-019）。
+ * activityAt 精化。
  *
  * 两段式（T-186）：第一阶段逐候选保留全部既有过滤谓词、只收集 { id, activityAt }
  * 轻量键排序取前缀，第二阶段仅对入选者物化完整条目（workspace 查表、mainTitle、
@@ -2778,7 +2778,7 @@ function buildRecent(options = {}) {
 		// previews 不在此推导：渲染层按需 memo 计算（冷会话由 history 一次性写入 detail.previews）。
 		const previews = details.previews ?? { userPreview: "", agentPreview: "" };
 		const workspace = workspaceIndex.get(String(id)) ?? workspaceInfoForSession(id, items, byId);
-		// 在跑后台任务（R-01-023/AC-01）：历史卡同样标注任务数量（不改变入选判定与排序）。
+		// 在跑后台任务：历史卡同样标注任务数量（不改变入选判定与排序）。
 		const liveJobs = liveJobsOf(jobsBySession, id);
 		entries.push({
 			id,
@@ -2863,7 +2863,7 @@ function fmtTokens(n) {
 	return `${scaled(n / 1e6)}M`;
 }
 
-/** 回合进度半衰期校准参数（R-01-009/AC-06，C-025、C-044）：基准速率 90 tok/s 对应
+/** 回合进度半衰期校准参数（C-025、C-044）：基准速率 90 tok/s 对应
  *  基准半衰期 120s；慢模型按比例拉长、快模型缩短，夹取于 [60, 600] 秒。 */
 const PROGRESS_HALFLIFE_REF_RATE = 90;
 const PROGRESS_HALFLIFE_BASE_S = 120;
@@ -2874,7 +2874,7 @@ const PROGRESS_HALFLIFE_MIN_S = 60;
 const PROGRESS_HALFLIFE_MAX_S = 600;
 
 /**
- * 回合进度半衰期速率校准（R-01-009/AC-06，C-025、C-044）：任务产出 token 量与模型速度
+ * 回合进度半衰期速率校准（C-025、C-044）：任务产出 token 量与模型速度
  * 无关、回合墙钟时长与速率成反比，故 k = 120×90÷r 秒并夹取 [60, 600]（r 为会话
  * 实测累计输出速率 tok/s）；无可用速率（缺省/非法/非正）回退保守默认 540s
  * （20 tok/s 起步基准，C-044）。返回整数秒。
@@ -2903,13 +2903,13 @@ function progressOf({ elapsedMs = 0, halfLifeSec = null } = {}) {
 	return Math.round((100 * sec) / (sec + k) * 10) / 10;
 }
 
-/** 委托耗尽归属宽限（R-01-009/AC-06）：后代全部结束后、在该毫秒数内开始的新回合
+/** 委托耗尽归属宽限：后代全部结束后、在该毫秒数内开始的新回合
  *  视为处理后代结果的回合（委托周期锚点连续）；超时开始的新回合视为委托周期外的
  *  全新回合（归零重计）。 */
 const SETTLE_TURN_GRACE_MS = 60_000;
 
 /**
- * 委托周期进度锚点（R-01-009/AC-06）：三态状态机。
+ * 委托周期进度锚点：三态状态机。
  *   - idle：无活动后代且无开放回合，锚点为空。
  *   - turn：无活动后代、自身回合在飞；锚点 = 本回合起点，新回合开始即归零重计。
  *   - delegating：委托周期——自首个活动后代出现起，至后代全部结束且处理其结果的
@@ -2957,7 +2957,7 @@ function progressAnchor(prev, { descendantActive = false, hostStartTime = null, 
 
 /** 会话是否处于委托周期（含后代耗尽空窗）：delegating 态且未耗尽，或耗尽时刻距
  *  now 不超过 SETTLE_TURN_GRACE_MS（空窗内等待 settle 处理回合启动）。供渲染层
- *  派生 delegatingIds 注入 buildEntries/buildRecent（R-01-003/AC-05、R-01-009/AC-06）。 */
+ *  派生 delegatingIds 注入 buildEntries/buildRecent。 */
 function delegationActive(state, now) {
 	if (state?.mode !== "delegating") return false;
 	if (state.drainedAt == null) return true;
@@ -2965,11 +2965,11 @@ function delegationActive(state, now) {
 }
 
 // ---- 通道增量协议（T-188）：busy/acks 通道「连接全量、变更按会话增量、落盘合帧」 ----
-// 分工契约（R-01-002/AC-10～AC-13、R-01-020/AC-02～AC-07，承诺不变、机制演进）：
+// 分工契约（承诺不变、机制演进）
 //   - 内存即改：宿主侧插件缓存 Map 是权威状态与增量广播源，变更点同步更新缓存后立即
 //     广播 `patch`（upserts，仅本次变更会话）；读-改-写循环完全在缓存上闭合。
 //   - 落盘延后：KvTable 退化为落盘通道，脏键经 createDirtyFlusher 尾沿合帧写盘。
-//   - 崩溃窗口自愈（R-01-020/AC-04）：合帧间隔内进程崩溃至多丢失该窗口的落盘写（内存
+//   - 崩溃窗口自愈：合帧间隔内进程崩溃至多丢失该窗口的落盘写（内存
 //     态已失、磁盘停留旧值）；下次懒回填经 reconcileTurnStats 从事件全量重放收敛——
 //     磁盘水位落后则增量应用 seq > watermarkSeq 的事件补缺口，水位超前（seq 空间重编）
 //     则从空状态全量重放——两条恢复路径都不依赖落盘与内存的即时一致性，水位只前进，
@@ -3001,7 +3001,7 @@ function buildChannelPatch(records, changedIds) {
 /**
  * `GET /api/busy?ids=` 查询参数解析（T-188）：逗号分隔会话 id，逐项 trim、剔除空段、
  * 去重；解析出至少一个合法 id 且总量不超过 maxIds 时返回裁剪 id 数组，否则返回 null
- * 表示回退全量（非法/空/超量形态统一防御，R-01-020/AC-05 懒回填触发口径不受裁剪影响）。
+ * 表示回退全量（非法/空/超量形态统一防御， 懒回填触发口径不受裁剪影响）。
  * raw 为 null/undefined（未携带 ids 参数）同样返回 null——全量响应、不触发回填。
  */
 function parseBusyIdsParam(raw, maxIds) {
@@ -3033,8 +3033,8 @@ function parseBusyIdsParam(raw, maxIds) {
  * 置 disposing 并拒绝后续 enqueue，分属两个 effect 的「先冲刷后关域」在并发下会被
  * close 拒写；同一 disposer 内「await dispose()（put 排入域写链并等待完成）→
  * await close()（幂等，runClose 先排空已排队写、后关 unit）」才是真串行。窗口外
- * 进程消失（崩溃/强杀）不走该路径，由上文「崩溃窗口自愈」承接（R-01-020/AC-04，
- * SSE 全量快照与懒回填保证恢复一致）。
+ * 进程消失（崩溃/强杀）不走该路径，由上文「崩溃窗口自愈」承接：
+ * SSE 全量快照与懒回填保证恢复一致。
  */
 function createDirtyFlusher({ flush, intervalMs, now = Date.now, schedule = setTimeout, cancel = clearTimeout } = {}) {
 	const delay = Number(intervalMs);
@@ -3152,7 +3152,7 @@ function bindCardActivation(card, open) {
 }
 
 /**
- * 判定会话是否正在前台显示（R-01-006/AC-03）：宿主列表快照的选中会话对应 target，
+ * 判定会话是否正在前台显示：宿主列表快照的选中会话对应 target
  * 且主区域没有全局面板占屏。窗格跨页常驻后「选中」不再是「正在查看」的充分条件——
  * 面板页（插件、插件市场等）只改布局 store、不改 selection，必须并入 panelId 维度。
  * panelId 为 null/undefined 表示会话视图在屏；服务缺失时调用方按 null 传入即退回旧语义。
@@ -3165,10 +3165,10 @@ function isSessionDisplayed({ targetId, currentId = null, panelId = null } = {})
 }
 
 /**
- * 判定卡片激活是否转为收起移动端抽屉（R-01-008/AC-06）：移动断点内抽屉打开、
+ * 判定卡片激活是否转为收起移动端抽屉：移动断点内抽屉打开、
  * 且会话正在前台显示时，激活不再发起切换（避免无意义 open 与重试链），改为收起
  * 抽屉直达会话；全局面板在屏时激活是「回到会话」的真实意图，不得被收抽屉吞掉
- *（R-01-006/AC-04）。纯函数，无 DOM 假设。
+ *。纯函数，无 DOM 假设。
  */
 function shouldDismissDrawerOnActivation({ targetId, currentId, mobile, drawerOpen, panelId = null } = {}) {
 	if (mobile !== true || drawerOpen !== true) return false;
@@ -3195,7 +3195,7 @@ function openSession(uiWorkspace, target) {
 /**
  * 以最小必要距离把卡片滚入窗格滚动视口；不会居中，也不会滚动外层页面。
  * 默认使用原生 smooth scroll，调用方可传 auto 适配降低动效偏好；缺少 scrollTo 或 options 不受支持时回退为同步滚动
- * （R-01-006/AC-02）。
+ * 。
  */
 function scrollCardIntoView(scroll, card, behavior = "smooth") {
 	if (typeof scroll?.getBoundingClientRect !== "function" || typeof card?.getBoundingClientRect !== "function")
@@ -3234,7 +3234,7 @@ function scrollCardIntoView(scroll, card, behavior = "smooth") {
 const COMPOSER_SELECTOR = "[data-composer-input]";
 
 /**
- * 抑制切换会话后原生 composer 的自动聚焦（R-01-005/AC-01 移动端回归）。
+ * 抑制切换会话后原生 composer 的自动聚焦（移动端回归）。
  * dsh-client-ui-conversation 的 composer 在 sessionId 变化的 effect 里
  * focus 输入框（桌面便于立即输入）；移动视口下该聚焦会弹出软键盘遮挡会话。
  * open 成功后立即 blur 一次（覆盖 composer 已持焦的情形），并在短暂窗口内
@@ -3256,7 +3256,7 @@ function suppressComposerAutofocus(doc, scheduleTimeout = setTimeout, windowMs =
  * 抽屉与浮动开关位于遮罩之上，能到达遮罩的点击必然来自抽屉外部，
  * 无需 contains 判定。触摸轻点经浏览器 tap→click 合成事件覆盖
  * （与浮动开关、× 与卡片的既有交互一致，故仅绑 click），
- * 不额外绑 touch 事件以避免双触发与滑动误收起（R-01-008/AC-03）。
+ * 不额外绑 touch 事件以避免双触发与滑动误收起。
  */
 function bindBackdropDismiss(backdrop, dismiss) {
 	if (typeof backdrop?.addEventListener !== "function" || typeof dismiss !== "function")
@@ -3280,7 +3280,7 @@ function bindBackdropDismiss(backdrop, dismiss) {
 // `conversation` Slot 迁移为 `main` 的 `conversation` key），让外壳的让步链
 // 挤压中间栏；窄屏（<=767px）转为固定抽屉 + 浮动开关按钮。桌面窗格常驻，
 // 显隐与展开/收起只由用户操作决定，不随主区域在会话视图与全局面板之间切换
-// 而自动隐藏（R-01-007/AC-03、AC-05，C-103）。
+// 而自动隐藏（C-103）。
 //
 // 数据来源：DSH 原生 `sessions` / `workspaces` 客户端服务（推送式快照）+ `remote`
 // 服务的部署级模型目录（session/modelCatalog）与会话日志分页（session/page，
@@ -3297,10 +3297,10 @@ function bindBackdropDismiss(backdrop, dismiss) {
 // `reference.ready` 落定后接线 binding.eventSource 日志窗口与 session 运行态订阅；
 // 引用随可见性 prune、紧凑档拆窗、服务代际更替与卸载释放。
 //
-// 回前台自愈（R-01-001/AC-03）：acks/busy 自建 SSE 无条件重建 + 渲染管线补齐 +
+// 回前台自愈：acks/busy 自建 SSE 无条件重建 + 渲染管线补齐 +
 // 隐藏时长达到阈值时经软依赖 `connection.reconnect()` 请求壳层重建连接——移动挂起
 // 后壳层 gateway 半开死连接无法自检，壳层推送通道（卡片运行状态的唯一来源）的
-// 收敛由本通道兜底（R-01-002/AC-12 同族失效的壳层侧补位）。
+// 收敛由本通道兜底（同族失效的壳层侧补位）。
 
 const name = "dsh-activity-pane";
 // remote.session：会话 RPC（目录/日志分页）经 api-remotes 的点分命名空间注入
@@ -3318,11 +3318,11 @@ const RECENT_CLASS = "dap-recent";
 const CARD_CLASS = "dap-card";
 const STYLE_ID = "dsh-activity-pane-style";
 const INSTANCE_KEY = "__dshActivityPaneCleanup";
-/** 拖拽调宽的 localStorage 持久化键（R-01-015/AC-04）。 */
+/** 拖拽调宽的 localStorage 持久化键。 */
 const WIDTH_STORAGE_KEY = "dsh-activity-pane:width";
-/** 卡片紧凑显示的 localStorage 持久化键（R-01-021/AC-06）。 */
+/** 卡片紧凑显示的 localStorage 持久化键。 */
 const DENSITY_STORAGE_KEY = "dsh-activity-pane:density";
-/** 三档显示的可访问名称用中文标签，键为档位值（R-01-021/AC-01）。 */
+/** 三档显示的可访问名称用中文标签，键为档位值。 */
 const DENSITY_LABELS = { full: "完整", medium: "中间", compact: "紧凑" };
 const COLLAPSED_WIDTH = 34;
 /** 宿主侧完成确认 API 前缀（C-030）：acks 快照 / SSE 推送 / ack 写回，同源受信。 */
@@ -3347,12 +3347,12 @@ const RECENT_TIME_REFRESH_MS = 60_000;
 const LOAD_CONCURRENCY = 3;
 /** 历史分页每批数量；后续批次只由底部按钮显式加载。 */
 const RECENT_PAGE_SIZE = 10;
-/** 「回到顶部」悬浮按钮显隐阈值：scrollTop 超过该值（px）时显示（R-01-018/AC-01）。 */
+/** 「回到顶部」悬浮按钮显隐阈值：scrollTop 超过该值（px）时显示。 */
 const TOP_THRESHOLD = 200;
-/** 回前台壳层连接重建的最小隐藏时长（R-01-001/AC-03 回归修复，T-191）：移动 PWA 挂起
+/** 回前台壳层连接重建的最小隐藏时长（回归修复，T-191）：移动 PWA 挂起
  *  期间壳层 gateway 连接被系统/中间链路掐断，恢复后常呈半开死形态——无 close 事件、
  *  无 online 事件（解锁不触发网络状态翻转），壳层连接层无心跳与可见性处理，推送永久
- *  停滞（与 acks 通道 R-01-002/AC-12 同族失效，但壳层数据通道不经插件自建 SSE）。
+ *  停滞（与 acks 通道  同族失效，但壳层数据通道不经插件自建 SSE）。
  *  窗格在 visible 边沿主动请求 `connection.reconnect()` 兜底重建：generation 中止重建
  *  驱动壳层会话控制流 restart() 重发全量快照，半开与 CLOSED 一并收敛；对健康连接等价
  *  于壳层对 online 事件的既有反应。阈值避开短切 tab 的无谓重连。 */
@@ -3386,7 +3386,7 @@ const CSS = `
 }
 /* 标题行拆为三部分：最左仓库入口独立区（T-144，与工具区按钮分处标题行两端）、左侧标题区
    （flex:1 占满剩余宽度）整体即收起控件，悬停/聚焦高亮只覆盖标题区
-   （R-01-011/AC-03、AC-07、R-01-008/AC-02）；右侧工具区独立，
+   ；右侧工具区独立
    不参与标题区的悬停高亮与折叠激活。 */
 [data-dsh-activity-pane] .dap-titlebar {
   flex: 1;
@@ -3413,8 +3413,8 @@ const CSS = `
   padding: 0 7px;
 }
 [data-dsh-activity-pane] .dap-count[data-awaiting] {
-  /* 底色/透明度与等待卡完全一致、无描边与外环（R-01-002/AC-06）；脉冲走亮度呼吸而非整体
-     不透明度——半透明会让底色透进列头背景；固定 1.2s 并与等待卡末行同步（AC-07、C-065）。
+  /* 底色/透明度与等待卡完全一致、无描边与外环；脉冲走亮度呼吸而非整体
+     不透明度——半透明会让底色透进列头背景；固定 1.2s 并与等待卡末行同步（C-065）。
      任一等待行动即脉冲：三类等待行动行为一致（C-037）。
      底色跟随等待构成（C-040、C-043）：默认金（阻塞在即），tone=done 取完成提醒同款暗绿、
      tone=error 取错误提醒同款暗红（错误 > 阻塞 > 完成 优先级）。 */
@@ -3450,7 +3450,7 @@ const CSS = `
   margin-right: max(var(--dsh-scrollbar-width, 8px), 6px);
   scrollbar-gutter: stable;
 }
-/* 滚动条在滚动或鼠标进入窗格时显示（R-01-004/AC-03，与外壳侧栏一致）：thumb 默认透明，
+/* 滚动条在滚动或鼠标进入窗格时显示（与外壳侧栏一致）：thumb 默认透明
    经 data-scrolling/data-pointer-inside 显示，悬停时读取主题 hover token。Firefox 路径必须在
    @supports 门内——非 auto 的 scrollbar-color 会让 Chromium 丢弃该元素的 ::-webkit-scrollbar 规则。 */
 [data-dsh-activity-pane] .dap-scroll::-webkit-scrollbar-thumb {
@@ -3474,7 +3474,7 @@ const CSS = `
     scrollbar-color: var(--dsh-scrollbar-thumb, color-mix(in srgb, currentColor 25%, transparent)) transparent;
   }
 }
-/* 「回到顶部」（R-01-018）悬浮图标按钮：右缘对齐、28px 圆形、不透明底色。
+/* 「回到顶部」悬浮图标按钮：右缘对齐、28px 圆形、不透明底色。
    默认 hidden，scrollTop 超阈值时由滚动监听揭隐；基类 display:flex 会压过 UA 的
    [hidden] 规则，故显式补 [hidden] 隐藏。 */
 [data-dsh-activity-pane] .dap-top {
@@ -3499,9 +3499,9 @@ const CSS = `
 [data-dsh-activity-pane] .dap-top:focus-visible {
   background: #262932;
 }
-/* 标题行右侧工具按钮区（R-01-021/AC-05）：固定于行尾、常显档位切换按钮，未来新
+/* 标题行右侧工具按钮区：固定于行尾、常显档位切换按钮，未来新
    工具按钮统一加入此区；宽度不随悬停态变化，收起方向图标的显隐不挤动本区按钮；
-   左缘 padding 12px 与标题区保持充分间隔。收起方向图标（R-01-011/AC-07）是标题区
+   左缘 padding 12px 与标题区保持充分间隔。收起方向图标是标题区
    的行尾提示：常态宽度为 0 不占位，鼠标悬停或键盘聚焦标题区时在标题区最右端即时
    显现（无过渡动画），离开即隐藏。 */
 [data-dsh-activity-pane] .dap-tools {
@@ -3527,7 +3527,7 @@ const CSS = `
 [data-dsh-activity-pane] .dap-density:focus-visible {
   background: #262932;
 }
-/* 仓库入口移至标题行最左独立区（T-144，R-01-022/AC-01）：与右侧工具区的档位切换按钮
+/* 仓库入口移至标题行最左独立区（T-144）：与右侧工具区的档位切换按钮
    分处标题行两端以消除触屏误触；无描边（T-139），视觉强度弱于带描边的档位切换按钮，仅以不透明
    底色圆形呈现。原依赖 .dap-tools 的 padding 由自身 margin 承担（圆形底色盒不可用
    padding 扩容）；左右 margin 各 12px——右缘与标题区的接缝间距对齐工具区的接缝间距
@@ -3564,20 +3564,20 @@ const CSS = `
   width: 22px;
   opacity: 1;
 }
-/* 卡片显示档位（R-01-021）：中间档保留标题行、工作区徽标行、等待末行与最近卡
-   消息预览行、经渲染层 lastOnly 单行渲染时间线（仅最新一行，AC-08）；完成提醒卡
+/* 卡片显示档位：中间档保留标题行、工作区徽标行、等待末行与最近卡
+   消息预览行、经渲染层 lastOnly 单行渲染时间线（仅最新一行）；完成提醒卡
    末行在中间档收合为单行（见下方 data-wait="done" 作用域规则）；紧凑档在
    中间档基础上再隐藏工作区徽标行、时间线末行、等待末行与消息预览行，仅保留
-   标题行（AC-02）——激活跳转逻辑不感知档位，渲染签名含显示档位分量（档位切换
-   经 queueSync 触发一轮重渲染）（R-01-021/AC-04）。 */
+   标题行——激活跳转逻辑不感知档位，渲染签名含显示档位分量（档位切换
+   经 queueSync 触发一轮重渲染）。 */
 [data-dsh-activity-pane][data-density="medium"] .dap-card :is(
     .dap-progress,
     .dap-token-stats
   ) {
   display: none;
 }
-/* 紧凑档整行隐藏次要行（R-01-021/AC-02）：含行内右缘累计运行时长（T-179 移出紧凑
-   标题行——时长承载语义由完整/中间档保持，R-01-025/AC-07）；时长节点三档同码
+/* 紧凑档整行隐藏次要行：含行内右缘累计运行时长（T-179 移出紧凑
+   标题行——时长承载语义由完整/中间档保持）；时长节点三档同码
    构建、compact 下随档位隐藏，切回高档随重渲染恢复。 */
 [data-dsh-activity-pane][data-density="compact"] .dap-card :is(
     .dap-card-head,
@@ -3592,7 +3592,7 @@ const CSS = `
   ) {
   display: none;
 }
-/* 中间档完成提醒卡末行收合为单行（R-01-021/AC-08，东家反馈）：末行两行内容
+/* 中间档完成提醒卡末行收合为单行（东家反馈）：末行两行内容
    （「已完成」胶囊行 +「继续对话，或移入历史」与「移入历史」按钮行）冗余，收合为
    单行——「已完成」胶囊居左、按钮 margin-left:auto 居右、正文不再显示；两段包裹层
    以 display: contents 释放为同行 flex 项。选择器以卡片根 data-wait="done" 作用域，
@@ -3641,7 +3641,7 @@ const CSS = `
   color: color-mix(in srgb, currentColor 52%, transparent);
   text-transform: uppercase;
 }
-/* 历史分页只在用户明确激活底部按钮后追加（R-01-019/AC-02）。 */
+/* 历史分页只在用户明确激活底部按钮后追加。 */
 [data-dsh-activity-pane] .dap-recent-more {
   align-self: center;
   flex: none;
@@ -3664,10 +3664,10 @@ const CSS = `
 [data-dsh-activity-pane] .dap-recent-more:focus-visible { outline: 2px solid color-mix(in srgb, currentColor 45%, transparent); outline-offset: 1px; }
 [data-dsh-activity-pane] .dap-recent-more[disabled] { cursor: wait; opacity: 0.6; }
 [data-dsh-activity-pane] .dap-recent-more[hidden] { display: none; }
-/* 折叠：仅桌面生效；窄条 + 竖排标题与计数（R-01-011/AC-04）。 */
+/* 折叠：仅桌面生效；窄条 + 竖排标题与计数。 */
 [data-dsh-activity-pane] .dap-rail {
   display: none;
-  /* 窄条整体（含下方空白）均为展开命中区（R-01-011/AC-04）：撑满窗格高度、内容顶对齐。 */
+  /* 窄条整体（含下方空白）均为展开命中区：撑满窗格高度、内容顶对齐。 */
   flex: 1;
   flex-direction: column;
   align-items: center;
@@ -3702,7 +3702,7 @@ const CSS = `
   background: rgba(42, 40, 30, 0.97);
   animation: dap-await-pulse 1.2s ease-in-out infinite;
 }
-/* 桌面拖拽调宽手柄（R-01-015）：右缘 6px 透明命中区，拖拽实时写入 --dap-width；
+/* 桌面拖拽调宽手柄：右缘 6px 透明命中区，拖拽实时写入 --dap-width；
    滚动区在其左侧留出 native scrollbar 命中带，手柄只改变光标、不绘制 hover 高亮；
    折叠窄条与移动端抽屉不提供拖拽（下方两处媒体查询隐藏）。 */
 [data-dsh-activity-pane] .dap-resize {
@@ -3722,7 +3722,7 @@ const CSS = `
   [data-dsh-activity-pane][data-collapsed="true"] .dap-resize { display: none; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-top { display: none; }
   [data-dsh-activity-pane][data-collapsed="true"] .dap-rail { display: flex; cursor: pointer; }
-  /* 与展开态标题行对等的可点反馈（R-01-011/AC-04）：悬停/聚焦高亮。 */
+  /* 与展开态标题行对等的可点反馈：悬停/聚焦高亮。 */
   [data-dsh-activity-pane][data-collapsed="true"] .dap-rail:hover,
   [data-dsh-activity-pane][data-collapsed="true"] .dap-rail:focus-visible {
     background: color-mix(in srgb, currentColor 8%, transparent);
@@ -3746,7 +3746,7 @@ const CSS = `
   gap: 4px;
   cursor: pointer;
 }
-/* 子代理与后台任务子卡层级连接线（R-01-003/AC-04）：竖轨与横线全部由轨道层整体绘制——
+/* 子代理与后台任务子卡层级连接线：竖轨与横线全部由轨道层整体绘制——
    syncTracks 测量各卡片浮点矩形，trackBoxes 统一取整到 CSS 像素后写入：
    每个母会话一条连续竖轨 .dap-conn-track（母会话底缘 → 末级子卡中心，
    含收口行），每个子卡一条横线 .dap-conn-stub（竖轨右缘 → 子卡左缘）。
@@ -3787,14 +3787,14 @@ const CSS = `
 [data-dsh-activity-pane] .dap-card[data-kind="recent"] {
   padding: 6px 10px;
   border-radius: 12px;
-  /* 弱化但可辨（R-01-013/AC-10、AC-11）：opacity 0.8 承载淡化；底色介于窗格底色与
+  /* 弱化但可辨：opacity 0.8 承载淡化；底色介于窗格底色与
      活动卡（rgba(29,31,37,0.94)）之间——暗于活动卡不抢视线、亮于背景可分辨，
      弱描边勾勒边界，淡化不得使卡片轮廓不可辨。 */
   background: rgba(26, 28, 34, 0.92);
   border-color: rgba(255, 255, 255, 0.08);
   opacity: 0.8;
 }
-/* 当前会话前台态（R-01-006/AC-01、AC-06，C-104）：窗格最高视觉层——外环、外光晕与
+/* 当前会话前台态（C-104）：窗格最高视觉层——外环、外光晕与
    内发光三层叠加，强调预算落在形状而非铺色。加粗以 box-shadow 外环实现，不改
    border-width 与布局盒；外光晕两侧受 .dap-list 横向 8px 内边距裁切，可见「发光」
    由内发光与外环承担（C-104）。--dap-current-color 供等待当前卡组合规则复用。 */
@@ -3806,7 +3806,7 @@ const CSS = `
     0 0 16px color-mix(in srgb, var(--dap-current-color) 45%, transparent),
     inset 0 0 10px color-mix(in srgb, var(--dap-current-color) 20%, transparent);
 }
-/* 等待三类卡面按色彩语义分野（R-01-002/AC-03、AC-04、AC-13，C-040、C-043、C-104）：阻塞等待
+/* 等待三类卡面按色彩语义分野（C-040、C-043、C-104）：阻塞等待
    采用金色系催促尽快响应（自琥珀 #e8a33d 调亮调纯为金黄 #f5c542，底色同步提亮提黄——
    与旧琥珀底差异须一眼可辨，东家视觉反馈）；完成提醒采用绿色成功
    色系——深色取宿主 success 三级背景同款暗绿（green-900），底色仅保留轻微绿色色偏；
@@ -3836,7 +3836,7 @@ const CSS = `
   border-color: color-mix(in srgb, #f06a72 34%, transparent);
   background: rgba(37, 31, 32, 0.97);
 }
-/* 等待卡同为当前会话时描边/光晕回归蓝色前台态（R-01-006/AC-01、AC-06）：基态 [data-current]
+/* 等待卡同为当前会话时描边/光晕回归蓝色前台态：基态 [data-current]
    与 [data-kind="awaiting"] 同优先级且定义在前，深色下被等待色描边顶掉；组合选择器
    （0-4-0）压过两者。等待状态仍由圆点、等待徽标与底色承载。 */
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-current] {
@@ -3846,7 +3846,7 @@ const CSS = `
     0 0 16px color-mix(in srgb, var(--dap-current-color) 45%, transparent),
     inset 0 0 10px color-mix(in srgb, var(--dap-current-color) 20%, transparent);
 }
-/* 当前会话后台态（R-01-006/AC-03、AC-06，C-104）：选中但主区域显示全局面板——保留蓝色
+/* 当前会话后台态（C-104）：选中但主区域显示全局面板——保留蓝色
    可辨、强度低于前台态且不强于等待三类卡。东家反馈后台态蓝框过暗：经确认放开「不得强于等待卡」的比较口径后，
    描边提到 50%、1px 环与 14px 柔光可辨；仍全面低于前台态，且不形成整卡彩色铺面。须定义在等待当前卡组合之后
    （同优先级后定义者胜，完成提醒卡即当前会话时同样转后台态）。 */
@@ -3879,7 +3879,7 @@ const CSS = `
   animation: dap-pulse 1.2s ease-in-out infinite;
 }
 @keyframes dap-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
-/* 等待卡标题状态点静止（R-01-002/AC-08，C-040）：闪烁提醒已统一移至卡片末行，
+/* 等待卡标题状态点静止（C-040）：闪烁提醒已统一移至卡片末行
    标题区不再抢眼；状态点只按等待类别着色——阻塞金、完成绿、错误红。 */
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"] .dap-dot {
   animation: none;
@@ -3892,19 +3892,19 @@ const CSS = `
   animation: none;
 }
 /* 会话卡标题（活动卡、子代理卡与最近卡共用 .dap-title）统一常规字重，不加粗
-   （R-01-013/AC-09 及东家 2026-09-11 视觉反馈）；无按卡类的字重覆盖。 */
+   （及东家 2026-09-11 视觉反馈）；无按卡类的字重覆盖。 */
 [data-dsh-activity-pane] .dap-title {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; font-size: 12px; line-height: 16px; font-weight: 400;
 }
-/* 标题行最右侧的累计运行时长（R-01-020/AC-01）：固定占位不参与标题挤压，
+/* 标题行最右侧的累计运行时长：固定占位不参与标题挤压
    标题过长时以自身省略号让位；色调弱于标题，不与状态点抢视觉。 */
 [data-dsh-activity-pane] .dap-total-time {
   flex: none; margin-left: auto; font-size: 12px; line-height: 16px;
   color: #8a94a3; white-space: nowrap;
 }
 [data-dsh-activity-pane] .dap-total-time[hidden] { display: none; }
-/* 等待卡末行首行「类型胶囊」（R-01-002/AC-01、AC-02、AC-09、AC-13，C-043）：圆底类型
+/* 等待卡末行首行「类型胶囊」（C-043）：圆底类型
    图标 + 类型文字，色相随等待类别（--dap-wait-color）——阻塞金/完成绿/错误红；
    胶囊为行内元素不自占满宽，随文字内容收缩。 */
 [data-dsh-activity-pane] .dap-capsule {
@@ -3922,16 +3922,16 @@ const CSS = `
 }
 [data-dsh-activity-pane] .dap-capsule-icon:empty { display: none; }
 [data-dsh-activity-pane] .dap-capsule-icon svg { display: block; width: 12px; height: 12px; }
-/* 等待三类的末行脉冲（R-01-002/AC-07、AC-08，C-043、C-065）：闪烁载体为卡片末行——
+/* 等待三类的末行脉冲（C-043、C-065）：闪烁载体为卡片末行——
    类型胶囊与正文固定以 1.2s 同频同相闪烁；「移入历史」按钮不闪。等待队列变化时渲染层
    将全部末行元素与三处数量胶囊统一重启对相；标题状态点三类均静止。 */
 [data-dsh-activity-pane] .dap-card[data-kind="awaiting"] .dap-foot :is(.dap-capsule, .dap-note) {
   animation: dap-pulse 1.2s ease-in-out infinite;
 }
 /* 复审修复（C-040、C-043）：状态点光晕三类同强度、仅换色相——阻塞金、完成绿与错误红光晕一致。 */
-/* 工作区徽标「图标+文本」双段：文件夹图标与左边栏工作区条目同源（R-01-003/AC-06）；
-   名称字号不低于 10.5px（AC-07），行高保持 14px 以维持胶囊与卡片高度。
-   着色（AC-08～AC-12）：核心映射提供 12 个前景身份槽与每槽 3 个背景变体；
+/* 工作区徽标「图标+文本」双段：文件夹图标与左边栏工作区条目同源；
+   名称字号不低于 10.5px，行高保持 14px 以维持胶囊与卡片高度。
+   着色：核心映射提供 12 个前景身份槽与每槽 3 个背景变体；
    深色/浅色主题分别使用前景与背景槽位的 L/C 参数，文字使用前景调色板色，
    底色使用独立背景源色、描边使用前景调色板色，分别在 OKLCH 空间按变体混合强度呈现；前景与背景保持同色相族。 */
 [data-dsh-activity-pane] .dap-workspace {
@@ -3973,14 +3973,14 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 [data-dsh-activity-pane] .dap-workspace[hidden] { display: none; }
-/* 行内工作区名胶囊（R-01-021/AC-10，T-178）：仅紧凑档标题行显示——完整/中间档由
+/* 行内工作区名胶囊（T-178）：仅紧凑档标题行显示——完整/中间档由
    独立徽标行承担归属标识，行内节点隐藏（形态互斥）；几何/字号/着色全部复用
    .dap-workspace 既有规则（10.5px/14px、胶囊圆角与槽位着色变量），此处只管显隐，
    行尾定位与固定宽见下一条规则（T-179 改行尾固定宽后行内收缩口径作废）。 */
 [data-dsh-activity-pane] .dap-row .dap-workspace { display: none; }
-/* 行内胶囊行尾固定宽（R-01-021/AC-10，东家反馈 T-179）：宽度固定 84px（border-box，
+/* 行内胶囊行尾固定宽（东家反馈 T-179）：宽度固定 84px（border-box
    含左右内边距 14px）不随名称长度变化，使会话标题起点在各卡间对齐；文字水平居中，
-   超长名称由 .dap-workspace-text 既有省略截断承载（R-01-021/AC-10 截断条款）。 */
+   超长名称由 .dap-workspace-text 既有省略截断承载（截断条款）。 */
 [data-dsh-activity-pane][data-density="compact"] .dap-row .dap-workspace {
   display: flex; flex: none; width: 84px; box-sizing: border-box; justify-content: center;
 }
@@ -4005,13 +4005,13 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   font-size: 11px; line-height: 15px;
   color: color-mix(in srgb, currentColor 62%, transparent);
 }
-/* 待回复卡使用原生列表语义（R-01-002/AC-09，C-064）：单问 ul bullet，多问 ol 编号。 */
+/* 待回复卡使用原生列表语义（C-064）：单问 ul bullet，多问 ol 编号。 */
 [data-dsh-activity-pane] .dap-question-list {
   margin: 0; padding-inline-start: 18px;
 }
 [data-dsh-activity-pane] .dap-question-list > li { padding-inline-start: 1px; }
 [data-dsh-activity-pane] .dap-question-ellipsis { list-style: none; }
-/* 等待卡末行两段容器（R-01-002/AC-08、AC-09、AC-13，C-043）：首行类型胶囊、其下为
+/* 等待卡末行两段容器（C-043）：首行类型胶囊、其下为
    正文行（正文文字 + 完成提醒卡的「移入历史」按钮——胶囊与正文同闪，按钮不闪）。 */
 [data-dsh-activity-pane] .dap-foot {
   display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
@@ -4021,7 +4021,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 [data-dsh-activity-pane] .dap-await-head {
   display: flex; align-items: center; gap: 8px; align-self: stretch; min-width: 0;
 }
-/* 进入状态相对年龄（R-01-002/AC-14）：胶囊右侧裸相对时间，弱化色调不与胶囊争抢，
+/* 进入状态相对年龄：胶囊右侧裸相对时间，弱化色调不与胶囊争抢
    不参与等待脉冲；进入状态时刻不可得时隐藏节点，不以虚假时刻冒充。 */
 [data-dsh-activity-pane] .dap-await-age {
   flex: none; font-size: 10px; line-height: 14px; white-space: nowrap;
@@ -4046,7 +4046,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   color: color-mix(in srgb, currentColor 82%, transparent);
   background: color-mix(in srgb, currentColor 14%, transparent);
 }
-/* 紧凑档标题行 ✓ 确认按钮（R-01-021/AC-02、R-01-002/AC-10，C-098）：与「已完成」胶囊
+/* 紧凑档标题行 ✓ 确认按钮（C-098）：与「已完成」胶囊
    共用对勾几何，压暗色调与末行文字按钮同族；按钮 margin-box 20px 使标题行框 16→20px，
    悬停略提。伪元素透明外扩触屏命中区至 24×24（视觉盒 20×18 不变；button 的 UA 默认
    即 border-box，伪元素基准是 padding 盒，与 content-box 口径的基准 20×18 相对）。
@@ -4087,29 +4087,29 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   min-width: 0;
   font-size: 10px; line-height: 14px; color: #8f9aaa; font-variant-numeric: tabular-nums;
 }
-/* 左列超长时省略号截断；时长 flex:none 恒贴最右（R-01-009/AC-05）。 */
+/* 左列超长时省略号截断；时长 flex:none 恒贴最右。 */
 [data-dsh-activity-pane] .dap-token-main {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 [data-dsh-activity-pane] .dap-token-time { flex: none; }
 [data-dsh-activity-pane] .dap-token-stats[hidden] { display: none; }
-/* 后台任务数量注（R-01-023/AC-01）：母卡标题行内「后台 ×N」小注，弱化色调不抢标题。 */
+/* 后台任务数量注：母卡标题行内「后台 ×N」小注，弱化色调不抢标题。 */
 [data-dsh-activity-pane] .dap-jobs-chip {
   flex: none; font-size: 10px; line-height: 15px;
   color: color-mix(in srgb, currentColor 55%, transparent);
   font-variant-numeric: tabular-nums;
 }
 [data-dsh-activity-pane] .dap-jobs-chip[hidden] { display: none; }
-/* 等待态数量注闪烁门控（R-01-023/AC-11）：回合已结束（等待态、非阻塞等待）仍有在跑后台
-   任务时，卡根打 data-jobs-blink，数量注以 dap-pulse 同节奏闪烁（与 AC-09 状态点同源同周期）；
+/* 等待态数量注闪烁门控：回合已结束（等待态、非阻塞等待）仍有在跑后台
+   任务时，卡根打 data-jobs-blink，数量注以 dap-pulse 同节奏闪烁（与  状态点同源同周期）；
    自身回合运行中、阻塞等待与最近历史卡不打标（blinking 恒假）。闪烁由 CSS 动画承载，
-   不引入 JS 周期性工作（R-01-025/AC-08 静默门禁不受影响）。 */
+   不引入 JS 周期性工作（静默门禁不受影响）。 */
 [data-dsh-activity-pane] .dap-card[data-jobs-blink="true"] .dap-jobs-chip {
   animation: dap-pulse 1.2s ease-in-out infinite;
 }
-/* 同门控暂停 R-01-009/AC-09 的圆点闪烁承诺：时间线执行中行圆点与卡片标题行状态点
+/* 同门控暂停  的圆点闪烁承诺：时间线执行中行圆点与卡片标题行状态点
    静止（着色与光晕不变），表明会话当前没有 LLM 活动、仅有后台任务活动；等待态末行
-   胶囊与正文的脉冲由完成/错误提醒语义承载（R-01-002/AC-08），不受本条约束。
+   胶囊与正文的脉冲由完成/错误提醒语义承载，不受本条约束。
    状态结束后随卡根属性复位恢复呼吸。 */
 [data-dsh-activity-pane] .dap-card[data-jobs-blink="true"] .dap-trace-item[data-status="running"]::before {
   animation: none;
@@ -4117,9 +4117,9 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 [data-dsh-activity-pane] .dap-card[data-jobs-blink="true"] .dap-dot {
   animation: none;
 }
-/* 后台任务子卡（R-01-023/AC-05、AC-07）：与子代理卡同构的两行卡面，底色在子代理卡
+/* 后台任务子卡：与子代理卡同构的两行卡面，底色在子代理卡
    底色上轻染任务状态点同族的蓝以相互可辨；状态点色随任务状态翻转。
-   子卡为纯展示（R-01-023/AC-08）：默认光标，悬停不提供可点反馈。 */
+   子卡为纯展示：默认光标，悬停不提供可点反馈。 */
 [data-dsh-activity-pane] .dap-card[data-kind="job"] {
   padding: 6px 10px;
   border-radius: 12px;
@@ -4130,8 +4130,8 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   border-color: rgba(255, 255, 255, 0.13);
   filter: none;
 }
-/* 任务卡行 1（R-01-023/AC-05、AC-09）：状态点 + 工具名称 + 右缘随时钟时长；工具名不可得时
-   文本段隐藏，仅保留状态点与时长。状态点活性脉冲（AC-09）：与运行中主会话卡标题状态点
+/* 任务卡行 1：状态点 + 工具名称 + 右缘随时钟时长；工具名不可得时
+   文本段隐藏，仅保留状态点与时长。状态点活性脉冲：与运行中主会话卡标题状态点
    同源同节奏（dap-pulse 1.2s），光晕与着色同色相——运行中任务蓝、停止中琥珀。 */
 [data-dsh-activity-pane] .dap-card[data-kind="job"] .dap-job-kind {
   flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -4145,7 +4145,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   box-shadow: 0 0 6px rgba(101, 160, 255, 0.8);
 }
 [data-dsh-activity-pane] .dap-job-dot[data-status="stopping"] { background: #f5a524; box-shadow: 0 0 6px rgba(245, 165, 36, 0.8); }
-/* 活性门控（AC-09）：着色、光晕与脉冲只作用于 running/stopping 两个在跑状态，AC 条件由
+/* 活性门控：着色、光晕与脉冲只作用于 running/stopping 两个在跑状态，AC 条件由
    CSS 显式表达，不依赖「liveJobs 只收 running/stopping」的跨层隐式前提（双轴复审修复）。 */
 [data-dsh-activity-pane] .dap-job-dot[data-status="running"],
 [data-dsh-activity-pane] .dap-job-dot[data-status="stopping"] {
@@ -4155,7 +4155,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   flex: none; margin-left: auto; font-size: 10px; line-height: 15px;
   color: color-mix(in srgb, currentColor 55%, transparent); font-variant-numeric: tabular-nums;
 }
-/* 任务内容行（R-01-023/AC-05、AC-06）：mono 原文单行省略，原生 tooltip 承载完整原文；
+/* 任务内容行：mono 原文单行省略，原生 tooltip 承载完整原文；
    内容不可得时整行 hidden（[hidden] 显式覆盖 display:flex），紧凑档经密度规则隐藏。 */
 [data-dsh-activity-pane] .dap-job-content {
   display: flex; align-items: baseline; min-width: 0;
@@ -4319,7 +4319,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   box-shadow: 0 0 7px rgba(88, 201, 143, 0.5);
   transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
   /* 进度条仅存于运行卡骨架：会话运行全程持续向右滚动条纹，作为活动标志
-     （对齐 answer-pet 的 ap-stripes，R-01-009/AC-08）。 */
+     （对齐 answer-pet 的 ap-stripes）。 */
   /* 条带载体 ::after 与滚动动画分离（T-128）：background-position 不可合成，
      每帧重绘；改由伪元素 transform 平移承载滚动，fill 只保留 width 过渡与
      裁切，滚动帧全程合成器驱动。 */
@@ -4351,7 +4351,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 [data-dsh-activity-pane] .dap-empty[data-mode="loading"] {
   display: flex; align-items: center; justify-content: center; gap: 6px;
 }
-/* 加载指示：列表/卡片字段在途时的活动图标（R-01-014）。 */
+/* 加载指示：列表/卡片字段在途时的活动图标。 */
 [data-dsh-activity-pane] .dap-spinner,
 .dap-toggle .dap-toggle-count .dap-spinner {
   width: 10px; height: 10px; flex: none; border-radius: 50%;
@@ -4366,7 +4366,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 [data-dsh-activity-pane] .dap-history-line .dap-spinner {
   width: 8px; height: 8px; border-width: 1.5px;
 }
-/* 数量标识加载指示：列表在途时三处徽标内显示活动图标（R-01-014/AC-06）。 */
+/* 数量标识加载指示：列表在途时三处徽标内显示活动图标。 */
 [data-dsh-activity-pane] .dap-count .dap-spinner,
 [data-dsh-activity-pane] .dap-rail-count .dap-spinner,
 .dap-toggle .dap-toggle-count .dap-spinner {
@@ -4374,7 +4374,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
 }
 /* 移动端「活动」开关按钮：仅在窄屏显示（桌面隐藏）。呈紧凑形态（仅计数徽标，
    无图标与文字标签，T-162）——面板图标被东家误读为边栏按钮，撤销）。常态嵌入
-   宿主头部的标题行行首作为布局子项参与排布（R-01-008/AC-04，T-163；视觉上位于
+   宿主头部的标题行行首作为布局子项参与排布（T-163；视觉上位于
    左边栏切换按钮右侧，其余头部控件被真实后挤）；标题行不可得且宿主侧栏展开按钮
    在屏时落位 hero 形态贴靠该按钮右侧（T-167）。落位由 placeToggle 驱动
    （data-embedded / data-hero 属性承载）；未落位的开关不进入 DOM（不可嵌即不
@@ -4385,7 +4385,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
    .dap-toggle-count 徽标本体；border:none 与 background:none 显式压掉 UA
    默认按钮壳——appearance:none 不摘除 UA 声明的边框与底色，WebKit 探针实测
    漏出 2px 灰壳；外层命中盒最小 44×38px，内层计数徽标最小 36×24px，
-    计数文字 12px、水平 padding 8px（R-01-008/AC-07、C-095）。
+    计数文字 12px、水平 padding 8px（C-095）。
    width:max-content + appearance:none + max-width:64px 显式钉宽并钳硬上限；
    两位计数时外层命中盒保持至少 44px 宽，较长计数沿既有上限处理。 */
 .dap-toggle {
@@ -4437,9 +4437,9 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   background: rgba(42, 40, 30, 0.97);
   animation: dap-await-pulse 1.2s ease-in-out infinite;
 }
-/* 移动端抽屉透明遮罩：抽屉打开时铺满视口、点击收起抽屉（R-01-008/AC-03）。
+/* 移动端抽屉透明遮罩：抽屉打开时铺满视口、点击收起抽屉。
    完全透明不占布局；z-index 介于主会话与抽屉（2147482990）之间；抽屉打开期间
-   浮动开关隐藏（见 .dap-toggle[data-drawer-open]，R-01-008/AC-05），关闭由
+   浮动开关隐藏（见 .dap-toggle[data-drawer-open]），关闭由
    标题行激活（无独立 × 关闭按钮，T-137）与遮罩承担；桌面断点外由媒体查询保持隐藏。 */
 .dap-backdrop {
   position: fixed; inset: 0;
@@ -4447,7 +4447,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   background: transparent;
   display: none;
 }
-/* 活动区↔历史区迁移动画（R-01-010/AC-07、AC-10）：旧卡克隆 ghost 挂载于窗格元素内
+/* 活动区↔历史区迁移动画：旧卡克隆 ghost 挂载于窗格元素内
    （卡片样式经 [data-dsh-activity-pane] 作用域自然生效），以 absolute 覆盖层从原矩形
    FLIP 平移并形变至目标区卡片矩形，到位后再淡出、真卡同步淡入；ghost 生命周期由
    transitionend 收口。迁移帧内位置受影响的其它卡片（含历史区段头）经 dap-shift
@@ -4464,7 +4464,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   animation: dap-move-in 0.3s ease;
 }
 @keyframes dap-move-in { from { opacity: 0; } }
-/* 受影响卡片 FLIP（R-01-010/AC-10）：JS 先以无过渡内联 transform 把元素钉回旧视觉
+/* 受影响卡片 FLIP：JS 先以无过渡内联 transform 把元素钉回旧视觉
    位置，reflow 后挂本类并清除内联位移，经 transform 过渡平滑归位；与 ghost 同时长
    同缓动。.dap-card/.dap-recent-head 均无既有 transition 规则，本类不覆盖其它过渡。 */
 [data-dsh-activity-pane] .dap-shift {
@@ -4492,14 +4492,14 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {
   /* 屏外休眠（T-127）：抽屉关闭（含初始未开，data-open 缺省视同关闭）时子树整体
      跳过渲染——无限动画与样式失效不再产生渲染开销；布局状态保留，scrollTop 不归零
      （区别于 display:none，T-027）；打开瞬间恢复渲染，滑入过渡不变。开关与遮罩挂
-     body，不落本规则，浮动开关徽标脉冲（R-01-002/AC-06、AC-07）照常。 */
+     body，不落本规则，浮动开关徽标脉冲照常。 */
   [data-dsh-activity-pane]:not([data-open="true"]) { content-visibility: hidden; }
   .dap-backdrop[data-drawer-open] { display: block; }
   /* 开关显隐改为落位属性驱动（T-167）：嵌入态/hero 态各自 display:flex，
      未落位（不在 DOM）自然不显示；fixed 兜底形态已去除。 */
   .dap-toggle[data-embedded] { display: flex; }
   .dap-toggle[data-hero] { display: flex; }
-  /* 插件抽屉打开时开关留位隐藏：visibility 不可见且不可命中（满足 AC-05 隐藏），
+  /* 插件抽屉打开时开关留位隐藏：visibility 不可见且不可命中（满足  隐藏）
      标题行不因开合重排（T-160 闸口决策）；pointer-events 同步摘除，不可见盒
      不拦截宿主抽屉点击；hero 态 absolute 脱流，留位语义等价。 */
   .dap-toggle[data-drawer-open] { display: flex; visibility: hidden; pointer-events: none; }
@@ -4522,21 +4522,21 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card:hover {
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="subagent"] {
   background: var(--dsw-specific-sidebar-fill, rgb(249, 250, 251));
 }
-/* 后台任务子卡浅色主题与子代理卡同源（R-01-023）：淡侧栏填充底，轻染同族蓝与子代理卡区分（R-01-023/AC-07）。 */
+/* 后台任务子卡浅色主题与子代理卡同源：淡侧栏填充底，轻染同族蓝与子代理卡区分。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="job"] {
   background: color-mix(in srgb, #65a0ff 8%, var(--dsw-specific-sidebar-fill, rgb(249, 250, 251)));
 }
-/* 纯展示子卡（R-01-023/AC-08）：浅色主题同样不提供悬停反馈（回归基态描边）。 */
+/* 纯展示子卡：浅色主题同样不提供悬停反馈（回归基态描边）。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="job"]:hover {
   border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
   filter: none;
 }
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="recent"] {
-  /* 暗于活动卡的 --dsw-alias-bg-layer-2 纯白、深于窗格底色（R-01-013/AC-10、AC-11）。 */
+  /* 暗于活动卡的 --dsw-alias-bg-layer-2 纯白、深于窗格底色。 */
   background: rgb(243, 244, 246);
   border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
 }
-/* 当前会话前台态（R-01-006/AC-01、AC-06）：浅色底上亮蓝对比不足，取深一档蓝
+/* 当前会话前台态：浅色底上亮蓝对比不足，取深一档蓝
    #2f7cf6；光晕 alpha 亦低于深色（浅底大光晕易发脏）。浅色块必须在 [data-kind] 覆盖
    之后重声明——浅色 .dap-card/:hover/[data-kind] 规则的优先级均高于基态 [data-current]
    规则，不重声明则浅色下选中描边与光晕被顶掉。 */
@@ -4548,7 +4548,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current] 
     0 0 16px color-mix(in srgb, var(--dap-current-color) 30%, transparent),
     inset 0 0 10px color-mix(in srgb, var(--dap-current-color) 12%, transparent);
 }
-/* 当前会话后台态（R-01-006/AC-03、AC-06）：浅色取 46% 描边 + 1px 环 + 12px 柔光，同样全面低于浅色前台态；
+/* 当前会话后台态：浅色取 46% 描边 + 1px 环 + 12px 柔光，同样全面低于浅色前台态；
    须定义在浅色前台态之后同优先级后定义者胜。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current]:not([data-foreground]) {
   border-color: color-mix(in srgb, var(--dap-current-color) 46%, transparent);
@@ -4562,7 +4562,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current]:
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] {
   background: color-mix(in srgb, rgb(253, 244, 208) 55%, #fff);
 }
-/* 完成提醒卡浅色主题取宿主 success 三级背景别名（R-01-002/AC-04，C-040）：淡绿成功底。 */
+/* 完成提醒卡浅色主题取宿主 success 三级背景别名（C-040）：淡绿成功底。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {
   background: color-mix(in srgb, var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237)) 55%, #fff);
 }
@@ -4571,7 +4571,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awa
   background: color-mix(in srgb, rgb(252, 233, 234) 55%, #fff);
 }
 /* 数量徽标等待态浅色主题覆盖：默认金色跟随阻塞卡、tone=done 跟随完成卡别名、
-  tone=error 跟随错误卡淡红（R-01-002/AC-06，无描边与外环；底色与卡面同值）。 */
+  tone=error 跟随错误卡淡红（无描边与外环；底色与卡面同值）。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting],
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting],
 body:not([data-ds-dark-theme]) .dap-toggle[data-awaiting] .dap-toggle-count {
@@ -4615,7 +4615,7 @@ body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-track {
   background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.08));
 }
 /* 「回到顶部」与标题行档位按钮及左侧仓库入口的浅色覆盖：不透明层-2 底色与外壳描边别名
-   （R-01-018/AC-05、R-01-021/AC-05、R-01-022/AC-01）；仓库入口无描边（T-139），只并入底色组。 */
+   ；仓库入口无描边（T-139），只并入底色组。 */
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density,
 body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-repo {
@@ -4666,7 +4666,7 @@ function mapKeys(value) {
 
 /** 从原生会话快照归一运行卡回合开始时间。
  *  elapsed 不在快照事件时固化——渲染期用 Date.now()-startTime 实时算，时长才能
- *  随 1s 时钟逐秒跳动（R-01-009/AC-03）。 */
+ *  随 1s 时钟逐秒跳动。 */
 function livenessFromSnapshot(snap) {
 	let startTime = null;
 	const timings = snap?.turnTimings;
@@ -4712,13 +4712,13 @@ function fmtRecentTime(ts, now = Date.now()) {
 	}
 }
 
-/** 等待卡状态年龄文案（R-01-002/AC-14）：进入状态时刻的裸相对时间，单点派生；
+/** 等待卡状态年龄文案：进入状态时刻的裸相对时间，单点派生；
  *  时刻不可得或差值为负（时钟偏差）返回空串（节点隐藏）。 */
 function awaitAgeText(entry, now = Date.now()) {
 	return Number.isFinite(entry?.stateAt) ? fmtRelativeAge(now - entry.stateAt) : "";
 }
 
-/** 读取持久化列宽：缺失/非法/越界值经 clampPaneWidth 归一；localStorage 不可用（隐私模式）静默回退默认（R-01-015/AC-04）。 */
+/** 读取持久化列宽：缺失/非法/越界值经 clampPaneWidth 归一；localStorage 不可用（隐私模式）静默回退默认。 */
 function readStoredPaneWidth() {
 	try {
 		return clampPaneWidth(window.localStorage.getItem(WIDTH_STORAGE_KEY));
@@ -4726,7 +4726,7 @@ function readStoredPaneWidth() {
 		return PANE_WIDTH_DEFAULT;
 	}
 }
-/** 拖拽结束持久化列宽；localStorage 不可用时静默跳过（R-01-015/AC-04）。 */
+/** 拖拽结束持久化列宽；localStorage 不可用时静默跳过。 */
 function writeStoredPaneWidth(width) {
 	try {
 		window.localStorage.setItem(WIDTH_STORAGE_KEY, String(width));
@@ -4734,7 +4734,7 @@ function writeStoredPaneWidth(width) {
 }
 
 /** 读取持久化卡片显示档位：缺失/非法值经 normalizeDensity 归一为默认中间档；
- *  localStorage 不可用（隐私模式）静默回退中间档（R-01-021/AC-06）。 */
+ *  localStorage 不可用（隐私模式）静默回退中间档。 */
 function readStoredDensity() {
 	try {
 		return normalizeDensity(window.localStorage.getItem(DENSITY_STORAGE_KEY));
@@ -4742,7 +4742,7 @@ function readStoredDensity() {
 		return "medium";
 	}
 }
-/** 切换时持久化卡片显示档位；localStorage 不可用时静默跳过（R-01-021/AC-06）。 */
+/** 切换时持久化卡片显示档位；localStorage 不可用时静默跳过。 */
 function writeStoredDensity(value) {
 	try {
 		window.localStorage.setItem(DENSITY_STORAGE_KEY, value);
@@ -4765,7 +4765,7 @@ function apply(ctx) {
 	let workspaceUnsubscribe = null;
 	let pendingUnsubscribe = null;
 	let jobsUnsubscribe = null;
-	/** 布局 store 服务代际与其 panelInfo 订阅（R-01-006/AC-03、AC-05，C-104）。 */
+	/** 布局 store 服务代际与其 panelInfo 订阅（C-104）。 */
 	let layoutService = null;
 	let panelUnsubscribe = null;
 	// jobs 快照的窗格相关签名基线（T-181 ①）：脏检查跳过签名不变的推送帧。
@@ -4782,7 +4782,7 @@ function apply(ctx) {
 	let lastSyncAt = 0;
 	let syncThrottleTimer = null;
 	let lastSig = "";
-	/** 等待条目 id/类别队列签名：变化时统一重启数量胶囊与等待卡末行动画对相（R-01-002/AC-07、AC-08）。 */
+	/** 等待条目 id/类别队列签名：变化时统一重启数量胶囊与等待卡末行动画对相。 */
 	let pulseSignature = "";
 	// E2E-only deterministic seams（T-089/T-090）：显式 URL fragment 最多把本页首次列表 ready 呈现
 	// 或正式 models RPC 延后 1s；列表延迟从首个窗格 render 开始计时，避免宿主启动耗时
@@ -4825,13 +4825,13 @@ function apply(ctx) {
 	let boundPane = null;
 	let unbindPaneControls = null;
 	let collapsed = false;
-	/** 当前桌面列宽：启动时从 localStorage 恢复，拖拽实时更新，重挂载后保留（R-01-015）。 */
+	/** 当前桌面列宽：启动时从 localStorage 恢复，拖拽实时更新，重挂载后保留。 */
 	let paneWidth = readStoredPaneWidth();
 	/** 卡片显示档位（full/medium/compact）：启动时从 localStorage 恢复，切换实时更新，
-	 *  重挂载后保留（R-01-021/AC-06）。 */
+	 *  重挂载后保留。 */
 	let densityLevel = readStoredDensity();
 	/** 待执行的锚定补偿：档位切换时登记当前选中卡片顶部的视口相对位置，本轮渲染
-	 *  提交后量测该卡新位置并补偿 scrollTop（R-01-021/AC-01）。
+	 *  提交后量测该卡新位置并补偿 scrollTop。
 	 *  dsh 0.2.0（T-170 审核）：切回更高档位时窗口经 retain→ready 异步重建，时间线
 	 *  内容分多帧长回——补偿在沉降窗内逐帧执行，位置稳定或超窗即撤（单帧补偿
 	 *  会漏掉后期增长，锚点漂移）。 */
@@ -4843,18 +4843,18 @@ function apply(ctx) {
 	/** 最近一次已处理的当前卡片；同一卡片的运行时重绘不反复打断用户手动滚动。 */
 	let autoScrolledCurrentId = null;
 	let autoScrolledCurrentCard = null;
-	/** 完成确认状态（R-01-002/AC-03、AC-10～AC-12）：id → { lastTurnEnd, ackedAt }，
+	/** 完成确认状态：id → { lastTurnEnd, ackedAt }
 	 *  来自宿主侧 ack 通道（SSE 全量快照），随每次推送整体替换。 */
 	const completeAcksById = new Map();
-	/** 上一帧已提交渲染的活动区 id 集合：活动区→历史区迁移检测（R-01-010/AC-07）。 */
+	/** 上一帧已提交渲染的活动区 id 集合：活动区→历史区迁移检测。 */
 	let prevRenderedActiveIds = new Set();
-	/** 上一帧已提交渲染的历史区 id 集合：历史区→活动区迁移检测（R-01-010/AC-07）。 */
+	/** 上一帧已提交渲染的历史区 id 集合：历史区→活动区迁移检测。 */
 	let prevRenderedRecentIds = new Set();
 	/** 迁移中 ghost 元素集合（含 id 索引）：同一 id 再迁移时旧 ghost 移除，卸载时统一清理。 */
 	const moveGhosts = new Set();
 	const moveGhostsById = new Map();
 	/** 在飞平移的元素级清理（元素 → transitionend 监听移除 + 类与内联位移复位）：
-	 *  平移中再次迁移以当前视觉矩形为起点重启；prune 与卸载时同步取消（R-01-010/AC-10）。 */
+	 *  平移中再次迁移以当前视觉矩形为起点重启；prune 与卸载时同步取消。 */
 	const shiftCleanups = new Map();
 	/** 活动区卡片 id → { el, kind } 复用表。 */
 	const cardsById = new Map();
@@ -4873,7 +4873,7 @@ function apply(ctx) {
 	let recentAppendQueued = false;
 	/** 运行中会话原生快照订阅：id → { unsubscribe, liveness, snapshot }。 */
 	const livenessById = new Map();
-	/** 委托周期进度锚点记账：id → progressAnchor 状态（R-01-009/AC-06）。 */
+	/** 委托周期进度锚点记账：id → progressAnchor 状态。 */
 	const progressAnchorById = new Map();
 	/** 订阅停止后保留最近快照与最后已知运行统计，供 awaiting/recent 卡继续显示上下文。 */
 	const sessionDetailsById = new Map();
@@ -4883,11 +4883,11 @@ function apply(ctx) {
 	const modelLoads = new Map();
 	/** native cold-session log reads, one promise per session and no polling. */
 	const historyLoads = new Map();
-	/** 模型目录订阅（R-01-012/AC-16）：id → unsubscribe；模型选择切换经原生
+	/** 模型目录订阅：id → unsubscribe；模型选择切换经原生
 	 *  modelDirectories store 推送即时到达，随可见性清理/卸载先 unsubscribe 再除名。 */
 	const modelDirectorySubs = new Map();
 	const logSourceSubs = new Map();
-	/** 模型目录分组的 modelId → {name, reasoning} 索引（R-01-012/AC-17）：同一部署的
+	/** 模型目录分组的 modelId → {name, reasoning} 索引：同一部署的
 	 *  目录分组在主/子会话间共享，经主会话的目录订阅与一次性 models RPC 就地收割，
 	 *  渲染时解析显示名与 effort 回退。无原型对象：模型 id 可能恰为 "constructor" 等
 	 *  继承键名，不得穿透回退。 */
@@ -4925,7 +4925,7 @@ function apply(ctx) {
 	const sessionRefs = new Map();
 	/** 插件 retain source：与宿主 mainView/workspaceOperation 并列的独立消费方标识。 */
 	const PLUGIN_RETAIN_SOURCE = "dsh-activity-pane";
-	/** jobs 服务按会话 roster 订阅（dsh 0.2.0 起 jobsBySession 移除，R-01-023）：
+	/** jobs 服务按会话 roster 订阅（dsh 0.2.0 起 jobsBySession 移除）
 	 *  String(id) → stop()；对列表内全会话订 roster，随列表 prune。 */
 	const jobWatchById = new Map();
 	/** 母会话投影按需拉取记账（T-151 后继）：parentId 在途记账，完成即除名允许重试。 */
@@ -4937,7 +4937,7 @@ function apply(ctx) {
 	document.head.appendChild(style);
 
 	// 移动端浮动开关按钮（桌面隐藏见 CSS）：紧凑形骨架——仅计数徽标，无图标与
-	// 文字标签（R-01-008/AC-04，T-162；面板图标被东家误读为边栏按钮，撤销）；
+	// 文字标签（T-162；面板图标被东家误读为边栏按钮，撤销）；
 	// 可访问名称由 aria-label 承担。不预挂 DOM：开关仅在 placeToggle 落位时进入
 	// 文档，未落位即不渲染（C-093，fail-visible——嵌入失败表现为按钮消失）。
 	const toggle = document.createElement("button");
@@ -4946,12 +4946,12 @@ function apply(ctx) {
 	toggle.setAttribute("aria-label", "切换活动会话窗格");
 	toggle.innerHTML = "<span class=\"dap-toggle-count\"></span>";
 
-	// 移动端抽屉透明遮罩：仅窄屏且抽屉打开时显示，点击收起抽屉（R-01-008/AC-03）。
+	// 移动端抽屉透明遮罩：仅窄屏且抽屉打开时显示，点击收起抽屉。
 	const backdrop = document.createElement("div");
 	backdrop.className = "dap-backdrop";
 	document.body.appendChild(backdrop);
 
-	// 移动端「活动」开关落位守卫（T-163/T-167/T-171，R-01-008/AC-04）：常态嵌入宿主
+	// 移动端「活动」开关落位守卫（T-163/T-167/T-171）：常态嵌入宿主
 	// 头部参与布局——东家指示（左边栏弹出按钮的右侧，其余控件被真实后挤）。0.2.0 起
 	// 头部结构代差：header.firstElementChild 只是左侧窄条 headerLeading；无壳层开关
 	// 占座时仍嵌该行行首；移动壳层开关（data-mobile-nav="toggle"）占座时改嵌会话头
@@ -5029,7 +5029,7 @@ function apply(ctx) {
 				toggle.style.marginLeft = next > 0 ? `${next}px` : "";
 				// 3.3.x 壳层在标题行下新增 Chat/Trajectory 标签行，标签的透明命中带上缘
 				// 伸入标题行底部；开关保持 44×38 并以 relative+z-index 2 置顶，叠置带命中
-				// 归开关，标签可见文字（y≥40）不被遮挡（R-01-008/AC-04，T-203）。
+				// 归开关，标签可见文字（y≥40）不被遮挡（T-203）。
 				toggle.style.height = "";
 				toggle.style.minHeight = "";
 				toggle.style.alignSelf = "";
@@ -5104,7 +5104,7 @@ function apply(ctx) {
 	// 桌面判定与"真实参与布局"：中间列切为行方向，窗格固定宽、主内容根弹性填充
 	// 剩余宽度（flex:1 + min-width:0），让会话或全局面板内容被真实挤到窗格右侧；
 	// 聊天列在增宽的会话带内自动居中。窗格显隐与展开/收起只由用户操作决定，
-	// 不随主区域页面切换自动收起（R-01-007/AC-03、AC-05，C-103）。
+	// 不随主区域页面切换自动收起（C-103）。
 	const desktopQuery = window.matchMedia("(min-width: 768px)");
 	/** 找到作为 center 弹性子项的真实会话盒（跳过 display:contents 占位层）。 */
 	function conversationFlexItem(center) {
@@ -5123,7 +5123,7 @@ function apply(ctx) {
 		return candidate;
 	}
 	/** 当前 main 槽 entry 的根盒（跳过 display:contents 占位层）。全局面板没有会话
-	 *  滚动区，主内容根只能从槽容器的 entry 根取（R-01-007/AC-04）。 */
+	 *  滚动区，主内容根只能从槽容器的 entry 根取。 */
 	let entryFlexWarned = false;
 	function entryFlexItem(seat) {
 		let node = seat.firstElementChild;
@@ -5179,7 +5179,7 @@ function apply(ctx) {
 	}
 	/** 窗格与开关的可见性单点：桌面窗格常驻，显隐只由用户折叠态决定。当前版本不产生
 	 *  内联 display:none，这里只做防御性清理（宿主重挂载或旧实例窗口期），不提供自动
-	 *  隐藏路径（R-01-007/AC-03、AC-05，C-103）。 */
+	 *  隐藏路径（C-103）。 */
 	function ensurePaneVisible(pane, toggle) {
 		let changed = false;
 		for (const el of [pane, toggle]) {
@@ -5197,7 +5197,7 @@ function apply(ctx) {
 		let changed = false;
 		if (!desktopQuery.matches) {
 			// 移动端：抽屉脱离文档流（fixed），不参与主会话布局；恢复外壳默认
-			// 列布局，避免行方向扰动移动端主会话显示（R-01-008）。
+			// 列布局，避免行方向扰动移动端主会话显示。
 			if (ensurePaneVisible(pane, toggle)) changed = true;
 			if (resetCenterColumn(center)) changed = true;
 			if (resetContentFlex(mainContentFlexItem(center, seat))) changed = true;
@@ -5205,7 +5205,7 @@ function apply(ctx) {
 			return;
 		}
 		// 桌面：窗格常驻，用户未折叠时保持展开宽度、折叠后保持窄条；页面切换、
-		// 宿主重渲染与全局面板占屏都不改变该形态（R-01-007/AC-03、AC-05）。
+		// 宿主重渲染与全局面板占屏都不改变该形态。
 		// 中列始终为「窗格 + 主内容」行布局，主内容按当前 entry 弹性填充余宽。
 		if (ensurePaneVisible(pane, toggle)) changed = true;
 		if (center.style.flexDirection !== "row") {
@@ -5249,18 +5249,18 @@ function apply(ctx) {
 		else schedule(deliverSync);
 	}
 
-	// ---- 完成确认通道（R-01-002/AC-10～AC-12、R-01-010/AC-06，C-030） ----
+	// ---- 完成确认通道（C-030） ----
 	// SSE 订阅宿主侧 ack 状态：连接即收全量快照（刷新/重连恢复），此后每次变更推送
 	// 增量补丁（T-188：`patch` 事件逐 id upsert，仅本次变更会话）。无 EventSource 环境
 	// 静默降级为无完成提醒（宿主侧不可用时插件其余功能不受影响）。
 	// 移动 PWA 退后台时系统掐断连接，恢复时 EventSource 常以 CLOSED 终态落地不再
 	// 自动重连（或半开死连接看似 OPEN 却不再收到广播），本地 ack 状态随之永久停滞；
 	// 故回到前台时无条件重建连接——连接即收全量快照，各失效形态一并收敛
-	// （R-01-002/AC-12 缺陷回归：完成等待中的会话曾被误判入历史区直至整页重载）。
+	// （缺陷回归：完成等待中的会话曾被误判入历史区直至整页重载）。
 	// 未注册监听的事件类型（含宿主未来新增类型）EventSource 天然忽略，向前兼容。
 	let acksSource = null;
 
-	/** ack 记录归一（R-01-002）：state 全量与 patch 增量共用同一形状校验——lastTurnEnd
+	/** ack 记录归一：state 全量与 patch 增量共用同一形状校验——lastTurnEnd
 	 *  非法时刻的记录不入 Map（返回 null），字段缺失按 null 容纳。 */
 	function ackRecordFrom(record) {
 		const lastTurnEnd = Number(record?.lastTurnEnd);
@@ -5344,7 +5344,7 @@ function apply(ctx) {
 	window.addEventListener("pageshow", onPageShow);
 	connectAcksStream();
 
-	/** 确认写回（R-01-002/AC-10～AC-12）：乐观更新本地游标（签名驱动即时解除），
+	/** 确认写回：乐观更新本地游标（签名驱动即时解除）
 	 *  再 POST 宿主侧持久化并广播；写回失败回滚本地游标（提醒恢复），不吞异常。 */
 	async function ackCompletion(sessionId) {
 		const id = String(sessionId);
@@ -5366,7 +5366,7 @@ function apply(ctx) {
 		}
 	}
 
-	// ---- 累计运行时长通道（R-01-020，C-074） ----
+	// ---- 累计运行时长通道（C-074） ----
 	// SSE 订阅宿主侧回合统计：连接即收全量快照（刷新/重连恢复），此后每次变更（回合
 	// 边界、回填完成）推送增量补丁（T-188：`patch` 事件逐 id upsert，仅本次变更会话）。
 	// 无 EventSource 环境静默降级为不显示累计时长。
@@ -5386,7 +5386,7 @@ function apply(ctx) {
 	let busySource = null;
 	let busyFetchInflight = false;
 
-	/** busy 记录归一（R-01-020）。 */
+	/** busy 记录归一。 */
 	function busyRecordFrom(record) {
 		return {
 			busyMs: normalizeBusyMs(record?.busyMs),
@@ -5441,7 +5441,7 @@ function apply(ctx) {
 		queueSync();
 	}
 
-	/** 懒回填响应应用（R-01-020/AC-05）：只补 busyById 缺失的 id，不覆盖、不清除既有记录。
+	/** 懒回填响应应用：只补 busyById 缺失的 id，不覆盖、不清除既有记录。
 	 *  安全依据：宿主每次变更（含回填完成）都经同一 SSE 单流按序推送（T-188 起 state 全量
 	 *  或 patch 增量），SSE 数据恒不旧于同刻 GET 响应——回填响应可能先于宿主登记 turn/start
 	 *  发出（卡片渲染早于登记）、迟到落地，按 id 只补缺即不会用陈旧点读回退新鲜状态；缺失
@@ -5460,7 +5460,7 @@ function apply(ctx) {
 		}
 	}
 
-	/** 累计运行时长注入（R-01-020/AC-01、AC-03、AC-07）：已完成回合累计 + 开放回合实时
+	/** 累计运行时长注入：已完成回合累计 + 开放回合实时
 	 *  已耗时（扣除等待区间）；渲染期按 now 合成，阻塞等待期间公式自冻结；子代理条目
 	 *  不注入（entry.totalBusyMs 保持 undefined → 节点隐藏）。 */
 	function applyTotalBusy(entry, now) {
@@ -5518,7 +5518,7 @@ function apply(ctx) {
 		}
 	}
 	// 回到前台（含 bfcache 还原）时 busy 通道自愈：重建 SSE，借连接全量快照收敛；
-	// 具名 handler 使 cleanup 能移除监听（与 acks 通道同模式，R-02-003）。
+	// 具名 handler 使 cleanup 能移除监听（与 acks 通道同模式）。
 	const onBusyVisibilityResume = () => {
 		if (document.visibilityState === "visible" && !disposed) connectBusyStream();
 	};
@@ -5529,7 +5529,7 @@ function apply(ctx) {
 	window.addEventListener("pageshow", onBusyPageShow);
 	connectBusyStream();
 
-	// ---- 回到前台渲染管线自愈（R-01-001/AC-03 回归修复） ----
+	// ---- 回到前台渲染管线自愈（回归修复） ----
 	// iOS 后台挂起会丢弃在途 setTimeout：queueSync 的节流窗口尾与流式派生窗口若在
 	// 挂起前排队，恢复后永不交付——syncScheduled/logDeriveTimer 永久滞留，此后一切
 	// 更新（store 订阅推送、SSE 快照、时钟 tick）都被 queueSync 早退吞掉，窗格停留
@@ -5563,7 +5563,7 @@ function apply(ctx) {
 	document.addEventListener("visibilitychange", onSyncVisibilityResume);
 	window.addEventListener("pageshow", onSyncPageShow);
 
-	// ---- 回到前台壳层连接自愈（R-01-001/AC-03 回归修复，T-191） ----
+	// ---- 回到前台壳层连接自愈（回归修复，T-191） ----
 	// 卡片运行状态（row.running/pendingInteraction/jobs roster/委托后代）全部来自壳层
 	// gateway 推送式 store，不经插件自建 SSE——acks/busy 通道的回前台重建覆盖不到它。
 	// 移动 PWA 挂起后该连接常呈半开死形态（看似 OPEN 却不再有推送，也无 close/online
@@ -5651,13 +5651,13 @@ function apply(ctx) {
 		return entries?.find((candidate) => String(candidate?.id) === String(id));
 	}
 
-	/** 会话日志分页地址（R-01-012）：主会话 `{kind:"session", sessionId}`；子代理
+	/** 会话日志分页地址：主会话 `{kind:"session", sessionId}`；子代理
 	 *  `{kind:"subagent", parentSessionId, childSessionId, mode}`。mode 必须与子代理
 	 *  描述符一致，不一致被宿主以 subagent/unauthorized 拒绝（T-151）：优先取母会话
 	 *  目录条目的 mode；目录条目缺失（未加载、在途空窗或无该子条目）时以 `unknown`
 	 *  兜底——0.2.0 SessionAddress 新增该合法值（旧行 `continuable` 字段已随 0.2.0
 	 *  行形状移除，启发不再可靠；读取失败仍由 pagedHistoryEvents 以 null 收敛为空白
-	 *  详情，R-01-013）。 */
+	 *  详情）。 */
 	/** 子代理行的母会话 id（T-170 审核发现 7）：0.2.0 行形状 parentSessionId，
 	 *  兼容旧 parentId 键，单点解析避免三处漂移。 */
 	function parentSessionIdOf(row) {
@@ -5681,7 +5681,7 @@ function apply(ctx) {
 		return { kind: "session", sessionId: String(id) };
 	}
 
-	/** 部署级目录分组收割（R-01-012/AC-01）：modelCatalog RPC 与 modelDirectories
+	/** 部署级目录分组收割：modelCatalog RPC 与 modelDirectories
 	 *  目录订阅推送共享同一部署目录，后到覆盖（分组集合一致）；展平索引进
 	 *  `catalogEntries` 供子代理溯源 id 解析显示名。空分组不覆盖既有缓存。 */
 	function harvestCatalog(groups) {
@@ -5690,7 +5690,7 @@ function apply(ctx) {
 	}
 
 	/** 同帧重启等待提醒动画：数量胶囊保持亮度呼吸，卡片末行保持 opacity 脉冲，
-	 *  只统一周期起点，不改变各自视觉载体（R-01-002/AC-07、AC-08，C-065）。 */
+	 *  只统一周期起点，不改变各自视觉载体（C-065）。 */
 	function syncAwaitPulse(nodes) {
 		const activeNodes = [...new Set(nodes)].filter((node) => node?.isConnected);
 		if (activeNodes.length === 0) return;
@@ -5699,7 +5699,7 @@ function apply(ctx) {
 		for (const node of activeNodes) node.style.animation = "";
 	}
 
-	/** 模型目录订阅（R-01-012/AC-16，C-024）：订阅原生 modelDirectories 服务的
+	/** 模型目录订阅（C-024）：订阅原生 modelDirectories 服务的
 	 *  per-session 目录 store（与主会话窗口模型选择器同源），同客户端切换模型选择
 	 *  经 select() 成功即推送，到达即重归一模型上下文并就地重绘。
 	 *  只订阅不 load()——load 会推进目录 generation 计数，与进行中的 select() 竞争
@@ -5738,7 +5738,7 @@ function apply(ctx) {
 	/** 目录 store 一次性 load（dsh 0.1.5 起惰性加载：不 load 不产出当前选择，原生模型
 	 *  选择器同样先 load）。load 与 select() 的 generation 竞争以「最新操作胜出」，用户
 	 *  切换后到仍胜出。e2e 接缝（dap-e2e-model-delay）延迟 load 发起，使模型上下文
-	 *  严格晚于时间线呈现，渐进渲染可观察（R-01-014/AC-03）。 */
+	 *  严格晚于时间线呈现，渐进渲染可观察。 */
 	function loadDirectoryOnce(id) {
 		if (disposed || !modelDirectorySubs.has(id) || modelLoads.has(id)) return;
 		let directory = null;
@@ -5782,8 +5782,8 @@ function apply(ctx) {
 			// 主会话建立模型目录订阅：dsh 0.1.5 起目录 store 惰性加载（不 load 不产出当前
 			// 选择），订阅与一次性 load 一并触发；子代理的目录不可用（宿主以 agent-busy
 			// 拒绝其模型 RPC），不建立订阅。e2e 接缝把订阅与 load 整体延后，使模型上下文
-			// 严格晚于时间线呈现（R-01-014/AC-03 渐进语义可观察）。
-			// 档位资源纪律（R-01-025/AC-06）：紧凑档主会话的模型区域在头部行内、整体
+			// 严格晚于时间线呈现（渐进语义可观察）。
+			// 档位资源纪律：紧凑档主会话的模型区域在头部行内、整体
 			// 隐藏——模型上下文无可见消费者，不订阅不 load；切回更高档位后经既有
 			// 一次性读取语义补齐。logWindowSuppressed 单点判定。
 			if (!subagent && !logWindowSuppressedFor(id, byId)) {
@@ -5799,15 +5799,15 @@ function apply(ctx) {
 				}
 			}
 			captureSessionLog(id, { cwd: byId[id]?.cwd ?? "" });
-			// 长会话深读兜底（R-01-013/AC-03）：最近卡预览/子代理溯源不在尾页日志窗口内
+			// 长会话深读兜底：最近卡预览/子代理溯源不在尾页日志窗口内
 			// 且宿主标记 hasMore 时，按 beforeSeq 向前回溯翻页（默认无页数上限）。
 			const windowEntries = Array.isArray(detail.log?.entries) ? detail.log.entries : [];
 			const lastSeq = Number(windowEntries.at(-1)?.event?.seq);
 			const deepReadNeeded =
 				(previewFallbackIds.has(id) || durationFallbackIds.has(id) || (subagent && subagentModelReadIds.has(id))) &&
-				// 档位资源纪律（R-01-025/AC-03）：紧凑档主会话不发起日志分页深翻——
+				// 档位资源纪律：紧凑档主会话不发起日志分页深翻——
 				// 预览行与最近回合耗时在该档位均不可见，最近历史排序以既有可用时刻
-				// 承载（R-01-010/AC-09 档位限定）；子代理模型溯源读取不受影响。
+				// 承载（档位限定）；子代理模型溯源读取不受影响。
 				(subagent || !logWindowSuppressed(densityLevel, subagent)) &&
 				detail.log?.hasMore === true &&
 				Number.isFinite(lastSeq) &&
@@ -5837,7 +5837,7 @@ function apply(ctx) {
 					.then(async () => {
 						const { events, error } = await pagedHistoryEvents({
 							fetchPage: async (beforeSeq) => {
-								// 档位资源纪律（R-01-025/AC-03）：分页响应点用时重读档位——
+								// 档位资源纪律：分页响应点用时重读档位——
 								// 切入紧凑档后，在途深翻不再发起下一页；中止时已取页不落地、
 								// 保持既有详情，切回后重新入队重取。子代理模型溯源读取不受影响。
 								if (logWindowSuppressed(densityLevel, subagent)) return null;
@@ -5850,7 +5850,7 @@ function apply(ctx) {
 						});
 						// 切档中止的在途深翻不落地、不标记完成——historyDeepReadDone 无复位
 						// 路径，中止即置位会让切回高档位后的预览/耗时补齐永久失效；中止时
-						// 保持既有详情不变，切回后经 deepReadNeeded 重新入队（R-01-025/AC-01）。
+						// 保持既有详情不变，切回后经 deepReadNeeded 重新入队。
 						if (logWindowSuppressed(densityLevel, subagent)) return;
 						if (error) detail.historyError = error instanceof Error ? error.message : String(error);
 						detail.history = events;
@@ -5866,20 +5866,20 @@ function apply(ctx) {
 		}
 		const pending = historyPromises;
 		if (pending.length > 0) {
-			// 逐个完成即重绘（先就绪先显示，不等待全部，R-01-014/AC-03）；
+			// 逐个完成即重绘（先就绪先显示，不等待全部）；
 			// 并立即重绘一次让加载指示在数据返回前出现。
 			for (const promise of pending) promise.then(queueSync, queueSync);
 			queueSync();
 		}
 	}
 
-	/** 档位资源纪律单点判定（R-01-025）：档位谓词与子代理判定的唯一组合。
+	/** 档位资源纪律单点判定：档位谓词与子代理判定的唯一组合。
 	 *  byId 缺省时读当帧列表快照；调用方已持有快照时传入以免重复读取。 */
 	function logWindowSuppressedFor(id, byId = getSnapshot(sessions, "list")?.byId ?? {}) {
 		return logWindowSuppressed(densityLevel, isSubagentRow(byId[id], byId));
 	}
 
-	/** 档位资源纪律拆窗（R-01-025/AC-01）：对非当前主会话的日志窗口订阅先
+	/** 档位资源纪律拆窗：对非当前主会话的日志窗口订阅先
 	 *  unsubscribe 再除名并清除窗口引用，并 dispose 会话运行时的 live 源
 	 *  （openState 归 cold，底层 session/follow 流终止）——订阅回调移除不终止
 	 *  共享传输流，dispose 才真正停带宽。当前会话的窗口由外壳会话视图持有，
@@ -5910,7 +5910,7 @@ function apply(ctx) {
 		}
 		// 无窗口引用的兜底释放（T-170 审核）：引用可先于窗口存在（轮内状态订阅
 		// 借用、切档在途），被抑制且非当前会话的残留引用一并释放，不留常驻
-		// retain（R-01-025/AC-01）。
+		// retain。
 		for (const id of [...sessionRefs.keys()]) {
 			if (logSourceSubs.has(id)) continue;
 			if (!logWindowSuppressedFor(id, listSnap?.byId ?? {})) continue;
@@ -5919,10 +5919,10 @@ function apply(ctx) {
 		}
 	}
 
-	/** 日志页落地后的详情派生（R-01-012、R-01-017）：时间线折叠、消息预览与子代理模型上下文。
+	/** 日志页落地后的详情派生：时间线折叠、消息预览与子代理模型上下文。
 	 *  子代理沿用溯源链（assistant/message source.model + 请求头 effort，T-122）；主会话模型
 	 *  不经日志提取（目录链订阅 + 一次性 load 承载，见 installServiceSubscriptions 注）。
-	 *  无请求头/无溯源时保持空白，不以部署默认或其它会话取值冒充（R-01-012/AC-18）。 */
+	 *  无请求头/无溯源时保持空白，不以部署默认或其它会话取值冒充。 */
 	function applyLogEvents(id, detail, events, { subagent, cwd = "", planSubagentModelRead = false }) {
 		// 增量派生（T-185）：折叠状态跨拍保留，纯追加只折新增条目；非纯追加
 		//（窗口替换/落定替换/seq 变化/cwd 变化）整表重建——宁全量勿增量。
@@ -5948,7 +5948,7 @@ function apply(ctx) {
 			return;
 		}
 		// 主会话模型上下文不经日志提取：以 modelDirectories 目录订阅为准（实时推送
-		// 当前选择），不可得时保持空白，不以日志历史取值或部署默认冒充（R-01-012/AC-18）。
+		// 当前选择），不可得时保持空白，不以日志历史取值或部署默认冒充。
 	}
 
 	/** 会话引用获取（dsh 0.2.0 retain 生命周期，T-170）：为可见卡片以独立 source
@@ -6020,7 +6020,7 @@ function apply(ctx) {
 	/** 只借用已接线会话面，不发起 retain（T-170 审核发现 1）：运行状态订阅的
 	 *  面必须来自既有引用（日志窗口或外壳主视图 retain 的会话）。无引用时返回
 	 *  null，调用方降级到统一状态面（sessionStatus）与 busy 记账，不得为
-	 *  轮内状态订阅单独水合紧凑档非当前主会话（R-01-025/AC-01）。 */
+	 *  轮内状态订阅单独水合紧凑档非当前主会话。 */
 	function peekSessionFace(id) {
 		const record = sessionRefs.get(String(id));
 		if (record === undefined || record.pending) return null;
@@ -6086,12 +6086,12 @@ function apply(ctx) {
 	// binding.eventSource 打开即收完整日志窗口 + 实时尾（原生 Conversation 同源）。
 	// 日志窗口快照引用变化即重派生详情（时间线/预览/模型），窗口由宿主按消息对齐分页。
 	function captureSessionLog(id, { cwd } = {}) {
-		// 档位资源纪律（R-01-025/AC-01）：紧凑档主会话不建立或保持会话日志窗口——
+		// 档位资源纪律：紧凑档主会话不建立或保持会话日志窗口——
 		// 不订阅事件流、不发起水合、不读窗口快照。判定必须先于 liveSessionFace：
 		// dsh 0.2.0 起 retain.ready 承载共享初始历史打开，先 retain 后判档会让
 		// 紧凑档非当前主会话被水合（T-170 审核发现 1）。判定在函数入口用时重读，
 		// 切档在途的回调与重试不落地新窗口。子代理日志窗口承载标题行可见的
-		// 模型上下文（R-01-012/AC-17），恒不裁剪（单点判定见 logWindowSuppressedFor）。
+		// 模型上下文，恒不裁剪（单点判定见 logWindowSuppressedFor）。
 		if (logWindowSuppressedFor(id)) return;
 		const detail = sessionDetailsById.get(id) ?? {};
 		sessionDetailsById.set(id, detail);
@@ -6104,7 +6104,7 @@ function apply(ctx) {
 			releaseSessionRef(id);
 			return;
 		}
-		// 日志窗口无效化订阅（事件驱动，不构成轮询，R-02-004）：等待/历史卡无会话状态
+		// 日志窗口无效化订阅（事件驱动，不构成轮询）：等待/历史卡无会话状态
 		// 订阅（syncLiveness 只订阅运行中），窗口推进（回合收尾、流式尾）必须经此回调
 		// 重读快照并重绘；否则窗口更新只能靠渲染期重读兜底——渲染一旦静默（一次性
 		// load 修复后），完成提醒耗时等窗口派生数据将永久停摆。随可见性 prune。
@@ -6164,7 +6164,7 @@ function apply(ctx) {
 		queueSync();
 	}
 
-	/** 部署级模型目录一次性读取（R-01-012/AC-01）：dsh 0.1.5 起 per-session models
+	/** 部署级模型目录一次性读取：dsh 0.1.5 起 per-session models
 	 *  RPC 移除，目录经 `remote.session.modelCatalog()` 无参数读取；成功即缓存不再
 	 *  重发，失败留待下轮详情读取重试。 */
 	function ensureCatalogGroups(sessionRemote) {
@@ -6197,7 +6197,7 @@ function apply(ctx) {
 		jobWatchById.clear();
 	}
 
-	/** 当前全局面板 id（R-01-006/AC-03、AC-04，C-104）：布局 store 的
+	/** 当前全局面板 id（C-104）：布局 store 的
 	 *  `panelInfo.activePanelId` 为 null 表示主区域显示会话视图，非 null 表示插件页等
 	 *  全局面板在屏。软依赖——服务缺失或读取失败按会话视图（null）处理，退回窗格跨页
 	 *  常驻前的语义，不产生永久后台态。 */
@@ -6208,7 +6208,7 @@ function apply(ctx) {
 			return null;
 		}
 	}
-	/** 全局面板态订阅（R-01-006/AC-03、AC-05，C-104）：layout 服务可能晚于插件挂载注册
+	/** 全局面板态订阅（C-104）：layout 服务可能晚于插件挂载注册
 	 *  或被代际替换，故不并入 installServiceSubscriptions 的一次性代际分支，而在 setup
 	 *  与每轮节流渲染前按服务身份补订/换订。页面切换不改其它渲染签名分量，缺少本订阅
 	 *  时当前卡的前台/后台态只能等下一次其它事件才刷新。 */
@@ -6256,14 +6256,14 @@ function apply(ctx) {
 		try {
 			// dsh 0.2.0（T-170）：统一会话状态面 sessionStatus 取代 pendingInteractions
 			// （Map<sessionId, {running, pendingInteraction, completionUnread}>），
-			// 订阅其快照变化驱动等待卡重算（R-01-002/AC-03）。
+			// 订阅其快照变化驱动等待卡重算。
 			pendingUnsubscribe = uiSession?.sessionStatus?.subscribe?.(queueSync) ?? null;
 		} catch {
 			pendingUnsubscribe = null;
 		}
 		try {
 			// dsh 0.2.0（T-170）：后台任务 roster 经 jobs 服务的 state 快照推送
-			// （rows: Record<sessionId, JobView[]>），订阅驱动在跑任务卡重算（R-01-023）。
+			// （rows: Record<sessionId, JobView[]>），订阅驱动在跑任务卡重算。
 			// 脏检查（T-181 ①）：窗格对 jobs 的全部消费经 liveJobsOf 派生（提升活动区、
 			// 数量徽标、任务子卡）——签名不变的推送（观察态 churn、无关字段更新）不点亮
 			// 渲染轮；签名覆盖全会话 live 行，提升/徽标语义不随订阅实现收窄。
@@ -6290,7 +6290,7 @@ function apply(ctx) {
 		const pane = document.querySelector(`[${PANE_ATTR}]`);
 		if (pane === null) return;
 		// 开合状态单点写入：同步抽屉滑入、透明遮罩显隐与浮动开关显隐
-		//（R-01-008/AC-03、AC-05）。
+		//。
 		pane.setAttribute("data-open", open ? "true" : "false");
 		backdrop.toggleAttribute("data-drawer-open", open);
 		toggle.toggleAttribute("data-drawer-open", open);
@@ -6355,8 +6355,8 @@ function apply(ctx) {
 		const onRecentMoreClick = () => {
 			if (loadMoreRecent() && recentMore !== null) recentMore.disabled = true;
 		};
-		// 标题行整体即收起控件，两端断点一致：桌面折叠为窄条（R-01-011/AC-03）；
-		// 移动端断点解释为收起抽屉，而非折叠窄条（R-01-008/AC-02、R-01-011/AC-06）。
+		// 标题行整体即收起控件，两端断点一致：桌面折叠为窄条；
+		// 移动端断点解释为收起抽屉，而非折叠窄条。
 		const onHeaderActivate = () => {
 			if (window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`).matches) {
 				togglePane(false);
@@ -6367,17 +6367,17 @@ function apply(ctx) {
 			queueSync();
 			notifyLayoutChange();
 		};
-		// Enter/Space 键盘激活与 click 同路径（R-01-011/AC-03、R-01-008/AC-02）。
+		// Enter/Space 键盘激活与 click 同路径。
 		const onHeaderKeydown = (event) => {
 			if (event.key !== "Enter" && event.key !== " ") return;
 			event.preventDefault();
 			onHeaderActivate();
 		};
-		// 「回到顶部」按钮显隐单点（R-01-018/AC-01、AC-03）：scrollTop 超阈值显示、阈值内隐藏。
+		// 「回到顶部」按钮显隐单点：scrollTop 超阈值显示、阈值内隐藏。
 		const syncTopBtn = () => {
 			if (topBtn !== null && scroll !== null) topBtn.hidden = scroll.scrollTop <= TOP_THRESHOLD;
 		};
-		// 鼠标进入窗格即显示 scrollbar（R-01-004/AC-03）；触摸指针不改变桌面滚动条可见状态。
+		// 鼠标进入窗格即显示 scrollbar；触摸指针不改变桌面滚动条可见状态。
 		const onPanePointerEnter = (event) => {
 			if (event.pointerType !== "mouse") return;
 			pane.setAttribute("data-pointer-inside", "");
@@ -6394,7 +6394,7 @@ function apply(ctx) {
 			// 折叠期间 display:none 可能令 scrollTop 归零而不派发 scroll 事件，展开时同步一次。
 			syncTopBtn();
 		};
-		// 桌面拖拽调宽（R-01-015）：pointer capture 跟踪 pointermove 实时夹取写入
+		// 桌面拖拽调宽：pointer capture 跟踪 pointermove 实时夹取写入
 		// --dap-width（主会话经 flex 弹性同步让位），抬起/取消时持久化并通知布局。
 		const onResizeDown = (event) => {
 			if (event.button !== 0) return;
@@ -6428,9 +6428,9 @@ function apply(ctx) {
 			resize.addEventListener("pointercancel", onResizeUp);
 			resize.setPointerCapture(event.pointerId);
 		};
-		// 滚动条随滚动或窗格内鼠标指针显示（R-01-004/AC-03）：滚动即置位，停滚 600ms 后收口；
+		// 滚动条随滚动或窗格内鼠标指针显示：滚动即置位，停滚 600ms 后收口；
 		// 指针离开后若仍在滚动拖尾内则保持显示，拖尾结束后隐藏。同一监听承载「回到顶部」按钮显隐
-		//（R-01-018/AC-01、AC-03）：回顶后的收口不经额外事件，
+		//回顶后的收口不经额外事件
 		// 由平滑滚动触发的 scroll 事件自然完成。
 		let scrollHideTimer = null;
 		const onScroll = () => {
@@ -6443,13 +6443,13 @@ function apply(ctx) {
 				scroll.removeAttribute("data-scrolling");
 			}, 600);
 		};
-		// 「回到顶部」激活（R-01-018/AC-02）：reduced-motion 直接定位，否则平滑滚动；
+		// 「回到顶部」激活：reduced-motion 直接定位，否则平滑滚动；
 		// 原生 <button> 的 Enter/Space 键盘激活与 click 同路径。
 		const onTopClick = () => {
 			scroll?.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
 		};
-		// 显示档位循环切换（R-01-021/AC-01）：紧凑→中间→完整→紧凑，形态写窗格根属性
-		// 驱动纯 CSS 呈现，持久化于 localStorage（AC-06），会话状态变化不触碰已选档位（AC-07）。
+		// 显示档位循环切换：紧凑→中间→完整→紧凑，形态写窗格根属性
+		// 驱动纯 CSS 呈现，持久化于 localStorage，会话状态变化不触碰已选档位。
 		const densityBtn = pane.querySelector(".dap-density");
 		const applyDensity = () => {
 			pane.setAttribute("data-density", densityLevel);
@@ -6460,7 +6460,7 @@ function apply(ctx) {
 			}
 		};
 		const onDensityClick = () => {
-			// 滚动锚定（R-01-021/AC-01）：记录切换前当前选中卡片顶部相对滚动视口的
+			// 滚动锚定：记录切换前当前选中卡片顶部相对滚动视口的
 			// 位置，档位翻转后把 scrollTop 补偿回该相对位置，使卡片顶部在屏幕上不动。
 			const scrollEl = scroll ?? pane.querySelector(".dap-scroll");
 			const currentCard = scrollEl?.querySelector(".dap-card[data-current]") ?? null;
@@ -6468,13 +6468,13 @@ function apply(ctx) {
 			const anchorTop = currentCard ? currentCard.getBoundingClientRect().top - viewportTop : null;
 			densityLevel = nextDensity(densityLevel);
 			writeStoredDensity(densityLevel);
-			// 档位资源纪律（R-01-025/AC-01）：进入紧凑档即拆主会话日志窗口订阅；
+			// 档位资源纪律：进入紧凑档即拆主会话日志窗口订阅；
 			// captureSessionLog 入口门控阻止在途回调重建。
 			enforceDensityDataDiscipline();
 			applyDensity();
 			// 档位已纳入渲染签名：触发一轮同步让时间线按新档位以 lastOnly 重建；
 			// 锚定补偿在渲染提交后逐帧执行至沉降窗结束，此时量测才含新行高
-			//（R-01-021/AC-01、AC-08）。
+			//。
 			pendingDensityAnchor = currentCard && anchorTop !== null ? anchorTop : null;
 			densityAnchorDeadline = Date.now() + 1500;
 			queueSync();
@@ -6553,14 +6553,14 @@ function apply(ctx) {
 				<div class="dap-resize" aria-hidden="true"></div>
 			`;
 			pane.style.setProperty("--dap-width", `${paneWidth}px`);
-			// 「回到顶部」按钮为纯图标呈现（R-01-018/AC-05）：骨架无文字，图标在创建时注入。
+			// 「回到顶部」按钮为纯图标呈现：骨架无文字，图标在创建时注入。
 			pane.querySelector(".dap-top").append(createTopIcon());
-			// 紧凑显示切换按钮常显于标题行右侧工具区（R-01-021/AC-05）；切换时以 data-density
+			// 紧凑显示切换按钮常显于标题行右侧工具区；切换时以 data-density
 			// 驱动纯 CSS 呈现，骨架重建后由 bindPaneControls 的 applyDensity 恢复形态。
 			pane.querySelector(".dap-density").append(createDensityIcon());
-			// 仓库入口常显于标题行最左独立区（R-01-022/AC-01，T-144）；图标在创建时注入。
+			// 仓库入口常显于标题行最左独立区（T-144）；图标在创建时注入。
 			pane.querySelector(".dap-repo").append(createRepoIcon());
-			// 收起方向图标为标题行悬停/聚焦的可见性提示（R-01-011/AC-07），图标在创建时注入。
+			// 收起方向图标为标题行悬停/聚焦的可见性提示，图标在创建时注入。
 			pane.querySelector(".dap-collapse-hint").append(createCollapseIcon());
 		}
 		if (pane !== boundPane) {
@@ -6577,7 +6577,7 @@ function apply(ctx) {
 		return node;
 	}
 
-	/** 完成提醒卡「移入历史」按钮（R-01-002/AC-10，C-040）：默认隐藏，仅完成提醒卡显示；
+	/** 完成提醒卡「移入历史」按钮（C-040）：默认隐藏，仅完成提醒卡显示；
 	 *  文案本身即可访问名称；点击与键盘激活均不得触发卡片跳转（激活锚点在渲染期绑定）。 */
 	function makeConfirmButton() {
 		const button = document.createElement("button");
@@ -6588,7 +6588,7 @@ function apply(ctx) {
 		return button;
 	}
 
-	/** 紧凑档完成提醒卡的 ✓ 确认按钮（R-01-021/AC-02、R-01-002/AC-10，C-098）：图标形态
+	/** 紧凑档完成提醒卡的 ✓ 确认按钮（C-098）：图标形态
 	 *  挂可访问名称「移入历史」（标示「我已看完了，不再需要看到它」的确认语义）；显隐由
 	 *  渲染层每帧按档位与 waitClass 双条件赋值；点击与键盘激活均不得触发卡片跳转。 */
 	function makeConfirmIconButton() {
@@ -6601,8 +6601,8 @@ function apply(ctx) {
 		return button;
 	}
 
-	/** 紧凑档标题行内嵌的工作区名胶囊（R-01-021/AC-10）：同一徽标结构的无图标形态
-	 *  （R-01-003/AC-06 紧凑例外）——同名 .dap-workspace 复用几何与槽位着色，仅名称
+	/** 紧凑档标题行内嵌的工作区名胶囊：同一徽标结构的无图标形态
+	 *  （紧凑例外）——同名 .dap-workspace 复用几何与槽位着色，仅名称
 	 *  文本段；着色与名称由 renderCardInto 对全部胶囊节点双写，可见性交由 CSS 门控。 */
 	function makeWorkspacePill() {
 		const pill = makeEl("div", "dap-workspace");
@@ -6610,7 +6610,7 @@ function apply(ctx) {
 		return pill;
 	}
 
-	/** 将结构化提问预览写成原生列表元素；动态文本只经 textContent 写入（R-01-002/AC-09）。 */
+	/** 将结构化提问预览写成原生列表元素；动态文本只经 textContent 写入。 */
 	function renderQuestionPreview(note, preview) {
 		const items = Array.isArray(preview?.items)
 			? preview.items.filter((item) => Number.isInteger(item?.index) && item.index > 0 && typeof item.text === "string" && item.text !== "")
@@ -6642,7 +6642,7 @@ function apply(ctx) {
 		noteRow.querySelector(".dap-badge")?.remove();
 		const capsule = makeEl("div", "dap-capsule");
 		capsule.append(makeEl("span", "dap-capsule-icon"), makeEl("span", "dap-capsule-text"));
-		// 与新版骨架同形：胶囊行含类型胶囊与状态年龄段（R-01-002/AC-14）。
+		// 与新版骨架同形：胶囊行含类型胶囊与状态年龄段。
 		const awaitHead = makeEl("div", "dap-await-head");
 		awaitHead.append(capsule, makeEl("span", "dap-await-age"));
 		const foot = makeEl("div", "dap-foot");
@@ -6650,7 +6650,7 @@ function apply(ctx) {
 		foot.append(awaitHead, noteRow);
 	}
 
-	/** 进度行骨架（运行卡与子代理卡共用，R-01-009/AC-06、AC-14）：可伸缩轨道 + 固定宽百分比。 */
+	/** 进度行骨架（运行卡与子代理卡共用）：可伸缩轨道 + 固定宽百分比。 */
 	function makeProgressRow() {
 		const track = makeEl("div", "dap-track");
 		track.append(makeEl("div", "dap-fill"));
@@ -6659,7 +6659,7 @@ function apply(ctx) {
 		return progressRow;
 	}
 
-	/** 统计行骨架：左列 token/速率/命中率（超长省略号截断），时长固定最右（R-01-009/AC-05）。 */
+	/** 统计行骨架：左列 token/速率/命中率（超长省略号截断），时长固定最右。 */
 	function makeStatsRow() {
 		const statsRow = makeEl("div", "dap-token-stats");
 		statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"));
@@ -6679,17 +6679,17 @@ function apply(ctx) {
 		if (kind === "subagent") {
 			const row = makeEl("div", "dap-row");
 			// 模型名与标题同行右对齐（东家反馈）：子代理卡无工作区徽标与累计时长，
-			// 标题行右侧即模型位；空值时区域隐藏不占位（R-01-012/AC-17、AC-18）。
+			// 标题行右侧即模型位；空值时区域隐藏不占位。
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), model, makeEl("span", "dap-total-time"));
-			// 运行中子代理卡与主会话运行卡同构的进度行与统计行（R-01-009/AC-14）；
-			// 非运行时进度行隐藏、统计行冻结（R-01-009/AC-15）。
+			// 运行中子代理卡与主会话运行卡同构的进度行与统计行；
+			// 非运行时进度行隐藏、统计行冻结。
 			const progressRow = makeProgressRow();
 			progressRow.hidden = true;
 			return [row, makeEl("div", "dap-subtrace"), progressRow, makeStatsRow()];
 		}
 		if (kind === "recent") {
 			const row = makeEl("div", "dap-row");
-			// 行内工作区名胶囊（R-01-021/AC-10）：行尾耗时之前，仅紧凑档显示（CSS 门控）；
+			// 行内工作区名胶囊：行尾耗时之前，仅紧凑档显示（CSS 门控）；
 			// 固定宽行尾使会话标题起点在各卡间对齐（东家反馈，T-179）。
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-jobs-chip"), makeWorkspacePill(), makeEl("span", "dap-total-time"));
 			const userLine = makeEl("div", "dap-history-line");
@@ -6710,31 +6710,31 @@ function apply(ctx) {
 		}
 		if (kind === "awaiting") {
 			const row = makeEl("div", "dap-row");
-			// 行内工作区名胶囊（R-01-021/AC-10）：行尾耗时之前，仅紧凑档显示（CSS 门控）；
+			// 行内工作区名胶囊：行尾耗时之前，仅紧凑档显示（CSS 门控）；
 			// 固定宽行尾使会话标题起点在各卡间对齐（东家反馈，T-179）。
 			row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-jobs-chip"), makeWorkspacePill(), makeEl("span", "dap-total-time"));
-			// 紧凑档确认入口（R-01-021/AC-02，C-098）：✓ 图标按钮常驻标题行最右（工作区名
+			// 紧凑档确认入口（C-098）：✓ 图标按钮常驻标题行最右（工作区名
 			// 胶囊之后），仅紧凑档显示，显隐由渲染层每帧赋值。
 			row.append(makeConfirmIconButton());
-			// 等待三类末行结构（R-01-002/AC-08、AC-09，C-043）：首行「类型胶囊」（圆底类型
+			// 等待三类末行结构（C-043）：首行「类型胶囊」（圆底类型
 			// 图标 + 类型文字），其下为正文行——阻塞/错误的说明文字，完成提醒的
 			// 「继续对话，或移入历史」+ 行尾「移入历史」按钮。
 			const capsule = makeEl("div", "dap-capsule");
 			capsule.append(makeEl("span", "dap-capsule-icon"), makeEl("span", "dap-capsule-text"));
-			// 正文行容器：正文文本 + 「移入历史」按钮（仅完成提醒卡显示，R-01-002/AC-10）。
+			// 正文行容器：正文文本 + 「移入历史」按钮（仅完成提醒卡显示）。
 			const noteRow = makeEl("div", "dap-note-row");
 			noteRow.append(makeEl("div", "dap-note"), makeConfirmButton());
 			const awaitHead = makeEl("div", "dap-await-head");
-			// 状态年龄（R-01-002/AC-14）：进入状态时刻的裸相对时间，胶囊右侧静态显示。
+			// 状态年龄：进入状态时刻的裸相对时间，胶囊右侧静态显示。
 			awaitHead.append(capsule, makeEl("span", "dap-await-age"));
 			const foot = makeEl("div", "dap-foot");
 			foot.append(awaitHead, noteRow);
 			return [head, row, makeEl("div", "dap-trace"), makeStatsRow(), foot];
 		}
 		if (kind === "job") {
-			// 后台任务子卡（R-01-023/AC-05）：行 1 = 状态点 + 工具名称 + 随时钟时长；
-			// 行 2 = 任务内容原文（mono 省略 + tooltip）。仅完整档构建（R-01-023/AC-10、
-			// R-01-025/AC-08，T-174）：低档位条目在渲染主循环即被剔除。
+			// 后台任务子卡：行 1 = 状态点 + 工具名称 + 随时钟时长；
+			// 行 2 = 任务内容原文（mono 省略 + tooltip）。仅完整档构建（T-174）：
+			// 低档位条目在渲染主循环即被剔除。
 			const row = makeEl("div", "dap-row");
 			row.append(makeEl("span", "dap-job-dot"), makeEl("span", "dap-job-kind"), makeEl("span", "dap-job-elapsed"));
 			const content = makeEl("div", "dap-job-content");
@@ -6742,7 +6742,7 @@ function apply(ctx) {
 			return [row, content];
 		}
 		const row = makeEl("div", "dap-row");
-		// 行内工作区名胶囊（R-01-021/AC-10）：行尾耗时之前、后台任务数标注之后，仅紧凑档
+		// 行内工作区名胶囊：行尾耗时之前、后台任务数标注之后，仅紧凑档
 		// 显示（CSS 门控）；固定宽行尾使会话标题起点在各卡间对齐（东家反馈，T-179）。
 		row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-jobs-chip"), makeWorkspacePill(), makeEl("span", "dap-total-time"));
 		const progressRow = makeProgressRow();
@@ -6766,7 +6766,7 @@ function apply(ctx) {
 
 	/** 「回到顶部」按钮的向上箭头图标（canonical 图标集无现成箭头；
 	 *  几何改编自 ISC 许可证的 Lucide arrow-up，归一到 14 盒——留白 24 盒由
-	 *  R-01-012/AC-11 的机器人图标守卫全局禁用，与 C-021 同一来源声明）。 */
+	 *   的机器人图标守卫全局禁用，与 C-021 同一来源声明）。 */
 	function createTopIcon() {
 		return createInlineIcon({
 			viewBox: "0 0 14 14",
@@ -6781,7 +6781,7 @@ function apply(ctx) {
 
 	/** 紧凑显示切换按钮的「多行收拢为单行」密度图标：上下两个指向中线的箭头夹一条
 	 *  标题行横线，与「回到顶部」的单向箭头、标题行的收起方向图标均可区分
-	 *  （canonical 图标集无现成字形，14 盒 stroke 风格与 createTopIcon 一致，R-01-021/AC-05）。 */
+	 *  （canonical 图标集无现成字形，14 盒 stroke 风格与 createTopIcon 一致）。 */
 	function createDensityIcon() {
 		return createInlineIcon({
 			viewBox: "0 0 14 14",
@@ -6795,7 +6795,7 @@ function apply(ctx) {
 		});
 	}
 
-	/** 标题行的「收起」方向图标（R-01-011/AC-07）：左侧竖杠 + 向左箭头指向竖杠，
+	/** 标题行的「收起」方向图标：左侧竖杠 + 向左箭头指向竖杠
 	 *  表达窗格收缩到左侧；随 .dap-collapse-hint 在标题行悬停/聚焦时显现。 */
 	function createCollapseIcon() {
 		return createInlineIcon({
@@ -6810,7 +6810,7 @@ function apply(ctx) {
 		});
 	}
 
-	/** 标题行左侧独立区的仓库入口图标（R-01-022/AC-01，T-144）：GitHub Octicon `mark-github` 字形
+	/** 标题行左侧独立区的仓库入口图标（T-144）：GitHub Octicon `mark-github` 字形
 	 *  （MIT 许可，Primer Octicons），与工具区既有图标同用 14px 字形盒。 */
 	function createRepoIcon() {
 		return createInlineIcon({
@@ -6834,7 +6834,7 @@ function apply(ctx) {
 	}
 
 	/** 左边栏工作区行同款 canonical 文件夹图标（dsh-client-ui-primitives 的 IconFolderClose16），
-	 *  置于工作区徽标文字前使归属一眼可辨（R-01-003/AC-06）。 */
+	 *  置于工作区徽标文字前使归属一眼可辨。 */
 	function createWorkspaceFolderIcon() {
 		return createInlineIcon({
 			viewBox: "0 0 16 16",
@@ -6857,7 +6857,7 @@ function apply(ctx) {
 	}
 
 	/** 以下 canonical 图标与主会话网页同源（dsh-client-ui-primitives 的 figma extract），
-	 *  供非当前会话/无原生行时 fallback 使用，保证选中态切换不漂移（R-01-012/AC-03）。 */
+	 *  供非当前会话/无原生行时 fallback 使用，保证选中态切换不漂移。 */
 	function createSearchIcon() {
 		return createInlineIcon({
 			viewBox: "0 0 16 16",
@@ -6908,11 +6908,11 @@ function apply(ctx) {
 		});
 	}
 
-	/** agent 角色机器人图标（R-01-013/AC-08、R-01-012/AC-09）：canonical 图标集无现成机器人，
+	/** agent 角色机器人图标：canonical 图标集无现成机器人
 	 *  以 Lucide bot 图标几何（ISC 许可，来源声明见 LICENSE/README）为底改造，24 框描边风格：
 	 *  去双耳、头顶单折线天线改为两条外撇斜短线（bilibili 小电视式）；viewBox 保持笔墨边界盒
 	 * （1 3 22 18）——纵向墨迹 y4..21（短斜天线尖含描边触 y4），横向虽去耳收窄，保框使机身
-	 *  显示尺度与其他 canonical 图标一致（R-01-012/AC-11），不因裁小框而变粗变大。
+	 *  显示尺度与其他 canonical 图标一致，不因裁小框而变粗变大。
 	 *  字形与其他时间线图标同用 12px 盒：13px 盒在 14px 图标盒内产生 0.5px 半像素居中偏移，
 	 *  所有描边边缘落在物理像素之间被抗锯齿抹灰；stroke-width 2.2 使 12/22 缩放后渲染笔触
 	 *  保持 1.2px，与 canonical 填充轮廓环（约 1px）视觉重量相当。 */
@@ -6947,11 +6947,11 @@ function apply(ctx) {
 		});
 	}
 
-	/* 胶囊类型种类（R-01-002/AC-01、AC-02、AC-09、AC-13，C-043、C-064）：阻塞待确认/待审查/提问、
+	/* 胶囊类型种类（C-043、C-064）：阻塞待确认/待审查/提问、
 	 * 完成提醒（对勾）与错误提醒（感叹号）；未知种类不给图标（不冒充已知类型）。 */
 	const CAPSULE_ICON_KINDS = new Set(["approval", "plan-review", "question", "done", "error"]);
 
-	/** 阻塞等待徽标类型图标（R-01-002/AC-01、AC-02）：通用几何自绘（对勾/文档/问号气泡），
+	/** 阻塞等待徽标类型图标：通用几何自绘（对勾/文档/问号气泡）
 	 *  stroke 风格与机器人图标一致；16 框、12px 字形盒，与卡片其它图标尺度对齐。 */
 	function createPendingIcon(kind) {
 		const stroke = { fill: "none", stroke: "currentColor", "stroke-width": "1.8", "stroke-linecap": "round", "stroke-linejoin": "round" };
@@ -6979,7 +6979,7 @@ function apply(ctx) {
 		});
 	}
 
-	/** 等待卡类型胶囊图标（R-01-002/AC-09、AC-13，C-043）：done 复用对勾几何（与待确认同形、
+	/** 等待卡类型胶囊图标（C-043）：done 复用对勾几何（与待确认同形、
 	 *  靠胶囊与卡面颜色区分成功/确认语义），error 为感叹号气泡（圆 + 感叹号钩 + 圆点）；
 	 *  其余走阻塞等待图标。 */
 	function createCapsuleIcon(kind) {
@@ -7031,8 +7031,8 @@ function apply(ctx) {
 		code: createCodeIcon,
 	};
 	function fallbackTraceIcon(item) {
-		// 折叠组行（R-01-017）：think 组用思考图标、context 组用浏览图标；tool 组按末位工具成员 icon 兜底。
-		// 折叠组行（R-01-017）：think 组用思考图标、context 组用浏览图标；
+		// 折叠组行：think 组用思考图标、context 组用浏览图标；tool 组按末位工具成员 icon 兜底。
+		// 折叠组行：think 组用思考图标、context 组用浏览图标；
 		// tool 组统一 DSH canonical IconApiOutline14（createBashIcon），与 auto-collapse 工具 chip 同源（C-016）。
 		if (item.fold === true) {
 			if (item.kind === "assistant") return createThinkIcon();
@@ -7050,7 +7050,7 @@ function apply(ctx) {
 
 	/**
 	 * 更新 trace 容器。运行中的同一节点只更新文字，复用 DOM 保持脉冲动画连续；
-	 * 节点身份或数量变化时才重建（R-02-003/AC-01）。
+	 * 节点身份或数量变化时才重建。
 	 */
 	function renderTrace(container, items, { lastOnly = false } = {}) {
 		const list = Array.isArray(items) ? items : [];
@@ -7139,7 +7139,7 @@ function apply(ctx) {
 		}
 	}
 
-	/** 标题行累计运行时长写入（R-01-020/AC-01、AC-06）：有数据才显示，无数据（含
+	/** 标题行累计运行时长写入：有数据才显示，无数据（含
 	 *  子代理卡）隐藏节点，不以 0 冒充。事件帧（renderCardInto）与 1Hz 时钟帧
 	 *  （tickEntryClock，T-189）共用同一守卫式写入点。 */
 	function setTotalTimeText(el, entry) {
@@ -7151,7 +7151,7 @@ function apply(ctx) {
 		if (totalTime.hidden !== totalHidden) totalTime.hidden = totalHidden;
 	}
 
-	/** job 子卡时长写入（R-01-023/AC-05）：任务起点有效时按起点重算随钟时长，无效
+	/** job 子卡时长写入：任务起点有效时按起点重算随钟时长，无效
 	 *  时清空（不残留上一任务的时长）。事件帧（renderJobCardInto）与 1Hz 时钟帧
 	 *  （tickEntryClock，T-189）共用同一守卫式写入点；now 参数化供时钟帧统一时钟源。 */
 	function setJobElapsedText(el, entry, now = Date.now()) {
@@ -7164,7 +7164,7 @@ function apply(ctx) {
 		if (elapsed.textContent !== elapsedText) elapsed.textContent = elapsedText;
 	}
 
-	/** 进度行写入（运行卡与子代理卡共用，R-01-009/AC-06、AC-14）：百分比与填充宽度，
+	/** 进度行写入（运行卡与子代理卡共用）：百分比与填充宽度
 	 *  未变化跳过 DOM 写。百分比同样写前比对——1Hz 时钟帧（T-189）复用本函数补写，
 	 *  同值写入会替换文本节点并触发无谓的 characterData 变更（background-jobs 静默
 	 *  观测窗把文本变更计为逐秒重绘）。 */
@@ -7181,9 +7181,9 @@ function apply(ctx) {
 		}
 	}
 
-	/** 最近回合耗时 memo（等待卡与暂停子代理卡共用，R-01-009/AC-12、AC-15）：history 引用
+	/** 最近回合耗时 memo（等待卡与暂停子代理卡共用）：history 引用
 	 *  不变即命中缓存。busy 口径（起止差值扣除回合内阻塞等待），与标题行总耗时同口径，
-	 *  保证恒不大于累计值（R-01-020）。 */
+	 *  保证恒不大于累计值。 */
 	function memoTurnDuration(detail) {
 		const history = detail.history ?? null;
 		if (detail.memoTurnDurationHistoryOf !== history) {
@@ -7232,7 +7232,7 @@ function apply(ctx) {
 		el.querySelector(".dap-await-head .dap-token-time")?.remove();
 	}
 
-	/** 时间线区加载指示：数据在途且尚无工作项时显示活动图标行（R-01-014/AC-02）。 */
+	/** 时间线区加载指示：数据在途且尚无工作项时显示活动图标行。 */
 	function renderTraceLoading(container) {
 		if (container.dataset.loading === "true") return;
 		container.dataset.loading = "true";
@@ -7256,13 +7256,13 @@ function apply(ctx) {
 		renderTrace(container, entry.timeline, { lastOnly });
 	}
 
-	/** 后台任务状态的两字中文短语（R-01-023 呈现）：与原生 ui-jobs 状态词同口径。 */
+	/** 后台任务状态的两字中文短语（呈现）：与原生 ui-jobs 状态词同口径。 */
 	const JOB_STATUS_LABELS = { running: "运行中", stopping: "停止中", completed: "已完成", killed: "已终止", failed: "失败" };
 
-	/** 后台任务数量注与闪烁门控（R-01-023/AC-01、AC-11）：标题行内 `后台 ×N` 小注；任务本体
-	 *  以 job 子卡呈现（R-01-023），本注只承载数量语义，无 liveJobs 时隐藏节点。闪烁三态
+	/** 后台任务数量注与闪烁门控：标题行内 `后台 ×N` 小注；任务本体
+	 *  以 job 子卡呈现，本注只承载数量语义，无 liveJobs 时隐藏节点。闪烁三态
 	 *  由 core 纯函数 jobsChipState 单点判定，闪烁态写卡根 data-jobs-blink 属性，CSS 动画
-	 *  承载呈现、不引入 JS 周期性工作（R-01-025/AC-08）。
+	 *  承载呈现、不引入 JS 周期性工作。
 	 *  陈旧骨架补建（C-043 热装惯例）：热装新版本后既有等待/历史卡骨架没有数量注节点，
 	 *  就地插入标题行，避免必须重建骨架才出现标注。 */
 	function renderJobsChip(el, entry) {
@@ -7280,7 +7280,7 @@ function apply(ctx) {
 		if (chip.hidden !== hidden) chip.hidden = hidden;
 	}
 
-	/** 数量注与闪烁门控单点写入（R-01-023/AC-01、AC-11）：运行、等待与最近历史三类卡片共用，
+	/** 数量注与闪烁门控单点写入：运行、等待与最近历史三类卡片共用
 	 *  避免各分支各写一遍。闪烁态取 jobsChipState 的判定结果写入卡根 data-jobs-blink，CSS
 	 *  据卡根门控数量注脉冲与圆点停闪；按变化写入避免每帧 DOM 属性写。 */
 	function applyJobsChip(el, entry) {
@@ -7289,13 +7289,13 @@ function apply(ctx) {
 		if (el.dataset.jobsBlink !== blink) el.dataset.jobsBlink = blink;
 	}
 
-	/** 后台任务子卡渲染（R-01-023/AC-01、AC-05）：状态点着色、标题与随时钟推进的
+	/** 后台任务子卡渲染：状态点着色、标题与随时钟推进的
 	 *  已运行时长。任务消失由条目派生侧收卡（随 liveJobs 清空整个条目消失），
 	 *  此处只呈现当帧状态。 */
 	function renderJobCardInto(el, entry) {
 		const dot = el.querySelector(".dap-job-dot");
 		if (dot !== null && dot.dataset.status !== entry.jobStatus) dot.dataset.status = entry.jobStatus;
-		// 工具名称（R-01-023/AC-05）：核心友好映射；不可得时隐藏文本段，仅保留状态点与时长。
+		// 工具名称：核心友好映射；不可得时隐藏文本段，仅保留状态点与时长。
 		const kindEl = el.querySelector(".dap-job-kind");
 		if (kindEl !== null) {
 			const kindText = jobKindLabel(entry.jobKind);
@@ -7303,7 +7303,7 @@ function apply(ctx) {
 			const kindHidden = kindText === "";
 			if (kindEl.hidden !== kindHidden) kindEl.hidden = kindHidden;
 		}
-		// 任务内容行（R-01-023/AC-05、AC-06）：mono 原文单行省略，完整原文以原生 tooltip
+		// 任务内容行：mono 原文单行省略，完整原文以原生 tooltip
 		// 显示（tooltip 归内容行）；内容不可得时整行隐藏，不补空白或占位。
 		const contentRow = el.querySelector(".dap-job-content");
 		const labelText = String(entry.title ?? "");
@@ -7322,9 +7322,9 @@ function apply(ctx) {
 	}
 
 	function renderCardInto(el, entry, colorByWorkspace) {
-		// 行内工作区名胶囊陈旧骨架就地补建（R-01-021/AC-10，同确认按钮补建惯例）：
+		// 行内工作区名胶囊陈旧骨架就地补建（同确认按钮补建惯例）
 		// 三态卡（running/awaiting/recent）标题行在行尾耗时之前补建（T-179 行尾语义）；
-		// subagent 卡无工作区归属承诺（R-01-012/AC-17、AC-18）、job 卡仅完整档构建，均不补。
+		// subagent 卡无工作区归属承诺、job 卡仅完整档构建，均不补。
 		const headRow = el.querySelector(".dap-row");
 		if (headRow !== null && (entry.kind === "running" || entry.kind === "awaiting" || entry.kind === "recent")) {
 			if (headRow.querySelector(":scope > .dap-workspace") === null
@@ -7385,7 +7385,7 @@ function apply(ctx) {
 		const title = el.querySelector(".dap-title");
 		if (title !== null && title.textContent !== entry.title)
 			title.textContent = entry.title;
-		// 标题行最右侧的累计运行时长（R-01-020/AC-01、AC-06）：有数据才显示，
+		// 标题行最右侧的累计运行时长：有数据才显示
 		// 无数据（含子代理卡）隐藏节点，不以 0 冒充。
 		setTotalTimeText(el, entry);
 
@@ -7423,7 +7423,7 @@ function apply(ctx) {
 				iconHolder.dataset.kind = iconKind;
 				iconHolder.replaceChildren(...(iconKind === "" ? [] : [createCapsuleIcon(iconKind)]));
 			}
-			// 状态年龄（R-01-002/AC-14）：进入状态时刻的裸相对时间，紧随胶囊之后；文案由
+			// 状态年龄：进入状态时刻的裸相对时间，紧随胶囊之后；文案由
 			// 帧内 enrichment 单点派生（entry.awaitAge，与签名同时钟源）。陈旧骨架就地
 			// 补建年龄节点（C-043 热装兼容同惯例）。
 			const capsuleEl = el.querySelector(".dap-capsule");
@@ -7441,19 +7441,19 @@ function apply(ctx) {
 		}
 
 		if (entry.kind === "running") {
-			// 在跑后台任务（R-01-023/AC-02）：运行呈现由回合状态决定，任务只作数量标注；
-			// 运行卡数量注恒不闪（闪烁只覆盖等待态卡片，AC-11）。
+			// 在跑后台任务：运行呈现由回合状态决定，任务只作数量标注；
+			// 运行卡数量注恒不闪（闪烁只覆盖等待态卡片）。
 			applyJobsChip(el, entry);
 			const progressRow = el.querySelector(".dap-progress");
-			// 档位资源纪律（R-01-025/AC-05）：进度行在中间/紧凑档被 CSS 隐藏，不写入；
+			// 档位资源纪律：进度行在中间/紧凑档被 CSS 隐藏，不写入；
 			// 切回完整档后随档位签名重渲染恢复。
 			if (progressRow !== null && densityLevel === "full") {
 				renderProgressRow(el, entry.progress);
 				if (progressRow.hidden) progressRow.hidden = false;
 			}
 			const traceContainer = el.querySelector(".dap-trace");
-			// 档位资源纪律（R-01-025/AC-05）：紧凑档不构建被隐藏的时间线内容；
-			// 中间档 lastOnly 单行语义不变（R-01-021/AC-08）。切回后随档位签名重渲染恢复。
+			// 档位资源纪律：紧凑档不构建被隐藏的时间线内容；
+			// 中间档 lastOnly 单行语义不变。切回后随档位签名重渲染恢复。
 			if (traceContainer !== null && densityLevel !== "compact") renderTimelineArea(traceContainer, entry, { lastOnly: densityLevel === "medium" });
 			if (densityLevel === "full") renderTokenStats(el, entry);
 			return;
@@ -7466,12 +7466,12 @@ function apply(ctx) {
 
 		if (entry.kind === "subagent") {
 			const traceContainer = el.querySelector(".dap-subtrace");
-			// 档位资源纪律（R-01-025/AC-05）：紧凑档不构建被隐藏的子卡时间线内容；
-			// 标题行内联模型上下文（R-01-012/AC-17）不受影响。
+			// 档位资源纪律：紧凑档不构建被隐藏的子卡时间线内容；
+			// 标题行内联模型上下文不受影响。
 			if (traceContainer !== null && densityLevel !== "compact") renderTimelineArea(traceContainer, entry, { lastOnly: true });
-			// 运行中呈现与运行卡同构的进度行；锚点空闲（暂停等待）时整行隐藏（R-01-009/AC-15）。
+			// 运行中呈现与运行卡同构的进度行；锚点空闲（暂停等待）时整行隐藏。
 			const progressRow = el.querySelector(".dap-progress");
-			// 档位资源纪律（R-01-025/AC-05）：进度行与统计行在中间/紧凑档不写入。
+			// 档位资源纪律：进度行与统计行在中间/紧凑档不写入。
 			if (progressRow !== null && densityLevel === "full") {
 				if (Number.isFinite(entry.progress)) {
 					renderProgressRow(el, entry.progress);
@@ -7501,22 +7501,22 @@ function apply(ctx) {
 					restoreTextField(text, previews[i]);
 				}
 			}
-			// 在跑后台任务标注（R-01-023/AC-01）：最近历史卡同样承载数量注（不闪，AC-11）。
+			// 在跑后台任务标注：最近历史卡同样承载数量注（不闪）。
 			applyJobsChip(el, entry);
-			// 档位资源纪律（R-01-025/AC-05）：最近卡统计行在中间/紧凑档不写入。
+			// 档位资源纪律：最近卡统计行在中间/紧凑档不写入。
 			if (densityLevel === "full") renderTokenStats(el, entry);
 		}
 
 		if (entry.kind === "awaiting") {
-			// 在跑后台任务标注（R-01-023/AC-01、AC-11）：等待态卡片照常标注数量；非阻塞
+			// 在跑后台任务标注：等待态卡片照常标注数量；非阻塞
 			// 等待（回合已结束）门控闪烁，阻塞等待与无任务不闪。
 			applyJobsChip(el, entry);
 			const traceContainer = el.querySelector(".dap-trace");
-			// 档位资源纪律（R-01-025/AC-05）：紧凑档不构建被隐藏的时间线内容；
-			// 中间档 lastOnly 单行语义不变（R-01-021/AC-08）。
+			// 档位资源纪律：紧凑档不构建被隐藏的时间线内容；
+			// 中间档 lastOnly 单行语义不变。
 			if (traceContainer !== null && densityLevel !== "compact") renderTimelineArea(traceContainer, entry, { lastOnly: densityLevel === "medium" });
 			removeAwaitingHeadDuration(el);
-			// 档位资源纪律（R-01-025/AC-05）：等待卡统计行在中间/紧凑档不写入。
+			// 档位资源纪律：等待卡统计行在中间/紧凑档不写入。
 			if (densityLevel === "full") renderTokenStats(el, entry);
 			const confirm = el.querySelector(".dap-confirm");
 			if (confirm !== null) {
@@ -7525,7 +7525,7 @@ function apply(ctx) {
 					confirm.dataset.bound = "true";
 					confirm.addEventListener("click", (event) => {
 						event.preventDefault();
-						event.stopPropagation(); // 阻断卡片激活（R-01-002/AC-10）
+						event.stopPropagation(); // 阻断卡片激活
 						const id = el.dataset.sessionId;
 						if (id) ackCompletion(id);
 					});
@@ -7535,7 +7535,7 @@ function apply(ctx) {
 				// 仅完成提醒（done）卡显示确认按钮；阻塞等待卡隐藏（其解除是真正回答）。
 				confirm.hidden = entry.waitClass !== "done";
 			}
-			// 紧凑档标题行确认入口（R-01-021/AC-02，C-098）：陈旧骨架就地补建（同状态年龄
+			// 紧凑档标题行确认入口（C-098）：陈旧骨架就地补建（同状态年龄
 			// 补建惯例），显隐每帧按档位与 waitClass 双条件赋值；激活阻断卡片跳转并经
 			// 同一 ack 路由写回。
 			const headRow = el.querySelector(".dap-row");
@@ -7552,7 +7552,7 @@ function apply(ctx) {
 					confirmIcon.dataset.bound = "true";
 					confirmIcon.addEventListener("click", (event) => {
 						event.preventDefault();
-						event.stopPropagation(); // 阻断卡片激活（R-01-002/AC-10）
+						event.stopPropagation(); // 阻断卡片激活
 						const id = el.dataset.sessionId;
 						if (id) ackCompletion(id);
 					});
@@ -7583,11 +7583,11 @@ function apply(ctx) {
 		}
 	}
 
-	// ---- 轮内状态订阅生命周期（R-01-009、R-02-004） ----
+	// ---- 轮内状态订阅生命周期 ----
 	// dsh 0.2.0（T-170 审核发现 1）：状态订阅只借用既有引用的会话面——日志窗口
 	// 豁免（高档位/当前/子代理）与外壳主视图已 retain 的会话免费获得；紧凑档
 	// 非当前主会话不 retain（retain.ready 即共享初始历史打开，等价水合，
-	// R-01-025/AC-01），其运行呈现降级到统一状态面 sessionStatus（running，
+	//），其运行呈现降级到统一状态面 sessionStatus（running
 	// 宿主级单订阅已随 installServiceSubscriptions 建立）与 busy 记账
 	// openTurnStart（回合起点，供运行卡时钟）。
 	function syncLiveness(runningIds, clockWanted) {
@@ -7611,7 +7611,7 @@ function apply(ctx) {
 							detail.snapshot = snapshot;
 							sessionDetailsById.set(id, detail);
 							// dsh 0.1.5 起快照不再携带会话内容：时间线经 eventSource 日志窗口
-							// 就地重派生（R-01-009）。
+							// 就地重派生。
 							const listSnap = getSnapshot(sessions, "list");
 							captureSessionLog(id, { cwd: listSnap?.byId?.[id]?.cwd ?? "" });
 							queueSync();
@@ -7683,19 +7683,19 @@ function apply(ctx) {
 	 *
 	 *  随钟字段清单（勘定依据，可见面变更时同步复核）：
 	 *   - 标题行累计运行时长 `.dap-total-time` ← entry.totalBusyMs = totalBusyDisplayMs(...)
-	 *     （applyTotalBusy 同一封装，R-01-020/AC-01；非 subagent 条目三档同码显示）。
+	 *     （applyTotalBusy 同一封装，；非 subagent 条目三档同码显示）。
 	 *     blocked 等待期公式自冻结（openTurnStart/openWaitStart 增量抵消，core JSDoc），
 	 *     冻结期写前比对零写入；openWaitStart 未配对的推送在途瞬态随秒增长，与全量
 	 *     管线同行为，故 awaiting/recent 也纳入重算。
-	 *   - 统计行时长 `.dap-token-time` ← fmtElapsedMs(entry.elapsedMs)（R-01-009/AC-05）：
+	 *   - 统计行时长 `.dap-token-time` ← fmtElapsedMs(entry.elapsedMs)
 	 *     running/subagent 运行态 elapsedMs = now − 锚点起点（progressAnchorById 帧间
 	 *     记账在上一事件帧已就绪，重算为纯函数调用）；冻结态（锚点空）不补写，
 	 *     running 保持空串、暂停子代理保持冻结的最近回合耗时。
 	 *   - 进度行 `.dap-pct` 文本与 `.dap-fill` 宽度 ← progressOf(...)（纯时间驱动
-	 *     y = t/(t+k)，R-01-009/AC-06）；`.dap-fill` width 过渡（0.45s，client.mjs
+	 *     y = t/(t+k)）；`.dap-fill` width 过渡（0.45s，client.mjs
 	 *     进度条样式）连续性不受影响——写入频率与值序列和全量管线逐字节同源。
 	 *   - job 子卡时长 `.dap-job-elapsed` ← setJobElapsedText 共享写入点
-	 *     （R-01-023/AC-05，事件帧 renderJobCardInto 同函数同守卫；秒桶 jobsAgeSec
+	 *     （事件帧 renderJobCardInto 同函数同守卫；秒桶 jobsAgeSec
 	 *     只进渲染签名驱动事件帧重绘，本通道直接由起点重算文本）。
 	 *  分钟级字段不进本通道：awaiting `.dap-await-age`（fmtRelativeAge 分钟分级）与
 	 *  recent `.dap-note`（fmtRecentTime 分钟桶缓存）由 60s 时钟的全量管线承载。
@@ -7724,7 +7724,7 @@ function apply(ctx) {
 			try {
 				tickEntryClock(entry, now);
 			} catch {
-				// 单卡补写异常静默隔离：呈现停摆在下一事件帧全量校正自愈（R-01-013/AC-02）。
+				// 单卡补写异常静默隔离：呈现停摆在下一事件帧全量校正自愈。
 			}
 		}
 	}
@@ -7749,7 +7749,7 @@ function apply(ctx) {
 			const elapsedMs = Math.max(0, now - anchor.anchor);
 			entry.elapsedMs = elapsedMs;
 			entry.progress = progressOf({ elapsedMs, halfLifeSec: progressHalfLifeSec({ rateTokS: entry.rateTokS }) });
-			// 进度行与统计行仅完整档写入（档位资源纪律 R-01-025/AC-05，与事件帧写入门
+			// 进度行与统计行仅完整档写入（档位资源纪律 ，与事件帧写入门
 			// 控一致）；job 条目只在完整档存在（登记源已过滤），无档位分支。
 			if (densityLevel !== "full") return;
 			const rec = cardsById.get(entry.id);
@@ -7765,7 +7765,7 @@ function apply(ctx) {
 		}
 	}
 
-	/** jobs roster 订阅同步（R-01-023，T-170）：dsh 0.2.0 起任务 roster 经 jobs 服务
+	/** jobs roster 订阅同步（T-170）：dsh 0.2.0 起任务 roster 经 jobs 服务
 	 *  按会话 watchRows 拉取（引用计数共享流），不再随列表快照推送。对列表全会话
 	 *  建立订阅（与旧 jobsBySession 全量推送同覆盖），离开列表即停流；幂等，每帧
 	 *  重入只处理差集。服务缺失时整轮跳过。 */
@@ -7805,7 +7805,7 @@ function apply(ctx) {
 		}
 	}
 
-	/** 保证 list 内存在/移除空态或加载指示节点（R-01-001/AC-02、R-01-014/AC-01）。
+	/** 保证 list 内存在/移除空态或加载指示节点。
 	 *  loading=true 时显示活动图标 + 文案（列表在途，禁止空态冒充）。 */
 	function ensureListStatus(list, show, text, { loading = false } = {}) {
 		let node = list.querySelector(".dap-empty");
@@ -7827,9 +7827,9 @@ function apply(ctx) {
 		}
 	}
 
-	/** 数量标识内容写入（R-01-014/AC-06）：加载态显示活动指示——已是指示则不重写，
+	/** 数量标识内容写入：加载态显示活动指示——已是指示则不重写
 	 *  避免每轮 replaceChildren 重启动画抖动；计数态恢复文本写入，textContent 赋值自动摘除指示。
-	 *  计数态同时写入悬停 tips（R-01-001/AC-08）：说明分子/分母口径；加载态无计数可解释，摘除。 */
+	 *  计数态同时写入悬停 tips：说明分子/分母口径；加载态无计数可解释，摘除。 */
 	function setCountBadgeContent(el, badge) {
 		if (badge.mode === "loading") {
 			const spinner = el.firstElementChild;
@@ -7843,7 +7843,7 @@ function apply(ctx) {
 		}
 	}
 
-	/** 层级轨道层（R-01-003/AC-04）：每个拥有可见直属子代理的母会话一条连续竖轨
+	/** 层级轨道层：每个拥有可见直属子代理的母会话一条连续竖轨
 	 *  加每个子卡一条接入横线（拓扑与几何由 trackRuns/trackBoxes 纯函数给出），
 	 *  渲染提交后统一测量、取整到 CSS 像素后一次性写入。竖轨单元素整体绘制，
 	 *  不做分段拼接（接缝在随机亚像素相位下断口与重叠并存，T-033）；横线同样
@@ -7965,7 +7965,7 @@ function apply(ctx) {
 		if (rec === undefined) {
 			const el = document.createElement("div");
 			el.className = CARD_CLASS;
-			// 后台任务子卡为纯展示（R-01-023/AC-08）：不绑激活监听，job 复合 id 亦非会话
+			// 后台任务子卡为纯展示：不绑激活监听，job 复合 id 亦非会话
 			// id，不存在可跳转目标。job 复合 id 与会话 id 空间隔离（`job:` 前缀），reuseMap
 			// 按条目 id 复用，同一 card 元素不会跨 kind 复用——创建时按 entry.kind 一次性
 			// 决定是否绑激活是安全的；若 id 规则变化须同步复核此处。
@@ -7979,8 +7979,8 @@ function apply(ctx) {
 				const panelId = activePanelId();
 				const mobile = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`).matches;
 				// 二次激活当前会话卡片：移动断点抽屉打开且会话正在前台时收起抽屉直达会话
-				//（R-01-008/AC-06），不发起会话切换。全局面板在屏时该激活是「回到会话」的
-				// 真实意图，不得被收抽屉吞掉（R-01-006/AC-04）。
+				//，不发起会话切换。全局面板在屏时该激活是「回到会话」的
+				// 真实意图，不得被收抽屉吞掉。
 				if (
 					shouldDismissDrawerOnActivation({
 						targetId: sessionId,
@@ -7999,7 +7999,7 @@ function apply(ctx) {
 					cancelOpenRetry(sessionId);
 					return;
 				}
-				// 选中但全局面板在屏（R-01-006/AC-04，C-104）：宿主 openSession 的 reveal 语义
+				// 选中但全局面板在屏（C-104）：宿主 openSession 的 reveal 语义
 				// 在同一同步调用内 selectPanel(null) 关闭面板并显示会话，选中未变，无需到达
 				// 重试链；移动端抽屉打开时同时收起，使「回到会话」直达对话。
 				if (panelId !== null && currentId !== null && String(sessionId) === String(currentId)) {
@@ -8021,7 +8021,7 @@ function apply(ctx) {
 			rec.el.dataset.kind = entry.kind;
 			rec.el.dataset.sessionId = entry.id;
 			rec.el.dataset.depth = String(entry.depth ?? 0);
-			// 纯展示子卡（R-01-023/AC-08）不进入按钮语义与 tab 序。
+			// 纯展示子卡不进入按钮语义与 tab 序。
 			if (entry.kind === "job") {
 				rec.el.removeAttribute("role");
 				rec.el.removeAttribute("tabindex");
@@ -8033,12 +8033,12 @@ function apply(ctx) {
 			rec.kind = entry.kind;
 		}
 		rec.el.style.marginLeft = `${(entry.depth ?? 0) * INDENT_PX}px`;
-		// 选中态与在屏态分离（R-01-006/AC-03、AC-06，C-104）：data-current 只表示宿主选中，
+		// 选中态与在屏态分离（C-104）：data-current 只表示宿主选中
 		// data-foreground 表示该会话的对话正在主区域显示——后者驱动前台/后台态的亮度差异。
 		rec.el.toggleAttribute("data-current", entry.isCurrent);
 		rec.el.toggleAttribute("data-foreground", entry.isCurrent && foreground === true);
 		rec.el.toggleAttribute("data-awaiting", entry.kind === "awaiting");
-		// 等待三类（R-01-002/AC-08、AC-13，C-043）：blocked=阻塞等待（金色卡面、胶囊+正文闪烁），
+		// 等待三类（C-043）：blocked=阻塞等待（金色卡面、胶囊+正文闪烁）
 		// done=完成提醒（绿色成功卡面、胶囊+正文闪烁、按钮不闪），error=错误提醒（红色卡面、
 		// 胶囊+正文闪烁、无按钮）。
 		if (entry.waitClass === "blocked" || entry.waitClass === "done" || entry.waitClass === "error")
@@ -8107,7 +8107,7 @@ function apply(ctx) {
 		}
 	}
 
-	/** 降低动效偏好（R-01-010/AC-07）：命中时迁移直接落位，不播放动画。 */
+	/** 降低动效偏好：命中时迁移直接落位，不播放动画。 */
 	function prefersReducedMotion() {
 		try {
 			return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
@@ -8135,7 +8135,7 @@ function apply(ctx) {
 
 	/** 迁移动画前半（DOM 写入前）：量取迁出卡矩形（换算为窗格相对坐标）并克隆
 	 *  ghost；ghost 挂载于窗格元素内，卡片样式经作用域自然生效。migrations 为双向
-	 *  迁移计划 [{ id, from, to }]，from/to 分别为源/目标卡池（R-01-010/AC-07）。 */
+	 *  迁移计划 [{ id, from, to }]，from/to 分别为源/目标卡池。 */
 	function prepareMoveGhosts(migrations) {
 		if (migrations.length === 0 || disposed || prefersReducedMotion()) return [];
 		const paneRect = renderedPane?.getBoundingClientRect?.();
@@ -8202,7 +8202,7 @@ function apply(ctx) {
 		}
 	}
 
-	/** 受影响卡片 FLIP 前半（DOM 写入前，R-01-010/AC-10）：量取两卡池全部现存卡片与
+	/** 受影响卡片 FLIP 前半（DOM 写入前）：量取两卡池全部现存卡片与
 	 *  历史区段头的当前视觉矩形（含在飞平移的 transform 位移，重启时从视觉位置续接）。
 	 *  零尺寸（整段隐藏等）不量取：无从滑起的元素不做动画。 */
 	function snapshotShiftRects() {
@@ -8221,7 +8221,7 @@ function apply(ctx) {
 		return rects;
 	}
 
-	/** 受影响卡片 FLIP 后半（DOM 写入后，R-01-010/AC-10）：仍连接且位置变化的元素先
+	/** 受影响卡片 FLIP 后半（DOM 写入后）：仍连接且位置变化的元素先
 	 *  以无过渡内联 transform 钉回旧视觉位置，reflow 后挂 dap-shift 并清除内联位移，
 	 *  经 transform 过渡平滑归位；transitionend（once）收口。目标零尺寸（整段转隐藏）
 	 *  或位置未变时跳过。迁移卡的新元素不在量取集合内（由 ghost + 淡入承担呈现）。 */
@@ -8243,7 +8243,7 @@ function apply(ctx) {
 			el.style.transform = "";
 			// transitionend 冒泡隔离：子元素过渡（如运行卡进度条 .dap-fill 的 width
 			// 0.45s transition）的 transitionend 会冒泡到卡片，不过滤则平移中途被
-			// 提前收口、卡片瞬时跳到终点（违背 R-01-010/AC-10）；只收口本元素
+			// 提前收口、卡片瞬时跳到终点（违背）；只收口本元素
 			// transform 过渡，命中后手动移除监听（once 会被冒泡事件空耗，不可用）。
 			const cleanup = (event) => {
 				if (event.target !== el || event.propertyName !== "transform") return;
@@ -8311,7 +8311,7 @@ function apply(ctx) {
 		// dsh 0.2.0（T-170）：统一会话状态面 sessionStatus（Map<sessionId,
 		// {running, pendingInteraction, completionUnread}>）——把 pendingInteraction.kind
 		// 回填到行副本上、等待卡分类（awaiting/blocked/提问中）保持既有单一口径
-		// （R-01-002/AC-03）；覆盖层对象按（基快照, statusSnapshot）双引用短路 memo，
+		// ；覆盖层对象按（基快照, statusSnapshot）双引用短路 memo
 		// 引用未变帧复用同一对象不换壳（构建与键选型依据见 core 的 createStatusOverlayMemo）。
 		const statusSnapshot = uiSession?.sessionStatus?.getSnapshot?.() ?? null;
 		snapshot = statusOverlayMemo(snapshot, statusSnapshot);
@@ -8322,7 +8322,7 @@ function apply(ctx) {
 		const archivedSessionIds = workspaceSnapshot?.archivedSessionIds ?? [];
 		const now = Date.now();
 
-		// 委托周期集合（R-01-003/AC-05）：由上一帧 progressAnchor 记账派生——后代耗尽
+		// 委托周期集合：由上一帧 progressAnchor 记账派生——后代耗尽
 		// 至 settle 处理回合启动的空窗内，母会话保持运行呈现且不入历史区（分区不变量）。
 		const delegatingIds = new Set();
 		for (const [id, state] of progressAnchorById) {
@@ -8331,7 +8331,7 @@ function apply(ctx) {
 		// 排序键注入（契约见 buildEntries JSDoc）：openWaitStart 已在 busy SSE 快照归一为毫秒数或 null；
 		// 派生 Map 按 busy 内容版本备忘（busyById 原地变更、引用恒不变——见 createWaitingStartsMemo）。
 		const waitingStarts = waitingStartsMemo(busyById, busyVersion);
-		// 在跑后台任务（R-01-023，T-170）：dsh 0.2.0 起 jobsBySession 自列表快照移除，
+		// 在跑后台任务（T-170）：dsh 0.2.0 起 jobsBySession 自列表快照移除
 		// 改由 jobs 服务的 state.rows（Record<sessionId, JobView[]>）注入
 		// buildEntries/buildRecent——在跑任务只作卡片数量标注（活动区与历史卡），不参与
 		// 活动归属与提醒判定；roster 订阅经 syncJobsWatches 对列表全会话建立。
@@ -8342,25 +8342,25 @@ function apply(ctx) {
 		syncJobsWatches(rawListSnapshot);
 		const jobsBySession = jobs?.state?.getSnapshot?.()?.rows ?? null;
 		const builtActive = buildEntries({ snapshot, workspaceItems, detailsById: sessionDetailsById, completions: completeAcksById, delegatingIds, archivedIds: archivedSessionIds, waitingStarts, jobsBySession, currentId });
-		// 任务子卡档位门控（R-01-023/AC-10、R-01-025/AC-08，T-174）：中间/紧凑档不呈现
+		// 任务子卡档位门控（T-174）：中间/紧凑档不呈现
 		// 后台任务子卡——剔除 job 子条目后其随钟时长不再注入渲染签名；任务视图订阅
 		// （syncJobsWatches）与母会话 liveJobs（数量注）不受影响。
 		const active = densityLevel === "full" ? builtActive : builtActive.filter((entry) => entry.kind !== "job");
 		// 轮内订阅仅对"运行中"会话建立（主会话 + 运行中的子代理），保持在运行中的订阅
-		// 数量 == 运行中会话数量（R-02-004/AC-01）；暂停等待的子代理只显示标题。
+		// 数量 == 运行中会话数量；暂停等待的子代理只显示标题。
 		const runLikeIds = new Set(
 			active.filter((entry) => shouldSubscribeToSession(entry, snapshot?.byId ?? {})).map((entry) => entry.id),
 		);
-		// 运行卡时钟：需求判定收口在 core（runningClockWanted，R-01-025/AC-08，T-174）——
+		// 运行卡时钟：需求判定收口在 core（runningClockWanted，T-174）——
 		// 在跑后台任务不产生运行呈现，等待态母卡自身无逐秒推进分量，低档位不为其维持
-		// 逐秒时钟；开放回合会话、委托周期母卡与运行中子代理照常驱动（R-01-009/AC-14）。
+		// 逐秒时钟；开放回合会话、委托周期母卡与运行中子代理照常驱动。
 		syncLiveness(runLikeIds, runningClockWanted(active, runLikeIds));
 		for (const entry of active) {
 			const liveRecord = livenessById.get(entry.id);
 			const live = liveRecord?.liveness ?? null;
 			const detail = sessionDetailsById.get(entry.id);
 			if (entry.kind === "running" && detail) detail.durationFallbackLoaded = false;
-			// 累计运行时长（R-01-020/AC-01、AC-03）：主会话条目注入显示值——渲染期合成，
+			// 累计运行时长：主会话条目注入显示值——渲染期合成
 			// 含开放回合的实时已耗时并随时钟逐秒推进；子代理卡片不显示。
 			if (entry.kind !== "subagent") applyTotalBusy(entry, now);
 			const detailSnapshot = liveRecord?.snapshot ?? detail?.snapshot ?? null;
@@ -8369,12 +8369,12 @@ function apply(ctx) {
 				detail.memoHistoryAnchor = historyInstructionAnchor(detail.history);
 			}
 			// 等待/暂停呈现（pendingText 存在）且自身快照为冻结值时，残留 running 行全部落定；
-			// 存在活动后代时保留尾部提升的「agent 工作中」呈现（R-01-009/AC-10 委托周期语义）。
+			// 存在活动后代时保留尾部提升的「agent 工作中」呈现（委托周期语义）。
 			const entryIdle = (entry.pendingText ?? null) !== null && entry.descendantActive !== true;
 			const entryCwd = snapshot?.byId?.[entry.id]?.cwd ?? "";
 			// log 派生 memo：history 引用 / idle / cwd 变化才重算。落定在折叠前生效
 			// （foldedHistoryTimeline 的 settleIdle），组标题由已定案成员派生——阻塞等待卡
-			// 呈现「运行了命令」+「等待回答」摘要，而非「运行」蓝闪（R-01-009/AC-09）。
+			// 呈现「运行了命令」+「等待回答」摘要，而非「运行」蓝闪。
 			const historyRef = detail?.history ?? null;
 			const logReady = Array.isArray(historyRef) && historyRef.length > 0;
 			if (detail && logReady && (detail.memoLogTimelineOf !== historyRef || detail.memoLogTimelineIdle !== entryIdle || detail.memoLogTimelineCwd !== entryCwd)) {
@@ -8403,7 +8403,7 @@ function apply(ctx) {
 					detail.memoTimelineIdle = entryIdle;
 					detail.memoTimelineAnchor = detail.memoHistoryAnchor ?? null;
 					detail.memoTimeline = foldedConversationTimeline(detailSnapshot, 4, entryCwd, entry.descendantActive === true, entryIdle, detail.memoTimelineAnchor);
-					// 冷窗口兜底触发记账（R-01-012/AC-12）：窗口内有可锚用户行时锚行机制保证其
+					// 冷窗口兜底触发记账：窗口内有可锚用户行时锚行机制保证其
 					// 出现在输出（窗口行或锚行），反之需 history 补读。
 					detail.snapshotHasAnchorableUserRow = detail.memoTimeline.some(isAnchorableUserRow);
 				}
@@ -8416,7 +8416,7 @@ function apply(ctx) {
 				entry.timeline = detail?.timeline ?? entry.timeline ?? [];
 			}
 			if (detail) {
-				// history 开放回合起点兜底（R-01-009/AC-06）。
+				// history 开放回合起点兜底。
 				if (detail.memoOpenTurnStartHistoryOf !== (detail.history ?? null) || detail.memoOpenTurnStartSnapOf !== detailSnapshot) {
 					detail.memoOpenTurnStartHistoryOf = detail.history ?? null;
 					detail.memoOpenTurnStartSnapOf = detailSnapshot;
@@ -8435,14 +8435,14 @@ function apply(ctx) {
 			if (entry.kind === "awaiting" && detail) {
 				entry.elapsedMs = memoTurnDuration(detail);
 			}
-			// 状态年龄（R-01-002/AC-14）：帧内单点派生一次，渲染与签名共用同一文案与时钟源。
+			// 状态年龄：帧内单点派生一次，渲染与签名共用同一文案与时钟源。
 			if (entry.kind === "awaiting") entry.awaitAge = awaitAgeText(entry, now);
 			if (detail?.model) {
 				entry.model = detail.model.model;
 				entry.reasoning = detail.model.reasoning;
 			}
 			// 子代理溯源得到的是 provider 模型 id：经目录分组解析为显示名，effort 缺失时
-			// 以同一目录条目回退（R-01-012/AC-17）；目录未覆盖该 id 时保留原始回退（AC-18）。
+			// 以同一目录条目回退；目录未覆盖该 id 时保留原始回退。
 			if (entry.kind === "subagent" && detail?.model) {
 				const catalogEntry = catalogEntries[detail.model.model];
 				if (catalogEntry?.name) entry.model = catalogEntry.name;
@@ -8455,22 +8455,22 @@ function apply(ctx) {
 				const question = timelineQuestionPreview(entry.timeline);
 				if (question !== null) entry.questionPreview = question;
 			}
-			// 字段级加载指示（R-01-014/AC-02）：补充数据在途时卡片对应位置显示活动图标。
+			// 字段级加载指示：补充数据在途时卡片对应位置显示活动图标。
 			// 主会话模型经目录 store 一次性 load 到达（modelLoads 记账），子代理模型经
-			// 日志读取提取（R-01-012/AC-17）。
+			// 日志读取提取。
 			entry.loadingModel = !detail?.model && (modelLoads.has(entry.id) || (entry.kind === "subagent" && historyLoads.has(entry.id)));
 			entry.loadingTimeline =
 				entry.timeline.length === 0 &&
 				(historyLoads.has(entry.id) || sessionRefs.get(String(entry.id))?.pending === true || (runLikeIds.has(entry.id) && !liveRecord));
 			// token/速率取自 sessions.list 条目的投影（tokenUsage/sessionStats），
-			// 复用既有列表订阅，无新增轮询（R-01-009/AC-05、R-02-004/AC-02）。
+			// 复用既有列表订阅，无新增轮询。
 			const projection = snapshot?.byId?.[entry.id]?.projectionValues;
 			const projectionStats = statsFromProjection(projection);
 			if (entry.kind === "awaiting") {
 				// 等待期间冻结运行停止前的最后已知统计；刷新/无留存时回退当前列表投影。
 				Object.assign(entry, mergeRuntimeStats(detail?.lastRuntimeStats, projectionStats));
 			}
-			// 委托周期锚点（R-01-009/AC-06）：全部活动条目逐帧记账——锚点不因呈现翻转
+			// 委托周期锚点：全部活动条目逐帧记账——锚点不因呈现翻转
 			// （委托期与 awaiting 互转）或瞬时不可见而丢失，仅 dispose 时整体清除；周期内
 			// 进度连续（含 settle 处理回合），周期外由宿主回合起点驱动（新回合归零）。
 			// 半衰期不记入锚点（C-044）：每帧按最新实测累计速率现算，进度作为对完成度
@@ -8493,11 +8493,11 @@ function apply(ctx) {
 				}
 				// 回合进度：纯时间驱动 y = t/(t+k)，半衰期每帧按最新实测速率现算，固定
 				// k 下单调性由函数本身保证；k 变化时允许进度随速率回落而回退（委托周期
-				// 连续、周期外回合切换归零，R-01-009/AC-06，C-014、C-044）。
+				// 连续、周期外回合切换归零，C-014、C-044）。
 				entry.progress = progressOf({ elapsedMs: elapsedMs ?? 0, halfLifeSec: progressHalfLifeSec({ rateTokS: projectionStats.rateTokS }) });
 			}
 			if (entry.kind === "subagent") {
-				// 运行中子代理卡与主会话运行卡同口径：同一锚点状态机与进度曲线（R-01-009/AC-14）。
+				// 运行中子代理卡与主会话运行卡同口径：同一锚点状态机与进度曲线。
 				const elapsedMs = Number.isFinite(anchor.anchor) ? Math.max(0, now - anchor.anchor) : null;
 				if (elapsedMs !== null) {
 					Object.assign(entry, projectionStats, { elapsedMs });
@@ -8505,14 +8505,14 @@ function apply(ctx) {
 					entry.progress = progressOf({ elapsedMs, halfLifeSec: progressHalfLifeSec({ rateTokS: projectionStats.rateTokS }) });
 				} else {
 					// 非运行（暂停等待）：冻结最后已知统计与最近回合耗时，progress 置空隐藏
-					// 进度条（R-01-009/AC-15）；刷新/无留存时回退当前列表投影。
+					// 进度条；刷新/无留存时回退当前列表投影。
 					Object.assign(entry, mergeRuntimeStats(detail?.lastRuntimeStats, projectionStats));
 					entry.elapsedMs = detail ? memoTurnDuration(detail) : null;
 					entry.progress = null;
 				}
 			}
 		}
-		// 历史区时间精化（R-01-010/AC-08、AC-09）：从保留快照的 turnTimings 与已拉取的
+		// 历史区时间精化：从保留快照的 turnTimings 与已拉取的
 		// history 同批事件提取最后回合结束时刻（取两者较新者），按引用 memo；均无则不提供，
 		// 由 buildRecent 回退宿主列表时间。history/快照到达后经 queueSync 重绘就地精化。
 		const turnEnds = {};
@@ -8531,13 +8531,13 @@ function apply(ctx) {
 		const recent = recentBuilt;
 		recentHasMore = recent.length < recentTotal;
 		// 最近卡统计复用运行卡的列表投影口径；耗时从已读 history 取最近完整回合的运行
-		// 过程时长（busy 口径，与标题行总耗时一致，R-01-013/AC-12），缺边界时仅为当前
+		// 过程时长（busy 口径，与标题行总耗时一致），缺边界时仅为当前
 		// 可见历史卡安排一次既有 history 补读。
 		const recentDurationFallbackIds = new Set();
 		for (const entry of recent) {
 			const detail = sessionDetailsById.get(entry.id);
 			const elapsedMs = lastTurnDuration({ history: detail?.history ?? null });
-			// 累计运行时长（R-01-020/AC-01）：最近历史卡同为标题行右侧显示；历史卡无开放回合。
+			// 累计运行时长：最近历史卡同为标题行右侧显示；历史卡无开放回合。
 			applyTotalBusy(entry, now);
 			const stats = statsFromProjection(snapshot?.byId?.[entry.id]?.projectionValues, elapsedMs);
 			const retained = detail?.lastRuntimeStats;
@@ -8549,7 +8549,7 @@ function apply(ctx) {
 			} : null);
 			if (elapsedMs === null) recentDurationFallbackIds.add(entry.id);
 		}
-		// 状态年龄（R-01-002/AC-14）与历史卡相对时间同为分钟级：任一存在即保持定时器。
+		// 状态年龄与历史卡相对时间同为分钟级：任一存在即保持定时器。
 		syncRecentTimeClock(recent.length > 0 || active.some((entry) => entry.kind === "awaiting" && entry.awaitAge));
 		// 预览只对当前显示的 recent 卡计算（活动卡不显示预览）；快照/历史引用不变时命中缓存。
 		// 完成瞬间的窗口快照可能先有用户消息、后到 agent reply；缺任一预览时补读一次 history。
@@ -8574,7 +8574,7 @@ function apply(ctx) {
 			...active.filter((entry) => entry.kind === "awaiting").map((entry) => entry.id),
 			...recentDurationFallbackIds,
 		]);
-		// 子代理模型溯源读取时机（R-01-012/AC-17）：运行中看快照最新助手节点是否已
+		// 子代理模型溯源读取时机：运行中看快照最新助手节点是否已
 		// 定案（事件已落宿主日志，尾页读取必命中；工具密集期 4 行折叠窗口可能不含
 		// 助手行，故直接读快照而非折叠时间线）；不在运行中则整段日志已冻结，直接读取。
 		// 开局只有流式 partial 时不读，避免早读扑空。
@@ -8591,12 +8591,12 @@ function apply(ctx) {
 		}
 		const detailIds = [...active, ...recent].map((entry) => entry.id);
 		detailIds.sort((a, b) => Number(String(b) === String(currentId)) - Number(String(a) === String(currentId)));
-		// 档位资源纪律（R-01-025/AC-01）：渲染期持续执法——进入紧凑档即拆主会话窗口；
+		// 档位资源纪律：渲染期持续执法——进入紧凑档即拆主会话窗口；
 		// 拆窗时被豁免的当前会话在切走后的下一轮渲染照常释放。幂等：主会话拆窗后
 		// 不在 logSourceSubs，重复执法为无操作。
 		enforceDensityDataDiscipline();
 		loadNativeDetails({ ids: detailIds, previewFallbackIds, durationFallbackIds, subagentModelReadIds });
-		// 累计运行时长懒回填（R-01-020/AC-05）：对可见主会话触发宿主侧存量回合补齐；
+		// 累计运行时长懒回填：对可见主会话触发宿主侧存量回合补齐；
 		// 宿主侧每会话单飞，重复触发由宿主合并；完成后经 busy SSE 广播推送。
 		requestBusyBackfill([...active, ...recent].filter((entry) => entry.kind !== "subagent").map((entry) => entry.id));
 		const visibleIds = new Set([...active, ...recent].map((entry) => entry.id));
@@ -8604,7 +8604,7 @@ function apply(ctx) {
 		// 锚点记账不随可见性 prune：瞬时 loading 空帧不得误清（进度重置）；陈旧条目靠
 		// 耗尽宽限与 turnStart 不匹配自校正，仅在 dispose 时整体清除。
 		pruneInvisibleEntries([sessionDetailsById, modelLoads, historyLoads], visibleIds);
-		// 模型目录订阅同生命周期：不可见即先 unsubscribe 再除名，监听器不残留（R-01-012/AC-16）。
+		// 模型目录订阅同生命周期：不可见即先 unsubscribe 再除名，监听器不残留。
 		pruneSubscriptions(modelDirectorySubs, visibleIds);
 		pruneSubscriptions(logSourceSubs, visibleIds);
 		// 会话引用同生命周期（T-170）：离开可见集合即 release retain 引用——retain 的
@@ -8621,27 +8621,27 @@ function apply(ctx) {
 			: pane.getAttribute("data-open") === "true" ? "drawer" : "toggle";
 		// listState 参与签名：空列表从 pending/error → ready 时卡集合不变，若只比较卡片
 		// 会被提前返回冻结在「加载中」/「列表加载失败」；数量胶囊可见面变化同样需要
-		// 进入渲染，以便与当前可见等待卡末行重新对相（R-01-002/AC-07）。
+		// 进入渲染，以便与当前可见等待卡末行重新对相。
 		// 历史卡的相对活动时间与等待卡状态年龄随分钟级时钟变化，纳入签名后只在文案实际变化时重绘。
 		const recentTimeSignature = recent.map((entry) => fmtRecentTime(entry.activityAt));
 		const awaitAgeSignature = active
 			.filter((entry) => entry.kind === "awaiting")
 			.map((entry) => entry.awaitAge ?? "");
-		// job 子卡的任务行时长随 1 秒时钟推进（R-01-023/AC-01）：秒桶注入渲染签名，
+		// job 子卡的任务行时长随 1 秒时钟推进：秒桶注入渲染签名
 		// 与运行卡 totalBusyMs 的逐秒重绘同节奏，不新增时钟。
 		for (const entry of visibleEntries) {
 			if (entry.kind === "job") {
 				entry.jobsAgeSec = Math.floor(Date.now() / 1000);
 			}
 		}
-		// 全局面板在屏与否参与签名（R-01-006/AC-03、AC-05，C-104）：面板切换不改其它
+		// 全局面板在屏与否参与签名（C-104）：面板切换不改其它
 		// 签名分量，不并入则当前卡的前台/后台态不会随页面切换刷新。
 		const panelId = activePanelId();
 		const foreground = panelId === null;
 		const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature, awaitAgeSignature, densityLevel, panelId]);
 		if (sig === lastSig) return;
 		const colorByWorkspace = resolveWorkspaceColors(visibleEntries.map((entry) => entry.workspaceKey));
-		// 跨区迁移（双向，R-01-010/AC-07）：DOM 写入前量取旧卡矩形并克隆 ghost。
+		// 跨区迁移（双向）：DOM 写入前量取旧卡矩形并克隆 ghost。
 		const migrations = [
 			...movedToRecentIds(prevRenderedActiveIds, active, recent).map((id) => ({ id, from: cardsById, to: recentCardsById })),
 			...movedToActiveIds(prevRenderedRecentIds, active, recent).map((id) => ({ id, from: recentCardsById, to: cardsById })),
@@ -8668,13 +8668,13 @@ function apply(ctx) {
 		}
 		const movePlans = prepareMoveGhosts(migrations);
 		// 迁移帧内位置受影响的其它卡片与历史区段头：DOM 写入前量取当前视觉矩形
-		// （R-01-010/AC-10）；reduced-motion 下 movePlans 为空，FLIP 量取整体跳过。
+		// ；reduced-motion 下 movePlans 为空，FLIP 量取整体跳过。
 		const shiftRects = movePlans.length > 0 ? snapshotShiftRects() : null;
 
 		// 逐卡异常隔离：一张卡渲染抛错不得冻结其余卡片（此前签名先于循环提交，
 		// 故障卡及其后全部卡片永久滞留旧内容——历史卡因此停在过去的首条消息
 		// fallback 标题，与左侧栏脱节）；本轮有失败则不提交签名，下一次同步整体
-		// 重试——瞬时异常自愈，持续异常只滞留故障卡本身（R-01-013/AC-02）。
+		// 重试——瞬时异常自愈，持续异常只滞留故障卡本身。
 		let renderOk = true;
 		const aliveActive = new Set();
 		for (const [index, entry] of active.entries()) {
@@ -8717,7 +8717,7 @@ function apply(ctx) {
 		if (shiftRects !== null) runShiftAnimations(shiftRects);
 		ensureCurrentCardVisible(pane.querySelector(".dap-scroll"), currentId);
 		if (focusAfterMigrationId !== null) cardsById.get(focusAfterMigrationId)?.el.focus();
-		// 区域已有条目但列表仍在途时，在区头部显示行内加载指示（R-01-014/AC-01）。
+		// 区域已有条目但列表仍在途时，在区头部显示行内加载指示。
 		const headerEl = pane.querySelector(".dap-titlebar");
 		const recentHeadEl = recentSection?.querySelector(".dap-recent-head") ?? null;
 		for (const [head, hasItems] of [[headerEl, active.length > 0], [recentHeadEl, recent.length > 0]]) {
@@ -8731,10 +8731,10 @@ function apply(ctx) {
 		}
 
 		// 计数与折叠：n/m 只统计主会话——分子为运行中数、分母为其加等待行动主会话之和
-		// （R-01-001/AC-04、AC-05）；空态同样显示 0/0（AC-06）。列表在途时不冒充计数，
-		// 三处数量标识显示加载指示（R-01-014/AC-06）。悬停 tips 说明分子/分母口径（AC-08）。
+		// ；空态同样显示 0/0。列表在途时不冒充计数
+		// 三处数量标识显示加载指示。悬停 tips 说明分子/分母口径。
 		// 脉冲由 data-awaiting 承载：任一等待行动（阻塞等待、完成提醒或错误提醒）即脉冲
-		// （R-01-002/AC-06，C-037）；底色经 data-tone 跟随等待构成——错误 > 阻塞 > 完成
+		// （C-037）；底色经 data-tone 跟随等待构成——错误 > 阻塞 > 完成
 		// 优先级取红/金/绿（C-040、C-043）。
 		const count = pane.querySelector(".dap-count");
 		const railCount = pane.querySelector(".dap-rail-count");
@@ -8776,10 +8776,10 @@ function apply(ctx) {
 		if (headerEl !== null && headerEl.getAttribute("aria-expanded") !== headerExpanded)
 			headerEl.setAttribute("aria-expanded", headerExpanded);
 		// 历史分页只由底部按钮显式触发；追加只排队一帧，避免重复点击造成重复增长
-		//（R-01-019/AC-01～AC-03）。
+		//。
 
 		// 渲染签名在整轮 DOM 写入全部成功后提交：任何一步失败都保留下一轮
-		// 同步重试的机会，避免故障被签名吞掉后卡片永久滞留（R-01-013/AC-02）。
+		// 同步重试的机会，避免故障被签名吞掉后卡片永久滞留。
 		// lastCommittedEntries 同点登记（T-189）：时钟帧补写的条目快照与 lastSig
 		// 同生命周期——失败帧保留上一成功帧，时钟帧据此续写上一成功帧的叶子。
 		if (renderOk) {
@@ -8789,7 +8789,7 @@ function apply(ctx) {
 			prevRenderedActiveIds = new Set(active.map((entry) => String(entry.id)));
 			prevRenderedRecentIds = new Set(recent.map((entry) => String(entry.id)));
 		}
-		// 锚定补偿（R-01-021/AC-01）：档位切换的渲染落地后量测当前选中卡的新位置并
+		// 锚定补偿：档位切换的渲染落地后量测当前选中卡的新位置并
 		// 补偿 scrollTop，使当前卡顶部回到切换前相对视口的位置；补偿量超滚动边界时
 		// 由浏览器钳制（以当前卡不滚出可视范围为准）。沉降窗内逐帧补偿：dsh 0.2.0
 		// 起切回高档位的窗口经 retain→ready 异步重建，时间线内容分多帧长回，单帧
@@ -8889,7 +8889,7 @@ function apply(ctx) {
 		// 到达判定交给 currentId 驱动的取消链（同步循环每帧 cancelStaleOpenRetries
 		// 与本重试链共用 shouldCancelOpenRetry），data-opening 随取消/到达摘除；
 		// 未到达则 500ms 后重发导航（MAX_OPEN_ATTEMPTS 封顶）。
-		// 移动端抑制（R-01-005/AC-01）：宿主 composer 聚焦 effect 与 selection 同一
+		// 移动端抑制：宿主 composer 聚焦 effect 与 selection 同一
 		// 提交周期发生，抑制必须在发起导航时即武装（blur + 捕获期 focusin 拦截窗），
 		// 不能等到达判定——0.1.5 的「成功后抑制」时序在 0.2.0 会晚于宿主聚焦。
 		// 窗宽分档（T-170 审核发现 5）：首发沿用 1200ms 全窗；重试只武装 60ms
@@ -8956,7 +8956,7 @@ function apply(ctx) {
 
 		// 观察 center 的直接子节点（seat/pane 重挂载）；不观察 pane 子树。全局面板
 		// 切换由槽座子树的 entry 替换唤醒，不再依赖宿主标记做显隐判断
-		// （R-01-007/AC-03，C-103）。
+		// （C-103）。
 		centerObserver = new MutationObserver(() => {
 			const nextSeat = document.querySelector(CONVERSATION_SELECTOR);
 			if (nextSeat?.parentElement !== center) {
@@ -8994,7 +8994,7 @@ function apply(ctx) {
 		let pane = document.querySelector(`[${PANE_ATTR}]`);
 		if (pane === null) {
 			// 宿主视图替换窗口期/绑定失败时窗格可能缺失：先补绑再开合，开关不得静默无响应
-			// （真机宿主重渲染节奏与桌面不同，此窗口期在触屏上更易被命中，R-01-008/AC-01）。
+			// （真机宿主重渲染节奏与桌面不同，此窗口期在触屏上更易被命中）。
 			pane = ensurePane();
 			if (pane === null) {
 				console.warn("[dsh-activity-pane] 窗格挂载点不存在（main 槽容器未就绪），已忽略本次开关点击");

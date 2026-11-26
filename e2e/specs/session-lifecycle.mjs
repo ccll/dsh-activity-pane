@@ -1,4 +1,3 @@
-// R-01-001/AC-01、R-01-001/AC-02、R-01-002/AC-03、R-01-002/AC-10、R-01-009/AC-09、R-01-009/AC-12、R-01-009/AC-13、R-01-010/AC-01、R-01-010/AC-02、R-01-013/AC-12、R-01-010/AC-04
 // 会话生命周期端到端：空态 → e2e:slow 剧本运行卡 → 完成提醒卡 → 确认移入历史区。
 // 只断言用户可观察的呈现（区域文字、按钮、页面 URL），不依赖内部 DOM 结构（C-045）。
 
@@ -7,24 +6,24 @@ ensureFullDensity, openApp, paneRegions, sendHeroMessage, until
 } from "../helpers.mjs";
 
 const TITLE = "e2e:slow 慢速任务探针";
-// 标题行累计运行时长的人性化短格式（R-01-020/AC-01）：Ns / NmNs / NhNmNs。
+// 标题行累计运行时长的人性化短格式：Ns / NmNs / NhNmNs。
 const TOTAL_BUSY_RE = /^\d+(s|m\d+s|h\d+m\d+s)$/;
 
 export default async function sessionLifecycle({ page, url, mock, assert }) {
 	await openApp(page, url);
 	await ensureFullDensity(page);
 
-	// R-01-001/AC-02、R-01-010/AC-04：无活动会话时活动区显示明确空态而非空白。
+	// 无活动会话时活动区显示明确空态而非空白。
 	// 宽限 30s：观测到宿主 sessions 服务偶发推送停滞（窗格滞留「加载中…」，见 TODO 缺陷线索）。
 	await until("窗格挂载并显示空态", async () => {
 		const regions = await paneRegions(page);
 		return regions && regions.active.includes("暂无活动会话") ? regions : null;
 	}, 30_000);
 
-	// 经真实 composer 发送 e2e:slow 指令（R-01-001/AC-01 的驱动路径）。
+	// 经真实 composer 发送 e2e:slow 指令（的驱动路径）。
 	await sendHeroMessage(page, TITLE);
 
-	// R-01-001/AC-01：慢速剧本流式期间（约 3.6s）活动区出现该会话条目，
+	// 慢速剧本流式期间（约 3.6s）活动区出现该会话条目
 	// 且不呈现完成提醒文案。
 	await until("活动区出现会话条目", async () => {
 		const regions = await paneRegions(page);
@@ -33,7 +32,7 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 	const duringRun = await paneRegions(page);
 	assert.ok(!duringRun.active.includes("已完成"), "流式期间不呈现「已完成」");
 
-	// R-01-009/AC-06：百分比与进度条同行并紧跟其右侧，标题行不再承载百分比。
+	// 百分比与进度条同行并紧跟其右侧，标题行不再承载百分比。
 	const progressGeometry = await until("运行卡进度行就绪", () =>
 		page.evaluate((title) => {
 			const pane = document.querySelector("[data-dsh-activity-pane]");
@@ -93,26 +92,26 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 			};
 		}, TITLE),
 	);
-	assert.ok(progressGeometry.pctLeft >= progressGeometry.trackRight, "百分比位于进度条右侧（R-01-009/AC-06）");
+	assert.ok(progressGeometry.pctLeft >= progressGeometry.trackRight, "百分比位于进度条右侧");
 	assert.ok(
 		progressGeometry.pctTop < progressGeometry.progressBottom && progressGeometry.pctBottom > progressGeometry.progressTop,
-		"百分比与进度条位于同一进度行（R-01-009/AC-06）",
+		"百分比与进度条位于同一进度行",
 	);
 	const pctCenter = (progressGeometry.pctTop + progressGeometry.pctBottom) / 2;
 	const trackCenter = (progressGeometry.trackTop + progressGeometry.trackBottom) / 2;
 	assert.ok(
 		trackCenter - pctCenter >= 0.5 && trackCenter - pctCenter <= 1.5,
-		"百分比行盒中心相对进度条中心上移约 1px，视觉不再偏下（R-01-009/AC-06）",
+		"百分比行盒中心相对进度条中心上移约 1px，视觉不再偏下",
 	);
-	assert.equal(progressGeometry.titleContainsPct, false, "标题行不再承载进度百分比（R-01-009/AC-06）");
+	assert.equal(progressGeometry.titleContainsPct, false, "标题行不再承载进度百分比");
 	assert.ok(
 		Math.abs(progressGeometry.widthAtOneDigit - progressGeometry.widthAtThreeDigits) <= 0.5,
-		"百分比从 9% 变化到 100% 时保持固定宽度，进度条右端不跳动（R-01-009/AC-06）",
+		"百分比从 9% 变化到 100% 时保持固定宽度，进度条右端不跳动",
 	);
 	assert.ok(
 		Math.abs(progressGeometry.textRightAtOneDigit - progressGeometry.elapsedTextRight) <= 0.5 &&
 			Math.abs(progressGeometry.textRightAtThreeDigits - progressGeometry.elapsedTextRight) <= 0.5,
-		"百分比在固定占位内右对齐，9% 与 100% 的文字右缘均和下一行耗时右缘对齐（R-01-009/AC-06）",
+		"百分比在固定占位内右对齐，9% 与 100% 的文字右缘均和下一行耗时右缘对齐",
 	);
 	assert.ok(
 		Math.abs(progressGeometry.paneWidth - 200) <= 0.5 &&
@@ -123,10 +122,10 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 			progressGeometry.textRightAtThreeDigits <= progressGeometry.pctRight + 0.5 &&
 			progressGeometry.pctRight <= progressGeometry.cardRight + 0.5 &&
 			progressGeometry.cardRight <= progressGeometry.paneRight + 0.5,
-		"窗格实际为 200px 最窄宽时进度条仍可见，9% 与 100% 均完整容纳且不越过卡片或窗格右界（R-01-009/AC-06）",
+		"窗格实际为 200px 最窄宽时进度条仍可见，9% 与 100% 均完整容纳且不越过卡片或窗格右界",
 	);
 
-	// R-01-020/AC-01、R-01-020/AC-03、R-01-020/AC-05：运行卡标题行最右侧显示累计运行时长
+	// 运行卡标题行最右侧显示累计运行时长
 	// （宿主侧实时记账 + 存量回合懒回填），含开放回合实时已耗时；无数据时节点隐藏不冒充 0。
 	const totalBusy = await until("运行卡标题行累计运行时长就绪", () =>
 		page.evaluate((title) => {
@@ -140,10 +139,10 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 	);
 	assert.ok(
 		TOTAL_BUSY_RE.test(totalBusy),
-		`运行卡标题行最右侧显示人性化短格式的累计运行时长（R-01-020/AC-01，实际：${totalBusy}）`,
+		`运行卡标题行最右侧显示人性化短格式的累计运行时长（实际：${totalBusy}）`,
 	);
 
-	// R-01-009/AC-09：真实浏览器裁决时间线点整体小于标题点，且与竖线同圆心；
+	// 真实浏览器裁决时间线点整体小于标题点，且与竖线同圆心；
 	// running 节点继续以光晕和脉冲表达当前活动。
 	const dotGeometry = await until("运行卡时间线圆点几何就绪", () =>
 		page.evaluate((title) => {
@@ -193,30 +192,30 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 		);
 	}
 
-	assert.deepEqual([dotGeometry.nodeWidth, dotGeometry.nodeHeight], [7, 7], "时间线节点使用 7×7px 同心承载盒（R-01-009/AC-09）");
-	assert.equal(dotGeometry.nodeCoreWidth, 5, "时间线承载盒内保留 5px 实心核（R-01-009/AC-09）");
-	assert.deepEqual([dotGeometry.titleWidth, dotGeometry.titleHeight], [7, 7], "标题状态点保持 7×7px（R-01-009/AC-09）");
-	assert.ok(Math.abs(dotGeometry.nodeCenterX - dotGeometry.titleCenterX) <= 0.5, "时间线承载盒与标题点的页面绝对圆心竖直对齐（R-01-009/AC-09）");
-	assert.ok(Math.abs(dotGeometry.nodeCenterX - dotGeometry.lineCenterX) <= 0.5, "时间线承载盒与竖线的页面绝对圆心竖直对齐（R-01-009/AC-09）");
-	assert.equal(dotGeometry.borderColor, "rgba(0, 0, 0, 0)", "7px 承载盒边界透明不可见（R-01-009/AC-09）");
-	assert.equal(dotGeometry.backgroundClip, "padding-box", "透明承载盒内仅绘制 5px 圆核（R-01-009/AC-09）");
-	assert.equal(dotGeometry.settledBoxShadow, "none", "已定案节点不按 7px 承载盒绘制 box-shadow（R-01-009/AC-09）");
-	assert.equal(dotGeometry.nodeBoxShadow, "none", "running 节点不按 7px 承载盒绘制 box-shadow（R-01-009/AC-09）");
-	assert.match(dotGeometry.settledFilter, /drop-shadow\(rgba\(119, 131, 148, 0\.32\) 0px 0px 1px\)/, "已定案节点光晕跟随 5px 圆核 alpha 轮廓（R-01-009/AC-09）");
-	assert.equal(dotGeometry.animation, "dap-pulse", "running 时间线点保留脉冲（R-01-009/AC-09）");
-	assert.match(dotGeometry.nodeFilter, /drop-shadow\(rgba\(101, 160, 255, 0\.32\) 0px 0px 1px\)/, "running 节点保留基于 5px 圆核的半透明外围（R-01-009/AC-09）");
-	assert.match(dotGeometry.nodeFilter, /drop-shadow\(rgba\(101, 160, 255, 0\.65\) 0px 0px 3px\)/, "running 节点保留基于 5px 圆核的状态光晕（R-01-009/AC-09）");
-	assert.ok(pulseOpacities.every(Number.isFinite) && Math.max(...pulseOpacities) - Math.min(...pulseOpacities) > 0.05, `running 时间线点 opacity 随 dap-pulse 跨时间变化（采样 ${pulseOpacities.join(", ")}，R-01-009/AC-09）`);
+	assert.deepEqual([dotGeometry.nodeWidth, dotGeometry.nodeHeight], [7, 7], "时间线节点使用 7×7px 同心承载盒");
+	assert.equal(dotGeometry.nodeCoreWidth, 5, "时间线承载盒内保留 5px 实心核");
+	assert.deepEqual([dotGeometry.titleWidth, dotGeometry.titleHeight], [7, 7], "标题状态点保持 7×7px");
+	assert.ok(Math.abs(dotGeometry.nodeCenterX - dotGeometry.titleCenterX) <= 0.5, "时间线承载盒与标题点的页面绝对圆心竖直对齐");
+	assert.ok(Math.abs(dotGeometry.nodeCenterX - dotGeometry.lineCenterX) <= 0.5, "时间线承载盒与竖线的页面绝对圆心竖直对齐");
+	assert.equal(dotGeometry.borderColor, "rgba(0, 0, 0, 0)", "7px 承载盒边界透明不可见");
+	assert.equal(dotGeometry.backgroundClip, "padding-box", "透明承载盒内仅绘制 5px 圆核");
+	assert.equal(dotGeometry.settledBoxShadow, "none", "已定案节点不按 7px 承载盒绘制 box-shadow");
+	assert.equal(dotGeometry.nodeBoxShadow, "none", "running 节点不按 7px 承载盒绘制 box-shadow");
+	assert.match(dotGeometry.settledFilter, /drop-shadow\(rgba\(119, 131, 148, 0\.32\) 0px 0px 1px\)/, "已定案节点光晕跟随 5px 圆核 alpha 轮廓");
+	assert.equal(dotGeometry.animation, "dap-pulse", "running 时间线点保留脉冲");
+	assert.match(dotGeometry.nodeFilter, /drop-shadow\(rgba\(101, 160, 255, 0\.32\) 0px 0px 1px\)/, "running 节点保留基于 5px 圆核的半透明外围");
+	assert.match(dotGeometry.nodeFilter, /drop-shadow\(rgba\(101, 160, 255, 0\.65\) 0px 0px 3px\)/, "running 节点保留基于 5px 圆核的状态光晕");
+	assert.ok(pulseOpacities.every(Number.isFinite) && Math.max(...pulseOpacities) - Math.min(...pulseOpacities) > 0.05, `running 时间线点 opacity 随 dap-pulse 跨时间变化（采样 ${pulseOpacities.join(", ")}）`);
 
 	// mock 必须确实命中 slow 剧本（证明链路经 mock LLM 而非真实模型）。
 	assert.ok(mock.scenarioLog.includes("slow"), `mock 应命中 slow 剧本，实际：${mock.scenarioLog}`);
 
-	// R-01-002/AC-03：回合结束后以「已完成」呈现（完成提醒），并提供确认按钮。
+	// 回合结束后以「已完成」呈现（完成提醒），并提供确认按钮。
 	await until("呈现完成提醒与确认按钮", async () => {
 		const regions = await paneRegions(page);
 		return regions && regions.active.includes("已完成") && regions.active.includes("移入历史") ? regions : null;
 	});
-	// R-01-009/AC-12：完成提醒在统计行最右侧保留上一轮耗时，且等待时间不继续累加。
+	// 完成提醒在统计行最右侧保留上一轮耗时，且等待时间不继续累加。
 	const completedElapsed = await until("完成提醒统计行保留上一轮耗时", () =>
 		page.evaluate((title) => {
 			const card = [...(document.querySelector("[data-dsh-activity-pane]")?.querySelectorAll('[role="button"]') ?? [])]
@@ -233,11 +232,11 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 			};
 		}, TITLE),
 	);
-	assert.match(completedElapsed.text, /^(?:\d+s|\d+m\d+s|\d+h\d+m\d+s)$/, "完成提醒统计行最右侧显示固定上一轮耗时（R-01-009/AC-12）");
-	assert.equal(completedElapsed.sameRow, true, "完成提醒耗时位于 token 统计行（R-01-009/AC-12）");
-	assert.equal(completedElapsed.rightAligned, true, "完成提醒耗时贴合 token 统计行最右侧（R-01-009/AC-12）");
-	assert.equal(completedElapsed.headTime, "", "完成提醒胶囊同行不重复显示耗时（R-01-009/AC-12）");
-	// R-01-009/AC-13：完成提醒保留进入等待前最后已知的四项 token 统计，耗时与统计处于同一行。
+	assert.match(completedElapsed.text, /^(?:\d+s|\d+m\d+s|\d+h\d+m\d+s)$/, "完成提醒统计行最右侧显示固定上一轮耗时");
+	assert.equal(completedElapsed.sameRow, true, "完成提醒耗时位于 token 统计行");
+	assert.equal(completedElapsed.rightAligned, true, "完成提醒耗时贴合 token 统计行最右侧");
+	assert.equal(completedElapsed.headTime, "", "完成提醒胶囊同行不重复显示耗时");
+	// 完成提醒保留进入等待前最后已知的四项 token 统计，耗时与统计处于同一行。
 	const readCompletedStats = () => page.evaluate((title) => {
 		const card = [...(document.querySelector("[data-dsh-activity-pane]")?.querySelectorAll('[role="button"]') ?? [])]
 			.find((candidate) => candidate.innerText.includes(title));
@@ -252,12 +251,12 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 		};
 	}, TITLE);
 	const completedStats = await until("完成提醒保留上一轮统计", readCompletedStats);
-	assert.match(completedStats.main, /tok\/s/, "完成提醒统计行保留 tok/s 输出速率（R-01-009/AC-13）");
-	assert.match(completedStats.main, /缓存 \d+%/, "完成提醒统计行保留缓存命中率（R-01-009/AC-13）");
-	assert.match(completedStats.main, /输入/, "完成提醒统计行保留计费输入 token（R-01-009/AC-13）");
-	assert.match(completedStats.main, /输出/, "完成提醒统计行保留输出 token（R-01-009/AC-13）");
-	assert.equal(completedStats.beforeAwaitingFoot, true, "完成提醒统计行位于时间线之后、等待提示之前（R-01-009/AC-13）");
-	assert.equal(completedStats.time, completedElapsed.text, "完成提醒耗时与 token 统计字段位于同一行（R-01-009/AC-12、AC-13）");
+	assert.match(completedStats.main, /tok\/s/, "完成提醒统计行保留 tok/s 输出速率");
+	assert.match(completedStats.main, /缓存 \d+%/, "完成提醒统计行保留缓存命中率");
+	assert.match(completedStats.main, /输入/, "完成提醒统计行保留计费输入 token");
+	assert.match(completedStats.main, /输出/, "完成提醒统计行保留输出 token");
+	assert.equal(completedStats.beforeAwaitingFoot, true, "完成提醒统计行位于时间线之后、等待提示之前");
+	assert.equal(completedStats.time, completedElapsed.text, "完成提醒耗时与 token 统计字段位于同一行");
 	await page.waitForTimeout(1_300);
 	assert.equal(
 		await page.evaluate((title) => {
@@ -266,12 +265,12 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 			return card?.querySelector(".dap-token-stats .dap-token-time")?.textContent || "";
 		}, TITLE),
 		completedElapsed.text,
-		"完成提醒等待期间耗时保持冻结，不把等待时间计入（R-01-009/AC-12）",
+		"完成提醒等待期间耗时保持冻结，不把等待时间计入",
 	);
 	const completedStatsAfterWait = await readCompletedStats();
-	assert.equal(completedStatsAfterWait?.main, completedStats.main, "完成提醒等待期间 token 统计保持冻结（R-01-009/AC-13）");
-	assert.equal(completedStatsAfterWait?.time, completedStats.time, "完成提醒等待期间耗时保持冻结（R-01-009/AC-12）");
-	// R-01-020/AC-01、AC-07：完成提醒卡片标题行总耗时在完成后保持冻结（回归：开放回合
+	assert.equal(completedStatsAfterWait?.main, completedStats.main, "完成提醒等待期间 token 统计保持冻结");
+	assert.equal(completedStatsAfterWait?.time, completedStats.time, "完成提醒等待期间耗时保持冻结");
+	// 完成提醒卡片标题行总耗时在完成后保持冻结（回归：开放回合
 	// 残留时总耗时随 now 无限增长）。
 	const completedTotal = await until("完成提醒标题行总耗时呈现", () =>
 		page.evaluate((title) => {
@@ -289,7 +288,7 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 			.find((candidate) => candidate.innerText.includes(title));
 		return card?.querySelector(".dap-total-time")?.textContent.trim() ?? null;
 	}, TITLE);
-	assert.equal(completedTotalAfterWait, completedTotal, "完成提醒标题行总耗时保持冻结，不随时间增长（R-01-020/AC-01、R-01-020/AC-07）");
+	assert.equal(completedTotalAfterWait, completedTotal, "完成提醒标题行总耗时保持冻结，不随时间增长");
 	await openApp(page, url);
 	await ensureFullDensity(page);
 	const refreshedCompletedElapsed = await until("刷新后恢复完成提醒耗时", () =>
@@ -299,15 +298,15 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 			return card?.querySelector(".dap-token-stats .dap-token-time")?.textContent || null;
 		}, TITLE),
 	);
-	assert.equal(refreshedCompletedElapsed, completedElapsed.text, "完成提醒刷新后仍保留同一轮耗时（R-01-009/AC-12）");
+	assert.equal(refreshedCompletedElapsed, completedElapsed.text, "完成提醒刷新后仍保留同一轮耗时");
 	const refreshedCompletedStats = await until("刷新后恢复完成提醒统计", readCompletedStats);
-	assert.match(refreshedCompletedStats.main, /tok\/s/, "完成提醒刷新后恢复 tok/s 输出速率（R-01-009/AC-13）");
-	assert.match(refreshedCompletedStats.main, /缓存 \d+%/, "完成提醒刷新后恢复缓存命中率（R-01-009/AC-13）");
-	assert.match(refreshedCompletedStats.main, /输入/, "完成提醒刷新后恢复计费输入 token（R-01-009/AC-13）");
-	assert.match(refreshedCompletedStats.main, /输出/, "完成提醒刷新后恢复输出 token（R-01-009/AC-13）");
-	assert.equal(refreshedCompletedStats.time, refreshedCompletedElapsed, "完成提醒刷新后耗时仍位于 token 统计行（R-01-009/AC-12、AC-13）");
+	assert.match(refreshedCompletedStats.main, /tok\/s/, "完成提醒刷新后恢复 tok/s 输出速率");
+	assert.match(refreshedCompletedStats.main, /缓存 \d+%/, "完成提醒刷新后恢复缓存命中率");
+	assert.match(refreshedCompletedStats.main, /输入/, "完成提醒刷新后恢复计费输入 token");
+	assert.match(refreshedCompletedStats.main, /输出/, "完成提醒刷新后恢复输出 token");
+	assert.equal(refreshedCompletedStats.time, refreshedCompletedElapsed, "完成提醒刷新后耗时仍位于 token 统计行");
 
-	// R-01-002/AC-10：激活确认按钮不触发会话跳转；R-01-010/AC-01、AC-02：
+	// 激活确认按钮不触发会话跳转；
 	// 确认后条目离开活动区、进入历史区。
 	const urlBefore = page.url();
 	await page.getByRole("button", { name: "移入历史", exact: true }).click();
@@ -317,7 +316,7 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 		if (!regions || regions.active.includes(TITLE)) return null;
 		return regions.recent.includes(TITLE) ? regions : null;
 	});
-	// R-01-013/AC-12：确认迁入历史后，最近卡在助手预览与活动时间之间保留最近回合统计。
+	// 确认迁入历史后，最近卡在助手预览与活动时间之间保留最近回合统计。
 	const readRecentStats = () => page.evaluate((title) => {
 		const card = [...(document.querySelectorAll('[data-dsh-activity-pane] [data-kind="recent"]') ?? [])]
 			.find((candidate) => candidate.innerText.includes(title));
@@ -336,15 +335,15 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 		};
 	}, TITLE);
 	const recentStats = await until("历史卡保留最近回合统计", readRecentStats);
-	assert.match(recentStats.main, /tok\/s/, "历史卡统计行保留 tok/s 输出速率（R-01-013/AC-12）");
-	assert.match(recentStats.main, /缓存 \d+%/, "历史卡统计行保留缓存命中率（R-01-013/AC-12）");
-	assert.match(recentStats.main, /输入/, "历史卡统计行保留计费输入 token（R-01-013/AC-12）");
-	assert.match(recentStats.main, /输出/, "历史卡统计行保留输出 token（R-01-013/AC-12）");
-	assert.match(recentStats.elapsed, /^(?:\d+s|\d+m\d+s|\d+h\d+m\d+s)$/, "历史卡统计行保留固定回合耗时（R-01-013/AC-12）");
-	assert.equal(recentStats.statsBeforeActivity, true, "历史卡统计行紧邻活动时间行之前（R-01-013/AC-12）");
-	assert.equal(recentStats.statsIsPenultimate, true, "历史卡统计行位于历史卡倒数第二行（R-01-013/AC-12）");
-	// R-01-020/AC-01：迁入历史区后同一主会话卡片的标题行最右侧延续显示累计运行时长。
-	// R-01-020/AC-06：谓词仅在节点可见且有有效值时通过——无计时数据的会话标题行保持
+	assert.match(recentStats.main, /tok\/s/, "历史卡统计行保留 tok/s 输出速率");
+	assert.match(recentStats.main, /缓存 \d+%/, "历史卡统计行保留缓存命中率");
+	assert.match(recentStats.main, /输入/, "历史卡统计行保留计费输入 token");
+	assert.match(recentStats.main, /输出/, "历史卡统计行保留输出 token");
+	assert.match(recentStats.elapsed, /^(?:\d+s|\d+m\d+s|\d+h\d+m\d+s)$/, "历史卡统计行保留固定回合耗时");
+	assert.equal(recentStats.statsBeforeActivity, true, "历史卡统计行紧邻活动时间行之前");
+	assert.equal(recentStats.statsIsPenultimate, true, "历史卡统计行位于历史卡倒数第二行");
+	// 迁入历史区后同一主会话卡片的标题行最右侧延续显示累计运行时长。
+	// 谓词仅在节点可见且有有效值时通过——无计时数据的会话标题行保持
 	// hidden，不以 0 冒充（反向覆盖）。
 	const recentTotal = await until("历史卡标题行累计运行时长延续显示", () =>
 		page.evaluate((title) => {
@@ -356,14 +355,14 @@ export default async function sessionLifecycle({ page, url, mock, assert }) {
 			return /^\d+(s|m\d+s|h\d+m\d+s)$/.test(text) ? text : null;
 		}, TITLE),
 	);
-	assert.match(recentTotal, TOTAL_BUSY_RE, `历史卡标题行最右侧延续显示累计运行时长（R-01-020/AC-01，实际：${recentTotal}）`);
-	assert.equal(recentStats.activityIsLast, true, "历史卡活动时间保持最后一行（R-01-013/AC-12）");
+	assert.match(recentTotal, TOTAL_BUSY_RE, `历史卡标题行最右侧延续显示累计运行时长（实际：${recentTotal}）`);
+	assert.equal(recentStats.activityIsLast, true, "历史卡活动时间保持最后一行");
 	await openApp(page, url);
 	await ensureFullDensity(page);
 	const refreshedRecentStats = await until("刷新后恢复历史卡最近回合统计", readRecentStats);
 	assert.deepEqual(
 		{ main: refreshedRecentStats.main, elapsed: refreshedRecentStats.elapsed },
 		{ main: recentStats.main, elapsed: recentStats.elapsed },
-		"刷新后历史卡统计与耗时保持一致（R-01-013/AC-12）",
+		"刷新后历史卡统计与耗时保持一致",
 	);
 }

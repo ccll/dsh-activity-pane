@@ -15,7 +15,7 @@
 //
 // 展示规则：
 //   主会话（非有效子代理行）：running || completed || pendingInteraction 都显示；
-//   在跑后台任务（jobsBySession 中 status ∈ {running, stopping}，R-01-023）不改变显示判定与
+//   在跑后台任务（jobsBySession 中 status ∈ {running, stopping}）不改变显示判定与
 //   呈现类别，只在卡片标题行标注数量（活动区与最近历史卡）；
 //   子代理（origin === 'subagent' 且 parentId 有效）：仅 running || pendingInteraction 时显示（结束后即消失）；
 //   pendingInteraction 总是优先视为"等待用户行动"（即使在 running 中）。
@@ -26,7 +26,7 @@ const PENDING_LABELS = {
 	question: "提问中",
 };
 
-/** 阻塞等待备注行动作说明（R-01-002/AC-09）：说明等待的具体动作与「不答就无法继续」的后果。 */
+/** 阻塞等待备注行动作说明：说明等待的具体动作与「不答就无法继续」的后果。 */
 const PENDING_NOTES = {
 	approval: "等待你确认授权后继续",
 	"plan-review": "等待你审查计划后继续",
@@ -38,7 +38,7 @@ const PENDING_NOTES = {
 const PENDING_UNKNOWN_LABEL = "待处理";
 const PENDING_UNKNOWN_NOTE = "等待你处理后继续";
 
-/** 完成提醒正文行（R-01-002/AC-09，C-040、C-043）：引导继续对话或移入历史——「已完成」
+/** 完成提醒正文行（C-040、C-043）：引导继续对话或移入历史——「已完成」
  *  语义已由首行胶囊承载，正文不再重复；文案长度受末行宽度约束——须与「移入历史」
  *  按钮同排在默认窗格宽度下单行完整可见。 */
 export const ROUND_DONE_NOTE = "继续对话，或移入历史";
@@ -47,10 +47,10 @@ export const ROUND_DONE_NOTE = "继续对话，或移入历史";
  *  错误信息只为提示用户会话出错了，超长正文无展示价值；与提问列表单项上界同量级。 */
 export const ERROR_NOTE_MAX = 120;
 
-/** 错误提醒正文回落文案（R-01-002/AC-13，C-043）：error 回合无可用错误信息时使用。 */
+/** 错误提醒正文回落文案（C-043）：error 回合无可用错误信息时使用。 */
 export const ERROR_NOTE_FALLBACK = "回合以错误结束，请检查会话";
 
-/** 错误信息截断（R-01-002/AC-13，C-043）：按 Unicode 码点截断至 ERROR_NOTE_MAX（省略号
+/** 错误信息截断（C-043）：按 Unicode 码点截断至 ERROR_NOTE_MAX（省略号
  *  不计入上限、属展示截断信号）；非字符串返回空串（宿主侧仅字符串入参，防御性边界）。
  *  截断在宿主登记时执行一次、渲染侧直接消费已截断的 lastTurnEndError；共享核心承载便于
  *  单一事实源与可执行验证（Spec 轴审核：截断须有测试锚点）。 */
@@ -113,7 +113,7 @@ const TOOL_LABELS = {
 	ask_user_question: "提问",
 };
 
-/** 桌面窗格拖拽调宽边界（R-01-015）：拖拽实时夹取与 localStorage 恢复共用的同源常量。 */
+/** 桌面窗格拖拽调宽边界：拖拽实时夹取与 localStorage 恢复共用的同源常量。 */
 export const PANE_WIDTH_MIN = 200;
 export const PANE_WIDTH_MAX = 480;
 export const PANE_WIDTH_DEFAULT = 280;
@@ -131,18 +131,18 @@ export function clampPaneWidth(raw) {
 
 /**
  * 把任意输入（localStorage 字符串等）归一为合法卡片显示档位：
- * 仅 'full'/'medium'/'compact' 为合法档位，其余（含缺失/非法值）回退默认中间档（R-01-021/AC-06）。
+ * 仅 'full'/'medium'/'compact' 为合法档位，其余（含缺失/非法值）回退默认中间档。
  */
 export function normalizeDensity(raw) {
 	return raw === "compact" || raw === "medium" || raw === "full" ? raw : "medium";
 }
 
-/** 显示档位的循环次序：紧凑 → 中间 → 完整 → 紧凑——信息量自小到大（R-01-021/AC-01）。 */
+/** 显示档位的循环次序：紧凑 → 中间 → 完整 → 紧凑——信息量自小到大。 */
 const DENSITY_ORDER = ["compact", "medium", "full"];
 
 /**
  * 返回循环切换后的下一显示档位：紧凑 → 中间 → 完整 → 紧凑；
- * 输入先经 normalizeDensity 归一，非法值视作中间档（R-01-021/AC-01）。
+ * 输入先经 normalizeDensity 归一，非法值视作中间档。
  */
 export function nextDensity(value) {
 	const index = DENSITY_ORDER.indexOf(normalizeDensity(value));
@@ -150,9 +150,9 @@ export function nextDensity(value) {
 }
 
 /**
- * 档位资源纪律谓词（R-01-025/AC-01）：紧凑呈现档下主会话日志窗口不建立或保持。
- * 子代理日志窗口承载标题行可见的模型上下文（R-01-012/AC-17），恒不裁剪；
- * 输入档位经 normalizeDensity 归一，非法值视作中间档即不裁剪（R-01-025/AC-01）。
+ * 档位资源纪律谓词：紧凑呈现档下主会话日志窗口不建立或保持。
+ * 子代理日志窗口承载标题行可见的模型上下文，恒不裁剪；
+ * 输入档位经 normalizeDensity 归一，非法值视作中间档即不裁剪。
  */
 export function logWindowSuppressed(densityLevel, isSubagent) {
 	return normalizeDensity(densityLevel) === "compact" && isSubagent !== true;
@@ -313,7 +313,7 @@ function askStatusSummary(root, status) {
 	return null;
 }
 
-/** 取 ask_user_question 参数中的结构化问题预览（R-01-002/AC-09，C-064）：逐条取
+/** 取 ask_user_question 参数中的结构化问题预览（C-064）：逐条取
  *  问题正文物理首行（正文缺失时回落 header，仍不可得则跳过该条），剥除行尾多余
  *  冒号，并保留原始 1 基序号；最多返回 3 条，仍有可展示问题时 omitted=true。
  *  结构不符或全部问题均不可得返回 null，由调用方回落动作说明。 */
@@ -389,7 +389,7 @@ function timelineToolItem(root, fallbackView = null, cwd = "") {
 		text: name,
 		summary: detail,
 		detail,
-		// 结构化提问预览随工作项携带（R-01-002/AC-09，C-064），供待回复卡渲染原生列表。
+		// 结构化提问预览随工作项携带（C-064），供待回复卡渲染原生列表。
 		question: name === "ask_user_question" ? askQuestionsPreview(argsRaw) : null,
 		status,
 	};
@@ -469,10 +469,10 @@ function chatNodeAt(nodes, key) {
 	}
 }
 
-/** 子代理模型读取的触发信号（R-01-012/AC-17）：快照最新一个助手节点已定案
+/** 子代理模型读取的触发信号：快照最新一个助手节点已定案
  *  （status === "settled"，即其 assistant/message 事件已落宿主日志，尾页读取必命中）
  *  时为 true。只检查最新一个助手节点——它随流式推送翻转为 settled 的那一刻即产生
- *  触发，尾扫即停、近 O(1)，完全挂在既有订阅推送上（R-02-004）；工具密集期 4 行折叠窗口
+ *  触发，尾扫即停、近 O(1)，完全挂在既有订阅推送上；工具密集期 4 行折叠窗口
  *  可能不含助手行，故不看折叠时间线而直接读快照。流式未定案/中断/无快照为 false。 */
 export function chatLatestAssistantSettled(snapshot) {
 	const chat = snapshot?.chat;
@@ -488,7 +488,7 @@ export function chatLatestAssistantSettled(snapshot) {
 
 /** 尾部反向收集原始工作项（不含 live 合并），取够 want 个可转换项或耗尽 order 即停。
  *  continueToUser：取够后以廉价结构检查（isUserChatNode：非 hidden 的 user/steering 且含非空文本块）继续前走至最近一个未收集的用户节点（含
- *  steering），命中才转换并入队首——供指令锚行派生（R-01-012/AC-12），不为找锚做全序转换。 */
+ *  steering），命中才转换并入队首——供指令锚行派生，不为找锚做全序转换。 */
 function rawTailItems(snapshot, want, cwd = "", continueToUser = false) {
 	const chat = snapshot?.chat;
 	const order = Array.isArray(chat?.order) ? chat.order : [];
@@ -552,7 +552,7 @@ function mergeLiveItems(items, snapshot, max, cwd = "") {
 		: items;
 }
 
-/** R-01-009/AC-10：会话运行中（无 pending）、无执行中项且尾部为已定案非用户项时，
+/** ：会话运行中（无 pending）、无执行中项且尾部为已定案非用户项时
  *  克隆提升为 running 作为 agent 工作中的持续标志；error/stopped 与用户输入项不提升。
  *  descendantActive：存在活动后代（委托周期呈现）视同运行中。 */
 function promoteRunningTail(timeline, snapshot, descendantActive = false) {
@@ -592,7 +592,7 @@ export function conversationWorkItems(snapshot, limit = 4, cwd = "") {
 	return settleWhenIdle(promoteRunningTail(full.slice(-max), snapshot), snapshotIdle(snapshot));
 }
 
-/** 折叠分组硬边界：用户输入项与含正文输出的 assistant 项（R-01-017/AC-02）。 */
+/** 折叠分组硬边界：用户输入项与含正文输出的 assistant 项。 */
 function isFoldBoundary(item) {
 	if (item.kind === "user") return true;
 	return item.kind === "assistant" && typeof item.text === "string" && item.text.trim() !== "";
@@ -610,7 +610,7 @@ function foldMemberOf(item) {
 			summary: typeof item.summary === "string" ? item.summary : "",
 			text: "",
 			icon: typeof item.icon === "string" ? item.icon : undefined,
-			// 结构化提问预览穿透折叠层（R-01-002/AC-09，C-064），供待回复卡渲染列表。
+			// 结构化提问预览穿透折叠层（C-064），供待回复卡渲染列表。
 			question: isQuestionPreview(item.question) ? item.question : null,
 			status: item.status,
 			live: item.live === true,
@@ -629,7 +629,7 @@ function foldMemberOf(item) {
 
 /** 组行派生：镜像 dsh-auto-collapse updateChip 标题/状态优先级（vendor 移植，C-016）——
  *  running tool > running think > 运行了命令/编辑了文件 > 已思考，context 连续段独立成组；
- *  含思考的完成组组摘要携带推理文本内容（R-01-017/AC-03、AC-04），纯工具完成组回退末位工具摘要；
+ *  含思考的完成组组摘要携带推理文本内容，纯工具完成组回退末位工具摘要；
  *  tool 组行图标统一命令图标 IconApiOutline14（与 auto-collapse 工具 chip 同源，C-016）。 */
 function buildFoldRow(run) {
 	const members = run.members;
@@ -669,7 +669,7 @@ function buildFoldRow(run) {
 	let summary = runningTool?.summary ?? runningThink?.summary ?? "";
 	if (status !== "running" && run.cat === "work") {
 		if (summary === "") {
-			// AC-04：含思考分组从最后一条思考向前取首个非空推理文本摘录。
+			// 含思考分组从最后一条思考向前取首个非空推理文本摘录。
 			for (let i = thinkMembers.length - 1; i >= 0 && summary === ""; i -= 1) {
 				summary = cleanPreview(thinkMembers[i].text, 88) ?? "";
 			}
@@ -685,7 +685,7 @@ function buildFoldRow(run) {
 		text: "",
 		summary,
 		detail: null,
-		// 组内末条提问正文上浮组行（R-01-002/AC-09）；无提问成员时为 null。
+		// 组内末条提问正文上浮组行；无提问成员时为 null。
 		question: toolMembers.map((m) => m.question).filter(Boolean).pop() ?? null,
 		status,
 		live: members.some((member) => member.live === true),
@@ -693,7 +693,7 @@ function buildFoldRow(run) {
 	};
 }
 
-/** 把扁平工作项序列折叠成分组行（R-01-017）：硬边界为用户输入与含正文 assistant 项，
+/** 把扁平工作项序列折叠成分组行：硬边界为用户输入与含正文 assistant 项
  *  含正文 assistant 的 reasoning 先并入当前分组再闭组（splitThinkByBody 前置语义）；
  *  连续 context 独立成组；其余未知项原样透传。最多返回最近 limit 个显示行。 */
 export function foldWorkGroups(items, limit = 4) {
@@ -718,8 +718,8 @@ export function foldWorkGroups(items, limit = 4) {
 			const thinkMember = foldMemberOf(item);
 			run.members.push(thinkMember.status === "running" ? { ...thinkMember, status: "done" } : thinkMember);
 			run.keys.push(String(item.id ?? ""));
-			// 推理文本已并入当前组（组摘要承载，AC-04）；正文行剥离推理展示并跳过原生行匹配，
-			// 避免同一推理文本在组行与下一行重复呈现（R-01-017/AC-02 验收修正）。
+			// 推理文本已并入当前组（组摘要承载）；正文行剥离推理展示并跳过原生行匹配
+			// 避免同一推理文本在组行与下一行重复呈现（验收修正）。
 			const body = { ...item, label: "助手", summary: item.text, detail: null, stripNative: true };
 			flush();
 			rows.push(body);
@@ -751,7 +751,7 @@ function eventOf(entry) {
 	return isRecord(entry?.event) ? entry.event : entry;
 }
 
-/** 可锚用户行判定：非空文本的用户输入行（R-01-012/AC-12 口径，快照与 history 路径共用）。 */
+/** 可锚用户行判定：非空文本的用户输入行（口径，快照与 history 路径共用）。 */
 export function isAnchorableUserRow(row) {
 	return row?.kind === "user" && typeof row.text === "string" && row.text.trim() !== "";
 }
@@ -768,7 +768,7 @@ function currentActivityIndex(rows) {
 	return runningIndex;
 }
 
-/** 指令锚行与工作行统一选择（R-01-009/AC-11、R-01-012/AC-12～AC-15、C-039）：
+/** 指令锚行与工作行统一选择（C-039）
  *  可锚用户行作为普通显示行参与尾部窗口滚动，滚动至显示第一行时停留为指令锚行
  *  （满窗几何为其后显示行数 ≥ max-1；时间线不足一窗时自然窗口首行的可锚用户行直接停留）。
  *  已存在停留锚行（窗口内停留锚行或 fallbackAnchor 充当窗口外停留锚行）时，滚动至显示
@@ -840,7 +840,7 @@ function selectTimelineRows(full, max, fallbackAnchor = null) {
 		: [pin(fallback), ...workRows(list, max - 1)];
 }
 
-/** 折叠分组时间线（R-01-017）：渲染层时间线的唯一来源——无条件折叠分组，不做任何探测切换。
+/** 折叠分组时间线：渲染层时间线的唯一来源——无条件折叠分组，不做任何探测切换。
  *  指数扩窗收集尾部原始项（分组数不足 limit 时 ×3 → ×8 → 全序）+ live 合并 + 分组 +
  *  尾部提升，长会话典型情况不触碰全序扫描。
  *  idle：渲染层判定的非执行呈现（等待响应/暂停，快照为冻结值、pending 不可得）——为 true 时残留 running 全部落定。 */
@@ -855,7 +855,7 @@ export function foldedConversationTimeline(snapshot, limit = 4, cwd = "", descen
 		const merged = mergeLiveItems(items, snapshot, Number.MAX_SAFE_INTEGER, cwd);
 		const full = foldWorkGroups(settle ? settleWhenIdle(merged, true) : merged, Number.MAX_SAFE_INTEGER);
 		if (full.length >= max || want === Number.MAX_SAFE_INTEGER) {
-			// 指令锚行窗口选择与冷 history 路径共用（selectTimelineRows，R-01-012/AC-12～AC-15）；
+			// 指令锚行窗口选择与冷 history 路径共用（selectTimelineRows）；
 			// settle/尾部提升出口归一为 finish。
 			const finish = (rows) => (settle ? rows : promoteRunningTail(rows, snapshot, descendantActive));
 			return finish(selectTimelineRows(full, max, fallbackAnchor));
@@ -954,9 +954,9 @@ function historyToolResultRoot(data, resultView, callInfo = null) {
 }
 
 /** 冷会话 history 回溯深翻：自尾页起按 beforeSeq 向前翻页，直至命中最近一条用户消息
- * （messagePreviews 的 userPreview 非空，R-01-013/AC-03）、或翻尽
+ * （messagePreviews 的 userPreview 非空）、或翻尽
  * （hasMore=false/无更多事件/业务错误 null）；requireOpenTurnStart 为 true 时
- * （运行会话开放回合起点兜底，R-01-009/AC-06）命中用户消息后开放回合起点未命中
+ * （运行会话开放回合起点兜底）命中用户消息后开放回合起点未命中
  * 仍继续深翻直至起点命中或翻尽。maxPages 仅作显式护栏（默认 Infinity 即不设页数
  * 上限——用户消息必然存在于会话最早段，翻尽必终止，无需预置页数界）。fetchPage
  * (beforeSeq) 注入实际读取（返回 `{events, hasMore}` 或 null），便于纯函数单测；
@@ -997,7 +997,7 @@ export async function pagedHistoryEvents({ fetchPage, maxPages = Infinity, requi
  *  条目随 attempt 出窗，durable assistant/message 自然接管。tool-call-delta 不折叠——
  *  tool/call 以 durable 事件落定后经既有 call/result 配对路径呈现。
  *  tool/result 落定同 callId 的 call 项（原位替换，name/arguments/callView 由 call 事件补齐）：
- *  history 是冻结过去，call 事件单独留存会成为永久 running 幽灵行（R-01-016/AC-01）。 */
+ *  history 是冻结过去，call 事件单独留存会成为永久 running 幽灵行。 */
 /** 逐条折叠处理（T-185 抽取）：单条历史事件 → 时间线条目的全部逻辑——live-chunk
  *  累积、tool/result 原位替换、tool/call 配对登记、普通条目 push。全量重建与
  *  增量追加共用同一实现，杜绝双实现漂移。 */
@@ -1106,7 +1106,7 @@ export function foldedTimelineFromFoldState(state, limit = 4, settleIdle = false
 	return selectTimelineRows(foldWorkGroups(settled, Number.MAX_SAFE_INTEGER), max);
 }
 
-/** 冷 history 折叠分组时间线（R-01-017、R-01-012/AC-12～AC-15）：页内全部事件映射折叠后
+/** 冷 history 折叠分组时间线：页内全部事件映射折叠后
  *  套用与快照路径同一窗口/锚行选择（selectTimelineRows），最近用户消息滚动触顶后停留为
  *  首行锚行。settleIdle：阻塞等待呈现（pendingText 存在）下折叠前把残留 running 行落定，
  *  组标题/状态由已定案成员派生（「运行了命令」而非「运行」蓝闪），与快照路径的
@@ -1119,7 +1119,7 @@ export function foldedHistoryTimeline(history, limit = 4, cwd = "", settleIdle =
 	return selectTimelineRows(foldWorkGroups(settled, Number.MAX_SAFE_INTEGER), max);
 }
 
-/** history 指令锚行提取（R-01-012/AC-12 快照窗口外兜底）：尾部反向取最近一条非空文本的
+/** history 指令锚行提取（快照窗口外兜底）：尾部反向取最近一条非空文本的
  *  真实用户消息（source.kind === "user"），归一为带 anchor 标记的用户行；无则返回 null。 */
 export function historyInstructionAnchor(history) {
 	const list = Array.isArray(history) ? history : [];
@@ -1134,7 +1134,7 @@ export function historyInstructionAnchor(history) {
 }
 
 
-/** 开放回合起点兜底提取（R-01-009/AC-06）：history 事件尾部反向扫描，最近一条边界事件
+/** 开放回合起点兜底提取：history 事件尾部反向扫描，最近一条边界事件
  *  为 turn/start 即存在开放回合、返回其时刻；为 turn/end 则无开放回合返回 null。
  *  minTurn：快照已知的最晚回合号——history 开放回合落后于此（拉取后已切换新回合）时
  *  判为陈旧返回 null。turn/start 时刻非法或输入非数组归一 null。 */
@@ -1175,7 +1175,7 @@ export function messagePreviews({ snapshot = null, history = [] } = {}) {
 	}
 	if (!user || !agent) {
 		// history 事件按时间正序（旧→新）：尾部反向扫描取最近命中，首个非空即最近
-		// （R-01-013/AC-03、AC-04；深翻多页场景下必须取最近而非最早）。
+		// （；深翻多页场景下必须取最近而非最早）。
 		for (let i = (Array.isArray(history) ? history : []).length - 1; i >= 0 && (!user || !agent); i -= 1) {
 			const entry = history[i];
 			const event = entry?.event ?? entry;
@@ -1206,11 +1206,11 @@ export function modelMetadata(models) {
 	};
 }
 
-/** 子代理模型溯源（R-01-012/AC-17）：从 history 事件流尾扫最近一条携带模型溯源的
+/** 子代理模型溯源：从 history 事件流尾扫最近一条携带模型溯源的
  *  `assistant/message` 事件，取 `message.source.model`。返回值 reasoning 恒为空串，
  *  effort 由调用方以 `reasoningEffortFromHistoryEvents` 同页折叠；无命中（空事件、
  *  无助手消息或溯源缺失）返回 null，调用方保持模型区空白、不以 preset 或母会话
- *  模型冒充（R-01-012/AC-18）。 */
+ *  模型冒充。 */
 export function modelFromHistoryEvents(history) {
 	const entries = Array.isArray(history) ? history : [];
 	for (let i = entries.length - 1; i >= 0; i -= 1) {
@@ -1224,11 +1224,11 @@ export function modelFromHistoryEvents(history) {
 	return null;
 }
 
-/** 子代理 reasoning effort（R-01-012/AC-17）：history 尾扫最新一条 `request/header`
+/** 子代理 reasoning effort：history 尾扫最新一条 `request/header`
  *  事件，取 `config.reasoningEffort`——宿主的会话选择即从该折叠读取。命中最新请求头
  *  即停：更早请求头属已废弃纪元，即使声明过 effort 也不再回扫。最新请求头未声明
  *  effort 或页内无请求头（超长子会话的 header 在日志开头、可能落在尾页窗口之外）
- *  返回 null，调用方回落目录条目 `reasoning` 后保持空值（R-01-012/AC-18）。 */
+ *  返回 null，调用方回落目录条目 `reasoning` 后保持空值。 */
 export function reasoningEffortFromHistoryEvents(history) {
 	const entries = Array.isArray(history) ? history : [];
 	for (let i = entries.length - 1; i >= 0; i -= 1) {
@@ -1243,10 +1243,10 @@ export function reasoningEffortFromHistoryEvents(history) {
 	return null;
 }
 
-/** 模型目录分组的 modelId → {name, reasoning} 索引（R-01-012/AC-17）：溯源
+/** 模型目录分组的 modelId → {name, reasoning} 索引：溯源
  *  `source.model` 是 provider 侧 id，显示名需经目录分组解析；同一部署的目录分组在
  *  主/子会话间共享，条目 `reasoning` 是请求头 effort 不可得时的回退来源。畸形条目
- *  跳过；目录缺失返回空索引，调用方回退显示原始溯源 id（R-01-012/AC-18）。 */
+ *  跳过；目录缺失返回空索引，调用方回退显示原始溯源 id。 */
 export function catalogModelEntries(groups) {
 	const entries = {};
 	for (const group of Array.isArray(groups) ? groups : []) {
@@ -1316,14 +1316,14 @@ export function pendingText(kind) {
 	return PENDING_LABELS[kind] ?? PENDING_UNKNOWN_LABEL;
 }
 
-/** 等待卡普通末行提示（R-01-002/AC-09，C-040、C-064）：待确认/待审查说明动作
+/** 等待卡普通末行提示（C-040、C-064）：待确认/待审查说明动作
  *  与后果；待回复在结构化问题不可得时回落动作说明；完成提醒固定引导新指令或移入历史。 */
 export function awaitNoteText(waitClass, pendingKind) {
 	if (waitClass === "done") return ROUND_DONE_NOTE;
 	return PENDING_NOTES[pendingKind] ?? PENDING_UNKNOWN_NOTE;
 }
 
-/** 计数徽标底色跟随等待构成（R-01-002/AC-06，C-040、C-043）：按 错误 > 阻塞 > 完成
+/** 计数徽标底色跟随等待构成（C-040、C-043）：按 错误 > 阻塞 > 完成
  *  的优先级取色——存在任一错误提醒主会话即取 `'error'`（红=最紧迫），否则存在阻塞
  *  等待主会话取 `'blocked'`（金催促），等待全部为完成提醒时取 `'done'`（绿=已完成
  *  不急）；无等待行动或仅运行卡时返回 null。子代理不计入。 */
@@ -1339,7 +1339,7 @@ export function awaitBadgeTone(entries) {
 }
 
 /** 时间线末条 ask_user_question 工作项携带的结构化提问预览；折叠组行同样上浮该字段。
- *  不存在时返回 null（R-01-002/AC-09，C-064）。 */
+ *  不存在时返回 null（C-064）。 */
 export function timelineQuestionPreview(timeline) {
 	const rows = Array.isArray(timeline) ? timeline : [];
 	for (let i = rows.length - 1; i >= 0; i -= 1) {
@@ -1351,8 +1351,8 @@ export function timelineQuestionPreview(timeline) {
 
 /** 数量徽标统计：只统计主会话——分子为等待行动（awaiting，含完成提醒）的主会话数，
  *  分母为其加运行中（running，含委托周期保持运行呈现）主会话之和；子代理不计入
- *  （R-01-001/AC-05）。blocked 为其中阻塞等待（待确认/待审查/待回复）的主会话数，
- *  仅用于徽标 aria 文案的计数说明；脉冲门控已由 waiting 单参数承载（R-01-002/AC-06，C-037）。
+ *  。blocked 为其中阻塞等待（待确认/待审查/待回复）的主会话数
+ *  仅用于徽标 aria 文案的计数说明；脉冲门控已由 waiting 单参数承载（C-037）。
  *  空列表返回 { waiting: 0, blocked: 0, total: 0 }。 */
 export function awaitBadgeStats(entries) {
 	let waiting = 0;
@@ -1369,13 +1369,13 @@ export function awaitBadgeStats(entries) {
 	return { waiting, blocked, total };
 }
 
-/** 数量标识呈现态（R-01-014/AC-06）：列表在途（loading）时不冒充计数——归一为
+/** 数量标识呈现态：列表在途（loading）时不冒充计数——归一为
  *  loading 呈现（加载指示 + 加载中 aria 文案，不等待、不脉冲）；否则归一为 count
  *  呈现（n/m 文本 + 计数 aria 文案 + 悬停 tips 文案）。分子为正在运行的主会话数
  *  （running = total − waiting）——随会话逐一完成递减至 0，与等待行动数互补
- *  （R-01-001/AC-04、AC-05）；awaiting 表达「存在等待行动」——底色经
+ *  ；awaiting 表达「存在等待行动」——底色经
  *  awaitBadgeTone（错误 > 阻塞 > 完成，红/金/绿）与脉冲门控同一信号：任一等待行动
- *  （阻塞等待、完成提醒或错误提醒）即脉冲（R-01-002/AC-06，C-037、C-043）。
+ *  （阻塞等待、完成提醒或错误提醒）即脉冲（C-037、C-043）。
  *  blocked 入参只用于 aria 文案的计数说明，不再驱动门控。错误轴不算在途，维持计数呈现。 */
 export function countBadgeState(listState, waiting, total, blocked = 0) {
 	if (listState === "loading") return { mode: "loading", text: "", ariaText: "活动会话计数加载中", tip: "", awaiting: false };
@@ -1424,7 +1424,7 @@ export function pruneInvisibleEntries(maps, visibleIds) {
 	}
 }
 
-/** 订阅清理（R-01-012/AC-16）：不可见 id 的订阅先 unsubscribe 再除名——监听器不得残留；
+/** 订阅清理：不可见 id 的订阅先 unsubscribe 再除名——监听器不得残留；
  *  单个 unsubscribe 抛错吞掉，不阻断其余订阅的清理。 */
 export function pruneSubscriptions(subscriptions, visibleIds) {
 	if (!(subscriptions instanceof Map)) return;
@@ -1439,7 +1439,7 @@ export function pruneSubscriptions(subscriptions, visibleIds) {
 }
 
 /**
- * 会话的工作区归属归一（R-01-003/AC-08）：在 title 归属判定的同一路径上同时
+ * 会话的工作区归属归一：在 title 归属判定的同一路径上同时
  * 返回工作区身份 key（路径优先、名称兜底），供徽标色相派生；无归属时两者皆空。
  */
 /** 工作区索引（T-183）：一次遍历工作区清单构建 会话id → {title, key} 查找表，
@@ -1474,7 +1474,7 @@ export function buildWorkspaceIndex(workspaceItems) {
 }
 
 /**
- * statusSnapshot 覆盖层构建（R-01-002/AC-03，dsh 0.2.0 起 sessionStatus 统一状态面）：
+ * statusSnapshot 覆盖层构建（dsh 0.2.0 起 sessionStatus 统一状态面）
  * 把状态面快照携带的 pendingInteraction.kind 回填到行副本上，等待卡分类
  * （awaiting/blocked/提问中）保持既有单一口径。状态面缺席或基快照无 byId 记录时
  * 原样返回基快照（覆盖层不生效形态）。
@@ -1510,7 +1510,7 @@ export function createStatusOverlayMemo() {
 	};
 }
 
-/** waitingStarts 派生（R-01-001/AC-07，T-141）：busy 记账中 openWaitStart 为毫秒数的
+/** waitingStarts 派生（T-141）：busy 记账中 openWaitStart 为毫秒数的
  *  会话进入阻塞等待时刻表（Map id → 毫秒），其余记录不派生；只读 busyById。 */
 function waitingStartsFrom(busyById) {
 	const waitingStarts = new Map();
@@ -1574,12 +1574,12 @@ function identityHash(text) {
 }
 
 // 避红基色色相弧 [30°,320°] 的起点与取值数（30 + hash % 291）；背景变体
-// 以同一弧宽的商派生，共享常量避免两处口径漂移（R-01-003/AC-09、C-077）。
+// 以同一弧宽的商派生，共享常量避免两处口径漂移（C-077）。
 const WORKSPACE_HUE_ARC_START = 30;
 const WORKSPACE_HUE_ARC_SIZE = 291;
 
 /**
- * 工作区徽标基色色相（R-01-003/AC-08、AC-09）：以工作区身份为唯一输入的纯函数，
+ * 工作区徽标基色色相：以工作区身份为唯一输入的纯函数
  * 在避开红色警戒区的色相弧 [30°,320°] 上均匀取色，输出 [30,320] 整数；哈希
  * 机制见 {@link identityHash}。同一身份恒得同一基色色相，与工作区列表顺序、
  * 会话状态及持久化存储无关，页面刷新后不变；空身份返回 null。
@@ -1630,7 +1630,7 @@ function hueDistance(a, b) {
 }
 
 /**
- * 同屏工作区复合颜色槽位消解（R-01-003/AC-08、AC-12）：逐身份纯映射——每个
+ * 同屏工作区复合颜色槽位消解：逐身份纯映射——每个
  * 身份独立地以其 32 位雪崩哈希派生前景与背景槽位，身份之间互不影响，创建、
  * 移除或变更其它工作区不改变既有工作区的颜色（C-077）；前景取基色色相在 12 个
  * 前景槽位中环形距离最近者（平局取低槽位），背景变体取 floor(hash / 弧宽) % 3。
@@ -1744,7 +1744,7 @@ export function mainTitle(byId, id) {
  * currentId 纳入入参：渲染层对原始快照算一次后帧内复用，消除函数内 currentIdOf 的
  * O(名册) 重扫（覆盖层不改 retainedBy，覆盖前后 currentId 同值——T-183 结论）；
  * undefined 判缺省，保留一次 currentIdOf 兜底，直调方无需感知。
- * completions（完成确认与错误提醒，R-01-002/AC-05、AC-13、R-01-010/AC-06）：Map id →
+ * completions（完成确认与错误提醒）：Map id →
  * { lastTurnEnd, lastTurnEndKind, lastTurnEndError, ackedAt }，由渲染层从宿主侧 ack 状态
  * 通道注入；其中完成提醒成立（completionReminder）或错误提醒成立（errorReminder）的
  * 主会话按 awaiting 保留在活动区。delegatingIds（委托周期集合，渲染层由 progressAnchor
@@ -1753,17 +1753,17 @@ export function mainTitle(byId, id) {
  * 始终为当帧原始后代活性（供进度锚点记账判定耗尽），不受 delegatingIds 影响。
  * archivedIds（工作区服务的注册表全局归档集合）：归档会话及其有效子代理子树不产出活动条目，
  * 普通 fork 仅因共享来源 parentId 不受影响；避免会话服务仍保留旧行或完成提醒时在窗格中滞留。
- * waitingStarts（进入阻塞等待的时刻，R-01-001/AC-07）：Map id → 毫秒时刻，取宿主回合记账的
+ * waitingStarts（进入阻塞等待的时刻）：Map id → 毫秒时刻，取宿主回合记账的
  * `openWaitStart`（approval/asked 与 ask_user_question tool/call 边界）；阻塞等待发生时本回合
  * 尚未结束、`lastTurnEnd` 仍是上一回合的旧时刻，不能作为等待进行中会话的排序键（T-141）；
  * 非 Map、缺失记录或值非有限数字（含 null/空串等 Number 归一为 0 的形状）均视为无数据，
  * 回落宿主列表时间。
- * stateAt（进入当前等待行动状态的时刻，R-01-002/AC-14）：仅 awaiting 条目携带，与排序键
+ * stateAt（进入当前等待行动状态的时刻）：仅 awaiting 条目携带，与排序键
  * 共用 enterStateAt 单点口径——pending 取 waitingStarts，完成/错误提醒取 completions.lastTurnEnd；
  * 显示侧不回落宿主列表时间——排序键缺失时的回落仅用于排序，显示以 null（不显示）承载。
- * jobsBySession（R-01-023）：快照携带的 `jobsBySession` 任务视图映射——存在在跑后台任务
+ * jobsBySession：快照携带的 `jobsBySession` 任务视图映射——存在在跑后台任务
  * （status ∈ {running, stopping}）不改变会话的活动区归属、呈现类别与完成/错误提醒判定
- * （AC-02）；条目携带 liveJobs（startedAt 升序）供渲染层标注数量与构建任务行（AC-01），
+ * ；条目携带 liveJobs（startedAt 升序）供渲染层标注数量与构建任务行
  * 子代理行不派生 liveJobs（后台任务当前仅主会话呈现）。
  */
 export function buildEntries(options = {}) {
@@ -1837,15 +1837,15 @@ export function buildEntries(options = {}) {
 		const running = row.running === true;
 		const pending = row.pendingInteraction !== undefined;
 		const isSub = hasParent;
-		// 在跑后台任务（R-01-023）：只作卡片数量标注的输入——liveJobs 非空不改变 show 判定、
-		// 不改变 kind，也不抑制完成/错误提醒（AC-02：活动归属只由回合状态决定）。
+		// 在跑后台任务：只作卡片数量标注的输入——liveJobs 非空不改变 show 判定、
+		// 不改变 kind，也不抑制完成/错误提醒（活动归属只由回合状态决定）。
 		const liveJobs = isSub ? [] : liveJobsOf(jobsBySession, id);
 		const hasLive = liveJobs.length > 0;
-		// 完成确认（R-01-002/AC-03、AC-05、R-01-010/AC-06）：未确认的完成提醒按自身活动计入。
+		// 完成确认：未确认的完成提醒按自身活动计入。
 		const done = completionReminder(row, completionFor(id, completions), isSub);
-		// 错误提醒（R-01-002/AC-13，C-043）：最近回合以错误结束的按自身活动计入。
+		// 错误提醒（C-043）：最近回合以错误结束的按自身活动计入。
 		const err = errorReminder(row, completionFor(id, completions), isSub);
-		// 子代理完成且没有活动后代时消失；主会话完成后保留为"等待打开"；母会话在委托周期保持运行呈现（R-01-003/AC-05）。
+		// 子代理完成且没有活动后代时消失；主会话完成后保留为"等待打开"；母会话在委托周期保持运行呈现。
 		const selfActive = isOwnActiveRow(row, byId);
 		const descendantActive = descendantIds.has(String(id));
 		const delegating = descendantActive || (delegatingIds instanceof Set && delegatingIds.has(String(id)));
@@ -1853,12 +1853,12 @@ export function buildEntries(options = {}) {
 		meta.set(id, { row, running, pending, isSub, show, done, err, descendantActive, delegating, hasLive, liveJobs, depth: 0 });
 	}
 
-	// 主会话分两组排序（R-01-001/AC-07，键口径契约详见上方 JSDoc）：运行中主会话置顶、
+	// 主会话分两组排序（键口径契约详见上方 JSDoc）：运行中主会话置顶、
 	// 组内按宿主列表时间从新到旧；等待/完成组排后、组内按进入状态时刻从新到旧；
 	// 两组相同时间均回落宿主列表出现顺序，工作区顺序不参与排序。
 	const isRunningEntry = (id) => {
 		const m = meta.get(id);
-		// 运行组只由回合状态决定（R-01-023/AC-02）：在跑后台任务不参与分组。
+		// 运行组只由回合状态决定：在跑后台任务不参与分组。
 		return m !== undefined && !m.pending && (m.running || m.delegating);
 	};
 	const waitingStartTime = (id) => {
@@ -1869,7 +1869,7 @@ export function buildEntries(options = {}) {
 		if (typeof value !== "number") return null;
 		return Number.isFinite(value) ? value : null;
 	};
-	// 进入状态时刻单点（R-01-002/AC-14，排序键 R-01-001/AC-07 同源）：阻塞等待取
+	// 进入状态时刻单点（排序键  同源）：阻塞等待取
 	// waitingStarts，完成/错误提醒取最近一次回合结束登记时刻；有效性口径单点收紧——
 	// 仅真实数字作数，Number(null)/Number("") 归一的 0 陷阱两侧同样不作数。
 	const enterStateAt = (id, pending) => {
@@ -1926,12 +1926,12 @@ export function buildEntries(options = {}) {
 			const workspace = m.isSub
 				? { title: "", key: "" }
 				: workspaceIndex.get(String(id)) ?? workspaceInfoForSession(id, workspaceItems ?? [], byId);
-			// 完成确认判定单点（R-01-002，C-040、C-064）：pendingText/waitClass/noteText/questionPreview 共用；
+			// 完成确认判定单点（C-040、C-064）：pendingText/waitClass/noteText/questionPreview 共用；
 			// 错误提醒（C-043）优先于完成提醒（同一回合登记只能有一个 lastTurnEndKind）。
 			const doneWait = !m.pending && m.done && !m.running && !m.delegating;
 			const errWait = !m.pending && m.err && !m.running && !m.delegating;
 			const errorNote = entryErrorNote(completionFor(id, completions));
-			// 进入状态时刻（R-01-002/AC-14）：仅 awaiting 条目携带，与排序键共用 enterStateAt
+			// 进入状态时刻：仅 awaiting 条目携带，与排序键共用 enterStateAt
 			// 单点口径；显示侧不回落宿主列表时间，不可得即为 null（节点隐藏），避免把
 			// 回退值冒充真实进入时刻。
 			const stateAt = m.pending || doneWait || errWait ? enterStateAt(id, m.pending) : undefined;
@@ -1962,7 +1962,7 @@ export function buildEntries(options = {}) {
 				isCurrent: current !== null && String(current) === String(id),
 				// 完成提醒卡不显示类型徽标（C-040）：pendingText 仅为阻塞等待承载。
 				pendingText: m.pending ? pendingText(m.row.pendingInteraction) : undefined,
-				// 等待三类（R-01-002，C-043）：blocked=阻塞等待（金色）、error=错误提醒（红色）、
+				// 等待三类（C-043）：blocked=阻塞等待（金色）、error=错误提醒（红色）、
 				// done=完成提醒（绿色）；错误提醒优先于完成提醒（同一登记只有一个结束原因）。
 				waitClass: m.pending
 					? "blocked"
@@ -1979,18 +1979,18 @@ export function buildEntries(options = {}) {
 						: doneWait
 							? ROUND_DONE_NOTE
 							: undefined,
-				// 在跑后台任务（R-01-023/AC-01）：仅 liveJobs 非空时携带（startedAt 升序），
+				// 在跑后台任务：仅 liveJobs 非空时携带（startedAt 升序）
 				// 渲染层据此在标题行标注数量；任务本体以下一线条目呈现（kind: "job"）。
 				liveJobs: m.hasLive ? m.liveJobs : undefined,
 				selfRunning: m.row.running === true,
 				stateAt,
 				questionPreview: m.pending && m.row.pendingInteraction === "question" ? (questionPreview ?? null) : undefined,
 			});
-			// 后台任务子条目（R-01-023）：与子代理同形的缩进子卡，跟随母会话在其全部
-			// 子代理之前（即母亲条目的直接后继）；结束即随 liveJobs 清空而消失（R-01-023/AC-03）。
+			// 后台任务子条目：与子代理同形的缩进子卡，跟随母会话在其全部
+			// 子代理之前（即母亲条目的直接后继）；结束即随 liveJobs 清空而消失。
 			// 复合 id 在去重视野（entries/visited/cardsById）中唯一，且携 jobs 前缀与子代理
-			// 会话 id 空间天然隔离；层级连接线与子代理同规则参与 trackRuns（R-01-003/AC-04），
-			// 仍不参与徽标计数（kind 过滤，R-01-023/AC-04）。
+			// 会话 id 空间天然隔离；层级连接线与子代理同规则参与 trackRuns
+			// 仍不参与徽标计数（kind 过滤）。
 			if (m.hasLive && !m.isSub) {
 				for (const job of m.liveJobs) {
 					entries.push({
@@ -2022,7 +2022,7 @@ export function buildEntries(options = {}) {
 	return entries;
 }
 /**
- * 把活动条目压成母会话轨道运行（R-01-003/AC-04）：每个拥有可见直属子代理或后台
+ * 把活动条目压成母会话轨道运行：每个拥有可见直属子代理或后台
  * 任务子卡的母会话一条，记录全部可见直属子级 id（有序，末位即末级）与子级深度，
  * 供渲染层测量后绘制整条连续轨道与接入横线。条目按 preorder 排列，同一直属
  * 子级组天然连续。直属性按「条目深度 = 母会话条目深度 + 1」判定（与条目
@@ -2037,7 +2037,7 @@ export function trackRuns(entries) {
 	const runs = new Map();
 	for (const entry of list) {
 		if (entry?.id == null || entry?.parentId == null || (entry.depth ?? 0) < 1) continue;
-		// 子代理与后台任务子卡一视同仁（R-01-003/AC-04）：两类直属子级同规则上轨。
+		// 子代理与后台任务子卡一视同仁：两类直属子级同规则上轨。
 		if (entry.kind !== "subagent" && entry.kind !== "job") continue;
 		const pid = String(entry.parentId);
 		const parentDepth = depthById.get(pid);
@@ -2106,7 +2106,7 @@ export function cardSignature(entries) {
 			entry.waitClass ?? null,
 			entry.noteText ?? null,
 			entry.questionPreview ?? null,
-			// 进入状态时刻参与签名（R-01-002/AC-14）：数据到达/更替（回填、SSE）驱动重绘。
+			// 进入状态时刻参与签名：数据到达/更替（回填、SSE）驱动重绘。
 			entry.stateAt ?? null,
 			entry.activityAt ?? null,
 			entry.progress ?? null,
@@ -2114,23 +2114,23 @@ export function cardSignature(entries) {
 			entry.loadingTimeline ?? null,
 			entry.loadingPreviews ?? null,
 			entry.tokenStats ?? [entry.outputTokens ?? null, entry.inputTokens ?? null, entry.cacheHitPct ?? null, entry.rateTokS ?? null, entry.elapsedMs ?? null],
-			// 累计运行时长参与签名（R-01-020）：回填/SSE 推送与逐秒推进都要驱动重绘。
+			// 累计运行时长参与签名：回填/SSE 推送与逐秒推进都要驱动重绘。
 			entry.totalBusyMs ?? null,
-			// 在跑后台任务（R-01-023）：任务视图随快照推送帧刷新，进入/退出在跑态驱动重绘；
+			// 在跑后台任务：任务视图随快照推送帧刷新，进入/退出在跑态驱动重绘；
 			// job 子卡状态翻转与秒桶（渲染期注入的任务行时长推进）同入签名。
 			entry.liveJobs ?? null,
 			entry.jobStatus ?? null,
-			// 自身回合运行态入签名（R-01-023/AC-11）：任务在跑期间自身回合结束/重启驱动
+			// 自身回合运行态入签名：任务在跑期间自身回合结束/重启驱动
 			// 数量注闪烁门控重绘（liveJobs 不变时其余签名分量可能全部不变）。
 			entry.selfRunning ?? null,
-			// jobKind 不入签名（R-01-023/AC-05）：同一 jobId 的工具类型由发起方定死恒定，
+			// jobKind 不入签名：同一 jobId 的工具类型由发起方定死恒定
 			// 签名分量永不变化；任务视图整体（liveJobs，含 kind）已随推送帧入签名。
 			entry.jobsAgeSec ?? null,
 		]),
 	);
 }
 
-// ---- 列表加载态（R-01-014）、最近历史区（R-01-010）与运行统计（R-01-009） ----
+// ---- 列表加载态、最近历史区与运行统计 ----
 
 /** 会话列表加载态：快照缺失或 `phase === "pending"` → "loading"（列表在途，禁止空态冒充）；
  *  `state === "error"` 或携带 `error` → "error"（前向兼容带错误轴的快照形态）；
@@ -2189,21 +2189,21 @@ export function activeSessionIds(byId = {}) {
 	return lineageActiveIds(byId, true);
 }
 
-/** 「存在活动后代」的母会话集合（不含活动会话自身），供 buildEntries 判定委托周期（R-01-003/AC-05）。 */
+/** 「存在活动后代」的母会话集合（不含活动会话自身），供 buildEntries 判定委托周期。 */
 function descendantActiveIds(byId = {}, isExcluded = null) {
 	return lineageActiveIds(byId, false, isExcluded);
 }
 
 /** 判断活动条目是否需要建立轮内状态订阅：以宿主 running 为准、与呈现 kind 解耦——
- *  委托周期中保持运行呈现的母会话不建立订阅（R-02-004/AC-01）。 */
+ *  委托周期中保持运行呈现的母会话不建立订阅。 */
 export function shouldSubscribeToSession(entry, byId = {}) {
 	return entry?.id != null && byId?.[entry.id]?.running === true;
 }
 
-/** 运行卡逐秒时钟需求判定（R-01-025/AC-08，T-174）：入参为渲染层已按档位过滤后的活动条目
+/** 运行卡逐秒时钟需求判定（T-174）：入参为渲染层已按档位过滤后的活动条目
  *  与轮内订阅集合。条目自身呈现含逐秒推进分量才需要时钟——job 子条目承载任务时长（低档位
  *  已被剔除出列表，天然只在完整档出现）；kind "running" 的开放回合会话（累计运行时长逐秒
- *  推进，R-01-020）与委托周期母会话照常驱动；在跑后台任务不产生运行呈现，等待态母卡
+ *  推进）与委托周期母会话照常驱动；在跑后台任务不产生运行呈现，等待态母卡
  *  （回合已结束）自身无逐秒分量，天然不计入；运行中子代理照常驱动。 */
 export function runningClockWanted(entries = [], runLikeIds = new Set()) {
 	const list = Array.isArray(entries) ? entries : [];
@@ -2221,7 +2221,7 @@ export function isActiveRow(row, byId = {}, activeIds = null) {
 	return activeIds instanceof Set && row?.id != null && activeIds.has(String(row.id));
 }
 
-/** 取某会话的完成确认记账（R-01-002/AC-03）：completions 为 Map id → { lastTurnEnd, ackedAt }，
+/** 取某会话的完成确认记账：completions 为 Map id → { lastTurnEnd, ackedAt }
  *  恒为普通对象或 null；不抛错、不信任入参形状。 */
 function completionFor(id, completions) {
 	if (!(completions instanceof Map)) return null;
@@ -2229,7 +2229,7 @@ function completionFor(id, completions) {
 }
 
 /**
- * 完成确认判定（R-01-002/AC-03、AC-05、R-01-010/AC-06）：会话存在 `lastTurnEnd > ackedAt`
+ * 完成确认判定：会话存在 `lastTurnEnd > ackedAt`
  * 的未确认完成时成立——解除仅经显式确认（ackedAt 前移）或新回合完成（lastTurnEnd 前移，
  * 旧提醒被新回合更替）；打开会话、切换当前会话与页面刷新均不解除。仅主会话参与；
  * 成立与否只依赖宿主持久状态，不依赖客户端在线观测。running/阻塞等待/委托周期的
@@ -2246,7 +2246,7 @@ export function completionReminder(row, completion, isSub = false) {
 }
 
 /**
- * 错误提醒判定（R-01-002/AC-13，C-043）：主会话最近一个回合以不可恢复错误结束
+ * 错误提醒判定（C-043）：主会话最近一个回合以不可恢复错误结束
  * （宿主登记的 `lastTurnEndKind === 'error'`）时成立——随新回合结束（kind 被新 reason
  * 覆盖）解除；不消费 ack 游标、无确认按钮；成立与否只依赖宿主持久状态，刷新/重连恢复。
  * running/阻塞等待/委托周期的呈现抑制由调用方（buildEntries 的 waitClass 判定）处理。
@@ -2257,7 +2257,7 @@ export function errorReminder(row, completion, isSub = false) {
 	return record !== null && record.lastTurnEndKind === "error";
 }
 
-/** 错误提醒正文（R-01-002/AC-09、AC-13，C-043）：宿主登记的 lastTurnEndError（截断后
+/** 错误提醒正文（C-043）：宿主登记的 lastTurnEndError（截断后
  *  的错误信息）或回落固定文案；不冒充具体错误。调用方（buildEntries 的 errWait 判定）
  *  已保证错误提醒成立，本函数只做文本取舍。 */
 function entryErrorNote(completion) {
@@ -2266,18 +2266,18 @@ function entryErrorNote(completion) {
 	return typeof message === "string" && message !== "" ? message : ERROR_NOTE_FALLBACK;
 }
 
-// ---- 后台任务（R-01-023）：在跑活性归一 ----
+// ---- 后台任务：在跑活性归一 ----
 
-/** 在跑后台任务的活性状态全集（R-01-023）：stopping 视同在跑——停止请求已发出但
+/** 在跑后台任务的活性状态全集：stopping 视同在跑——停止请求已发出但
  *  任务尚未结束，数量标注口径与 running 一致。 */
 const LIVE_JOB_STATUSES = new Set(["running", "stopping"]);
 
 /**
- * 归一会话的在跑后台任务列表（R-01-023/AC-01）：取快照 `jobsBySession[id]` 中
+ * 归一会话的在跑后台任务列表：取快照 `jobsBySession[id]` 中
  * status ∈ {running, stopping} 的任务视图，按 startedAt 升序（最早在前）。
  * jobsBySession 缺失、非记录、条目非记录或字段非法均按无任务/剔除处理，不抛错。
  * 返回 `{ id, kind, label, status, startedAt }` 的新数组（不泄漏宿主对象引用；
- * `kind` 为任务发起工具的类型原文，供任务卡工具名行消费，R-01-023/AC-05）。
+ * `kind` 为任务发起工具的类型原文，供任务卡工具名行消费）。
  */
 export function liveJobsOf(jobsBySession, id) {
 	if (!isRecord(jobsBySession)) return [];
@@ -2290,7 +2290,7 @@ export function liveJobsOf(jobsBySession, id) {
 		live.push({
 			id: typeof job.id === "string" ? job.id : "",
 			kind: typeof job.kind === "string" ? job.kind : "",
-			// label 纯空白视为任务内容不可得（R-01-023/AC-06 的数据源头）：不渲染空白行，
+			// label 纯空白视为任务内容不可得（的数据源头）：不渲染空白行
 			// 不以占位文本补位；非空白保留原文（不额外 trim，显示层忠实原文）。
 			label: typeof job.label === "string" && job.label.trim() !== "" ? job.label : "",
 			status: job.status,
@@ -2302,8 +2302,8 @@ export function liveJobsOf(jobsBySession, id) {
 }
 
 /** jobs 快照的窗格相关签名（T-181 ①）：对全会话 live 任务行做稳定序列化。窗格对
- *  jobs 状态的全部消费都经 liveJobsOf（提升活动区 R-01-023/AC-01、数量徽标 AC-04、
- *  任务子卡 AC-05），签名不变的推送帧不含可观察变化，订阅侧据此跳过渲染轮。
+ *  jobs 状态的全部消费都经 liveJobsOf（提升活动区 、数量徽标 、
+ *  任务子卡），签名不变的推送帧不含可观察变化，订阅侧据此跳过渲染轮。
  *  五元组 id/kind/label/status/startedAt 即 liveJobsOf 的完整输出面；任务运行中的
  *  输出流量不改变五元组，签名保持稳定。键序无关（parts 排序后拼接）。 */
 export function jobsPaneSignature(jobsBySession) {
@@ -2318,7 +2318,7 @@ export function jobsPaneSignature(jobsBySession) {
 	return parts.join("\n");
 }
 
-/** 后台任务工具名的友好显示映射（R-01-023/AC-05）：bash→Bash、pwsh→PowerShell、
+/** 后台任务工具名的友好显示映射：bash→Bash、pwsh→PowerShell、
  *  subagent→子代理；未知 kind 原样显示，非字符串或空串视为不可得（返回空串）。
  *  与 client 渲染层 JOB_STATUS_LABELS（状态词文案）分层：本表居 core 因核心与
  *  渲染两层共用且需 Node 单测钉住映射，状态词仅渲染层消费。 */
@@ -2330,7 +2330,7 @@ export function jobKindLabel(kind) {
 }
 
 /**
- * 卡片「后台 ×N」数量注的呈现态（R-01-023/AC-01、AC-11）：文本、隐藏与闪烁三态单点
+ * 卡片「后台 ×N」数量注的呈现态：文本、隐藏与闪烁三态单点
  * 判定。闪烁语义仅覆盖「回合已结束但仍有在跑后台任务」——卡片处于等待态且非阻塞等待
  * （kind "awaiting" 且无 pendingKind）时闪烁；最近历史卡（kind "recent"）、自身回合
  * 运行中（selfRunning 真）与阻塞等待不闪烁。入参缺失或形状非法按无任务处理（hidden、
@@ -2348,7 +2348,7 @@ export function jobsChipState(entry) {
 }
 
 /**
- * 活动区→历史区迁移检测（R-01-010/AC-07）：上一帧活动区 id 在本帧离开活动区且出现于
+ * 活动区→历史区迁移检测：上一帧活动区 id 在本帧离开活动区且出现于
  * 历史区即判定为一次迁移；彻底消失（归档、不再被会话服务列出）不判定。prevActiveIds 为上一帧
  * 已渲染的活动区 id 集合，active/recent 为本帧派生条目。
  */
@@ -2364,7 +2364,7 @@ export function movedToRecentIds(prevActiveIds, active, recent) {
 }
 
 /**
- * 历史区→活动区迁移检测（R-01-010/AC-07）：上一帧历史区 id 在本帧离开历史区且出现于
+ * 历史区→活动区迁移检测：上一帧历史区 id 在本帧离开历史区且出现于
  * 活动区即判定为一次反向迁移；彻底消失（归档、不再被会话服务列出）不判定。prevRecentIds 为上一帧
  * 已渲染的历史区 id 集合，active/recent 为本帧派生条目。与 movedToRecentIds 镜像对称。
  */
@@ -2380,7 +2380,7 @@ export function movedToActiveIds(prevRecentIds, active, recent) {
 }
 
 /** 从 history 事件提取最后回合结束时刻（最后一条 `turn/end` 的有效 time）：
- *  尾部反向扫描，`time` 非有限值的 `turn/end` 跳过继续向前；全部无有效时刻返回 null（R-01-010/AC-08）。 */
+ *  尾部反向扫描，`time` 非有限值的 `turn/end` 跳过继续向前；全部无有效时刻返回 null。 */
 export function lastTurnEndFromEvents(events) {
 	const list = Array.isArray(events) ? events : [];
 	for (let i = list.length - 1; i >= 0; i -= 1) {
@@ -2412,7 +2412,7 @@ function durationTime(value) {
 
 /**
  * 从 history 重放回合/等待边界事件，提取最近一个已结束回合的运行过程耗时（busy 口径：
- * 起止差值扣除回合内阻塞等待，与 R-01-020 累计口径一致，恒不大于该回合墙钟时长）。
+ * 起止差值扣除回合内阻塞等待，与  累计口径一致，恒不大于该回合墙钟时长）。
  * 回合起止不完整、时间逆序或回合运行段不为正时忽略该回合；无可得回合返回 null。
  */
 export function lastTurnBusyFromEvents(events) {
@@ -2506,7 +2506,7 @@ function settleTurnClose(next, time) {
 }
 
 /**
- * 会话回合统计记账的单步转移（R-01-020）：对单个回合/等待边界事件应用后返回新状态。
+ * 会话回合统计记账的单步转移：对单个回合/等待边界事件应用后返回新状态。
  * 状态 `{ busyMs, openTurnStart, openWaitStart, openWaitKind, openWaitId, waitedMs }`——
  * busyMs 为运行过程时长的累计（null 表示尚无任何有效回合计时），openTurnStart 为当前
  * 开放回合起点，openWaitStart/openWaitKind/openWaitId 为当前未配对等待区间（回合内
@@ -2519,7 +2519,7 @@ function settleTurnClose(next, time) {
  * `time − openTurnStart − waitedMs` 结算回合。start 覆盖式登记（串行回合下最后一个
  * start 为当前回合），end 配对最近 start；起点缺失或时间逆序的回合跳过累加、仅清空
  * 状态。event 兼容 history 条目包装与裸事件（eventOf 解包），宿主实时登记与回填共用
- * 同一转移，保证口径一致（R-01-020/AC-02）。
+ * 同一转移，保证口径一致。
  */
 export function applyTurnEventToStats(state, entry) {
 	const event = eventOf(entry);
@@ -2572,7 +2572,7 @@ export function applyTurnEventToStats(state, entry) {
 /**
  * busy 记账字段归一：null/undefined 直通为 null（「无数据」语义），仅真实有限数字
  * 保留。必须先判空再走 Number()——Number(null) === 0 会把「无开放回合」误归一为
- * epoch 0，令合成值膨胀为 now−0（R-01-020/AC-06 回归）。
+ * epoch 0，令合成值膨胀为 now−0（回归）。
  */
 export function normalizeBusyMs(value) {
 	if (value === null || value === undefined) return null;
@@ -2581,7 +2581,7 @@ export function normalizeBusyMs(value) {
 }
 
 /**
- * 标题行累计运行时长的显示合成（R-01-020/AC-01、AC-03、AC-06、AC-07）：已完成回合
+ * 标题行累计运行时长的显示合成：已完成回合
  * 累计加开放回合的实时已耗时（扣除回合内已配对等待与进行中的未配对等待）；两者皆
  * 不可得时返回 null（调用方不显示，不以 0 冒充）。now 缺失或无效时不推进实时增量，
  * 只返回已完成累计。等待期间 `(now − openTurnStart)` 与 `(now − openWaitStart)` 两项
@@ -2599,7 +2599,7 @@ export function totalBusyDisplayMs({ busyMs = null, openTurnStart = null, waited
 }
 
 /**
- * 回合统计记账的统一收敛（R-01-020/AC-04、AC-05）：对全会话事件列表重放出下一份
+ * 回合统计记账的统一收敛：对全会话事件列表重放出下一份
  * 记账，宿主侧懒回填与启动扫描共用。路径选择——无记录、强制重放、持久化水位非法、
  * 或水位超前于日志最大 seq（事件 seq 空间被重编，如 dsh 0.1.5 V3 迁移）时从空状态
  * 全量重放（超前水位会把后续全部实时事件封死在守卫之外，openTurnStart 永不清空、
@@ -2663,7 +2663,7 @@ export function reconcileTurnStats(current, records, { closeOpenTurn = false, fo
 }
 
 /**
- * 会话级登记串行化（R-01-020/AC-02）：宿主存储域的 `KvTable.put` 先异步落盘、落盘完成
+ * 会话级登记串行化：宿主存储域的 `KvTable.put` 先异步落盘、落盘完成
  * 后才更新内存快照，因此同一会话的两个边界事件 handler 并发执行时，后到事件会在先到
  * 事件落盘前读到旧状态，其效果被当作「无效果」永久丢弃（实测：`ask_user_question` 的
  * `tool/call` 与 11ms 后的 `tool/result` 交错，等待区间悬挂到 `turn/end` 强制结算，
@@ -2692,7 +2692,7 @@ export function createSessionEventSerializer() {
  * 构建历史区条目：当前非活动的**主会话**，按最后活动时间从新到旧返回完整候选集合。
  * 子代理是临时工作单元，不入历史区；归档、空会话、完成/错误提醒与委托周期中的会话
  * 也不入历史区。历史区不再按时间窗口或条数截断；turnEnds（id → 已知回合结束时刻）驱动
- * activityAt 精化（R-01-010、R-01-019）。
+ * activityAt 精化。
  */
 /** buildRecent 的 limit 有效性口径：仅接受非负有限数字，其余形态按全量候选处理。 */
 const isCountLimit = (value) => Number.isFinite(value) && value >= 0;
@@ -2701,7 +2701,7 @@ const isCountLimit = (value) => Number.isFinite(value) && value >= 0;
  * 构建历史区条目：当前非活动的**主会话**，按最后活动时间从新到旧返回候选集合。
  * 子代理是临时工作单元，不入历史区；归档、空会话、完成/错误提醒与委托周期中的会话
  * 也不入历史区。历史区不再按时间窗口或条数截断；turnEnds（id → 已知回合结束时刻）驱动
- * activityAt 精化（R-01-010、R-01-019）。
+ * activityAt 精化。
  *
  * 两段式（T-186）：第一阶段逐候选保留全部既有过滤谓词、只收集 { id, activityAt }
  * 轻量键排序取前缀，第二阶段仅对入选者物化完整条目（workspace 查表、mainTitle、
@@ -2772,7 +2772,7 @@ export function buildRecent(options = {}) {
 		// previews 不在此推导：渲染层按需 memo 计算（冷会话由 history 一次性写入 detail.previews）。
 		const previews = details.previews ?? { userPreview: "", agentPreview: "" };
 		const workspace = workspaceIndex.get(String(id)) ?? workspaceInfoForSession(id, items, byId);
-		// 在跑后台任务（R-01-023/AC-01）：历史卡同样标注任务数量（不改变入选判定与排序）。
+		// 在跑后台任务：历史卡同样标注任务数量（不改变入选判定与排序）。
 		const liveJobs = liveJobsOf(jobsBySession, id);
 		entries.push({
 			id,
@@ -2857,7 +2857,7 @@ export function fmtTokens(n) {
 	return `${scaled(n / 1e6)}M`;
 }
 
-/** 回合进度半衰期校准参数（R-01-009/AC-06，C-025、C-044）：基准速率 90 tok/s 对应
+/** 回合进度半衰期校准参数（C-025、C-044）：基准速率 90 tok/s 对应
  *  基准半衰期 120s；慢模型按比例拉长、快模型缩短，夹取于 [60, 600] 秒。 */
 export const PROGRESS_HALFLIFE_REF_RATE = 90;
 export const PROGRESS_HALFLIFE_BASE_S = 120;
@@ -2868,7 +2868,7 @@ export const PROGRESS_HALFLIFE_MIN_S = 60;
 export const PROGRESS_HALFLIFE_MAX_S = 600;
 
 /**
- * 回合进度半衰期速率校准（R-01-009/AC-06，C-025、C-044）：任务产出 token 量与模型速度
+ * 回合进度半衰期速率校准（C-025、C-044）：任务产出 token 量与模型速度
  * 无关、回合墙钟时长与速率成反比，故 k = 120×90÷r 秒并夹取 [60, 600]（r 为会话
  * 实测累计输出速率 tok/s）；无可用速率（缺省/非法/非正）回退保守默认 540s
  * （20 tok/s 起步基准，C-044）。返回整数秒。
@@ -2897,13 +2897,13 @@ export function progressOf({ elapsedMs = 0, halfLifeSec = null } = {}) {
 	return Math.round((100 * sec) / (sec + k) * 10) / 10;
 }
 
-/** 委托耗尽归属宽限（R-01-009/AC-06）：后代全部结束后、在该毫秒数内开始的新回合
+/** 委托耗尽归属宽限：后代全部结束后、在该毫秒数内开始的新回合
  *  视为处理后代结果的回合（委托周期锚点连续）；超时开始的新回合视为委托周期外的
  *  全新回合（归零重计）。 */
 export const SETTLE_TURN_GRACE_MS = 60_000;
 
 /**
- * 委托周期进度锚点（R-01-009/AC-06）：三态状态机。
+ * 委托周期进度锚点：三态状态机。
  *   - idle：无活动后代且无开放回合，锚点为空。
  *   - turn：无活动后代、自身回合在飞；锚点 = 本回合起点，新回合开始即归零重计。
  *   - delegating：委托周期——自首个活动后代出现起，至后代全部结束且处理其结果的
@@ -2951,7 +2951,7 @@ export function progressAnchor(prev, { descendantActive = false, hostStartTime =
 
 /** 会话是否处于委托周期（含后代耗尽空窗）：delegating 态且未耗尽，或耗尽时刻距
  *  now 不超过 SETTLE_TURN_GRACE_MS（空窗内等待 settle 处理回合启动）。供渲染层
- *  派生 delegatingIds 注入 buildEntries/buildRecent（R-01-003/AC-05、R-01-009/AC-06）。 */
+ *  派生 delegatingIds 注入 buildEntries/buildRecent。 */
 export function delegationActive(state, now) {
 	if (state?.mode !== "delegating") return false;
 	if (state.drainedAt == null) return true;
@@ -2959,11 +2959,11 @@ export function delegationActive(state, now) {
 }
 
 // ---- 通道增量协议（T-188）：busy/acks 通道「连接全量、变更按会话增量、落盘合帧」 ----
-// 分工契约（R-01-002/AC-10～AC-13、R-01-020/AC-02～AC-07，承诺不变、机制演进）：
+// 分工契约（承诺不变、机制演进）
 //   - 内存即改：宿主侧插件缓存 Map 是权威状态与增量广播源，变更点同步更新缓存后立即
 //     广播 `patch`（upserts，仅本次变更会话）；读-改-写循环完全在缓存上闭合。
 //   - 落盘延后：KvTable 退化为落盘通道，脏键经 createDirtyFlusher 尾沿合帧写盘。
-//   - 崩溃窗口自愈（R-01-020/AC-04）：合帧间隔内进程崩溃至多丢失该窗口的落盘写（内存
+//   - 崩溃窗口自愈：合帧间隔内进程崩溃至多丢失该窗口的落盘写（内存
 //     态已失、磁盘停留旧值）；下次懒回填经 reconcileTurnStats 从事件全量重放收敛——
 //     磁盘水位落后则增量应用 seq > watermarkSeq 的事件补缺口，水位超前（seq 空间重编）
 //     则从空状态全量重放——两条恢复路径都不依赖落盘与内存的即时一致性，水位只前进，
@@ -2995,7 +2995,7 @@ export function buildChannelPatch(records, changedIds) {
 /**
  * `GET /api/busy?ids=` 查询参数解析（T-188）：逗号分隔会话 id，逐项 trim、剔除空段、
  * 去重；解析出至少一个合法 id 且总量不超过 maxIds 时返回裁剪 id 数组，否则返回 null
- * 表示回退全量（非法/空/超量形态统一防御，R-01-020/AC-05 懒回填触发口径不受裁剪影响）。
+ * 表示回退全量（非法/空/超量形态统一防御， 懒回填触发口径不受裁剪影响）。
  * raw 为 null/undefined（未携带 ids 参数）同样返回 null——全量响应、不触发回填。
  */
 export function parseBusyIdsParam(raw, maxIds) {
@@ -3027,8 +3027,8 @@ export function parseBusyIdsParam(raw, maxIds) {
  * 置 disposing 并拒绝后续 enqueue，分属两个 effect 的「先冲刷后关域」在并发下会被
  * close 拒写；同一 disposer 内「await dispose()（put 排入域写链并等待完成）→
  * await close()（幂等，runClose 先排空已排队写、后关 unit）」才是真串行。窗口外
- * 进程消失（崩溃/强杀）不走该路径，由上文「崩溃窗口自愈」承接（R-01-020/AC-04，
- * SSE 全量快照与懒回填保证恢复一致）。
+ * 进程消失（崩溃/强杀）不走该路径，由上文「崩溃窗口自愈」承接：
+ * SSE 全量快照与懒回填保证恢复一致。
  */
 export function createDirtyFlusher({ flush, intervalMs, now = Date.now, schedule = setTimeout, cancel = clearTimeout } = {}) {
 	const delay = Number(intervalMs);

@@ -1,0 +1,7 @@
+# 未覆盖 spec 只减清单：一行一个 e2e/specs/<name>.mjs，新增 spec 必须登记、删除 spec 同步删条目。
+# 当前为空：基线 27 个 spec 均已被 scripts/check.mjs 或 e2e 门禁覆盖。
+# 基线（2026-11-26，27 个）：auto-update background-jobs back-to-top busy-backfill-race card-content
+# compact-density completion-sync connection-resume connection-resume-desktop density-resource
+# desktop-layout error-reminder hidden-derive-resume idle-quiescence incremental-fold-equivalence
+# loading-ready long-list mobile-drawer mobile-resume mobile-shell mobile-thermal navigation
+# recent-infinite-scroll repo-entry resize session-lifecycle visual-hierarchy

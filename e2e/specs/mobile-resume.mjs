@@ -1,4 +1,4 @@
-// R-01-001/AC-03 回归：iOS 后台挂起会丢弃在途 setTimeout——T-127 的节流窗口尾与
+//  回归：iOS 后台挂起会丢弃在途 setTimeout——T-127 的节流窗口尾与
 // 流式派生窗口若在挂起前排队，恢复前台后永不交付，syncScheduled/logDeriveTimer
 // 永久滞留，此后一切更新（store 订阅推送、SSE 快照、时钟 tick）被 queueSync 早退
 // 吞掉，窗格停留在挂起前状态（会话已完成仍显示运行中）。回前台（visibilitychange/

@@ -20,11 +20,11 @@
   },
   "files": [
     ".dsh-plugin",
-    "src",
-    "scripts",
-    "cordis.patch.yml",
+    "LICENSE",
     "README.md",
-    "LICENSE"
+    "cordis.patch.yml",
+    "scripts",
+    "src"
   ],
   "dependencies": {
     "@deepseek-ai/dsh-storage-domain": "0.2.0-rc.2",
@@ -38,12 +38,11 @@
     "dev:watch": "node scripts/watch.mjs",
     "accept:manual": "node scripts/acceptance.mjs",
     "perf:ab": "node scripts/perf-ab.mjs",
-    "lint:agentmap": "python3 tools/agentmap_lint.py --report",
-    "lint:test-impact": "python3 tools/test_impact_lint.py --self-test && python3 tools/test_impact_lint.py --report",
-    "lint": "pnpm lint:agentmap && pnpm lint:test-impact",
+    "xtask": "node tools/xtask.mjs",
+    "lint": "node tools/xtask.mjs ci --fast",
     "check:staged-client": "node scripts/check-staged-client.mjs",
-    "verify:fast": "pnpm lint && pnpm check",
-    "verify": "pnpm verify:fast && pnpm test:e2e"
+    "verify:fast": "node tools/xtask.mjs ci --fast",
+    "verify": "node tools/xtask.mjs ci"
   },
   "dsh": {
     "bundle": {

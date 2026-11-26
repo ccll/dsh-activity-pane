@@ -1,8 +1,7 @@
 // dsh-activity-pane 核心单元检查与 client bundle 契约校验。
 //
-// 测试锚点：本文件被 CONVENTIONS.md 的 `测试锚点路径` 登记为测试文件，
-// 以一行的 `// R-gg-nnn/AC-nn` 注释锚定 PRD 验收点；GUI 交互类验收点
-// 见 scripts/acceptance.mjs（人工验收清单）。
+// 行为回归按区域分节断言；浏览器交互类验收见 e2e/specs/（Playwright）
+// 与 scripts/acceptance.mjs（人工清单）。
 import assert from "node:assert/strict";
 import { readFile, mkdir } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
@@ -116,7 +115,7 @@ import {
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
-// ---- R-01-005/AC-01 点击跳转回归（dsh 0.2.0 经 uiWorkspace.openSession 导航，T-159） ----
+// ---- 点击跳转回归（dsh 0.2.0 经 uiWorkspace.openSession 导航，T-159） ----
 let openedSession = null;
 assert.equal(
 	openSession(
@@ -143,7 +142,7 @@ assert.equal(
 );
 assert.equal(openSession(null, "x"), false, "导航服务缺失时返回 false");
 
-// ---- R-01-006/AC-02 当前卡片最小滚动：只调整越界方向，不居中 ----
+// ---- 当前卡片最小滚动：只调整越界方向，不居中 ----
 const viewport = { top: 10, bottom: 110 };
 const makeScrollBox = (scrollTop, smooth = true) => {
 	const scroll = {
@@ -193,7 +192,7 @@ const bottomBoundaryScroll = makeScrollBox(200);
 assert.equal(scrollCardIntoView(bottomBoundaryScroll, makeCardBox(120, 160)), false, "底部边界不能继续向下滚动");
 assert.equal(scrollCardIntoView(null, makeCardBox(0, 1)), false, "缺少滚动容器时静默跳过");
 
-// ---- R-01-005/AC-01、R-02-003/AC-01 card 自身 click/键盘监听与卸载 ----
+// ---- card 自身 click/键盘监听与卸载 ----
 const cardListeners = new Map();
 const card = {
 	dataset: { sessionId: "card-a" },
@@ -229,7 +228,7 @@ assert.deepEqual(cardOpened, ["card-a", "card-a", "card-a", "card-b"], "复用�
 unbindCard();
 assert.equal(cardListeners.size, 0, "card 卸载移除 click/keydown 监听");
 
-// ---- R-01-005/AC-01 回归：移动端切换会话后抑制原生 composer 自动聚焦（不弹软键盘） ----
+// ---- 回归：移动端切换会话后抑制原生 composer 自动聚焦（不弹软键盘） ----
 // 宿主 DOM 契约（dsh-client-ui-conversation ComposerContentEditable）：composer 输入面是
 // Lexical contenteditable div，显式标记 data-composer-input。旧 textarea[data-phase] 在宿主
 // DOM 上零命中会使抑制整体退化为空操作（软键盘回归根因），故钉住选择器防再漂移。
@@ -273,7 +272,7 @@ assert.equal(composerEl.focused, true, "监听移除后不再干预聚焦");
 suppressComposerAutofocus(null);
 suppressComposerAutofocus({});
 
-// ---- R-01-005/AC-02 打开重试链取消判定与卡片定位选择器转义 ----
+// ---- 打开重试链取消判定与卡片定位选择器转义 ----
 assert.equal(
 	shouldCancelOpenRetry({ targetId: "a", currentId: "a", activatedId: "a" }),
 	true,
@@ -299,7 +298,7 @@ assert.equal(
 	true,
 	"非法目标直接取消",
 );
-// ---- R-01-006/AC-03 会话在屏判定（选中 + 主区域显示会话视图，C-104） ----
+// ---- 会话在屏判定（选中 + 主区域显示会话视图，C-104） ----
 assert.equal(
 	isSessionDisplayed({ targetId: "a", currentId: "a", panelId: null }),
 	true,
@@ -342,12 +341,11 @@ assert.equal(escapeCssString("a\nb"), "a\\a b", "换行按 CSS 字符串码位�
 assert.equal(escapeCssString("a\rb"), "a\\d b", "回车按 CSS 字符串码位转义");
 assert.equal(escapeCssString("a\fb"), "a\\c b", "换页按 CSS 字符串码位转义");
 assert.equal(escapeCssString("a\0b"), "a�b", "NUL 归一为替换字符");
-// R-01-012/AC-01
 assert.equal(isSubagentRow({ parentId: "ghost" }, {}), false, "父级不在列表时按主会话处理（仍允许 models 读取）");
 assert.equal(isSubagentRow({ parentId: "p" }, { p: { id: "p" } }), false, "普通 fork 的 parentId 不足以判定为子代理");
 assert.equal(isSubagentRow({ parentId: "p", origin: "subagent" }, { p: { id: "p" } }), true, "origin 为 subagent 且父级有效时命中子代理判定");
 assert.equal(isSubagentRow({ origin: "subagent" }, { p: { id: "p" } }), false, "缺少有效 parentId 时不判定为子代理");
-// R-01-003/AC-01、R-01-010/AC-01：普通 fork 虽有 parentId，仍按独立主会话处理。
+// 普通 fork 虽有 parentId，仍按独立主会话处理。
 const forkWorkspace = [{ title: "Fork 工作区", path: "/srv/fork", sessionIds: ["fork-root", "fork-child"] }];
 const forkActivity = {
 	ids: ["fork-root", "fork-child"],
@@ -400,7 +398,7 @@ assert.deepEqual(
 	buildEntries({ snapshot: subagentUnderFork, workspaceItems: [], detailsById: {}, completions: null, delegatingIds: null, archivedIds: ["source"] }).map((entry) => entry.id),
 	["fork", "nested-subagent"],
 	"归档 fork 来源不影响独立 fork 及其真实子代理子树");
-// ---- R-01-012/AC-17、AC-18 子代理模型溯源：history 尾扫最近一条携带 source.model 的 assistant/message ----
+// ---- 子代理模型溯源：history 尾扫最近一条携带 source.model 的 assistant/message ----
 const subModelEvents = [
 	{ event: { type: "turn/start", seq: 1, data: { turn: 1 } } },
 	{ event: { type: "assistant/message", seq: 2, data: { turn: 1, step: 1, message: { role: "assistant", source: { kind: "model", provider: "deepseek", model: "model-a" } } } } },
@@ -410,31 +408,31 @@ const subModelEvents = [
 assert.deepEqual(
 	modelFromHistoryEvents(subModelEvents),
 	{ model: "model-b", reasoning: "" },
-	"子代理模型溯源取最近一条携带 source.model 的 assistant/message（R-01-012/AC-17）",
+	"子代理模型溯源取最近一条携带 source.model 的 assistant/message",
 );
 assert.deepEqual(
 	modelFromHistoryEvents([{ type: "assistant/message", seq: 9, data: { message: { source: { provider: "p", model: "bare" } } } }]),
 	{ model: "bare", reasoning: "" },
-	"裸事件形态与 {event} 包装同样兼容（R-01-012/AC-17）",
+	"裸事件形态与 {event} 包装同样兼容",
 );
-assert.equal(modelFromHistoryEvents([]), null, "空事件流无溯源，保持空白（R-01-012/AC-18）");
+assert.equal(modelFromHistoryEvents([]), null, "空事件流无溯源，保持空白");
 assert.equal(
 	modelFromHistoryEvents([{ event: { type: "user/message", seq: 1, data: { message: { content: [] } } } }]),
 	null,
-	"无 assistant/message 时不得以其它事件冒充模型（R-01-012/AC-18）",
+	"无 assistant/message 时不得以其它事件冒充模型",
 );
 assert.equal(
 	modelFromHistoryEvents([{ event: { type: "assistant/message", seq: 2, data: { message: { source: { provider: "p" } } } } }]),
 	null,
-	"source.model 缺失时不得冒充（R-01-012/AC-18）",
+	"source.model 缺失时不得冒充",
 );
 assert.equal(
 	modelFromHistoryEvents([null, { event: undefined }, { event: { type: "assistant/message", seq: 3, data: { turn: 1, step: 1, message: { role: "assistant", source: { provider: "p", model: "ok" } } } } }]).model,
 	"ok",
-	"畸形条目跳过不抛错，命中项照常提取（R-01-012/AC-17）",
+	"畸形条目跳过不抛错，命中项照常提取",
 );
 
-// ---- R-01-012/AC-17 子代理模型读取触发信号：快照最新助手节点已定案即触发 ----
+// ---- 子代理模型读取触发信号：快照最新助手节点已定案即触发 ----
 const settledAssistantSnapshot = {
 	chat: {
 		order: ["k1", "k2", "k3", "k4"],
@@ -446,7 +444,7 @@ const settledAssistantSnapshot = {
 		]),
 	},
 };
-assert.equal(chatLatestAssistantSettled(settledAssistantSnapshot), true, "最新助手节点已定案即触发模型读取（R-01-012/AC-17）");
+assert.equal(chatLatestAssistantSettled(settledAssistantSnapshot), true, "最新助手节点已定案即触发模型读取");
 assert.equal(
 	chatLatestAssistantSettled({
 		chat: {
@@ -458,28 +456,28 @@ assert.equal(
 		},
 	}),
 	false,
-	"最新助手节点仍在流式（未定案）时不触发，避免早读扑空（R-01-012/AC-18）",
+	"最新助手节点仍在流式（未定案）时不触发，避免早读扑空",
 );
-assert.equal(chatLatestAssistantSettled(null), false, "无快照不触发（R-01-012/AC-18）");
-assert.equal(chatLatestAssistantSettled({ chat: { order: [], nodes: new Map() } }), false, "空窗口不触发（R-01-012/AC-18）");
+assert.equal(chatLatestAssistantSettled(null), false, "无快照不触发");
+assert.equal(chatLatestAssistantSettled({ chat: { order: [], nodes: new Map() } }), false, "空窗口不触发");
 
-// ---- R-01-012/AC-17 目录分组解析显示名与 effort：provider 模型 id → {name, reasoning} 索引 ----
+// ---- 目录分组解析显示名与 effort：provider 模型 id → {name, reasoning} 索引 ----
 assert.deepEqual(
 	catalogModelEntries([
 		{ id: "g1", models: [{ id: "glm-5.3-flash-512k", name: "(6000D) GLM-5.3-Flash 512K", reasoning: "high" }, { id: "m2", name: "模型乙" }] },
 		{ id: "g2", models: [{ id: "m3", name: "模型丙", reasoning: "low" }] },
 	]),
 	{ "glm-5.3-flash-512k": { name: "(6000D) GLM-5.3-Flash 512K", reasoning: "high" }, m2: { name: "模型乙", reasoning: "" }, m3: { name: "模型丙", reasoning: "low" } },
-	"多分组展平为 id→{name, reasoning} 索引（R-01-012/AC-17）",
+	"多分组展平为 id→{name, reasoning} 索引",
 );
 assert.deepEqual(
 	catalogModelEntries([null, {}, { models: null }, { models: [null, {}, { id: "", name: "x" }, { id: "ok", name: "" }, { id: "good", name: "好", reasoning: "medium" }] }]),
 	{ good: { name: "好", reasoning: "medium" } },
-	"畸形分组与畸形条目跳过，不抛错（R-01-012/AC-18）",
+	"畸形分组与畸形条目跳过，不抛错",
 );
-assert.deepEqual(catalogModelEntries(null), {}, "目录缺失返回空索引，调用方回退显示原始溯源 id（R-01-012/AC-18）");
+assert.deepEqual(catalogModelEntries(null), {}, "目录缺失返回空索引，调用方回退显示原始溯源 id");
 
-// ---- R-01-012/AC-17 reasoning effort 提取：history 尾扫最新一条 request/header 配置 ----
+// ---- reasoning effort 提取：history 尾扫最新一条 request/header 配置 ----
 const headerEvent = (config) => ({ event: { type: "request/header", seq: 1, data: { header: { config } } } });
 assert.equal(
 	reasoningEffortFromHistoryEvents([
@@ -488,23 +486,23 @@ assert.equal(
 		{ event: { type: "assistant/message", seq: 2, data: { message: { source: { provider: "p", model: "ok" } } } } },
 	]),
 	"low",
-	"请求头事件的 config.reasoningEffort 提取（R-01-012/AC-17）",
+	"请求头事件的 config.reasoningEffort 提取",
 );
 assert.equal(
 	reasoningEffortFromHistoryEvents([headerEvent({ provider: "p", model: "m", reasoningEffort: "low" }), headerEvent({ provider: "p", model: "m", reasoningEffort: "high" })]),
 	"high",
-	"多条请求头取最新纪元（R-01-012/AC-17）",
+	"多条请求头取最新纪元",
 );
 assert.equal(
 	reasoningEffortFromHistoryEvents([headerEvent({ provider: "p", model: "m", reasoningEffort: "low" }), headerEvent({ provider: "p", model: "m" })]),
 	null,
-	"最新请求头未声明 effort 即停，不回扫已废弃纪元（R-01-012/AC-18）",
+	"最新请求头未声明 effort 即停，不回扫已废弃纪元",
 );
-assert.equal(reasoningEffortFromHistoryEvents([]), null, "空事件流无 effort（R-01-012/AC-18）");
+assert.equal(reasoningEffortFromHistoryEvents([]), null, "空事件流无 effort");
 assert.equal(
 	reasoningEffortFromHistoryEvents([null, { event: undefined }, { event: { type: "request/header", seq: 3, data: {} } }]),
 	null,
-	"畸形条目与缺失 header 跳过不抛错（R-01-012/AC-18）",
+	"畸形条目与缺失 header 跳过不抛错",
 );
 
 // 目录 store 快照形状（{current, groups, routable, status, ...}）与 RPC value 同形兼容，经同一归一。
@@ -535,7 +533,7 @@ assert.deepEqual(subCalls, ["gone", "gone2"], "不可见订阅被 unsubscribe，
 assert.deepEqual([...subMap.keys()], ["stay"], "可见订阅保留、其余除名，监听器不残留");
 pruneSubscriptions(null, new Set()); // 非 Map 输入静默忽略
 
-// ---- R-01-008/AC-03 点击遮罩（抽屉外部）收起抽屉 ----
+// ---- 点击遮罩（抽屉外部）收起抽屉 ----
 const backdropListeners = new Map();
 const backdrop = {
 	addEventListener(type, listener) {
@@ -571,7 +569,7 @@ assert.equal(backdropListeners.size, 0, "遮罩卸载移除 click 监听");
 backdropActivate("click");
 assert.equal(backdropDismissed, 1, "卸载后点击不再收起");
 
-// ---- R-01-008/AC-06 二次激活当前会话卡片收起移动端抽屉 ----
+// ---- 二次激活当前会话卡片收起移动端抽屉 ----
 assert.equal(
 	shouldDismissDrawerOnActivation({ targetId: "s1", currentId: "s1", mobile: true, drawerOpen: true }),
 	true,
@@ -585,12 +583,12 @@ assert.equal(
 assert.equal(
 	shouldDismissDrawerOnActivation({ targetId: "s1", currentId: "s1", mobile: true, drawerOpen: true, panelId: "plugins" }),
 	false,
-	"全局面板在屏时激活当前卡片转为回到会话的真实意图，不收抽屉（R-01-006/AC-04）",
+	"全局面板在屏时激活当前卡片转为回到会话的真实意图，不收抽屉",
 );
 assert.equal(
 	shouldDismissDrawerOnActivation({ targetId: "s1", currentId: "s1", mobile: true, drawerOpen: true, panelId: null }),
 	true,
-	"会话视图在屏时仍以收抽屉直达会话（R-01-008/AC-06）",
+	"会话视图在屏时仍以收抽屉直达会话",
 );
 assert.equal(
 	shouldDismissDrawerOnActivation({ targetId: "s1", currentId: "s1", mobile: false, drawerOpen: true }),
@@ -612,35 +610,35 @@ assert.equal(
 	false,
 	"空目标 id 不误判收起",
 );
-// ---- R-01-002/AC-01 待确认 ｜ R-01-002/AC-02 待审查/提问中 ----
+// ---- 待确认 ｜  待审查/提问中 ----
 assert.equal(pendingText("approval"), "待确认");
 assert.equal(pendingText("plan-review"), "待审查");
 assert.equal(pendingText("question"), "提问中");
 assert.equal(pendingText("approval"), "待确认");
 
-// ---- R-01-002/AC-03 完成提醒以绿色成功卡面呈现（C-040） ----
-// 未知阻塞种类兜底「待处理」（不冒充已知类型）；完成态判定见下方 buildEntries 断言（R-01-001/AC-01）。
+// ---- 完成提醒以绿色成功卡面呈现（C-040） ----
+// 未知阻塞种类兜底「待处理」（不冒充已知类型）；完成态判定见下方 buildEntries 断言。
 // 完成提醒卡不再显示类型徽标：pendingText 仅为阻塞等待承载（C-040）。
 assert.equal(pendingText("unknown-kind"), "待处理");
 
-// ---- R-01-002/AC-09 等待卡末行提示：动作+后果；待回复的问题由结构化列表另行承载 ----
+// ---- 等待卡末行提示：动作+后果；待回复的问题由结构化列表另行承载 ----
 assert.equal(awaitNoteText("blocked", "approval"), "等待你确认授权后继续");
 assert.equal(awaitNoteText("blocked", "plan-review"), "等待你审查计划后继续");
 assert.equal(awaitNoteText("blocked", "question"), "等待你回答问题后继续", "问题不可得时回落动作说明");
 assert.equal(awaitNoteText("done", undefined), "继续对话，或移入历史");
-// 宽度上界回归（R-01-002/AC-09）：done 末行须与「移入历史」按钮同排在默认 280px 窗格
+// 宽度上界回归：done 末行须与「移入历史」按钮同排在默认 280px 窗格
 // 单行完整可见——内容区约 258px，按钮+gap 约占 66px，留文字约 192px；11px 全角字宽
 // 即 11px/字符，故文案（含标点）不得超过 17 个全角字符。改长必触发省略号吃掉行动引导。
 {
 	const note = awaitNoteText("done", undefined);
 	assert.ok(
 		[...note].length <= 17,
-		`完成提醒末行文案宽度上界：不超过 17 个全角字符（当前 ${[...note].length}，R-01-002/AC-09）`,
+		`完成提醒末行文案宽度上界：不超过 17 个全角字符（当前 ${[...note].length}）`,
 	);
 }
 assert.equal(awaitNoteText("blocked", "unknown-kind"), "等待你处理后继续", "未知阻塞种类中性兜底（评审修正）");
 
-// ---- R-01-002/AC-09 结构化提问预览：保留原始序号，最多 3 条并携带省略语义 ----
+// ---- 结构化提问预览：保留原始序号，最多 3 条并携带省略语义 ----
 assert.deepEqual(
 	askQuestionsPreview(JSON.stringify({ questions: [{ header: "方案确认", question: "采用哪个方案方向？", options: [] }] })),
 	{ items: [{ index: 1, text: "采用哪个方案方向？" }], omitted: false },
@@ -698,7 +696,7 @@ assert.deepEqual(
 assert.equal(timelineQuestionPreview([{ fold: true, label: "已思考" }]), null);
 assert.equal(timelineQuestionPreview(undefined), null);
 
-// ---- R-01-003/AC-03 工作区归属 ----
+// ---- 工作区归属 ----
 const workspaces = [
 	{ title: "Ops", path: "/srv/ops", sessionIds: ["sA"] },
 	{ title: "Mail", path: "/srv/mail", sessionIds: [] },
@@ -710,33 +708,33 @@ assert.equal(
 );
 assert.equal(workspaceInfoForSession("sX", workspaces).title, "");
 
-// ---- R-01-003/AC-08 工作区身份归一与徽标色相稳定性 ----
-assert.deepEqual(workspaceInfoForSession("sA", workspaces), { title: "Ops", key: "/srv/ops" }, "归属命中时身份以路径为准（R-01-003/AC-08）");
+// ---- 工作区身份归一与徽标色相稳定性 ----
+assert.deepEqual(workspaceInfoForSession("sA", workspaces), { title: "Ops", key: "/srv/ops" }, "归属命中时身份以路径为准");
 assert.deepEqual(
 	workspaceInfoForSession("sB", workspaces, { sB: { cwd: "/srv/mail" } }),
 	{ title: "Mail", key: "/srv/mail" },
-	"cwd 匹配命中时身份同样以路径为准（R-01-003/AC-08）",
+	"cwd 匹配命中时身份同样以路径为准",
 );
-assert.deepEqual(workspaceInfoForSession("sX", workspaces), { title: "", key: "" }, "无归属时名称与身份皆空（R-01-003/AC-08）");
+assert.deepEqual(workspaceInfoForSession("sX", workspaces), { title: "", key: "" }, "无归属时名称与身份皆空");
 assert.deepEqual(
 	workspaceInfoForSession("sC", [{ title: "Solo", sessionIds: ["sC"] }]),
 	{ title: "Solo", key: "Solo" },
-	"工作区无路径时身份以名称兜底（R-01-003/AC-08）",
+	"工作区无路径时身份以名称兜底",
 );
-assert.equal(workspaceHue(""), null, "空身份不派生色相（R-01-003/AC-08）");
-assert.equal(workspaceHue("  "), null, "空白身份不派生色相（R-01-003/AC-08）");
-assert.equal(workspaceHue("/srv/ops"), workspaceHue("/srv/ops"), "同一工作区身份恒得同一色相（R-01-003/AC-08）");
-assert.notEqual(workspaceHue("/srv/ops"), workspaceHue("/srv/mail"), "不同工作区身份色相可区分（R-01-003/AC-08、AC-09）");
+assert.equal(workspaceHue(""), null, "空身份不派生色相");
+assert.equal(workspaceHue("  "), null, "空白身份不派生色相");
+assert.equal(workspaceHue("/srv/ops"), workspaceHue("/srv/ops"), "同一工作区身份恒得同一色相");
+assert.notEqual(workspaceHue("/srv/ops"), workspaceHue("/srv/mail"), "不同工作区身份色相可区分");
 const hueOps = workspaceHue("/srv/ops");
-assert.ok(Number.isInteger(hueOps), "色相为整数（R-01-003/AC-08）");
-assert.equal(workspaceHue("Solo"), workspaceHue(String("So" + "lo")), "派生只依赖身份字符串、与运行状态无关（R-01-003/AC-08）");
+assert.ok(Number.isInteger(hueOps), "色相为整数");
+assert.equal(workspaceHue("Solo"), workspaceHue(String("So" + "lo")), "派生只依赖身份字符串、与运行状态无关");
 
-// ---- R-01-003/AC-09 全弧均匀取色：[30,320] 避红弧、291 个取值 ----
+// ---- 全弧均匀取色：[30,320] 避红弧、291 个取值 ----
 for (const hueKey of ["/srv/ops", "/srv/mail", "/srv/web", "Solo", "/opt/alpha", "/opt/beta"]) {
 	const hue = workspaceHue(hueKey);
 	assert.ok(
 		hue >= 30 && hue <= 320,
-		`色相 ${hue} 落在避红弧 [30,320] 内，不落入红色警戒区（R-01-003/AC-09）`,
+		`色相 ${hue} 落在避红弧 [30,320] 内，不落入红色警戒区`,
 	);
 }
 // 长公共前缀的现实工作区身份两两可区分（djb2 低位聚集回归防护；
@@ -749,13 +747,13 @@ const hueFamily = [
 	"/home/cailei/proj/notes",
 ];
 const familyHues = hueFamily.map((key) => workspaceHue(key));
-assert.equal(new Set(familyHues).size, hueFamily.length, "长公共前缀工作区色相两两不同（R-01-003/AC-09）");
+assert.equal(new Set(familyHues).size, hueFamily.length, "长公共前缀工作区色相两两不同");
 // 聚集回归（性质级）：50 个长公共前缀身份应广泛分散，而非挤进相邻取值
 const hueSpread = new Set();
 for (let i = 0; i < 50; i += 1) hueSpread.add(workspaceHue(`/home/user/proj/ws-${i}`));
-assert.ok(hueSpread.size >= 40, `50 个长前缀身份分散到 ${hueSpread.size} 个不同色相（≥40，R-01-003/AC-09）`);
+assert.ok(hueSpread.size >= 40, `50 个长前缀身份分散到 ${hueSpread.size} 个不同色相（≥40）`);
 
-// ---- R-01-003/AC-08、AC-12 逐身份槽位映射：十二前景槽、三档背景变体、主题距离与身份稳定性 ----
+// ---- 逐身份槽位映射：十二前景槽、三档背景变体、主题距离与身份稳定性 ----
 const workspacePrimaryHues = [55, 100, 145, 190, 235, 280, 325];
 const workspacePaletteHues = WORKSPACE_COLOR_SLOTS.map((slot) => slot.hue);
 const realWorkspaceCluster = [
@@ -773,7 +771,7 @@ assert.deepEqual(
 		["/home/cailei/proj/dsh-activity-pane", 190],
 		["/home/cailei/proj/dsh-control-center", 235],
 	],
-	"真实工作区身份按基色色相就近归槽（R-01-003/AC-12）",
+	"真实工作区身份按基色色相就近归槽",
 );
 // 身份稳定性（C-077）：新增/移除/乱序其它工作区不得改变既有身份的前景与背景复合槽位
 const extraKeys = Array.from({ length: 8 }, (_, index) => `/home/cailei/newcomer-${index}`);
@@ -782,12 +780,12 @@ for (const key of realWorkspaceCluster) {
 	assert.equal(
 		resolvedWithExtra.get(key).foreground.slot,
 		resolvedCluster.get(key).foreground.slot,
-		`新增其它工作区不改变 ${key} 的前景槽位（R-01-003/AC-08）`,
+		`新增其它工作区不改变 ${key} 的前景槽位`,
 	);
 	assert.equal(
 		resolvedWithExtra.get(key).background.slot,
 		resolvedCluster.get(key).background.slot,
-		`新增其它工作区不改变 ${key} 的背景变体槽位（R-01-003/AC-08）`,
+		`新增其它工作区不改变 ${key} 的背景变体槽位`,
 	);
 }
 const resolvedWithoutLast = resolveWorkspaceColors(realWorkspaceCluster.slice(0, -1));
@@ -795,20 +793,20 @@ for (const key of realWorkspaceCluster.slice(0, -1)) {
 	assert.equal(
 		resolvedWithoutLast.get(key).foreground.slot,
 		resolvedCluster.get(key).foreground.slot,
-		`移除其它工作区不改变 ${key} 的前景槽位（R-01-003/AC-08）`,
+		`移除其它工作区不改变 ${key} 的前景槽位`,
 	);
 	assert.equal(
 		resolvedWithoutLast.get(key).background.slot,
 		resolvedCluster.get(key).background.slot,
-		`移除其它工作区不改变 ${key} 的背景变体槽位（R-01-003/AC-08）`,
+		`移除其它工作区不改变 ${key} 的背景变体槽位`,
 	);
 }
 assert.deepEqual(
 	[...resolveWorkspaceColors([...realWorkspaceCluster].reverse(), "", "  ", realWorkspaceCluster[0]).entries()],
 	[...resolvedCluster.entries()],
-	"输入顺序、重复项与空白身份不影响前景/背景复合槽位映射（R-01-003/AC-08、AC-12）",
+	"输入顺序、重复项与空白身份不影响前景/背景复合槽位映射",
 );
-assert.deepEqual([...resolveWorkspaceColors(null).entries()], [], "无身份集合返回空映射（R-01-003/AC-12）");
+assert.deepEqual([...resolveWorkspaceColors(null).entries()], [], "无身份集合返回空映射");
 // 就近归槽性质：任意身份的前景槽位色相应为十二槽中对基色环形距离最近的色相
 const hueDistance = (a, b) => {
 	const d = Math.abs(a - b) % 360;
@@ -818,9 +816,9 @@ const nearestSample = [...hueFamily, "/opt/alpha", "/opt/beta", ...Array.from({ 
 for (const [key, color] of resolveWorkspaceColors(nearestSample)) {
 	const base = workspaceHue(key);
 	const nearest = Math.min(...workspacePaletteHues.map((hue) => hueDistance(base, hue)));
-	assert.equal(hueDistance(base, color.foreground.hue), nearest, `身份 ${key} 基色 ${base} 就近归槽（R-01-003/AC-12）`);
+	assert.equal(hueDistance(base, color.foreground.hue), nearest, `身份 ${key} 基色 ${base} 就近归槽`);
 }
-// 平局归低槽位（R-01-003/AC-12）：基色恰为相邻槽位色相中点的身份应取更低槽位
+// 平局归低槽位：基色恰为相邻槽位色相中点的身份应取更低槽位
 const tieExpectations = [
 	["/tie/workspace-50", 0],
 	["/tie/workspace-949", 1],
@@ -830,7 +828,7 @@ const tieExpectations = [
 ];
 for (const [key, expectedSlot] of tieExpectations) {
 	const color = resolveWorkspaceColors([key]).get(key);
-	assert.equal(color.foreground.slot, expectedSlot, `基色 ${workspaceHue(key)} 与相邻槽位等距时取更低槽位（R-01-003/AC-12）`);
+	assert.equal(color.foreground.slot, expectedSlot, `基色 ${workspaceHue(key)} 与相邻槽位等距时取更低槽位`);
 }
 const oklabPoint = (color, theme) => {
 	const hue = color.hue * Math.PI / 180;
@@ -843,27 +841,27 @@ const oklabDistance = (colorA, colorB, theme) => {
 	const b = oklabPoint(colorB, theme);
 	return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 };
-assert.deepEqual(workspacePaletteHues.slice(0, workspacePrimaryHues.length), workspacePrimaryHues, "前七个主色相槽位保持不变（R-01-003/AC-12）");
-assert.equal(new Set(workspacePaletteHues).size, workspacePaletteHues.length, "十二槽 hue 不重复（R-01-003/AC-12）");
-assert.ok(workspacePaletteHues.every((hue) => hue > 30 && hue < 330), "十二槽 hue 均避开红色警戒环段（R-01-003/AC-09、AC-12）");
+assert.deepEqual(workspacePaletteHues.slice(0, workspacePrimaryHues.length), workspacePrimaryHues, "前七个主色相槽位保持不变");
+assert.equal(new Set(workspacePaletteHues).size, workspacePaletteHues.length, "十二槽 hue 不重复");
+assert.ok(workspacePaletteHues.every((hue) => hue > 30 && hue < 330), "十二槽 hue 均避开红色警戒环段");
 assert.deepEqual(
 	WORKSPACE_BACKGROUND_SLOTS.map((slot) => slot.slot),
 	[0, 1, 2],
-	"每个前景槽位提供三个背景变体槽（R-01-003/AC-12）",
+	"每个前景槽位提供三个背景变体槽",
 );
-assert.equal(new Set(WORKSPACE_BACKGROUND_SLOTS.map((slot) => slot.dark.l)).size, 3, "深色背景变体具有三档独立明度（R-01-003/AC-10、AC-11）");
-assert.equal(new Set(WORKSPACE_BACKGROUND_SLOTS.map((slot) => slot.light.l)).size, 3, "浅色背景变体具有三档独立明度（R-01-003/AC-10、AC-11）");
+assert.equal(new Set(WORKSPACE_BACKGROUND_SLOTS.map((slot) => slot.dark.l)).size, 3, "深色背景变体具有三档独立明度");
+assert.equal(new Set(WORKSPACE_BACKGROUND_SLOTS.map((slot) => slot.light.l)).size, 3, "浅色背景变体具有三档独立明度");
 for (const theme of ["dark", "light"])
 	for (let i = 0; i < WORKSPACE_COLOR_SLOTS.length; i += 1)
 		for (let j = i + 1; j < WORKSPACE_COLOR_SLOTS.length; j += 1)
-			assert.ok(oklabDistance(WORKSPACE_COLOR_SLOTS[i], WORKSPACE_COLOR_SLOTS[j], theme) >= 0.11, `${theme} 主题十二槽任意两前景色 OKLab 距离至少 0.11（R-01-003/AC-12）`);
+			assert.ok(oklabDistance(WORKSPACE_COLOR_SLOTS[i], WORKSPACE_COLOR_SLOTS[j], theme) >= 0.11, `${theme} 主题十二槽任意两前景色 OKLab 距离至少 0.11`);
 // 背景变体由身份哈希独立派生：三十个身份应覆盖全部三档背景变体且每档均合法
 const resolvedBackgrounds = [...resolveWorkspaceColors(Array.from({ length: 30 }, (_, index) => `/home/user/proj/variant-${index}`)).values()].map((color) => color.background.slot);
-assert.deepEqual([...new Set(resolvedBackgrounds)].sort(), [0, 1, 2], "背景变体哈希派生在三档之间分散（R-01-003/AC-12）");
-assert.ok(resolvedBackgrounds.every((slot) => slot >= 0 && slot < WORKSPACE_BACKGROUND_SLOTS.length), "背景变体槽位合法（R-01-003/AC-12）");
+assert.deepEqual([...new Set(resolvedBackgrounds)].sort(), [0, 1, 2], "背景变体哈希派生在三档之间分散");
+assert.ok(resolvedBackgrounds.every((slot) => slot >= 0 && slot < WORKSPACE_BACKGROUND_SLOTS.length), "背景变体槽位合法");
 
 
-// ---- R-01-001/AC-01 活动卡片逐条显示 ｜ R-01-003/AC-01 子代理嵌套 ｜ R-01-003/AC-02 子代理结束即消失 ｜ R-01-006/AC-01 当前会话 ----
+// ---- 活动卡片逐条显示 ｜  子代理嵌套 ｜  子代理结束即消失 ｜  当前会话 ----
 // dsh 0.2.0 快照形状（T-159）：current 移除，改由行上 retainedBy.mainView 推导；
 // 子代理目录移入 projectionsBySession[id].values.subagentCatalog。
 const snapshot = {
@@ -916,7 +914,7 @@ assert.deepEqual(trackRuns(hierarchyEntries.slice(0, 3)), [
 ], "无后续同级时轨道収于各自末级子代理");
 assert.deepEqual(trackRuns([hierarchyEntries[0]]), [], "无子代理的母会话不产生轨道");
 
-// ---- R-01-001/AC-07 活动区主会话按最后一次用户指令时间（宿主列表时间）倒序 ----
+// ---- 活动区主会话按最后一次用户指令时间（宿主列表时间）倒序 ----
 // ids 顺序刻意与新到旧相反且仅 sOld 在工作区首列：证明工作区顺序与 lineage 不再决定排列。
 const recencyWorkspace = [{ title: "Ops", path: "/srv/ops", sessionIds: ["sOld"] }];
 const recencyActivity = {
@@ -941,10 +939,10 @@ assert.deepEqual(
 		["sOld", "running", 0, null],
 		["sMiss", "running", 0, null],
 	],
-	"全运行中场景按宿主列表时间从新到旧；相同时间保持宿主列表出现顺序；缺失视为最旧；子代理不参与排序、始终跟随其母会话（R-01-001/AC-07）",
+	"全运行中场景按宿主列表时间从新到旧；相同时间保持宿主列表出现顺序；缺失视为最旧；子代理不参与排序、始终跟随其母会话",
 );
 
-// ---- R-01-001/AC-07 运行中置顶；等待/完成组按进入状态时刻倒序
+// ---- 运行中置顶；等待/完成组按进入状态时刻倒序
 // （阻塞等待取回合内等待边界开启时刻 T-141；完成/错误提醒取回合结束登记时刻） ----
 const mixedWorkspace = [{ title: "Ops", path: "/srv/ops", sessionIds: ["sRunOld"] }];
 const mixedActivity = {
@@ -977,7 +975,7 @@ assert.deepEqual(
 		["sDone1", "awaiting"],
 		["sDone2", "awaiting"],
 	],
-	"运行中置顶（即便其指令时间更旧）；等待/完成组按进入状态时刻倒序——阻塞等待按等待边界开启时刻排前（不被上一回合旧登记压后），无记账回落宿主列表时间，完成/错误提醒按回合结束登记倒序（R-01-001/AC-07，T-141）",
+	"运行中置顶（即便其指令时间更旧）；等待/完成组按进入状态时刻倒序——阻塞等待按等待边界开启时刻排前（不被上一回合旧登记压后），无记账回落宿主列表时间，完成/错误提醒按回合结束登记倒序（T-141）",
 );
 // waitingStarts 缺失（旧调用/数据在途帧）：阻塞等待会话回落宿主列表时间而非上一回合旧登记——
 // sWait 键取 updatedAt=3_500，排在 sDone1(4_000) 之后、sDone2(3_000) 之前，不按 1_500 沉底。
@@ -990,38 +988,38 @@ assert.deepEqual(
 		["sWait", "awaiting"],
 		["sDone2", "awaiting"],
 	],
-	"waitingStarts 缺失时阻塞等待回落宿主列表时间（仍非上一回合旧登记），完成/错误提醒不受影响（R-01-001/AC-07，T-141）",
+	"waitingStarts 缺失时阻塞等待回落宿主列表时间（仍非上一回合旧登记），完成/错误提醒不受影响（T-141）",
 );
 // 非 Map 入参视为无数据，与上一断言同路径。
 assert.deepEqual(
 	buildEntries({ snapshot: mixedActivity, workspaceItems: mixedWorkspace, detailsById: {}, completions: mixedCompletions, delegatingIds: null, archivedIds: [], waitingStarts: "not-a-map" }).map((entry) => [entry.id, entry.kind]),
 	buildEntries({ snapshot: mixedActivity, workspaceItems: mixedWorkspace, detailsById: {}, completions: mixedCompletions }).map((entry) => [entry.id, entry.kind]),
-	"waitingStarts 非 Map 视为无数据（R-01-001/AC-07，T-141）",
+	"waitingStarts 非 Map 视为无数据（T-141）",
 );
 // 记录值非法（null/空串经 Number 归一为 0 的形状）同样按无数据处理，回落宿主列表时间而非最旧时刻 0。
 assert.deepEqual(
 	buildEntries({ snapshot: mixedActivity, workspaceItems: mixedWorkspace, detailsById: {}, completions: mixedCompletions, delegatingIds: null, archivedIds: [], waitingStarts: new Map([["sWait", null], ["sWaitNoRec", ""]]) }).map((entry) => [entry.id, entry.kind]),
 	buildEntries({ snapshot: mixedActivity, workspaceItems: mixedWorkspace, detailsById: {}, completions: mixedCompletions }).map((entry) => [entry.id, entry.kind]),
-	"waitingStarts 非法值（null/空串）不作数、回落宿主列表时间，不误判为最旧时刻 0（R-01-001/AC-07，T-141 复审）",
+	"waitingStarts 非法值（null/空串）不作数、回落宿主列表时间，不误判为最旧时刻 0（T-141 复审）",
 );
-// ---- R-01-002/AC-14 等待卡状态年龄：awaiting 条目携带进入状态时刻 stateAt ----
+// ---- 等待卡状态年龄：awaiting 条目携带进入状态时刻 stateAt ----
 // 与排序键共用 enterStateAt 单点口径：阻塞等待取 waitingStarts（openWaitStart），
 // 完成/错误提醒取 completions.lastTurnEnd；显示口径不回落宿主列表时间，
 // 缺失/非法为 null（节点隐藏）。
 {
 	const stateEntries = buildEntries({ snapshot: mixedActivity, workspaceItems: mixedWorkspace, detailsById: {}, completions: mixedCompletions, delegatingIds: null, archivedIds: [], waitingStarts: mixedWaitingStarts });
 	const stateById = new Map(stateEntries.map((entry) => [entry.id, entry]));
-	assert.equal(stateById.get("sWait").stateAt, 9_000, "阻塞等待条目 stateAt 取等待边界开启时刻，与排序键同源（R-01-002/AC-14）");
-	assert.equal(stateById.get("sWaitNoRec").stateAt, null, "waitingStarts 缺失的阻塞等待条目 stateAt 为 null，不回落宿主列表时间（R-01-002/AC-14）");
-	assert.equal(stateById.get("sDone1").stateAt, 4_000, "完成提醒条目 stateAt 取回合结束登记时刻（R-01-002/AC-14）");
-	assert.equal(stateById.get("sRunOld").stateAt, undefined, "运行中条目不携带 stateAt（R-01-002/AC-14）");
+	assert.equal(stateById.get("sWait").stateAt, 9_000, "阻塞等待条目 stateAt 取等待边界开启时刻，与排序键同源");
+	assert.equal(stateById.get("sWaitNoRec").stateAt, null, "waitingStarts 缺失的阻塞等待条目 stateAt 为 null，不回落宿主列表时间");
+	assert.equal(stateById.get("sDone1").stateAt, 4_000, "完成提醒条目 stateAt 取回合结束登记时刻");
+	assert.equal(stateById.get("sRunOld").stateAt, undefined, "运行中条目不携带 stateAt");
 }
 assert.equal(
 	buildEntries({ snapshot: { ids: ["sErr"], byId: { sErr: { id: "sErr", displayTitle: "错误提醒", running: false, updatedAt: 500 } }, current: null }, workspaceItems: [], detailsById: {}, completions: new Map([["sErr", { lastTurnEnd: 12_345, lastTurnEndKind: "error", lastTurnEndError: "boom", ackedAt: null }]]) })[0].stateAt,
 	12_345,
-	"错误提醒条目 stateAt 取回合结束登记时刻（R-01-002/AC-14）",
+	"错误提醒条目 stateAt 取回合结束登记时刻",
 );
-// 子代理条目不携带 stateAt（R-01-002/AC-14）：状态年龄仅主会话等待卡承载。
+// 子代理条目不携带 stateAt：状态年龄仅主会话等待卡承载。
 {
 	const subStateActivity = {
 		ids: ["sParent", "sSub"],
@@ -1033,12 +1031,12 @@ assert.equal(
 	};
 	const subEntry = buildEntries({ snapshot: subStateActivity, workspaceItems: [], detailsById: {}, completions: null }).find((entry) => entry.id === "sSub");
 	assert.equal(subEntry?.kind, "subagent", "前置：运行中子代理为 subagent 条目");
-	assert.equal(subEntry?.stateAt, undefined, "子代理条目不携带 stateAt（R-01-002/AC-14）");
+	assert.equal(subEntry?.stateAt, undefined, "子代理条目不携带 stateAt");
 }
 assert.notEqual(
 	cardSignature(buildEntries({ snapshot: mixedActivity, workspaceItems: mixedWorkspace, detailsById: {}, completions: mixedCompletions, delegatingIds: null, archivedIds: [], waitingStarts: mixedWaitingStarts })),
 	cardSignature(buildEntries({ snapshot: mixedActivity, workspaceItems: mixedWorkspace, detailsById: {}, completions: mixedCompletions, delegatingIds: null, archivedIds: [], waitingStarts: null })),
-	"stateAt 到达/更替驱动渲染签名（R-01-002/AC-14）",
+	"stateAt 到达/更替驱动渲染签名",
 );
 assert.deepEqual(trackRuns([{ kind: "subagent", parentId: "p", depth: 1 }]), [], "无 id 条目不产生轨道");
 assert.deepEqual(
@@ -1058,14 +1056,14 @@ assert.deepEqual(
 	[{ parentId: "root", depth: 1, childIds: ["A"] }],
 	"异常深度条目先来也不污染轨道：直属性按母会话条目深度+1 判定，与顺序无关",
 );
-// R-01-003/AC-04（T-152）：后台任务子卡与子代理一视同仁——job 子条目同规则上轨。
+// （T-152）：后台任务子卡与子代理一视同仁——job 子条目同规则上轨。
 assert.deepEqual(
 	trackRuns([
 		{ id: "root", kind: "running", depth: 0 },
 		{ id: "job:root:job-1", kind: "job", parentId: "root", depth: 1 },
 	]),
 	[{ parentId: "root", depth: 1, childIds: ["job:root:job-1"] }],
-	"唯一后台任务子卡产生母会话轨道（R-01-003/AC-04）",
+	"唯一后台任务子卡产生母会话轨道",
 );
 assert.deepEqual(
 	trackRuns([
@@ -1075,7 +1073,7 @@ assert.deepEqual(
 		{ id: "B", kind: "subagent", parentId: "root", depth: 1 },
 	]),
 	[{ parentId: "root", depth: 1, childIds: ["job:root:job-1", "A", "B"] }],
-	"job 与子代理混合直属序列按 preorder 保序入轨、末级为最后子级（R-01-003/AC-04）",
+	"job 与子代理混合直属序列按 preorder 保序入轨、末级为最后子级",
 );
 assert.deepEqual(
 	trackRuns([
@@ -1083,7 +1081,7 @@ assert.deepEqual(
 		{ id: "job:root:job-1", kind: "job", parentId: "root", depth: 2 },
 	]),
 	[],
-	"深度不符的 job 条目不上轨（直属性判定与子代理一致，R-01-003/AC-04）",
+	"深度不符的 job 条目不上轨（直属性判定与子代理一致）",
 );
 const hierarchyRuns = trackRuns(hierarchyEntries);
 const hierarchyRects = {
@@ -1118,12 +1116,12 @@ assert.equal(
 );
 assert.equal(trackBoxes(hierarchyRuns[0], () => null, 16), null, "卡片缺失时跳过该轨道（下轮渲染自愈）");
 assert.equal(entries[2].workspaceTitle, "", "无归属则无工作区徽标");
-assert.equal(entries[0].workspaceKey, "/srv/ops", "活动条目携带工作区身份（路径优先，R-01-003/AC-08）");
-assert.equal(entries[1].workspaceKey, "", "子代理徽标隐藏、身份置空（R-01-003/AC-08）");
-assert.equal(entries[2].workspaceKey, "", "无归属条目身份为空（R-01-003/AC-08）");
+assert.equal(entries[0].workspaceKey, "/srv/ops", "活动条目携带工作区身份（路径优先）");
+assert.equal(entries[1].workspaceKey, "", "子代理徽标隐藏、身份置空");
+assert.equal(entries[2].workspaceKey, "", "无归属条目身份为空");
 const recentKeyEntries = buildRecent({ snapshot: { ids: ["sA"], byId: { sA: { id: "sA", displayTitle: "主A", running: false, completed: false, updatedAt: 1000 } }, current: null }, workspaceItems: workspaces, now: 2000 });
-assert.equal(recentKeyEntries[0]?.workspaceKey, "/srv/ops", "最近条目同样携带工作区身份（R-01-003/AC-08）");
-// ---- R-01-003/AC-05 活动子代理补齐所有非活动母会话 ----
+assert.equal(recentKeyEntries[0]?.workspaceKey, "/srv/ops", "最近条目同样携带工作区身份");
+// ---- 活动子代理补齐所有非活动母会话 ----
 const inheritedActivity = {
 	ids: ["root", "parent", "child"],
 	byId: {
@@ -1141,20 +1139,20 @@ assert.deepEqual(
 assert.deepEqual(
 	buildEntries({ snapshot: inheritedActivity, workspaceItems: [] }).map((entry) => [entry.id, entry.kind, entry.depth]),
 	[["root", "running", 0], ["parent", "subagent", 1], ["child", "subagent", 2]],
-	"委托周期中主会话母会话保持 running 呈现、子代理母会话保持 subagent 呈现，层级深度不变（R-01-003/AC-05）",
+	"委托周期中主会话母会话保持 running 呈现、子代理母会话保持 subagent 呈现，层级深度不变",
 );
 assert.deepEqual(
 	buildEntries({ snapshot: inheritedActivity, workspaceItems: [] }).map((entry) => entry.descendantActive),
 	[true, true, false],
-	"委托周期母会话携带 descendantActive 标记（R-01-003/AC-05）",
+	"委托周期母会话携带 descendantActive 标记",
 );
 assert.deepEqual(buildRecent({ snapshot: inheritedActivity, workspaceItems: [], now: 2000 }), [], "活动祖先不进入最近历史区");
 assert.equal(
 	shouldSubscribeToSession({ id: "parent", kind: "running" }, inheritedActivity.byId),
 	false,
-	"委托周期母会话不建立轮内状态订阅（宿主 running 为准，R-02-004/AC-01）",
+	"委托周期母会话不建立轮内状态订阅（宿主 running 为准）",
 );
-// ---- R-01-002/AC-03、R-01-010/AC-06 委托周期压制完成提醒 ----
+// ---- 委托周期压制完成提醒 ----
 const delegCompleted = {
 	ids: ["root", "child"],
 	byId: {
@@ -1166,19 +1164,19 @@ const delegCompleted = {
 assert.deepEqual(
 	buildEntries({ snapshot: delegCompleted, workspaceItems: [] }).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
 	[["root", "running", null], ["child", "subagent", null]],
-	"存在活动后代时完成确认不产出「已完成」、卡片保持运行呈现（R-01-002/AC-03）",
+	"存在活动后代时完成确认不产出「已完成」、卡片保持运行呈现",
 );
 assert.deepEqual(
 	buildEntries({ snapshot: delegCompleted, workspaceItems: [], detailsById: {}, completions: null, delegatingIds: new Set(["root"]) }).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null]),
 	[["root", "running", null], ["child", "subagent", null]],
-	"存在活动后代时完成提醒不生效、卡片保持运行呈现（R-01-010/AC-06）",
+	"存在活动后代时完成提醒不生效、卡片保持运行呈现",
 );
 assert.deepEqual(
 	buildEntries({ snapshot: { ids: ["root"], byId: { root: delegCompleted.byId.root }, current: null }, workspaceItems: [], detailsById: {}, completions: new Map([["root", { lastTurnEnd: 1500, ackedAt: null }]]) }).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null, entry.waitClass ?? null, entry.noteText ?? null]),
 	[["root", "awaiting", null, "done", "继续对话，或移入历史"]],
-	"后代全部结束后完成提醒恢复显示（R-01-002/AC-03、AC-09）",
+	"后代全部结束后完成提醒恢复显示",
 );
-// ---- R-01-003/AC-05、R-01-009/AC-06 耗尽空窗（后代结束、settle 回合未启动）保持运行呈现 ----
+// ---- 耗尽空窗（后代结束、settle 回合未启动）保持运行呈现 ----
 const drainGap = {
 	ids: ["root"],
 	byId: { root: { id: "root", displayTitle: "母会话", running: false, updatedAt: 1900 } },
@@ -1187,7 +1185,7 @@ const drainGap = {
 assert.deepEqual(
 	buildEntries({ snapshot: drainGap, workspaceItems: [], detailsById: {}, completions: null, delegatingIds: new Set(["root"]) }).map((entry) => [entry.id, entry.kind, entry.pendingText ?? null, entry.descendantActive]),
 	[["root", "running", null, false]],
-	"耗尽空窗内委托周期保持运行呈现、完成提醒不生效；descendantActive 仍为当帧原始后代活性（R-01-003/AC-05、R-01-002/AC-03）",
+	"耗尽空窗内委托周期保持运行呈现、完成提醒不生效；descendantActive 仍为当帧原始后代活性",
 );
 assert.deepEqual(
 	buildEntries({ snapshot: drainGap, workspaceItems: [], detailsById: {}, completions: new Map([["root", { lastTurnEnd: 1500, ackedAt: null }]]), delegatingIds: null }).map((entry) => [entry.id, entry.kind, entry.waitClass ?? null]),
@@ -1203,7 +1201,7 @@ const drainGapIdle = {
 assert.equal(
 	buildRecent({ snapshot: drainGapIdle, workspaceItems: [], now: 2000, detailsById: {}, archivedIds: [], completions: null, delegatingIds: new Set(["root"]) }).length,
 	0,
-	"耗尽空窗内委托周期会话不入最近历史（R-01-010 分区不变量）",
+	"耗尽空窗内委托周期会话不入最近历史（分区不变量）",
 );
 assert.equal(buildRecent({ snapshot: drainGapIdle, workspaceItems: [], now: 2000, detailsById: {}, archivedIds: [], completions: null }).length, 1, "委托周期结束后才入最近历史");
 // delegationActive：耗尽宽限内视为委托周期（空窗保持），超时退出。
@@ -1218,12 +1216,12 @@ assert.equal(
 	"运行中的子代理建立轮内状态订阅",
 );
 
-// ---- R-01-001/AC-02 无活动会话时为空态 ｜ R-02-001/AC-01、R-02-001/AC-02 独立数据源 ----
+// ---- 无活动会话时为空态 ｜  独立数据源 ----
 // 核心映射只消费 DSH 原生快照结构（无任何第三方数据源引用）。
 const snapshotOnly = { ids: [], byId: {}, current: null };
 assert.deepEqual(buildEntries({ snapshot: snapshotOnly, workspaceItems: [] }), [], "空快照产出空条目");
 
-// ---- R-01-002/AC-01..02 等待优先于运行态 ｜ 阻塞等待条目携带 waitClass/pendingKind/noteText ----
+// ---- ..02 等待优先于运行态 ｜ 阻塞等待条目携带 waitClass/pendingKind/noteText ----
 const pendingSnap = {
 	ids: ["sP"],
 	byId: {
@@ -1234,10 +1232,10 @@ const pendingSnap = {
 const pendingEntries = buildEntries({ snapshot: pendingSnap, workspaceItems: [] });
 assert.equal(pendingEntries[0].kind, "awaiting", "pending 覆盖 running");
 assert.equal(pendingEntries[0].pendingText, "待确认");
-assert.equal(pendingEntries[0].waitClass, "blocked", "待确认为阻塞等待（R-01-002/AC-08）");
+assert.equal(pendingEntries[0].waitClass, "blocked", "待确认为阻塞等待");
 assert.equal(pendingEntries[0].pendingKind, "approval");
-assert.equal(pendingEntries[0].noteText, "等待你确认授权后继续", "阻塞等待备注行说明动作与后果（R-01-002/AC-09）");
-// 待回复卡：条目携带时间线末条 ask 工作项的结构化提问预览（R-01-002/AC-09）。
+assert.equal(pendingEntries[0].noteText, "等待你确认授权后继续", "阻塞等待备注行说明动作与后果");
+// 待回复卡：条目携带时间线末条 ask 工作项的结构化提问预览。
 const questionSnap = {
 	ids: ["sQ"],
 	byId: { sQ: { id: "sQ", displayTitle: "主Q", running: false, pendingInteraction: "question" } },
@@ -1261,7 +1259,7 @@ const questionFallback = buildEntries({ snapshot: questionSnap, workspaceItems: 
 assert.equal(questionFallback[0].noteText, "等待你回答问题后继续", "问题不可得时回落动作说明");
 assert.equal(questionFallback[0].questionPreview, null, "问题不可得时不创建空列表");
 
-// ---- R-01-002/AC-06 计数徽标底色跟随等待构成（C-040、C-043）：错误 > 阻塞 > 完成 ----
+// ---- 计数徽标底色跟随等待构成（C-040、C-043）：错误 > 阻塞 > 完成 ----
 assert.equal(awaitBadgeTone([]), null, "无等待行动无 tone");
 assert.equal(awaitBadgeTone([{ kind: "running" }]), null, "运行卡不参与 tone");
 assert.equal(awaitBadgeTone([{ kind: "awaiting", waitClass: "done" }]), "done", "全部等待为完成提醒时取绿色调");
@@ -1292,11 +1290,11 @@ assert.equal(
 		{ kind: "awaiting", waitClass: "error" },
 	]),
 	"error",
-	"错误提醒在阻塞等待之后出现时仍取红色调，优先级不依赖条目顺序（R-01-002/AC-06）",
+	"错误提醒在阻塞等待之后出现时仍取红色调，优先级不依赖条目顺序",
 );
 
-// ---- R-01-001/AC-05 徽标计数口径：只统计主会话，子代理不计入 ｜ R-01-002/AC-06 阻塞计数 ----
-assert.deepEqual(awaitBadgeStats([]), { waiting: 0, blocked: 0, total: 0 }, "空列表为 0/0（R-01-001/AC-06）");
+// ---- 徽标计数口径：只统计主会话，子代理不计入 ｜  阻塞计数 ----
+assert.deepEqual(awaitBadgeStats([]), { waiting: 0, blocked: 0, total: 0 }, "空列表为 0/0");
 assert.deepEqual(
 	awaitBadgeStats([
 		{ id: "a", kind: "running" },
@@ -1307,7 +1305,7 @@ assert.deepEqual(
 	{ waiting: 2, blocked: 1, total: 3 },
 	"分子=awaiting 主会话数，分母=running+awaiting 主会话数；blocked 只计阻塞等待",
 );
-// ---- R-01-001/AC-01 可重复的确定性渲染（见下） ｜ R-02-003/AC-01 渲染签名去重 ----
+// ---- 可重复的确定性渲染（见下） ｜  渲染签名去重 ----
 const e1 = buildEntries({ snapshot: snapshot, workspaceItems: workspaces });
 const e2 = buildEntries({ snapshot: snapshot, workspaceItems: workspaces });
 assert.equal(cardSignature(e1), cardSignature(e2), "相同状态签名相等→跳过重绘");
@@ -1319,19 +1317,15 @@ assert.notEqual(
 assert.notEqual(
 	cardSignature(e1),
 	cardSignature([{ ...e1[0], workspaceKey: "/srv/elsewhere" }]),
-	"工作区身份变化签名必变，徽标色相随之重绘（R-01-003/AC-08）",
+	"工作区身份变化签名必变，徽标色相随之重绘",
 );
 
-// ---- R-01-003/AC-01 无目录 label 时回退显示标题 ----
+// ---- 无目录 label 时回退显示标题 ----
 assert.equal(
 	subagentTitle("sA", "sA-c2", snapshot.byId, snapshot.subagentsByParent),
 	"子2",
 );
 
-// R-01-009/AC-01
-// R-01-009/AC-02
-// R-01-009/AC-03
-// R-01-009/AC-05
 // ---- 当前动作进入工作项/统计字段，不再拼接状态前缀 ----
 assert.deepEqual(
 	runtimeStats({ elapsedMs: 125000, outputTokens: 1200, rateTokS: 12.3 }),
@@ -1340,17 +1334,16 @@ assert.deepEqual(
 );
 assert.equal(fmtElapsedMs(47_000), "47s", "时长短格式");
 assert.equal(fmtElapsedMs(193_000), "3m13s", "时长分秒格式");
-// R-01-009/AC-05 超过 1 小时按时分秒显示
+//  超过 1 小时按时分秒显示
 assert.equal(fmtElapsedMs(3_723_000), "1h2m3s", "时长时分秒格式");
 assert.equal(fmtElapsedMs(9_772_000), "2h42m52s", "多小时格式");
 assert.equal(fmtElapsedMs(3_600_000), "1h0m0s", "整小时保留零段");
 assert.equal(fmtElapsedMs(3_599_500), "1h0m0s", "秒数四舍五入进位到小时");
-// R-01-009/AC-03
 assert.equal(fmtElapsedMs(NaN), "", "NaN 时长归一为空");
 assert.equal(fmtElapsedMs(Infinity), "", "Infinity 时长归一为空");
 assert.equal(fmtElapsedMs(-1), "", "负时长归一为空");
-// ---- R-01-020 会话累计运行时长：事件流配对记账与显示合成 ----
-// R-01-020/AC-02：全部结束原因均计入，回合间空闲不计入。
+// ---- 会话累计运行时长：事件流配对记账与显示合成 ----
+// 全部结束原因均计入，回合间空闲不计入。
 {
 	const events = [
 		{ type: "turn/start", seq: 1, time: 1_000 },
@@ -1362,20 +1355,20 @@ assert.equal(fmtElapsedMs(-1), "", "负时长归一为空");
 	];
 	let stats = { busyMs: null, openTurnStart: null };
 	for (const event of events) stats = applyTurnEventToStats(stats, event);
-	assert.equal(stats.busyMs, 3_500, "R-01-020/AC-02 全部结束原因计入、空闲不计入");
-	assert.equal(stats.openTurnStart, null, "R-01-020/AC-02 全部回合闭合后无开放起点");
+	assert.equal(stats.busyMs, 3_500, " 全部结束原因计入、空闲不计入");
+	assert.equal(stats.openTurnStart, null, " 全部回合闭合后无开放起点");
 }
-// R-01-020/AC-02：起点缺失或逆序的回合跳过累加，不制造负值。
+// 起点缺失或逆序的回合跳过累加，不制造负值。
 {
 	let stats = { busyMs: null, openTurnStart: null };
 	stats = applyTurnEventToStats(stats, { type: "turn/end", seq: 1, time: 5_000 });
-	assert.equal(stats.busyMs, null, "R-01-020/AC-02 孤儿 turn/end 不累加");
+	assert.equal(stats.busyMs, null, " 孤儿 turn/end 不累加");
 	stats = applyTurnEventToStats(stats, { type: "turn/start", seq: 2, time: 8_000 });
 	stats = applyTurnEventToStats(stats, { type: "turn/end", seq: 3, time: 7_000 });
-	assert.equal(stats.busyMs, null, "R-01-020/AC-02 时间逆序回合跳过");
-	assert.equal(stats.openTurnStart, null, "R-01-020/AC-02 逆序回合仍清空起点");
+	assert.equal(stats.busyMs, null, " 时间逆序回合跳过");
+	assert.equal(stats.openTurnStart, null, " 逆序回合仍清空起点");
 }
-// R-01-020/AC-04：水位幂等——转移函数为纯累加，重复事件必须由调用侧 seq ≤ watermark
+// 水位幂等——转移函数为纯累加，重复事件必须由调用侧 seq ≤ watermark
 // 检查跳过（host.mjs 实时登记与回填写入前均做该检查）；同批事件重复应用会翻倍。
 {
 	const replay = [
@@ -1384,15 +1377,15 @@ assert.equal(fmtElapsedMs(-1), "", "负时长归一为空");
 	];
 	let stats = { busyMs: null, openTurnStart: null };
 	for (const event of replay) stats = applyTurnEventToStats(stats, event);
-	assert.equal(stats.busyMs, 1_000, "R-01-020/AC-04 单次应用配对累计");
+	assert.equal(stats.busyMs, 1_000, " 单次应用配对累计");
 	// 模拟调用侧水位：seq ≤ watermark 的事件跳过，重复推送不重复计数。
 	for (const event of replay) {
 		if (event.seq <= 8) continue;
 		stats = applyTurnEventToStats(stats, event);
 	}
-	assert.equal(stats.busyMs, 1_000, "R-01-020/AC-04 水位检查下重复推送不重复计数");
+	assert.equal(stats.busyMs, 1_000, " 水位检查下重复推送不重复计数");
 }
-// R-01-020/AC-02：实时登记的会话级串行化——宿主 KvTable.put 先落盘后更新内存快照，
+// 实时登记的会话级串行化——宿主 KvTable.put 先落盘后更新内存快照
 // 并发到达的边界事件若各自读-改-写，后到事件会在先到事件落盘前读到旧状态，其效果被
 // 当作「无效果」永久丢弃（实测：提问 tool/call 与 11ms 后的 tool/result 结算丢失，
 // 等待区间悬挂到 turn/end 强制结算，总耗时缺记整段运行过程）。串行化后即便全部 handler
@@ -1406,7 +1399,7 @@ assert.equal(fmtElapsedMs(-1), "", "负时长归一为空");
 	];
 	let sequential = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, openWaitId: null, waitedMs: null };
 	for (const event of events) sequential = applyTurnEventToStats(sequential, event);
-	assert.equal(sequential.busyMs, 4_000 - 11, "R-01-020/AC-02 顺序重放基线：回合 4s 扣提问等待 11ms");
+	assert.equal(sequential.busyMs, 4_000 - 11, " 顺序重放基线：回合 4s 扣提问等待 11ms");
 	// 全部事件同步注册（与 session/event 同步观察者的派发序一致）；模拟宿主 KvTable：
 	// put 落盘（异步延迟）完成后才更新内存快照。
 	const serialize = createSessionEventSerializer();
@@ -1422,19 +1415,18 @@ assert.equal(fmtElapsedMs(-1), "", "负时长归一为空");
 			}),
 		),
 	);
-	assert.equal(memory.get("session-under-test")?.busyMs, 4_000 - 11, "R-01-020/AC-02 会话级串行化下并发登记与顺序重放一致");
-	assert.equal(memory.get("session-under-test")?.openTurnStart, null, "R-01-020/AC-02 串行化登记后回合闭合无残留起点");
+	assert.equal(memory.get("session-under-test")?.busyMs, 4_000 - 11, " 会话级串行化下并发登记与顺序重放一致");
+	assert.equal(memory.get("session-under-test")?.openTurnStart, null, " 串行化登记后回合闭合无残留起点");
 }
-// R-01-020/AC-01
-// R-01-020/AC-03：开放回合实时增量与起点不可得降级。
+// 开放回合实时增量与起点不可得降级。
 assert.equal(totalBusyDisplayMs({ busyMs: 3_500, openTurnStart: 30_000, now: 32_000 }), 5_500, "累计加开放回合实时已耗时");
 assert.equal(totalBusyDisplayMs({ busyMs: 3_500, openTurnStart: null, now: 32_000 }), 3_500, "起点不可得只显示已完成累计");
 assert.equal(totalBusyDisplayMs({ busyMs: null, openTurnStart: 30_000, now: 31_000 }), 1_000, "首回合进行中显示实时增量");
-// R-01-020/AC-06：无任何有效计时数据返回 null（调用方不显示，不以 0 冒充）。
+// 无任何有效计时数据返回 null（调用方不显示，不以 0 冒充）。
 assert.equal(totalBusyDisplayMs({ busyMs: null, openTurnStart: null, now: 32_000 }), null, "无数据显示 null");
 assert.equal(totalBusyDisplayMs({ busyMs: null, openTurnStart: null, now: null }), null, "now 缺失且无累计为 null");
 assert.equal(totalBusyDisplayMs({ busyMs: 0, openTurnStart: null, now: null }), 0, "显式 0 累计仍是有效数据");
-// R-01-020/AC-06：记账字段归一——null/undefined 直通为 null，不得被 Number(null)===0
+// 记账字段归一——null/undefined 直通为 null，不得被 Number(null)===0
 // 误归一为 0（否则开放回合合成出 now−0 的天文数字）。
 assert.equal(normalizeBusyMs(null), null, "busyMs null 归一为 null");
 assert.equal(normalizeBusyMs(undefined), null, "busyMs undefined 归一为 null");
@@ -1443,7 +1435,7 @@ assert.equal(normalizeBusyMs(0), 0, "显式 0 仍是有效数字");
 assert.equal(normalizeBusyMs("123"), 123, "数字字符串可归一");
 assert.equal(normalizeBusyMs("abc"), null, "非数字字符串归一为 null");
 assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
-// R-01-020/AC-05：存量回合经全量事件重放补齐（与实时登记同一转移函数）。
+// 存量回合经全量事件重放补齐（与实时登记同一转移函数）。
 {
 	const backfillEvents = [
 		{ type: "turn/start", seq: 1, time: 100 },
@@ -1452,10 +1444,10 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 	];
 	let stats = { busyMs: null, openTurnStart: null };
 	for (const event of backfillEvents) stats = applyTurnEventToStats(stats, event);
-	assert.equal(stats.busyMs, 500, "R-01-020/AC-05 存量回合重放补齐累计");
-	assert.equal(stats.openTurnStart, 900, "R-01-020/AC-05 重放恢复开放回合起点");
+	assert.equal(stats.busyMs, 500, " 存量回合重放补齐累计");
+	assert.equal(stats.openTurnStart, 900, " 重放恢复开放回合起点");
 	// 水位缺口增量（宿主 ensureTurnStatsFresh 已有记录路径）：从已有记账出发，
-	// 仅应用 seq > watermark 的事件，补停机缺口且不重复计数（R-01-020/AC-04、AC-05）。
+	// 仅应用 seq > watermark 的事件，补停机缺口且不重复计数。
 	const gapEvents = [
 		{ type: "turn/start", seq: 1, time: 100 },
 		{ type: "turn/end", seq: 2, time: 600 },
@@ -1469,10 +1461,10 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 		if (event.seq <= watermark) continue;
 		gapResult = applyTurnEventToStats(gapResult, event);
 	}
-	assert.equal(gapResult.busyMs, 1_000, "R-01-020/AC-05 增量重放补齐水位缺口回合");
-	assert.equal(gapResult.openTurnStart, null, "R-01-020/AC-05 增量重放后无开放回合");
+	assert.equal(gapResult.busyMs, 1_000, " 增量重放补齐水位缺口回合");
+	assert.equal(gapResult.openTurnStart, null, " 增量重放后无开放回合");
 }
-// ---- R-01-020/AC-07：回合内阻塞等待配对记账与停表 ----
+// ---- ：回合内阻塞等待配对记账与停表 ----
 // 审批等待：approval/asked–decided 配对，回合结算扣除等待区间。
 {
 	const events = [
@@ -1483,9 +1475,9 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 	];
 	let stats = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, waitedMs: null };
 	for (const event of events) stats = applyTurnEventToStats(stats, event);
-	assert.equal(stats.busyMs, 2_000, "R-01-020/AC-07 回合结算扣除审批等待 3s");
-	assert.equal(stats.openWaitStart, null, "R-01-020/AC-07 回合结束后无未配对等待");
-	assert.equal(stats.waitedMs, null, "R-01-020/AC-07 回合结束后等待累计清零");
+	assert.equal(stats.busyMs, 2_000, " 回合结算扣除审批等待 3s");
+	assert.equal(stats.openWaitStart, null, " 回合结束后无未配对等待");
+	assert.equal(stats.waitedMs, null, " 回合结束后等待累计清零");
 }
 // 提问等待：ask_user_question 的 tool/call–tool/result 配对。
 {
@@ -1497,7 +1489,7 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 	];
 	let stats = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, waitedMs: null };
 	for (const event of events) stats = applyTurnEventToStats(stats, event);
-	assert.equal(stats.busyMs, 2_000, "R-01-020/AC-07 回合结算扣除提问等待 5s");
+	assert.equal(stats.busyMs, 2_000, " 回合结算扣除提问等待 5s");
 }
 // 非提问工具调用不开等待；kind 不一致的结算事件忽略。
 {
@@ -1507,17 +1499,17 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 	];
 	let stats = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, waitedMs: null };
 	for (const event of events) stats = applyTurnEventToStats(stats, event);
-	assert.equal(stats.openWaitStart, null, "R-01-020/AC-07 非提问工具调用不开等待");
+	assert.equal(stats.openWaitStart, null, " 非提问工具调用不开等待");
 	const mismatch = [
 		{ type: "tool/call", seq: 3, time: 2_000, data: { callId: "c3", name: "ask_user_question" } },
 		{ type: "approval/decided", seq: 4, time: 3_000, data: { id: "a9", outcome: "allowed-once" } },
 	];
 	for (const event of mismatch) stats = applyTurnEventToStats(stats, event);
-	assert.equal(stats.openWaitStart, 2_000, "R-01-020/AC-07 kind 不一致的结算事件不关闭提问等待");
-	assert.equal(stats.openWaitKind, "question", "R-01-020/AC-07 提问等待保持开启");
+	assert.equal(stats.openWaitStart, 2_000, " kind 不一致的结算事件不关闭提问等待");
+	assert.equal(stats.openWaitKind, "question", " 提问等待保持开启");
 	const settle = [{ type: "tool/result", seq: 5, time: 4_000, data: { message: { source: { kind: "tool", callId: "c3" } } } }];
 	for (const event of settle) stats = applyTurnEventToStats(stats, event);
-	assert.equal(stats.waitedMs, 2_000, "R-01-020/AC-07 提问等待按配对边界结算");
+	assert.equal(stats.waitedMs, 2_000, " 提问等待按配对边界结算");
 }
 // callId/id 不匹配的结算事件忽略，等待保持开启直至配对边界（DESIGN：同 callId 结算）。
 {
@@ -1528,11 +1520,11 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 	];
 	let stats = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, openWaitId: null, waitedMs: null };
 	for (const event of events) stats = applyTurnEventToStats(stats, event);
-	assert.equal(stats.openWaitStart, 2_000, "R-01-020/AC-07 callId 不匹配的 tool/result 不关闭提问等待");
-	assert.equal(stats.openWaitId, "c1", "R-01-020/AC-07 等待记录配对 callId");
+	assert.equal(stats.openWaitStart, 2_000, " callId 不匹配的 tool/result 不关闭提问等待");
+	assert.equal(stats.openWaitId, "c1", " 等待记录配对 callId");
 	const settle = [{ type: "tool/result", seq: 4, time: 4_000, data: { message: { source: { kind: "tool", callId: "c1" } } } }];
 	for (const event of settle) stats = applyTurnEventToStats(stats, event);
-	assert.equal(stats.waitedMs, 2_000, "R-01-020/AC-07 同 callId 的 result 结算等待");
+	assert.equal(stats.waitedMs, 2_000, " 同 callId 的 result 结算等待");
 }
 {
 	const events = [
@@ -1542,10 +1534,10 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 	];
 	let stats = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, openWaitId: null, waitedMs: null };
 	for (const event of events) stats = applyTurnEventToStats(stats, event);
-	assert.equal(stats.openWaitStart, 2_000, "R-01-020/AC-07 id 不匹配的 approval/decided 不关闭审批等待");
+	assert.equal(stats.openWaitStart, 2_000, " id 不匹配的 approval/decided 不关闭审批等待");
 	const settle = [{ type: "approval/decided", seq: 4, time: 5_000, data: { id: "a1", outcome: "rejected" } }];
 	for (const event of settle) stats = applyTurnEventToStats(stats, event);
-	assert.equal(stats.waitedMs, 3_000, "R-01-020/AC-07 同 id 的 decided 结算审批等待");
+	assert.equal(stats.waitedMs, 3_000, " 同 id 的 decided 结算审批等待");
 }
 // 等待串行不嵌套：未配对等待期间的新等待边界忽略。
 {
@@ -1557,7 +1549,7 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 	];
 	let stats = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, waitedMs: null };
 	for (const event of events) stats = applyTurnEventToStats(stats, event);
-	assert.equal(stats.waitedMs, 2_000, "R-01-020/AC-07 串行等待自首个边界起算、不重复计时");
+	assert.equal(stats.waitedMs, 2_000, " 串行等待自首个边界起算、不重复计时");
 }
 // turn/end 强制结算未配对等待：等待尾部不落到运行时长里。
 {
@@ -1568,8 +1560,8 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 	];
 	let stats = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, waitedMs: null };
 	for (const event of events) stats = applyTurnEventToStats(stats, event);
-	assert.equal(stats.busyMs, 1_000, "R-01-020/AC-07 回合结束强制结算未配对等待");
-	assert.equal(stats.openTurnStart, null, "R-01-020/AC-07 强制结算后回合闭合");
+	assert.equal(stats.busyMs, 1_000, " 回合结束强制结算未配对等待");
+	assert.equal(stats.openTurnStart, null, " 强制结算后回合闭合");
 }
 // 换回合重置等待累计。
 {
@@ -1582,34 +1574,34 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 	];
 	let stats = { busyMs: null, openTurnStart: null, openWaitStart: null, openWaitKind: null, waitedMs: null };
 	for (const event of events) stats = applyTurnEventToStats(stats, event);
-	assert.equal(stats.busyMs, 1_500, "R-01-020/AC-07 首回合结算扣除提问等待");
-	assert.equal(stats.waitedMs, null, "R-01-020/AC-07 新回合重置等待累计");
+	assert.equal(stats.busyMs, 1_500, " 首回合结算扣除提问等待");
+	assert.equal(stats.waitedMs, null, " 新回合重置等待累计");
 }
-// 显示合成（AC-07）：等待期间冻结——now 推进而显示值不变。
+// 显示合成：等待期间冻结——now 推进而显示值不变。
 {
 	const state = { busyMs: 1_000, openTurnStart: 5_000, waitedMs: 2_000, openWaitStart: 9_000 };
 	const frozen = totalBusyDisplayMs({ ...state, now: 10_000 });
-	assert.equal(frozen, 3_000, "R-01-020/AC-07 等待开始时刻的运行时长被冻结显示");
-	assert.equal(totalBusyDisplayMs({ ...state, now: 20_000 }), frozen, "R-01-020/AC-07 等待期间显示值不随 now 增长");
+	assert.equal(frozen, 3_000, " 等待开始时刻的运行时长被冻结显示");
+	assert.equal(totalBusyDisplayMs({ ...state, now: 20_000 }), frozen, " 等待期间显示值不随 now 增长");
 }
-// 显示合成（AC-07）：等待结算与回合结算处显示值连续，恢复运行后续走。
+// 显示合成：等待结算与回合结算处显示值连续，恢复运行后续走。
 {
 	// 回合 1000 起，等待 2000–4000（waitedMs=2000）；now=5000 时显示 2000。
 	const running = { busyMs: 1_000, openTurnStart: 1_000, waitedMs: 2_000, openWaitStart: null };
-	assert.equal(totalBusyDisplayMs({ ...running, now: 5_000 }), 3_000, "R-01-020/AC-07 等待结束后从冻结值继续累计");
+	assert.equal(totalBusyDisplayMs({ ...running, now: 5_000 }), 3_000, " 等待结束后从冻结值继续累计");
 	// turn/end t=6000 结算 busyMs = 1000 + (6000 − 1000 − 2000) = 4000；结算前一刻显示 4000。
-	assert.equal(totalBusyDisplayMs({ ...running, now: 6_000 }), 4_000, "R-01-020/AC-07 回合结算前一刻显示值与结算后一致");
-	assert.equal(totalBusyDisplayMs({ busyMs: 4_000, openTurnStart: null, waitedMs: null, openWaitStart: null, now: 6_000 }), 4_000, "R-01-020/AC-07 回合结算后显示 busyMs 无跳变");
+	assert.equal(totalBusyDisplayMs({ ...running, now: 6_000 }), 4_000, " 回合结算前一刻显示值与结算后一致");
+	assert.equal(totalBusyDisplayMs({ busyMs: 4_000, openTurnStart: null, waitedMs: null, openWaitStart: null, now: 6_000 }), 4_000, " 回合结算后显示 busyMs 无跳变");
 }
-// ---- R-01-020/AC-04、AC-05：reconcileTurnStats 统一收敛 ----
+// ---- ：reconcileTurnStats 统一收敛 ----
 // 无记录：全量重放。
 {
 	const next = reconcileTurnStats(null, [
 		{ type: "turn/start", seq: 1, time: 1_000 },
 		{ type: "turn/end", seq: 2, time: 3_000 },
 	]);
-	assert.equal(next.busyMs, 2_000, "R-01-020/AC-05 无记录全量重放补齐累计");
-	assert.equal(next.watermarkSeq, 2, "R-01-020/AC-05 全量重放推进水位");
+	assert.equal(next.busyMs, 2_000, " 无记录全量重放补齐累计");
+	assert.equal(next.watermarkSeq, 2, " 全量重放推进水位");
 }
 // 水位超前于日志最大 seq（seq 空间被重编，如 dsh 0.1.5 V3 迁移）：全量重放自愈，
 // 卡死的开放回合被清除、总耗时不再无限增长（原缺陷回归）。
@@ -1621,9 +1613,9 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 			{ type: "turn/end", seq: 2, time: 3_000 },
 		],
 	);
-	assert.equal(next.busyMs, 2_000, "R-01-020/AC-04 水位超前时全量重放重算累计");
-	assert.equal(next.openTurnStart, null, "R-01-020/AC-04 水位超前时卡死的开放回合被清除");
-	assert.equal(next.watermarkSeq, 2, "R-01-020/AC-04 自愈后水位回归当前 seq 空间");
+	assert.equal(next.busyMs, 2_000, " 水位超前时全量重放重算累计");
+	assert.equal(next.openTurnStart, null, " 水位超前时卡死的开放回合被清除");
+	assert.equal(next.watermarkSeq, 2, " 自愈后水位回归当前 seq 空间");
 }
 // 正常增量：只应用 seq > watermark 的事件，不重复计数。
 {
@@ -1636,8 +1628,8 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 			{ type: "turn/end", seq: 4, time: 1_400 },
 		],
 	);
-	assert.equal(next.busyMs, 1_000, "R-01-020/AC-05 增量收敛只补水位缺口");
-	assert.equal(next.watermarkSeq, 4, "R-01-020/AC-05 增量收敛推进水位");
+	assert.equal(next.busyMs, 1_000, " 增量收敛只补水位缺口");
+	assert.equal(next.watermarkSeq, 4, " 增量收敛推进水位");
 }
 // 启动扫描：closeOpenTurn 把残留开放回合按日志最后事件时刻强制结算，尾部等待不计数。
 {
@@ -1650,11 +1642,11 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 		],
 		{ closeOpenTurn: true },
 	);
-	assert.equal(next.busyMs, 1_100, "R-01-020/AC-04 启动扫描按日志末事件时刻结算残留开放回合");
-	assert.equal(next.openTurnStart, null, "R-01-020/AC-04 启动扫描后无残留开放回合");
-	assert.equal(next.waitedMs, null, "R-01-020/AC-04 启动扫描后等待累计清零");
+	assert.equal(next.busyMs, 1_100, " 启动扫描按日志末事件时刻结算残留开放回合");
+	assert.equal(next.openTurnStart, null, " 启动扫描后无残留开放回合");
+	assert.equal(next.waitedMs, null, " 启动扫描后等待累计清零");
 }
-// 重编检测（R-01-020/AC-04）：水位推进处记录 watermarkTime；增量重放同步更新。
+// 重编检测：水位推进处记录 watermarkTime；增量重放同步更新。
 {
 	const next = reconcileTurnStats(
 		{ busyMs: 500, openTurnStart: null, openWaitStart: null, openWaitKind: null, waitedMs: null, watermarkSeq: 2, watermarkTime: 600 },
@@ -1663,8 +1655,8 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 			{ type: "turn/end", seq: 4, time: 11_000 },
 		],
 	);
-	assert.equal(next.busyMs, 1_500, "R-01-020/AC-04 增量重放补齐缺口回合");
-	assert.equal(next.watermarkTime, 11_000, "R-01-020/AC-04 水位推进处记录最后应用边界事件的时刻");
+	assert.equal(next.busyMs, 1_500, " 增量重放补齐缺口回合");
+	assert.equal(next.watermarkTime, 11_000, " 水位推进处记录最后应用边界事件的时刻");
 }
 // 部分重叠的 seq 空间重编（水位 ≤ 日志最大 seq，既有水位超前检测不可达）：forceFresh
 // 丢弃旧空间记账、从空状态全量重放，实时登记的重编检测据此自愈；存量记录（无
@@ -1680,9 +1672,9 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 		],
 		{ forceFresh: true },
 	);
-	assert.equal(forced.busyMs, 1_500, "R-01-020/AC-04 强制全量重放按新 seq 空间重算累计");
-	assert.equal(forced.watermarkSeq, 4, "R-01-020/AC-04 强制全量重放后水位落在新空间");
-	assert.equal(forced.watermarkTime, 12_000, "R-01-020/AC-04 强制全量重放后水位时刻为最后边界事件");
+	assert.equal(forced.busyMs, 1_500, " 强制全量重放按新 seq 空间重算累计");
+	assert.equal(forced.watermarkSeq, 4, " 强制全量重放后水位落在新空间");
+	assert.equal(forced.watermarkTime, 12_000, " 强制全量重放后水位时刻为最后边界事件");
 }
 {
 	const legacy = reconcileTurnStats(
@@ -1694,12 +1686,12 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 		],
 		{ forceFresh: true },
 	);
-	assert.equal(legacy.busyMs, 1_000, "R-01-020/AC-04 存量记录（无 watermarkTime）强制重放后按新空间重算");
-	assert.equal(legacy.watermarkSeq, 3, "R-01-020/AC-04 存量记录重放后水位覆盖全部事件（含无效果事件）");
-	assert.equal(legacy.watermarkTime, 11_500, "R-01-020/AC-04 存量记录重放后补上水位时刻");
+	assert.equal(legacy.busyMs, 1_000, " 存量记录（无 watermarkTime）强制重放后按新空间重算");
+	assert.equal(legacy.watermarkSeq, 3, " 存量记录重放后水位覆盖全部事件（含无效果事件）");
+	assert.equal(legacy.watermarkTime, 11_500, " 存量记录重放后补上水位时刻");
 }
 // ---- T-188 busy/acks 通道增量化：patch 帧构造、GET ids 裁剪解析与落盘尾沿合帧 ----
-// R-01-002/AC-12（跨客户端同步）：buildChannelPatch 只携带变更 id 的 upserts，
+// （跨客户端同步）：buildChannelPatch 只携带变更 id 的 upserts
 // 畸形 id 与缺失记录逐条跳过。
 {
 	const records = new Map([
@@ -1714,7 +1706,7 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 	assert.deepEqual(buildChannelPatch(records, null), { upserts: {} }, "T-188 非可迭代 changedIds 容错为空 patch");
 	assert.deepEqual(buildChannelPatch(null, ["s1"]), { upserts: {} }, "T-188 畸形 records 容错为空 patch");
 }
-// R-01-020/AC-05（GET /api/busy?ids= 裁剪）：非法/空/超量形态统一回退全量。
+// （GET /api/busy?ids= 裁剪）：非法/空/超量形态统一回退全量。
 {
 	assert.deepEqual(parseBusyIdsParam("a,b,c", 200), ["a", "b", "c"], "T-188 合法 ids 逗号分隔解析");
 	assert.deepEqual(parseBusyIdsParam(" a , , b ,a ", 200), ["a", "b"], "T-188 空段剔除、重复去重、空白 trim");
@@ -1724,7 +1716,7 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 	assert.equal(parseBusyIdsParam("a,b", 0), null, "T-188 非法上限回退全量");
 	assert.equal(parseBusyIdsParam("a,b", 1), null, "T-188 超量回退全量");
 }
-// R-01-020/AC-04（崩溃窗口自愈的落盘侧）：尾沿合帧把窗口内多次标脏合并为一次写盘；
+// （崩溃窗口自愈的落盘侧）：尾沿合帧把窗口内多次标脏合并为一次写盘；
 // flush 在途的新标脏按剩余时间对齐补排；dispose 冲刷窗口内的最后一批变更。
 {
 	const batches = [];
@@ -1836,7 +1828,7 @@ assert.equal(normalizeBusyMs(Number.NaN), null, "NaN 归一为 null");
 	failing.markDirty("x");
 	await assert.rejects(() => failing.dispose(), /dispose-boom/, "T-188 dispose 抛出暂存的 flush 拒绝");
 }
-// R-01-013/AC-05：历史卡同时显示本地绝对日期时间与相对年龄，异常输入不制造虚假时间。
+// 历史卡同时显示本地绝对日期时间与相对年龄，异常输入不制造虚假时间。
 const relativeMinute = 60_000;
 const relativeHour = 60 * relativeMinute;
 const relativeDay = 24 * relativeHour;
@@ -1866,10 +1858,6 @@ assert.equal(
 assert.equal(fmtAbsoluteDateTime(null, sameYearNow.getTime()), "", "缺失绝对时间归一为空");
 assert.equal(fmtAbsoluteDateTime(NaN, sameYearNow.getTime()), "", "非法绝对时间归一为空");
 
-// R-01-012/AC-01
-// R-01-012/AC-02
-// R-01-012/AC-03
-// R-01-012/AC-04
 // ---- 活动卡模型上下文、主窗口 order 最近 4 项与 live 项 ----
 assert.equal(firstPhysicalLine("  \n  第一行  \n第二行"), "第一行", "物理首行跳过空行且保留行语义");
 assert.equal(firstPhysicalLine("\n\t"), "", "全空白消息预览为空");
@@ -1893,7 +1881,7 @@ assert.equal(timeline[2].summary, "/tmp/a", "工具行摘要与标题分层");
 const thinkItem = conversationWorkItems({
 	chat: { order: ["think"], nodes: { get: () => ({ kind: "assistant-step", data: { turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "Planning path" }] } }) } },
 })[0];
-assert.equal(thinkItem.label, "思考", "推理工作项 label 为中文「思考」（R-01-012/AC-10）");
+assert.equal(thinkItem.label, "思考", "推理工作项 label 为中文「思考」");
 assert.equal(thinkItem.summary, "Planning path", "推理工作项摘要单独保留");
 const grepItem = conversationWorkItems({
 	chat: { order: ["grep"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-call", callId: "grep-1", call: { name: "grep", argsRaw: '{"pattern":"foo"}' } } } }) } },
@@ -1924,11 +1912,11 @@ const oldAssistantCurrent = conversationWorkItems({
 	partial: { turn: 3, step: 0, blocks: [{ kind: "text", text: "当前更新" }] },
 });
 assert.deepEqual(oldAssistantCurrent.map((item) => item.text), ["u3", "u4", "u5", "当前更新"], "order 尾部外的旧 assistant 被 live 当前项原位替换");
-// R-01-012/AC-09、AC-10 数据层 label 中文归一：正文「助手」、思考「思考」
+//  数据层 label 中文归一：正文「助手」、思考「思考」
 const bodyLabelItems = conversationWorkItems({
 	chat: { order: ["bd"], nodes: { get: (key) => ({ key, kind: "assistant-step", data: { status: "settled", turn: 1, step: 0, blocks: [{ kind: "text", text: "纯正文" }] } }) } },
 });
-assert.equal(bodyLabelItems[0].label, "助手", "正文工作项 label 为中文「助手」（R-01-012/AC-09）");
+assert.equal(bodyLabelItems[0].label, "助手", "正文工作项 label 为中文「助手」");
 const models = modelMetadata({
 	current: { provider: "p", model: "m", reasoningEffort: "high" },
 	groups: [{ id: "p", models: [{ id: "m", name: "Model M", reasoning: { efforts: [{ id: "high", name: "High" }] } }] }],
@@ -1943,15 +1931,15 @@ assert.deepEqual(
 		{ event: { type: "assistant/message", seq: 2, data: { message: { content: [{ type: "text", text: "历史回复" }] } } } },
 	]),
 	[
-		// R-01-012/AC-05 冷路径用户行同样携带「用户」标签
+		//  冷路径用户行同样携带「用户」标签
 		{ id: "user:1", kind: "user", icon: "user", label: "用户", text: "历史用户", detail: null, status: "done" },
 		{ id: "assistant:2", kind: "assistant", icon: "assistant", text: "历史回复", detail: null, status: "done" },
 	],
 	"冷会话 history 按原始事件顺序降级",
 );
 
-// ---- R-01-017 折叠时间线（无条件折叠分组呈现，不依赖 dsh-auto-collapse）----
-// R-01-017/AC-02 硬边界：用户输入与正文打断分组；工具+思考混排并入同组
+// ---- 折叠时间线（无条件折叠分组呈现，不依赖 dsh-auto-collapse）----
+//  硬边界：用户输入与正文打断分组；工具+思考混排并入同组
 const foldNodes = new Map([
 	["u1", { key: "u1", kind: "user", anchorSeq: 1, data: { content: [{ type: "text", text: "查一下" }] } }],
 	["g1", { key: "g1", kind: "tool-call", anchorSeq: 2, data: { root: { kind: "tool-result", callId: "g1", call: { name: "grep", argsRaw: '{"pattern":"foo"}' }, isError: false } } }],
@@ -1961,18 +1949,18 @@ const foldNodes = new Map([
 ]);
 const foldSnapshot = { chat: { order: ["u1", "g1", "th1", "b1", "b2"], nodes: { get: (key) => foldNodes.get(key) } } };
 const folded = foldedConversationTimeline(foldSnapshot);
-assert.equal(folded.length, 4, "用户输入、混排组、正文、尾部工具各占一行（R-01-017/AC-02）");
+assert.equal(folded.length, 4, "用户输入、混排组、正文、尾部工具各占一行");
 assert.equal(folded[0].kind, "user", "用户输入项原样保留");
-// R-01-012/AC-05 用户行 label 为中文「用户」（与 assistant 行「助手/思考」标签同构）
-assert.equal(folded[0].label, "用户", "用户输入项 label 为中文「用户」（R-01-012/AC-05）");
+//  用户行 label 为中文「用户」（与 assistant 行「助手/思考」标签同构）
+assert.equal(folded[0].label, "用户", "用户输入项 label 为中文「用户」");
 assert.equal(folded[1].fold, true, "混排工作项合并为分组行");
-assert.equal(folded[1].label, "运行了命令", "完成态工具+思考组标题取工具去向（R-01-017/AC-03）");
-assert.match(folded[1].summary, /^思考一/, "组摘要携带推理文本内容（R-01-017/AC-04）");
+assert.equal(folded[1].label, "运行了命令", "完成态工具+思考组标题取工具去向");
+assert.match(folded[1].summary, /^思考一/, "组摘要携带推理文本内容");
 assert.equal(folded[1].icon, "bash", "tool 组行图标为命令图标（IconApiOutline14）");
 assert.equal(folded[2].kind, "assistant", "正文为独立行（硬边界不并入分组）");
 assert.equal(folded[2].text, "结论正文", "正文内容保留");
-assert.equal(folded[3].fold, true, "正文后的工具独立成组，不跨正文合并（R-01-017/AC-02）");
-// R-01-017/AC-02 reasoning+正文同一节点：前置推理并入前组、正文为硬边界（splitThinkByBody 前置语义）
+assert.equal(folded[3].fold, true, "正文后的工具独立成组，不跨正文合并");
+//  reasoning+正文同一节点：前置推理并入前组、正文为硬边界（splitThinkByBody 前置语义）
 const splitNodes = new Map([
 	["k", { key: "k", kind: "assistant-step", anchorSeq: 1, data: { status: "settled", turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "推理前置" }, { kind: "text", text: "正文输出" }] } }],
 	["q", { key: "q", kind: "tool-call", anchorSeq: 2, data: { root: { kind: "tool-result", callId: "q", call: { name: "grep", argsRaw: "{}" } } } }],
@@ -1982,40 +1970,40 @@ const split = foldWorkGroups(
 	 { id: "q", kind: "tool", toolName: "grep", label: "Grep", summary: "a", icon: "search", status: "done" }],
 	4);
 assert.equal(split[0].fold, true, "reasoning 先行独立成思考组");
-assert.equal(split[0].label, "已思考", "纯思考完成组标题为已思考（R-01-017/AC-03）");
-assert.equal(split[0].summary, "推理前置", "思考组摘要为该推理文本（R-01-017/AC-04）");
+assert.equal(split[0].label, "已思考", "纯思考完成组标题为已思考");
+assert.equal(split[0].summary, "推理前置", "思考组摘要为该推理文本");
 assert.equal(split[0].icon, "assistant", "思考组行图标为思考图标");
-// R-01-017/AC-02 reasoning+正文同节点剥离：推理只归组摘要，正文行不得重复显示推理文本（验收修正）
-// R-01-012/AC-09 正文行 label 为中文「助手」
-assert.equal(split[1].label, "助手", "正文行不再复用思考标签，label 为中文「助手」（R-01-012/AC-09）");
+//  reasoning+正文同节点剥离：推理只归组摘要，正文行不得重复显示推理文本（验收修正）
+//  正文行 label 为中文「助手」
+assert.equal(split[1].label, "助手", "正文行不再复用思考标签，label 为中文「助手」");
 assert.equal(split[1].text, "正文输出", "正文为独立行且内容保留");
 assert.equal(split[1].summary, "正文输出", "正文行摘要为正文而非推理文本");
 assert.equal(split[1].detail, null, "正文行剥离推理文本");
 assert.equal(split[1].stripNative, true, "正文行带 stripNative 标记，剥离推理文本避免重复呈现");
 assert.ok(!String(split[1].summary).includes("推理"), "正文行不与组摘要重复");
 assert.equal(split[2].fold, true, "正文后的工具独立成组");
-// R-01-017/AC-02 验收反馈：工具组行后紧跟的同节点正文行不得与组摘要重复推理文本（东家现场场景）
+//  验收反馈：工具组行后紧跟的同节点正文行不得与组摘要重复推理文本（东家现场场景）
 const dedup = foldWorkGroups(
 	[{ id: "t1", kind: "tool", toolName: "bash", label: "Bash", summary: "ls -la", icon: "bash", status: "done" },
 	 { id: "k1", kind: "assistant", label: "思考", text: "这是正文", summary: "推理文本", detail: "推理文本", icon: "assistant", status: "done" }],
 	4);
-assert.equal(dedup[0].label, "运行了命令", "前组标题为运行了命令（R-01-017/AC-03）");
-assert.equal(dedup[0].summary, "推理文本", "推理文本归组摘要（R-01-017/AC-04）");
+assert.equal(dedup[0].label, "运行了命令", "前组标题为运行了命令");
+assert.equal(dedup[0].summary, "推理文本", "推理文本归组摘要");
 assert.equal(dedup[0].icon, "bash", "tool 组行图标为命令图标（IconApiOutline14，与 auto-collapse chip 同源）");
-assert.equal(dedup[1].label, "助手", "下一行为正文行而非思考行，label 为中文「助手」（R-01-012/AC-09）");
+assert.equal(dedup[1].label, "助手", "下一行为正文行而非思考行，label 为中文「助手」");
 assert.equal(dedup[1].summary, "这是正文", "正文行内容不与组摘要重复");
 assert.equal(dedup[1].detail, null, "正文行不携带推理文本");
-// R-01-017/AC-03 运行中工具/思考标题与摘要
+//  运行中工具/思考标题与摘要
 const runTool = foldedConversationTimeline({
 	chat: { order: ["r1", "r2"], nodes: { get: (key) => new Map([
 		["r1", { key: "r1", kind: "tool-call", data: { root: { kind: "tool-call", callId: "r1", call: { name: "bash", argsRaw: '{"command":"npm run build"}' } } } }],
 		["r2", { key: "r2", kind: "tool-call", data: { root: { kind: "tool-call", callId: "r2", call: { name: "grep", argsRaw: '{"pattern":"x"}' } } } }],
 	]).get(key) } },
 });
-assert.equal(runTool[0].label, "运行", "运行中工具组标题为运行（R-01-017/AC-03）");
+assert.equal(runTool[0].label, "运行", "运行中工具组标题为运行");
 assert.equal(runTool[0].status, "running", "运行中状态聚合");
 assert.equal(runTool[0].icon, "bash", "运行中 tool 组行图标同为命令图标");
-// R-01-017/AC-03 双运行成员的优先序：running tool 标题/摘要优先于 running think（评审对齐 vendor updateChip）。
+//  双运行成员的优先序：running tool 标题/摘要优先于 running think（评审对齐 vendor updateChip）。
 const bothRunning = foldedConversationTimeline({
 	chat: { order: ["br1", "br2"], nodes: { get: (key) => new Map([
 		["br1", { key: "br1", kind: "tool-call", data: { root: { kind: "tool-call", callId: "br1", call: { name: "bash", argsRaw: '{"command":"make"}' } } } }],
@@ -2023,13 +2011,13 @@ const bothRunning = foldedConversationTimeline({
 	]).get(key) } },
 });
 assert.equal(bothRunning[0].label, "运行", "tool 与 think 同时运行时标题取运行");
-assert.equal(bothRunning[0].summary, "make", "同时运行时的组摘要取执行中工具摘要（AC-04 限定于无执行中工具的分组）");
+assert.equal(bothRunning[0].summary, "make", "同时运行时的组摘要取执行中工具摘要（限定于无执行中工具的分组）");
 const runThink = foldedConversationTimeline({
 	chat: { order: ["rt"], nodes: { get: () => ({ kind: "assistant-step", data: { status: "running", turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "第一行\n最新行" }] } }) } },
 });
-assert.equal(runThink[0].label, "思考", "运行中思考组标题为思考（R-01-017/AC-03）");
-assert.equal(runThink[0].summary, "最新行", "流式思考摘要取最新行（R-01-017/AC-04）");
-// R-01-017/AC-03 编辑了文件 / 上下文注入 标题判定
+assert.equal(runThink[0].label, "思考", "运行中思考组标题为思考");
+assert.equal(runThink[0].summary, "最新行", "流式思考摘要取最新行");
+//  编辑了文件 / 上下文注入 标题判定
 const editGroup = foldedConversationTimeline({
 	chat: { order: ["e1"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "e1", call: { name: "edit", argsRaw: "{}" } } } }) } },
 });
@@ -2041,11 +2029,11 @@ const ctxGroup = foldedConversationTimeline({
 		["c2", { key: "c2", kind: "context", data: { content: [{ type: "text", text: "注入二" }], provenance: { role: "inject", label: "文件 /b.txt" } } }],
 	]).get(key) } },
 });
-assert.equal(ctxGroup.length, 1, "连续 context 合并为一组（R-01-017/AC-02）");
-assert.equal(ctxGroup[0].label, "上下文注入", "全 context 组标题为上下文注入（R-01-017/AC-03）");
+assert.equal(ctxGroup.length, 1, "连续 context 合并为一组");
+assert.equal(ctxGroup[0].label, "上下文注入", "全 context 组标题为上下文注入");
 assert.equal(ctxGroup[0].kind, "context", "context 组行 kind 复用 context 语义");
 assert.equal(ctxGroup[0].icon, "context", "context 组行图标为上下文图标");
-// R-01-017/AC-05 状态聚合：error > stopped > done，running 优先
+//  状态聚合：error > stopped > done，running 优先
 const errGroup = foldedConversationTimeline({
 	chat: { order: ["x1", "x2"], nodes: { get: (key) => new Map([
 		["x1", { key: "x1", kind: "tool-call", data: { root: { kind: "tool-result", callId: "x1", call: { name: "edit", argsRaw: "{}" }, isError: true } } }],
@@ -2062,8 +2050,8 @@ const promoteFold = foldedConversationTimeline({
 	chat: { order: ["p1"], nodes: { get: () => ({ key: "p1", kind: "tool-call", data: { root: { kind: "tool-result", callId: "p1", call: { name: "bash", argsRaw: '{"command":"x"}' } } } }) } },
 	running: true,
 });
-assert.equal(promoteFold[0].status, "running", "R-01-009/AC-10 尾部提升作用于折叠分组行（R-01-017/AC-05）");
-// R-01-017/AC-06 limit 截断与顺序
+assert.equal(promoteFold[0].status, "running", " 尾部提升作用于折叠分组行");
+//  limit 截断与顺序
 const manyFlat = [
 	{ id: "u1", kind: "user", icon: "user", text: "hi", detail: null, status: "done" },
 	{ id: "t1", kind: "tool", toolName: "bash", label: "Bash", summary: "a", icon: "bash", status: "done" },
@@ -2073,14 +2061,14 @@ const manyFlat = [
 	{ id: "t3", kind: "tool", toolName: "grep", label: "Grep", summary: "c", icon: "search", status: "done" },
 ];
 const manyGroups = foldWorkGroups(manyFlat, 4);
-assert.equal(manyGroups.length, 4, "折叠呈现下最多显示最近 4 个分组行（R-01-017/AC-06）");
+assert.equal(manyGroups.length, 4, "折叠呈现下最多显示最近 4 个分组行");
 assert.equal(manyGroups[3].id, "fold:work:t3", "顺序与主窗口一致，末位为最新工作项所在组");
 assert.equal(manyGroups[0].kind, "assistant", "窗口内首行为最近正文（更早的用户项与 t1 组被挤出）");
 assert.equal(manyGroups[0].text, "正文一", "正文行内容保留");
 const groupIdStable = foldWorkGroups(manyFlat, 4)[3];
 assert.equal(groupIdStable.id, manyGroups[3].id, "分组 id 稳定供渲染层 DOM 复用");
 
-// ---- R-01-012/AC-12～AC-15 指令锚行：末尾进入、触顶停留、第二行顶替（C-039）----
+// ---- 指令锚行：末尾进入、触顶停留、第二行顶替（C-039）----
 const anchorNodes = new Map([
 	["a-u1", { key: "a-u1", kind: "user", anchorSeq: 1, data: { content: [{ type: "text", text: "修复登录页" }] } }],
 	["a-b1", { key: "a-b1", kind: "assistant-step", anchorSeq: 2, data: { status: "settled", turn: 1, step: 0, blocks: [{ kind: "text", text: "正文一" }] } }],
@@ -2093,73 +2081,73 @@ const anchorBaseOrder = ["a-u1", "a-b1", "a-t1", "a-b2", "a-t2", "a-b3"];
 const anchorTimeline = (order, nodes = anchorNodes, limit = 4) =>
 	foldedConversationTimeline({ chat: { order, nodes: { get: (key) => nodes.get(key) } } }, limit);
 const anchorIds = (rows) => rows.map((row) => row.id);
-// AC-12：时间线为空时首条用户消息直接占据第一行并停留为锚行
+// 时间线为空时首条用户消息直接占据第一行并停留为锚行
 const firstOnly = anchorTimeline(["a-u1"]);
-assert.deepEqual(anchorIds(firstOnly), ["a-u1"], "空时间线首条用户消息独占第一行（R-01-012/AC-12）");
-assert.equal(firstOnly[0].anchor, true, "空时间线首条用户消息直接停留为指令锚行（R-01-012/AC-12）");
-assert.equal(firstOnly[0].kind, "user", "锚行保留用户行语义供渲染层复用图标/标签/下划线（R-01-012/AC-12）");
-assert.equal(firstOnly[0].label, "用户", "锚行 label 为中文「用户」（R-01-012/AC-05）");
-assert.equal(firstOnly[0].text, "修复登录页", "锚行内容为指令文本（R-01-012/AC-12）");
-// AC-13：用户消息随新行到达滚动至第一行时停留为锚行，不再参与后续滚动
+assert.deepEqual(anchorIds(firstOnly), ["a-u1"], "空时间线首条用户消息独占第一行");
+assert.equal(firstOnly[0].anchor, true, "空时间线首条用户消息直接停留为指令锚行");
+assert.equal(firstOnly[0].kind, "user", "锚行保留用户行语义供渲染层复用图标/标签/下划线");
+assert.equal(firstOnly[0].label, "用户", "锚行 label 为中文「用户」");
+assert.equal(firstOnly[0].text, "修复登录页", "锚行内容为指令文本");
+// 用户消息随新行到达滚动至第一行时停留为锚行，不再参与后续滚动
 const shortPin = anchorTimeline(["a-u1", "a-b1", "a-t1"]);
-assert.deepEqual(anchorIds(shortPin), ["a-u1", "a-b1", "fold:work:a-t1"], "短窗口内用户消息位于第一行即停留（R-01-012/AC-13）");
-assert.equal(shortPin[0].anchor, true, "第一行用户消息以锚行停留（R-01-012/AC-13）");
+assert.deepEqual(anchorIds(shortPin), ["a-u1", "a-b1", "fold:work:a-t1"], "短窗口内用户消息位于第一行即停留");
+assert.equal(shortPin[0].anchor, true, "第一行用户消息以锚行停留");
 const touchTop = anchorTimeline(["a-u1", "a-b1", "a-t1", "a-b2"]);
-assert.deepEqual(anchorIds(touchTop), ["a-u1", "a-b1", "fold:work:a-t1", "a-b2"], "滚动触顶瞬间行位置不变（R-01-012/AC-13）");
-assert.equal(touchTop[0].anchor, true, "触顶用户行停留为锚行（R-01-012/AC-13）");
+assert.deepEqual(anchorIds(touchTop), ["a-u1", "a-b1", "fold:work:a-t1", "a-b2"], "滚动触顶瞬间行位置不变");
+assert.equal(touchTop[0].anchor, true, "触顶用户行停留为锚行");
 const anchored = anchorTimeline(anchorBaseOrder);
-assert.deepEqual(anchorIds(anchored), ["a-u1", "a-b2", "fold:work:a-t2", "a-b3"], "触顶后锚行停留首行、其后为最近 3 个工作显示行（R-01-012/AC-13、R-01-017/AC-06）");
-assert.equal(anchored[0].anchor, true, "停留行以 anchor 标记前置语义（R-01-012/AC-13）");
-assert.ok(anchored.slice(1).every((row) => row.anchor !== true), "仅首行带锚标记（R-01-012/AC-13）");
-// AC-14：新工作项进入时间线，锚行位置与内容保持不变，仅推动其后工作显示行
+assert.deepEqual(anchorIds(anchored), ["a-u1", "a-b2", "fold:work:a-t2", "a-b3"], "触顶后锚行停留首行、其后为最近 3 个工作显示行");
+assert.equal(anchored[0].anchor, true, "停留行以 anchor 标记前置语义");
+assert.ok(anchored.slice(1).every((row) => row.anchor !== true), "仅首行带锚标记");
+// 新工作项进入时间线，锚行位置与内容保持不变，仅推动其后工作显示行
 const laterNodes = new Map(anchorNodes);
 laterNodes.set("a-t3", { key: "a-t3", kind: "tool-call", anchorSeq: 7, data: { root: { kind: "tool-result", callId: "a-t3", call: { name: "bash", argsRaw: '{"command":"ls"}' }, isError: false } } });
-assert.deepEqual(anchorIds(anchorTimeline([...anchorBaseOrder, "a-t3"], laterNodes)), ["a-u1", "fold:work:a-t2", "a-b3", "fold:work:a-t3"], "新动作进入时锚行不变、仅其后工作行滚动（R-01-012/AC-14）");
-// AC-12 核心回归：回合结束后新指令作为普通显示行追加在时间线末尾，已有内容不清空
+assert.deepEqual(anchorIds(anchorTimeline([...anchorBaseOrder, "a-t3"], laterNodes)), ["a-u1", "fold:work:a-t2", "a-b3", "fold:work:a-t3"], "新动作进入时锚行不变、仅其后工作行滚动");
+//  核心回归：回合结束后新指令作为普通显示行追加在时间线末尾，已有内容不清空
 const turn2Nodes = new Map(anchorNodes);
 turn2Nodes.set("a-u2", { key: "a-u2", kind: "user", anchorSeq: 7, data: { content: [{ type: "text", text: "追加指令" }] } });
 const arrived = anchorTimeline([...anchorBaseOrder, "a-u2"], turn2Nodes);
-assert.deepEqual(anchorIds(arrived), ["a-u1", "fold:work:a-t2", "a-b3", "a-u2"], "新指令到达末尾时旧锚停留、工作行保留不清空（R-01-012/AC-12、AC-14）");
-assert.equal(arrived.at(-1).kind, "user", "新指令为时间线末行普通用户行（R-01-012/AC-12）");
-assert.equal(arrived.at(-1).anchor ?? false, false, "新指令尚未滚动至第二行，不带锚标记（R-01-012/AC-15）");
-// AC-12：新指令随后续新行到达向上滚动
+assert.deepEqual(anchorIds(arrived), ["a-u1", "fold:work:a-t2", "a-b3", "a-u2"], "新指令到达末尾时旧锚停留、工作行保留不清空");
+assert.equal(arrived.at(-1).kind, "user", "新指令为时间线末行普通用户行");
+assert.equal(arrived.at(-1).anchor ?? false, false, "新指令尚未滚动至第二行，不带锚标记");
+// 新指令随后续新行到达向上滚动
 turn2Nodes.set("a-b4", { key: "a-b4", kind: "assistant-step", anchorSeq: 8, data: { status: "settled", turn: 2, step: 0, blocks: [{ kind: "text", text: "正文四" }] } });
 const scrolled = anchorTimeline([...anchorBaseOrder, "a-u2", "a-b4"], turn2Nodes);
-assert.deepEqual(anchorIds(scrolled), ["a-u1", "a-b3", "a-u2", "a-b4"], "新指令随新行到达向上滚动一行（R-01-012/AC-12）");
-// AC-15：新指令滚动至第二行时取代旧锚行成为第一行，其后各行上移一行、暂减一行
+assert.deepEqual(anchorIds(scrolled), ["a-u1", "a-b3", "a-u2", "a-b4"], "新指令随新行到达向上滚动一行");
+// 新指令滚动至第二行时取代旧锚行成为第一行，其后各行上移一行、暂减一行
 turn2Nodes.set("a-b5", { key: "a-b5", kind: "assistant-step", anchorSeq: 9, data: { status: "settled", turn: 2, step: 1, blocks: [{ kind: "text", text: "正文五" }] } });
 const replaced = anchorTimeline([...anchorBaseOrder, "a-u2", "a-b4", "a-b5"], turn2Nodes);
-assert.deepEqual(anchorIds(replaced), ["a-u2", "a-b4", "a-b5"], "新指令到第二行时顶替旧锚、其后各行上移且暂减一行（R-01-012/AC-15）");
-assert.equal(replaced[0].anchor, true, "顶替后新指令停留为第一行锚行（R-01-012/AC-15）");
-assert.equal(replaced[0].text, "追加指令", "顶替行内容为新指令（R-01-012/AC-15）");
-assert.ok(!replaced.some((row) => row.text === "修复登录页"), "旧指令锚行随顶替消失（R-01-012/AC-15）");
-// AC-15：顶替后新行到达恢复总预算，不从窗口之外回填旧行
+assert.deepEqual(anchorIds(replaced), ["a-u2", "a-b4", "a-b5"], "新指令到第二行时顶替旧锚、其后各行上移且暂减一行");
+assert.equal(replaced[0].anchor, true, "顶替后新指令停留为第一行锚行");
+assert.equal(replaced[0].text, "追加指令", "顶替行内容为新指令");
+assert.ok(!replaced.some((row) => row.text === "修复登录页"), "旧指令锚行随顶替消失");
+// 顶替后新行到达恢复总预算，不从窗口之外回填旧行
 turn2Nodes.set("a-b6", { key: "a-b6", kind: "assistant-step", anchorSeq: 10, data: { status: "settled", turn: 2, step: 2, blocks: [{ kind: "text", text: "正文六" }] } });
 const refilled = anchorTimeline([...anchorBaseOrder, "a-u2", "a-b4", "a-b5", "a-b6"], turn2Nodes);
-assert.deepEqual(anchorIds(refilled), ["a-u2", "a-b4", "a-b5", "a-b6"], "顶替后新行到达恢复 4 行（R-01-012/AC-15）");
-// AC-15 短窗同口径：时间线不足一窗时，更近用户消息位于显示第二行即顶替（按行位置而非窗口计数）
+assert.deepEqual(anchorIds(refilled), ["a-u2", "a-b4", "a-b5", "a-b6"], "顶替后新行到达恢复 4 行");
+//  短窗同口径：时间线不足一窗时，更近用户消息位于显示第二行即顶替（按行位置而非窗口计数）
 const shortReplace = anchorTimeline(["a-u1", "a-u2", "a-b1"], turn2Nodes);
-assert.deepEqual(anchorIds(shortReplace), ["a-u2", "a-b1"], "短窗口内新指令位于第二行即顶替旧锚（R-01-012/AC-15）");
-assert.equal(shortReplace[0].anchor, true, "顶替后新指令停留为第一行锚行（R-01-012/AC-15）");
+assert.deepEqual(anchorIds(shortReplace), ["a-u2", "a-b1"], "短窗口内新指令位于第二行即顶替旧锚");
+assert.equal(shortReplace[0].anchor, true, "顶替后新指令停留为第一行锚行");
 const shortNoReplace = anchorTimeline(["a-u1", "a-b1", "a-u2"], turn2Nodes);
-assert.deepEqual(anchorIds(shortNoReplace), ["a-u1", "a-b1", "a-u2"], "新指令位于第三行时旧锚停留、不顶替（R-01-012/AC-15）");
-assert.equal(shortNoReplace[0].anchor, true, "旧锚停留至新指令滚动至第二行（R-01-012/AC-15）");
-assert.equal(refilled[0].anchor, true, "恢复后新指令保持第一行锚行（R-01-012/AC-15）");
+assert.deepEqual(anchorIds(shortNoReplace), ["a-u1", "a-b1", "a-u2"], "新指令位于第三行时旧锚停留、不顶替");
+assert.equal(shortNoReplace[0].anchor, true, "旧锚停留至新指令滚动至第二行");
+assert.equal(refilled[0].anchor, true, "恢复后新指令保持第一行锚行");
 // limit 边界：max=1 时窗口收缩为空、仅锚行一行
 const tinyWindow = foldedConversationTimeline({ chat: { order: anchorBaseOrder, nodes: { get: (key) => anchorNodes.get(key) } } }, 1);
-assert.equal(tinyWindow.length, 1, "max=1 时总行数 1：锚行独占、窗口收缩为空（R-01-012/AC-13）");
-assert.equal(tinyWindow[0].anchor, true, "max=1 时锚行仍停留首行（R-01-012/AC-13）");
-assert.equal(tinyWindow[0].text, "修复登录页", "max=1 时锚行内容正确（R-01-012/AC-13）");
-// AC-15 负向：空文本用户行不参与停留与顶替，仅作为普通显示行滚动
+assert.equal(tinyWindow.length, 1, "max=1 时总行数 1：锚行独占、窗口收缩为空");
+assert.equal(tinyWindow[0].anchor, true, "max=1 时锚行仍停留首行");
+assert.equal(tinyWindow[0].text, "修复登录页", "max=1 时锚行内容正确");
+//  负向：空文本用户行不参与停留与顶替，仅作为普通显示行滚动
 const emptyHeadNodes = new Map(anchorNodes);
 emptyHeadNodes.set("a-e2", { key: "a-e2", kind: "user", anchorSeq: 7, data: { content: [{ type: "text", text: "  " }] } });
 emptyHeadNodes.set("a-b4", { key: "a-b4", kind: "assistant-step", anchorSeq: 8, data: { status: "settled", turn: 2, step: 0, blocks: [{ kind: "text", text: "正文四" }] } });
 const emptyScroll = anchorTimeline([...anchorBaseOrder, "a-e2", "a-b4"], emptyHeadNodes);
-assert.deepEqual(anchorIds(emptyScroll), ["a-u1", "a-b3", "a-e2", "a-b4"], "空文本用户行作为普通行滚动、不顶替旧锚（R-01-012/AC-15）");
-assert.equal(emptyScroll[0].text, "修复登录页", "空文本行到达后旧锚保留（R-01-012/AC-15）");
+assert.deepEqual(anchorIds(emptyScroll), ["a-u1", "a-b3", "a-e2", "a-b4"], "空文本用户行作为普通行滚动、不顶替旧锚");
+assert.equal(emptyScroll[0].text, "修复登录页", "空文本行到达后旧锚保留");
 const emptyShort = anchorTimeline(["a-e2", "a-b1"], emptyHeadNodes);
-assert.deepEqual(anchorIds(emptyShort), ["a-e2", "a-b1"], "空文本用户行在时间线内按普通显示行（R-01-012/AC-15）");
-assert.ok(emptyShort.every((row) => row.anchor !== true), "空文本用户行永不停留为锚行（R-01-012/AC-15）");
+assert.deepEqual(anchorIds(emptyShort), ["a-e2", "a-b1"], "空文本用户行在时间线内按普通显示行");
+assert.ok(emptyShort.every((row) => row.anchor !== true), "空文本用户行永不停留为锚行");
 // ×3 扩窗收集不足时经廉价前走命中窗口前的用户节点（不做全序转换）
 const longNodes = new Map([["L-u1", { key: "L-u1", kind: "user", anchorSeq: 0, data: { content: [{ type: "text", text: "深层指令" }] } }]]);
 const longOrder = ["L-u1"];
@@ -2171,8 +2159,8 @@ for (let n = 0; n < 7; n += 1) {
 	longOrder.push(bKey, tKey);
 }
 const deepAnchor = foldedConversationTimeline({ chat: { order: longOrder, nodes: { get: (key) => longNodes.get(key) } } });
-assert.equal(deepAnchor[0]?.anchor, true, "×3 扩窗收集不足时经廉价前走命中窗口前的用户节点（R-01-012/AC-12）");
-assert.equal(deepAnchor[0]?.text, "深层指令", "前走命中的锚行内容正确（R-01-012/AC-12）");
+assert.equal(deepAnchor[0]?.anchor, true, "×3 扩窗收集不足时经廉价前走命中窗口前的用户节点");
+assert.equal(deepAnchor[0]?.text, "深层指令", "前走命中的锚行内容正确");
 // steering 消息按用户输入行归一参与锚行
 const steeringAnchor = foldedConversationTimeline({
 	chat: {
@@ -2182,8 +2170,8 @@ const steeringAnchor = foldedConversationTimeline({
 			: anchorNodes.get(key) },
 	},
 });
-assert.equal(steeringAnchor[0]?.anchor, true, "steering 消息按用户输入行归一参与锚行停留（R-01-012/AC-13）");
-assert.equal(steeringAnchor[0]?.text, "插话补充", "steering 锚行内容正确（R-01-012/AC-13）");
+assert.equal(steeringAnchor[0]?.anchor, true, "steering 消息按用户输入行归一参与锚行停留");
+assert.equal(steeringAnchor[0]?.text, "插话补充", "steering 锚行内容正确");
 // hidden 用户节点不入锚
 const hiddenAnchor = foldedConversationTimeline({
 	chat: {
@@ -2193,8 +2181,8 @@ const hiddenAnchor = foldedConversationTimeline({
 			: anchorNodes.get(key) },
 	},
 });
-assert.ok(hiddenAnchor.every((row) => row.anchor !== true), "hidden 用户节点不作为指令锚行（R-01-012/AC-12）");
-// AC-13 触顶停留：更近的用户输入行滚动触顶后停留为首行锚行，旧指令行不再出现
+assert.ok(hiddenAnchor.every((row) => row.anchor !== true), "hidden 用户节点不作为指令锚行");
+//  触顶停留：更近的用户输入行滚动触顶后停留为首行锚行，旧指令行不再出现
 const switchNodes = new Map();
 const switchOrder = ["w-u1"];
 switchNodes.set("w-u1", { key: "w-u1", kind: "user", anchorSeq: 1, data: { content: [{ type: "text", text: "第一轮指令" }] } });
@@ -2205,9 +2193,9 @@ switchOrder.push("w-u2");
 for (let n = 5; n <= 9; n += 1) switchNodes.set(`w-b${n}`, { key: `w-b${n}`, kind: "assistant-step", anchorSeq: n + 2, data: { status: "settled", turn: 1, step: n, blocks: [{ kind: "text", text: `正文${n}` }] } });
 switchOrder.push("w-b5", "w-b6", "w-b7", "w-b8", "w-b9");
 const switchedAnchor = foldedConversationTimeline({ chat: { order: switchOrder, nodes: { get: (key) => switchNodes.get(key) } } });
-assert.equal(switchedAnchor[0]?.anchor, true, "更近的用户输入行滚动触顶后停留为新锚行（R-01-012/AC-13）");
-assert.equal(switchedAnchor[0]?.text, "第二轮指令", "新锚行内容为更近的用户输入行（R-01-012/AC-13）");
-assert.ok(!switchedAnchor.some((row) => row.text === "第一轮指令"), "被取代的旧指令行不再出现（R-01-012/AC-13）");
+assert.equal(switchedAnchor[0]?.anchor, true, "更近的用户输入行滚动触顶后停留为新锚行");
+assert.equal(switchedAnchor[0]?.text, "第二轮指令", "新锚行内容为更近的用户输入行");
+assert.ok(!switchedAnchor.some((row) => row.text === "第一轮指令"), "被取代的旧指令行不再出现");
 // 空文本用户输入行不作锚（前缀扫描与前走同口径）
 const emptyUserAnchor = foldedConversationTimeline({
 	chat: {
@@ -2217,8 +2205,8 @@ const emptyUserAnchor = foldedConversationTimeline({
 			: anchorNodes.get(key) },
 	},
 });
-assert.ok(emptyUserAnchor.every((row) => row.anchor !== true), "空文本用户输入行不作为指令锚行（R-01-012/AC-15）");
-// 冷 history 路径同口径指令锚行（R-01-012/AC-12）：页内全部事件折叠后套用同一窗口/锚行选择
+assert.ok(emptyUserAnchor.every((row) => row.anchor !== true), "空文本用户输入行不作为指令锚行");
+// 冷 history 路径同口径指令锚行：页内全部事件折叠后套用同一窗口/锚行选择
 const hUser = (seq, text) => ({ event: { type: "user/message", seq, data: { source: { kind: "user" }, content: [{ type: "text", text }] } } });
 const hAgent = (seq, text) => ({ event: { type: "assistant/message", seq, data: { message: { content: [{ type: "text", text }] } } } });
 const hToolCall = (seq, callId, name = "bash", argsRaw = "{}") => ({ event: { type: "tool/call", seq, data: { turn: 1, step: 0, callId, name, arguments: argsRaw } } });
@@ -2237,24 +2225,24 @@ const hToolResult = (seq, callId, { isError = false, error = null, text = "ok" }
 });
 const hToolDone = (seq) => hToolResult(seq, `hc${seq}`);
 const histAnchored = foldedHistoryTimeline([hUser(1, "冷指令"), hAgent(2, "回复一"), hToolDone(3), hToolDone(4), hAgent(5, "回复二"), hToolDone(6)]);
-assert.equal(histAnchored.length, 4, "冷 history 路径锚行计入总预算：含锚行合计不超过 4（R-01-012/AC-13）");
-assert.equal(histAnchored[0].anchor, true, "冷路径最近用户消息滚动触顶后停留为首行锚行（R-01-012/AC-13）");
-assert.equal(histAnchored[0].kind, "user", "冷路径锚行保留用户行语义（R-01-012/AC-12）");
-assert.equal(histAnchored[0].text, "冷指令", "冷路径锚行内容为最近用户消息（R-01-012/AC-13）");
-assert.ok(histAnchored.slice(1).every((row) => row.anchor !== true), "冷路径仅首行带锚标记（R-01-012/AC-13）");
+assert.equal(histAnchored.length, 4, "冷 history 路径锚行计入总预算：含锚行合计不超过 4");
+assert.equal(histAnchored[0].anchor, true, "冷路径最近用户消息滚动触顶后停留为首行锚行");
+assert.equal(histAnchored[0].kind, "user", "冷路径锚行保留用户行语义");
+assert.equal(histAnchored[0].text, "冷指令", "冷路径锚行内容为最近用户消息");
+assert.ok(histAnchored.slice(1).every((row) => row.anchor !== true), "冷路径仅首行带锚标记");
 const histInWindow = foldedHistoryTimeline([hUser(1, "近指令"), hAgent(2, "回复")]);
-assert.equal(histInWindow.length, 2, "冷路径短时间线全量展示（R-01-012/AC-12）");
-assert.equal(histInWindow[0].anchor, true, "冷路径用户消息占据第一行即停留为锚行（R-01-012/AC-13）");
+assert.equal(histInWindow.length, 2, "冷路径短时间线全量展示");
+assert.equal(histInWindow[0].anchor, true, "冷路径用户消息占据第一行即停留为锚行");
 assert.ok(foldedHistoryTimeline([hAgent(1, "仅回复"), hToolDone(2)]).every((row) => row.anchor !== true), "history 无用户消息时不造锚行");
-// ---- R-01-016/AC-01 回归：冷 history 路径 tool/result 按 canonical 形状落定同 callId 的 tool/call 项——
+// ---- 回归：冷 history 路径 tool/result 按 canonical 形状落定同 callId 的 tool/call 项——
 //     已完成会话的等待卡时间线不残留 running 行（修复前 call 项永久 running，被活动保留逻辑钉为尾行蓝闪，
-//     违反 R-01-009/AC-09「仅执行中行闪烁」与 AC-10「非运行中不适用尾部提升」的呈现前提）----
+//     违反 「仅执行中行闪烁」与 「非运行中不适用尾部提升」的呈现前提）----
 const coldPair = conversationTimelineFromHistory([hToolCall(1, "hc1"), hToolResult(2, "hc1")], 10);
 assert.equal(coldPair.length, 1, "history 中同 callId 的 call/result 配对为一项，不产生重复行");
 assert.equal(coldPair[0].status, "done", "结果到达后调用项落定 done，不残留 running");
 assert.equal(coldPair[0].label, "Bash", "配对项沿用 call 事件的工具名（result 事件不携带 name/arguments）");
 const coldDoneCard = foldedHistoryTimeline([hUser(1, "任务"), hToolCall(2, "hc2"), hToolResult(3, "hc2"), hAgent(4, "完成")]);
-assert.ok(coldDoneCard.length > 0 && coldDoneCard.every((row) => row.status !== "running"), "已完成会话冷时间线无 running 行：等待卡尾行不蓝闪（R-01-016/AC-01）");
+assert.ok(coldDoneCard.length > 0 && coldDoneCard.every((row) => row.status !== "running"), "已完成会话冷时间线无 running 行：等待卡尾行不蓝闪");
 const coldError = conversationTimelineFromHistory([hToolCall(1, "hc3"), hToolResult(2, "hc3", { isError: true, text: "boom\nstack" })], 10);
 assert.equal(coldError[0].status, "error", "isError 结果落定 error");
 assert.equal(coldError[0].summary, "boom", "error 摘要取结果内容首行（原生 resultText 语义）");
@@ -2265,7 +2253,7 @@ assert.equal(coldOrphan.length, 1, "call 在窗口外的孤儿 result 仍成行�
 assert.equal(coldOrphan[0].status, "done", "孤儿 result 落定 done，不造 running 行");
 // ---- V3 log 路径行为证据（T-123 dsh 0.1.5 适配）：0.1.5 无独立 context 事件，非用户 source 的
 // user/message 即宿主 ContextMessageNode；流式期间 eventSource 以 transient assistant/live-chunk
-// 条目携带增量，须累积为 running live 行（否则运行卡无 running 圆点，R-01-009/AC-09 呈现缺失）----
+// 条目携带增量，须累积为 running live 行（否则运行卡无 running 圆点， 呈现缺失）----
 const hContext = (seq, source, text = "上下文正文") => ({ event: { type: "user/message", seq, data: { source, content: [{ type: "text", text }] } } });
 const ctxInject = conversationTimelineFromHistory([
 	hUser(1, "指令"),
@@ -2297,19 +2285,19 @@ assert.equal(streamingReasoning[0].text, "", "reasoning-delta 不混入正文");
 const settledStream = foldedHistoryTimeline([hUser(1, "流式指令"), hAgent(2, "最终回复")], 10);
 assert.ok(settledStream.every((row) => row.status !== "running"), "回合落定后 transient 条目出窗，无 running 残留");
 // 阻塞等待呈现（settleIdle）：折叠前落定残留 running 行，组标题/状态由已定案成员派生
-// （快照路径 settleWhenIdle 前置语义对齐，R-01-009/AC-09「仅执行中行闪烁」）。
+// （快照路径 settleWhenIdle 前置语义对齐，「仅执行中行闪烁」）。
 const blockedAskRunning = foldedHistoryTimeline([hUser(1, "指令"), hToolCall(2, "ha")], 10);
 assert.equal(blockedAskRunning.at(-1).label, "运行", "未落定呈现保留「运行」组标题");
 const blockedAskSettled = foldedHistoryTimeline([hUser(1, "指令"), hToolCall(2, "ha")], 10, "", true);
 assert.equal(blockedAskSettled.at(-1).status, "done", "阻塞等待呈现下折叠前落定残留 running 行");
 assert.equal(blockedAskSettled.at(-1).label, "运行了命令", "落定后组标题由已定案成员派生（非「运行」）");
-// historyInstructionAnchor：尾扫最近一条非空文本真实用户消息（R-01-012/AC-12 快照窗口外兜底）
+// historyInstructionAnchor：尾扫最近一条非空文本真实用户消息（快照窗口外兜底）
 assert.equal(historyInstructionAnchor([hUser(1, "旧指令"), hAgent(2, "回复"), hUser(3, "新指令")])?.text, "新指令", "锚行取最近一条用户消息");
 assert.equal(historyInstructionAnchor([hUser(1, "  "), hAgent(2, "回复")]), null, "空文本用户消息不作锚");
 assert.equal(historyInstructionAnchor([{ event: { type: "user/message", seq: 1, data: { source: { kind: "recall" }, content: [{ type: "text", text: "召回" }] } } }]), null, "非真实用户来源不作锚");
 assert.equal(historyInstructionAnchor([hAgent(1, "仅回复")]), null, "无用户消息返回 null");
 assert.equal(historyInstructionAnchor(null), null, "非数组输入归一 null");
-// history fallback anchor 作为 foldedConversationTimeline 的显式输入（R-01-012/AC-12、C-035、C-039）。
+// history fallback anchor 作为 foldedConversationTimeline 的显式输入（C-035、C-039）。
 const anchorRow = historyInstructionAnchor([hUser(9, "兜底指令")]);
 // C-039：快照窗口内有新指令但旧锚已滚出尾窗时，fallbackAnchor 充当停留锚行，新指令自末尾参与滚动
 const fallScrollNodes = new Map(anchorNodes);
@@ -2322,8 +2310,8 @@ const fallScroll = foldedConversationTimeline(
 	false,
 	anchorRow,
 );
-assert.deepEqual(fallScroll.map((row) => row.id), [anchorRow.id, "fold:work:a-t1", "a-b2", "a-u2"], "窗口外旧锚经 fallback 停留首行，新指令末尾进入不清空（R-01-012/AC-12、AC-14）");
-assert.equal(fallScroll.at(-1).anchor ?? false, false, "新指令未达第二行前不带锚标记（R-01-012/AC-15）");
+assert.deepEqual(fallScroll.map((row) => row.id), [anchorRow.id, "fold:work:a-t1", "a-b2", "a-u2"], "窗口外旧锚经 fallback 停留首行，新指令末尾进入不清空");
+assert.equal(fallScroll.at(-1).anchor ?? false, false, "新指令未达第二行前不带锚标记");
 // fallback 与窗口内最近用户行同文本时判为同一消息：不双行、不顶替
 const sameTextAnchor = historyInstructionAnchor([hUser(9, "追加指令")]);
 const fallDedup = foldedConversationTimeline(
@@ -2334,9 +2322,9 @@ const fallDedup = foldedConversationTimeline(
 	false,
 	sameTextAnchor,
 );
-assert.deepEqual(fallDedup.map((row) => row.id), ["a-b1", "fold:work:a-t1", "a-b2", "a-u2"], "fallback 与窗口内用户行同消息时不产生双行（R-01-012/AC-15）");
-assert.ok(fallDedup.every((row) => row.anchor !== true), "同消息 fallback 不造锚行（R-01-012/AC-15）");
-// fallback 充当的停留锚行同样被滚动至第二行的新指令顶替（AC-15 统一口径）
+assert.deepEqual(fallDedup.map((row) => row.id), ["a-b1", "fold:work:a-t1", "a-b2", "a-u2"], "fallback 与窗口内用户行同消息时不产生双行");
+assert.ok(fallDedup.every((row) => row.anchor !== true), "同消息 fallback 不造锚行");
+// fallback 充当的停留锚行同样被滚动至第二行的新指令顶替（统一口径）
 const fallReplaced = foldedConversationTimeline(
 	{ chat: { order: ["a-b1", "a-t1", "a-u2", "a-b2", "a-b3"], nodes: { get: (key) => fallScrollNodes.get(key) } }, running: true, pending: [] },
 	4,
@@ -2345,19 +2333,19 @@ const fallReplaced = foldedConversationTimeline(
 	false,
 	anchorRow,
 );
-assert.deepEqual(fallReplaced.map((row) => row.id), ["a-u2", "a-b2", "a-b3"], "fallback 停留锚行被滚动至第二行的新指令顶替、暂减一行（R-01-012/AC-15）");
-assert.equal(fallReplaced[0].anchor, true, "顶替 fallback 的新指令停留为第一行锚行（R-01-012/AC-15）");
-// R-01-009/AC-11 与自然窗口共存：首行用户行停留为锚行，真实 running 行保留末行
+assert.deepEqual(fallReplaced.map((row) => row.id), ["a-u2", "a-b2", "a-b3"], "fallback 停留锚行被滚动至第二行的新指令顶替、暂减一行");
+assert.equal(fallReplaced[0].anchor, true, "顶替 fallback 的新指令停留为第一行锚行");
+//  与自然窗口共存：首行用户行停留为锚行，真实 running 行保留末行
 const natLiveNodes = new Map(anchorNodes);
 natLiveNodes.set("a-live", { key: "a-live", kind: "assistant-step", anchorSeq: 7, data: { status: "running", turn: 2, step: 0, blocks: [{ kind: "reasoning", text: "正在执行的内容" }] } });
 const natLive = foldedConversationTimeline(
 	{ chat: { order: ["a-u1", "a-b1", "a-live"], nodes: { get: (key) => natLiveNodes.get(key) } }, running: true, pending: [] },
 );
-assert.equal(natLive[0]?.anchor, true, "自然窗口首行用户行停留为锚行（R-01-012/AC-13）");
-assert.equal(natLive.at(-1)?.status, "running", "真实 running 行保留末行（R-01-009/AC-11）");
-assert.equal(natLive.at(-1)?.summary, "正在执行的内容", "末行保留真实活动文字（R-01-009/AC-11）");
+assert.equal(natLive[0]?.anchor, true, "自然窗口首行用户行停留为锚行");
+assert.equal(natLive.at(-1)?.status, "running", "真实 running 行保留末行");
+assert.equal(natLive.at(-1)?.summary, "正在执行的内容", "末行保留真实活动文字");
 
-// R-01-009/AC-11：history 锚行参与核心单次选择，真实 running 行即使位于四工作行首位也必须保留为末行。
+// history 锚行参与核心单次选择，真实 running 行即使位于四工作行首位也必须保留为末行。
 const fallbackActivityNodes = new Map([
 	["live-first", { key: "live-first", kind: "assistant-step", data: { status: "running", turn: 2, step: 0, blocks: [{ kind: "reasoning", text: "真正当前正在执行的内容" }] } }],
 	["done-1", { key: "done-1", kind: "assistant-step", data: { status: "settled", turn: 2, step: 1, blocks: [{ kind: "text", text: "较新完成消息一" }] } }],
@@ -2372,9 +2360,9 @@ const fallbackActivity = foldedConversationTimeline(
 	false,
 	anchorRow,
 );
-assert.deepEqual(fallbackActivity.map((row) => row.id), [anchorRow.id, "done-2", "done-3", "fold:work:live-first"], "history 锚行 + 最近两条历史工作行 + 真实活动末行，总计 4 行（R-01-009/AC-11、R-01-012/AC-12）");
-assert.equal(fallbackActivity.at(-1)?.summary, "真正当前正在执行的内容", "末行保留真实活动文字，不由旧尾内容冒充（R-01-009/AC-11）");
-assert.equal(fallbackActivity.at(-1)?.status, "running", "真实当前活动末行保持 running 蓝闪状态（R-01-009/AC-11）");
+assert.deepEqual(fallbackActivity.map((row) => row.id), [anchorRow.id, "done-2", "done-3", "fold:work:live-first"], "history 锚行 + 最近两条历史工作行 + 真实活动末行，总计 4 行");
+assert.equal(fallbackActivity.at(-1)?.summary, "真正当前正在执行的内容", "末行保留真实活动文字，不由旧尾内容冒充");
+assert.equal(fallbackActivity.at(-1)?.status, "running", "真实当前活动末行保持 running 蓝闪状态");
 // 多个真实 live 显示行共存时，最新 live 分组占据末行，较早 live 行只参与剩余历史名额。
 const multiLiveNodes = new Map([
 	["multi-done-1", { key: "multi-done-1", kind: "assistant-step", data: { status: "settled", turn: 4, step: 1, blocks: [{ kind: "text", text: "多 live 前完成一" }] } }],
@@ -2394,11 +2382,11 @@ const multiLive = foldedConversationTimeline(
 	false,
 	anchorRow,
 );
-assert.equal(multiLive.length, 4, "多个 live 行与锚行仍遵守四行总预算（R-01-009/AC-11、R-01-012/AC-12）");
-assert.equal(multiLive.filter((row) => row.live === true && row.status === "running").length, 2, "partial 与 running call 的真实 live 身份穿透折叠层（R-01-009/AC-11）");
-assert.equal(multiLive.at(-1)?.id, "fold:work:live-call", "多个 live 行取最新 live 分组置于末行（R-01-009/AC-11）");
-assert.equal(multiLive.at(-1)?.summary, "pnpm check", "最新 live 分组末行保留当前调用内容（R-01-009/AC-11）");
-// 无真实 running 时仍保留 AC-10 尾部持续标志，但 history 锚行与工作预算由同一选择完成。
+assert.equal(multiLive.length, 4, "多个 live 行与锚行仍遵守四行总预算");
+assert.equal(multiLive.filter((row) => row.live === true && row.status === "running").length, 2, "partial 与 running call 的真实 live 身份穿透折叠层");
+assert.equal(multiLive.at(-1)?.id, "fold:work:live-call", "多个 live 行取最新 live 分组置于末行");
+assert.equal(multiLive.at(-1)?.summary, "pnpm check", "最新 live 分组末行保留当前调用内容");
+// 无真实 running 时仍保留  尾部持续标志，但 history 锚行与工作预算由同一选择完成。
 const fallbackPromotedNodes = new Map(Array.from({ length: 4 }, (_, index) => {
 	const n = index + 1;
 	return [`fallback-done-${n}`, { key: `fallback-done-${n}`, kind: "assistant-step", data: { status: "settled", turn: 3, step: n, blocks: [{ kind: "text", text: `完成消息${n}` }] } }];
@@ -2411,11 +2399,11 @@ const fallbackPromoted = foldedConversationTimeline(
 	false,
 	anchorRow,
 );
-assert.deepEqual(fallbackPromoted.map((row) => row.id), [anchorRow.id, "fallback-done-2", "fallback-done-3", "fallback-done-4"], "history 锚行占一格，最近三工作行回填（R-01-012/AC-12）");
-assert.equal(fallbackPromoted.at(-1)?.status, "running", "无真实活动行时仅提升所选末行作为持续标志（R-01-009/AC-10）");
+assert.deepEqual(fallbackPromoted.map((row) => row.id), [anchorRow.id, "fallback-done-2", "fallback-done-3", "fallback-done-4"], "history 锚行占一格，最近三工作行回填");
+assert.equal(fallbackPromoted.at(-1)?.status, "running", "无真实活动行时仅提升所选末行作为持续标志");
 
 
-// ---- R-01-009/AC-04 工具动作摘要镜像主会话窗口 deriveSummary 语义（可含原始命令）----
+// ---- 工具动作摘要镜像主会话窗口 deriveSummary 语义（可含原始命令）----
 assert.equal(
 	summarizeToolArguments("bash", '{"command":"rm -rf /","description":"清理目录"}'),
 	"清理目录",
@@ -2463,7 +2451,7 @@ assert.equal(cleanPreview("  a   b "), "a b", "摘要文本折叠空白");
 assert.equal(cleanPreview("", 10), null, "空文本返回 null");
 assert.equal(cleanPreview("x".repeat(100), 88)?.length, 88, "超长摘要在 88 字符内截断");
 
-// ---- R-01-009/AC-05 输出 token 计数与速率 ----
+// ---- 输出 token 计数与速率 ----
 assert.equal(fmtTokens(847), "847", "千以下原样计数");
 assert.equal(fmtTokens(1200), "1.2K", "千级一位小数（大写，镜像原生）");
 assert.equal(fmtTokens(51_700), "51.7K", "万级缩写");
@@ -2486,7 +2474,7 @@ assert.deepEqual(
 		47_000,
 	),
 	{ elapsedMs: 47_000, outputTokens: 144, rateTokS: 48, inputTokens: 130, cacheHitPct: 15 },
-	"最近卡复用列表投影派生 tok/s、缓存、输入/输出与固定耗时（R-01-013/AC-12）",
+	"最近卡复用列表投影派生 tok/s、缓存、输入/输出与固定耗时",
 );
 assert.deepEqual(
 	mergeRuntimeStats(
@@ -2494,7 +2482,7 @@ assert.deepEqual(
 		{ outputTokens: 96, inputTokens: 12, cacheHitPct: 40, rateTokS: 8 },
 	),
 	{ outputTokens: 96, inputTokens: 24, cacheHitPct: 40, rateTokS: 8 },
-	"等待/运行统计按字段回退，缺失投影不覆盖最后已知有效值（R-01-009/AC-13）",
+	"等待/运行统计按字段回退，缺失投影不覆盖最后已知有效值",
 );
 assert.deepEqual(
 	mergeRuntimeStats(
@@ -2502,9 +2490,9 @@ assert.deepEqual(
 		{ outputTokens: 96, inputTokens: 12, cacheHitPct: 40, rateTokS: 8 },
 	),
 	{ outputTokens: 0, inputTokens: 0, cacheHitPct: 0, rateTokS: 8 },
-	"统计合并保留有效的零值，仅对缺失字段回退（R-01-009/AC-13）",
+	"统计合并保留有效的零值，仅对缺失字段回退",
 );
-// R-01-009/AC-15 暂停子代理卡的冻结口径与等待卡共用同一合并语义：
+//  暂停子代理卡的冻结口径与等待卡共用同一合并语义
 // 当前投影缺失的字段保留暂停前最后已知值，均缺失时回退当前投影，不伪造 0。
 assert.deepEqual(
 	mergeRuntimeStats(
@@ -2512,12 +2500,12 @@ assert.deepEqual(
 		{ outputTokens: null, inputTokens: 1, cacheHitPct: null, rateTokS: 5 },
 	),
 	{ outputTokens: 512, inputTokens: 900, cacheHitPct: 62, rateTokS: 32 },
-	"暂停子代理卡冻结暂停前最后已知统计，缺失字段才回退当前投影（R-01-009/AC-15）",
+	"暂停子代理卡冻结暂停前最后已知统计，缺失字段才回退当前投影",
 );
 assert.deepEqual(
 	usageSummary({ uncachedInputTokens: 100, cacheReadTokens: 700, cacheWriteTokens: 200 }),
 	{ inputTokens: 1_000, cacheHitPct: 70 },
-	"计费输入=未缓存+读+写，命中率=读÷计费输入四舍五入（R-01-009/AC-05）",
+	"计费输入=未缓存+读+写，命中率=读÷计费输入四舍五入",
 );
 assert.deepEqual(
 	usageSummary({ uncachedInputTokens: 50 }),
@@ -2536,7 +2524,7 @@ assert.deepEqual(
 	"非法桶不计入，全非法归一为空",
 );
 
-// ---- R-01-009/AC-06 回合进度：y = t/(t+k)，半衰期每帧按最新实测速率校准、允许回退（C-014、C-025、C-044）----
+// ---- 回合进度：y = t/(t+k)，半衰期每帧按最新实测速率校准、允许回退（C-014、C-025、C-044）----
 assert.equal(progressOf({ elapsedMs: 0 }), 0, "回合起点过原点 0%");
 assert.equal(progressOf({ elapsedMs: 120_000 }), 18.2, "无速率保守默认半衰期 540s（20 tok/s 起步基准）2 分钟显示 18.2%");
 assert.equal(progressOf({ elapsedMs: 360_000 }), 40, "保守默认下 6 分钟显示 40%");
@@ -2571,8 +2559,8 @@ assert.ok(
 		progressHalfLifeSec({ rateTokS: -5 }) === 540,
 	"非法/非正速率回退保守默认 540s",
 );
-// 注：R-01-009/AC-06 的"回合切换归零重计"由渲染层 turnTimings 新回合起点保证，属 GUI 验收项（scripts/acceptance.mjs）。
-// ---- R-01-009/AC-06 委托周期进度锚点：周期内连续、周期外回合切换归零 ----
+// 注： 的"回合切换归零重计"由渲染层 turnTimings 新回合起点保证，属 GUI 验收项（scripts/acceptance.mjs）。
+// ---- 委托周期进度锚点：周期内连续、周期外回合切换归零 ----
 const anchorIdle = progressAnchor(null, { descendantActive: false, hostStartTime: null, now: 1000 });
 assert.deepEqual(anchorIdle, { mode: "idle", anchor: null, turnStart: null, drainedAt: null }, "无后代无回合为 idle");
 const anchorTurnA = progressAnchor(anchorIdle, { descendantActive: false, hostStartTime: 1000, now: 1000 });
@@ -2617,7 +2605,7 @@ assert.equal(
 	91001,
 	"耗尽宽限超时后开始的新回合归零重计",
 );
-// 冷窗口回合起点兜底（R-01-009/AC-06）：history 事件尾扫——尾部最近边界为 turn/start 即开放回合起点
+// 冷窗口回合起点兜底：history 事件尾扫——尾部最近边界为 turn/start 即开放回合起点
 const turnStartEv = (seq, turn, time) => ({ event: { type: "turn/start", seq, time, data: { turn } } });
 const turnEndEv = (seq, turn, time) => ({ event: { type: "turn/end", seq, time, data: { turn } } });
 assert.equal(
@@ -2638,7 +2626,7 @@ assert.equal(
 assert.equal(openTurnStartFromEvents([turnStartEv(1, 1, Number.NaN)]), null, "turn/start 时刻非法时无可用起点");
 assert.equal(openTurnStartFromEvents([]), null, "空事件无开放回合起点");
 assert.equal(openTurnStartFromEvents(null), null, "非数组输入归一 null");
-// ---- R-01-009/AC-07 工作项时间线的状态与主会话窗口语义摘要（无行级耗时，C-012）----
+// ---- 工作项时间线的状态与主会话窗口语义摘要（无行级耗时，C-012）----
 const statusTimeline = conversationWorkItems({
 	chat: {
 		order: ["t1", "t2"],
@@ -2662,7 +2650,7 @@ const runningTimeline = conversationWorkItems({
 });
 assert.equal(runningTimeline[0].status, "running", "进行中工具调用状态为 running");
 assert.equal(runningTimeline[0].detail, "dsh", "进行中工具参数摘要按 search variant 参数键取 query");
-// R-01-009/AC-10 重构等价性钉住（评审）：live 项存在时不提升尾部 done 项——
+//  重构等价性钉住（评审）：live 项存在时不提升尾部 done 项——
 // 旧守卫 liveItems.length===0 与现守卫 !some(running) 在可达语义上等价
 // （live 项恒为 running：partial 硬编码 running，runningCalls 无 result kind）。
 const livePlusTail = conversationWorkItems({
@@ -2673,7 +2661,7 @@ assert.equal(livePlusTail.length, 2, "live 项并入窗口尾部");
 assert.equal(livePlusTail[1].id, "rc2", "尾项为 live 工具项");
 assert.equal(livePlusTail[1].status, "running", "live 存在时不克隆提升尾部已定案项（等价性回归）");
 
-// ---- R-01-009/AC-10 运行中无 live 项时尾部非用户已定案项提升为 running（agent 工作标志）----
+// ---- 运行中无 live 项时尾部非用户已定案项提升为 running（agent 工作标志）----
 const idleGapSnapshot = {
 	chat: {
 		order: ["t1"],
@@ -2689,7 +2677,7 @@ assert.equal(idleGapSettled[0].status, "done", "非运行中尾部已定案项�
 assert.notEqual(idleGapTimeline[0], idleGapSettled[0], "提升产出克隆而非复用原引用");
 const pendingIdle = conversationWorkItems({ ...idleGapSnapshot, pending: [{ kind: "approval" }] });
 assert.equal(pendingIdle[0].status, "done", "等待用户行动时尾部不提升");
-// pending 期间残留 running 行全部落定：等待卡时间线不再闪烁（R-01-016）。
+// pending 期间残留 running 行全部落定：等待卡时间线不再闪烁。
 const pendingRunning = foldedConversationTimeline({
 	chat: { order: ["p1"], nodes: { get: () => ({ kind: "assistant-step", data: { status: "running", turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "被打断的思考" }] } }) } },
 	running: false,
@@ -2697,7 +2685,7 @@ const pendingRunning = foldedConversationTimeline({
 }, 4, "");
 assert.ok(pendingRunning.length > 0 && pendingRunning.every((row) => row.status !== "running"), "pending 期间无执行中显示行（不闪烁）");
 assert.equal(pendingRunning.at(-1)?.status, "done", "pending 残留 running 行落定为 done");
-// 正文流出 ⇒ 推理落定：live 正文行保持 running，拆入组的思考成员落定（R-01-017/AC-02）。
+// 正文流出 ⇒ 推理落定：live 正文行保持 running，拆入组的思考成员落定。
 const liveTextFold = foldedConversationTimeline({
 	chat: { order: [], nodes: { get: () => null } },
 	running: true,
@@ -2707,7 +2695,7 @@ const liveTextBody = liveTextFold.at(-1);
 const liveTextGroup = liveTextFold.find((row) => row.fold === true);
 assert.equal(liveTextBody?.status, "running", "流式正文行保持 running（真实在飞项）");
 assert.ok(liveTextGroup !== undefined && liveTextGroup.status === "done", "正文流出后思考组落定，不与正文行同闪");
-// 渲染层 idle 判定路径：等待卡使用冻结快照（running=true、无 pending 字段），idle=true 时残留 running 行同样落定（R-01-016）。
+// 渲染层 idle 判定路径：等待卡使用冻结快照（running=true、无 pending 字段），idle=true 时残留 running 行同样落定。
 const frozenSnap = {
 	chat: { order: ["f1"], nodes: { get: () => ({ kind: "assistant-step", data: { status: "running", turn: 1, step: 0, blocks: [{ kind: "reasoning", text: "冻结时的思考" }] } }) } },
 	running: true,
@@ -2716,13 +2704,13 @@ const frozenIdle = foldedConversationTimeline(frozenSnap, 4, "", false, true);
 assert.ok(frozenIdle.length > 0 && frozenIdle.every((row) => row.status !== "running"), "idle=true 时冻结快照残留 running 行全部落定");
 const frozenLive = foldedConversationTimeline(frozenSnap, 4, "", false, false);
 assert.ok(frozenLive.some((row) => row.status === "running"), "idle=false 时冻结快照保持原状态（运行卡实时路径不受影响）");
-// 委托周期（存在活动后代）视同运行中：尾部提升继续（R-01-009/AC-10）。
+// 委托周期（存在活动后代）视同运行中：尾部提升继续。
 const delegatingFold = foldedConversationTimeline({ ...idleGapSnapshot, running: false }, 4, "", true);
 assert.equal(delegatingFold[0].status, "running", "委托周期中尾部已定案项同样提升为 running");
-// pending + 活动后代：快照级 idle 落定让位于委托语义（R-01-016 例外、R-01-009/AC-10）。
+// pending + 活动后代：快照级 idle 落定让位于委托语义（例外）。
 const pendingDescendant = foldedConversationTimeline({ ...frozenSnap, pending: [{ kind: "approval" }] }, 4, "", true);
 assert.ok(pendingDescendant.some((row) => row.status === "running"), "pending 且后代活跃时快照 idle 落定不生效（保留在飞呈现）");
-// 落定在分组之前：组标题由已定案成员派生，不出现 done 圆点配「思考」（R-01-017/AC-03）。
+// 落定在分组之前：组标题由已定案成员派生，不出现 done 圆点配「思考」。
 assert.equal(frozenIdle.at(-1)?.label, "已思考", "idle 落定后组标题随成员落定（不再显示「思考」）");
 const nonDelegatingFold = foldedConversationTimeline({ ...idleGapSnapshot, running: false }, 4);
 assert.equal(nonDelegatingFold[0].status, "done", "非运行且非委托周期尾部不提升");
@@ -2757,7 +2745,7 @@ const midRunningTimeline = conversationWorkItems({
 });
 assert.deepEqual(midRunningTimeline.map((item) => item.status), ["running", "done"], "时间线已存在执行中项时尾部不再提升");
 
-// ---- R-01-012/AC-03 fallback 文字镜像原生 keyed/通用行，选中/非选中态不漂移 ----
+// ---- fallback 文字镜像原生 keyed/通用行，选中/非选中态不漂移 ----
 const todoItem = conversationWorkItems({
 	chat: { order: ["td"], nodes: { get: () => ({ kind: "tool-call", data: { root: { kind: "tool-result", callId: "td1", call: { name: "todo_write", argsRaw: '{"todos":[{"content":"写代码","status":"completed"},{"content":"写测试","status":"in_progress"},{"content":"部署","status":"pending"}]}' }, isError: false } } }) } },
 })[0];
@@ -2829,7 +2817,6 @@ const contextNoProvenance = conversationWorkItems({
 })[0];
 assert.equal(contextNoProvenance.label, "上下文注入", "provenance 缺失时回退注入标题（镜像原生 unreadable 兜底）");
 assert.equal(contextNoProvenance.summary, "", "无来源标识时摘要为空，注入内容原文不上卡");
-// R-01-012/AC-02
 const unlocatedPartial = conversationWorkItems({
 	chat: {
 		order: ["a", "u"],
@@ -2847,14 +2834,12 @@ assert.deepEqual(
 	["旧回复", "问题", "流式中"],
 	"partial 定位缺省（无 turn/step）时不误摘除无定位 assistant 节点",
 );
-// R-01-012/AC-02
 assert.deepEqual(conversationWorkItems(chatSnapshot, 0), [], "limit=0 返回空时间线");
 assert.deepEqual(
 	conversationWorkItems({ chat: { order: [], nodes: { get: () => undefined } } }),
 	[],
 	"空 order 返回空时间线",
 );
-// R-01-013/AC-03、R-01-013/AC-04
 assert.deepEqual(
 	messagePreviews({
 		snapshot: {
@@ -2902,7 +2887,6 @@ assert.equal(
 	"已定案回复",
 	"partial 为空块时回退已定案回复，不被空 live 项遮蔽",
 );
-// R-01-013/AC-03、R-01-013/AC-04
 assert.deepEqual(
 	messagePreviews({
 		history: [
@@ -2926,7 +2910,7 @@ assert.deepEqual(
 	"深翻累计事件：新页消息不被旧页遮蔽",
 );
 
-// ---- R-01-014/AC-05、R-01-013/AC-03、AC-04 回溯翻页序列：一直向前翻到命中最近用户消息或翻尽 ----
+// ---- 回溯翻页序列：一直向前翻到命中最近用户消息或翻尽 ----
 const pageOf = (events, hasMore) => ({ events, hasMore });
 const userEvent = (seq, text) => ({ event: { type: "user/message", seq, data: { source: { kind: "user" }, content: [{ type: "text", text }] } } });
 const agentEvent = (seq, text) => ({ event: { type: "assistant/message", seq, data: { message: { content: [{ type: "text", text }] } } } });
@@ -2957,7 +2941,7 @@ const toolEvent = (seq) => ({ event: { type: "tool/call", seq, data: { callId: `
 		"回溯后预览取自更早页",
 	);
 }
-// R-01-013/AC-03 回溯承诺：一直向前翻，直到命中最近一条用户消息——
+//  回溯承诺：一直向前翻，直到命中最近一条用户消息——
 // 实证约 28% 会话的最后用户消息距尾部 >150 事件（旧 3 页上限外）。
 {
 	const calls = [];
@@ -3025,7 +3009,7 @@ const toolEvent = (seq) => ({ event: { type: "tool/call", seq, data: { callId: `
 	assert.equal(calls, 2, "业务错误（null）即停止");
 	assert.equal(result.events.length, 1, "业务错误前已得事件保留");
 }
-// requireOpenTurnStart（R-01-009/AC-06 冷窗口兜底）：用户消息命中但开放回合起点未命中时继续回溯
+// requireOpenTurnStart（冷窗口兜底）：用户消息命中但开放回合起点未命中时继续回溯
 {
 	const calls = [];
 	const fetchPage = async (beforeSeq) => {
@@ -3034,7 +3018,7 @@ const toolEvent = (seq) => ({ event: { type: "tool/call", seq, data: { callId: `
 		return pageOf([{ event: { type: "turn/start", seq: 1, time: 1000, data: { turn: 1 } } }, toolEvent(2)], false);
 	};
 	const result = await pagedHistoryEvents({ fetchPage, requireOpenTurnStart: true });
-	assert.equal(calls.length, 2, "用户消息命中但无开放回合起点时继续回溯（R-01-009/AC-06）");
+	assert.equal(calls.length, 2, "用户消息命中但无开放回合起点时继续回溯");
 	assert.equal(openTurnStartFromEvents(result.events), 1000, "回溯命中开放回合起点时刻");
 }
 {
@@ -3046,7 +3030,7 @@ const toolEvent = (seq) => ({ event: { type: "tool/call", seq, data: { callId: `
 	await pagedHistoryEvents({ fetchPage, requireOpenTurnStart: true });
 	assert.equal(calls, 2, "无开放回合起点且翻尽（hasMore=false）即止，不以固定页数截断");
 }
-// R-01-013/AC-03、AC-04 多页取序：回溯组合的多页事件按旧→新排列，预览必须取最近命中而非最早
+//  多页取序：回溯组合的多页事件按旧→新排列，预览必须取最近命中而非最早
 {
 	assert.deepEqual(
 		messagePreviews({
@@ -3064,7 +3048,7 @@ const toolEvent = (seq) => ({ event: { type: "tool/call", seq, data: { callId: `
 	);
 }
 
-// ---- R-02-003/AC-01 富卡字段并入签名后，进度/轨迹变化必触重重绘 ----
+// ---- 富卡字段并入签名后，进度/轨迹变化必触重重绘 ----
 assert.notEqual(
 	cardSignature([...entries, { ...entries[0], progress: 42 }]),
 	cardSignature(entries),
@@ -3085,7 +3069,7 @@ assert.notEqual(
 	cardSignature(entries),
 	"缓存命中率变化签名必变",
 );
-// ---- R-01-010/AC-01 非活动主会话→最近历史区（不设时间窗口） ----
+// ---- 非活动主会话→最近历史区（不设时间窗口） ----
 const RECENT_PAGE_SIZE = 10;
 const NOW = 2_000_000_000_000; // 固定时钟便于确定性断言
 // 注意：completed:true 的主会话是"待打开"的活动卡（在活动区），不属历史区；
@@ -3102,7 +3086,7 @@ const recentSnap = {
 	},
 	current: null,
 };
-// R-01-001/AC-01、R-01-002/AC-03（C-030）：宿主 completed 边沿标志本身不再驱动显示——
+// （C-030）：宿主 completed 边沿标志本身不再驱动显示——
 // 无完成登记（completions 无记录）时 completed 行视为不活动，落入历史区。
 const recentUncompleted = buildRecent({ snapshot: recentSnap, workspaceItems: [], now: NOW });
 assert.deepEqual(
@@ -3110,7 +3094,7 @@ assert.deepEqual(
 	["sAwait", "sB", "sOld"],
 	"completed 边沿标志不参与活动/历史判定；无完成登记时所有非活动主会话均入历史区（C-030）",
 );
-// 完成登记存在时（未确认完成）：待开 E 显示为完成提醒并排除出历史区（AC-03、R-01-010/AC-06）。
+// 完成登记存在时（未确认完成）：待开 E 显示为完成提醒并排除出历史区。
 const recentAcks = new Map([
 	["sAwait", { lastTurnEnd: NOW - 1_000, ackedAt: null }],
 	["sAwait2", { lastTurnEnd: NOW - 900, ackedAt: NOW - 2_000 }],
@@ -3128,12 +3112,6 @@ assert.deepEqual(
 );
 assert.deepEqual(modelMetadata({}), { model: "", reasoning: "" }, "models 失败或空 payload 时模型区域为空");
 assert.deepEqual(messagePreviews({ history: [] }), { userPreview: "", agentPreview: "" }, "history 失败或空 payload 时消息预览为空");
-// R-01-013/AC-01
-// R-01-013/AC-02
-// R-01-013/AC-03
-// R-01-013/AC-04
-// R-01-013/AC-05
-// R-01-013/AC-06
 const recentWithPreviews = buildRecent({ snapshot: recentSnap, workspaceItems: [], now: NOW, detailsById: {
 	sB: {
 		model: { model: "Model M", reasoning: "High" },
@@ -3169,7 +3147,7 @@ assert.deepEqual(
 	"历史卡用户与 agent 预览取首个非空物理行",
 );
 
-// ---- R-01-010/AC-02 活动→非活动 移入历史区 ----
+// ---- 活动→非活动 移入历史区 ----
 // 同一会话：运行态时出现在活动区、不在历史区；转为非活动后从活动区消失并进入历史区。
 const activeDuringRun = buildRecent({ snapshot: {
 		ids: ["sB"],
@@ -3182,7 +3160,7 @@ assert.deepEqual(viaRunToIdle.map((e) => e.id), ["sB"], "运行中会话在活�
 const recentAfterIdle = buildRecent({ snapshot: recentSnap, workspaceItems: [], now: NOW, detailsById: {}, archivedIds: [], completions: recentAcks });
 assert.ok(recentAfterIdle.some((e) => e.id === "sB"), "转为非活动后进入历史区");
 
-// ---- R-01-010/AC-03 历史区按最后活动时间从新到旧 ----
+// ---- 历史区按最后活动时间从新到旧 ----
 const multiRecent = buildRecent({ snapshot: {
 		ids: ["r1", "r2", "r3"],
 		byId: {
@@ -3198,7 +3176,7 @@ assert.deepEqual(
 	"历史区按最后活动时间倒序",
 );
 
-// ---- R-01-019/AC-01～AC-03 历史候选不再截断，按 10 条分批呈现 ----
+// ---- 历史候选不再截断，按 10 条分批呈现 ----
 const manyRecentIds = Array.from({ length: RECENT_PAGE_SIZE * 2 + 1 }, (_, index) => `page-${index}`);
 const manyRecent = buildRecent({ snapshot: {
 		ids: manyRecentIds,
@@ -3210,21 +3188,21 @@ const manyRecent = buildRecent({ snapshot: {
 		}])),
 		current: null,
 	}, workspaceItems: [], now: NOW });
-assert.equal(manyRecent.length, manyRecentIds.length, "历史候选超过 20 条时不再被核心截断（R-01-019/AC-01）");
+assert.equal(manyRecent.length, manyRecentIds.length, "历史候选超过 20 条时不再被核心截断");
 assert.deepEqual(
 	manyRecent.slice(0, RECENT_PAGE_SIZE).map((entry) => entry.id),
 	manyRecentIds.slice(0, RECENT_PAGE_SIZE),
-	"历史首批按最近顺序取 10 条（R-01-019/AC-01）",
+	"历史首批按最近顺序取 10 条",
 );
 assert.deepEqual(
 	manyRecent.slice(RECENT_PAGE_SIZE, RECENT_PAGE_SIZE * 2).map((entry) => entry.id),
 	manyRecentIds.slice(RECENT_PAGE_SIZE, RECENT_PAGE_SIZE * 2),
-	"历史第二批紧接首批取后续 10 条（R-01-019/AC-02）",
+	"历史第二批紧接首批取后续 10 条",
 );
 assert.deepEqual(
 	manyRecent.slice(RECENT_PAGE_SIZE * 2).map((entry) => entry.id),
 	manyRecentIds.slice(RECENT_PAGE_SIZE * 2),
-	"历史末批只取剩余会话且不会越界重复（R-01-019/AC-03）",
+	"历史末批只取剩余会话且不会越界重复",
 );
 const tiedRecent = buildRecent({ snapshot: {
 		ids: ["tie-z", "tie-a"],
@@ -3236,7 +3214,7 @@ const tiedRecent = buildRecent({ snapshot: {
 	}, workspaceItems: [], now: NOW });
 assert.deepEqual(tiedRecent.map((entry) => entry.id), ["tie-a", "tie-z"], "相同 activityAt 时以会话 id 稳定排序");
 
-// ---- R-01-010/AC-08 最后活动时间：turn/end 提取与 max 归一 ----
+// ---- 最后活动时间：turn/end 提取与 max 归一 ----
 assert.equal(lastTurnEndFromEvents([]), null, "空 history 无回合结束时刻");
 assert.equal(
 	lastTurnEndFromEvents([{ event: { type: "user/message", time: 100 } }]),
@@ -3275,7 +3253,7 @@ assert.equal(
 	2500,
 	"turnTimings 取最大 endTime，忽略未结束回合",
 );
-// ---- R-01-009/AC-12 等待卡保留最近完整回合耗时（busy 口径，R-01-020 语义） ----
+// ---- 等待卡保留最近完整回合耗时（busy 口径， 语义） ----
 assert.equal(
 	lastTurnBusyFromEvents([
 		{ event: { type: "turn/start", time: 100, data: { turn: 1 } } },
@@ -3360,21 +3338,21 @@ const refined = buildRecent({ snapshot: refineSnap, workspaceItems: [], now: NOW
 assert.deepEqual(
 	refined.map((e) => [e.id, e.activityAt]),
 	[["sPrompt", NOW - 1_000], ["sTurn", NOW - 2_000], ["sNone", NOW - 5_000]],
-	"activityAt 取宿主列表时间与回合结束时刻的较新者并据此排序（R-01-010/AC-08）",
+	"activityAt 取宿主列表时间与回合结束时刻的较新者并据此排序",
 );
 
-// ---- R-01-010/AC-09 数据在途先按宿主列表时间，到达后精化 ----
+// ---- 数据在途先按宿主列表时间，到达后精化 ----
 const unrefined = buildRecent({ snapshot: refineSnap, workspaceItems: [], now: NOW });
 assert.deepEqual(
 	unrefined.map((e) => [e.id, e.activityAt]),
 	[["sPrompt", NOW - 1_000], ["sNone", NOW - 5_000], ["sTurn", NOW - 10_000]],
-	"回合结束时刻在途时先按宿主列表时间判定、排序与显示（R-01-010/AC-09）",
+	"回合结束时刻在途时先按宿主列表时间判定、排序与显示",
 );
 // 无时间窗口语义：宿主时间较早的非活动会话仍进入历史区，已知 turn/end 继续精化排序（C-068）。
 const crossWindow = buildRecent({ snapshot: { ids: ["sLong"], byId: { sLong: { id: "sLong", displayTitle: "长回合", running: false, updatedAt: NOW - 25 * 3_600_000 } }, current: null }, workspaceItems: [], now: NOW, detailsById: {}, archivedIds: [], completions: null, delegatingIds: null, turnEnds: { sLong: NOW - 1_000 } });
 assert.deepEqual(crossWindow.map((entry) => [entry.id, entry.activityAt]), [["sLong", NOW - 1_000]], "较早宿主时间的非活动会话仍进入历史区（C-068）");
 
-// ---- R-01-002/AC-03、AC-05、AC-10～AC-12、R-01-010/AC-06 完成确认：未确认完成提醒保留活动卡；
+// ---- 完成确认：未确认完成提醒保留活动卡；
 //     显式确认（按钮）或新回合隐式更替后解除；打开/切走/刷新不解除（C-030）----
 const holdBase = { id: "sB", displayTitle: "旧B", running: false, updatedAt: NOW - 1_000 };
 const acks = (lastTurnEnd, ackedAt = null) => new Map([["sB", { lastTurnEnd, ackedAt }]]);
@@ -3386,8 +3364,8 @@ assert.equal(completionReminder(holdBase, { lastTurnEnd: 1000, ackedAt: 2000 }, 
 assert.equal(completionReminder(holdBase, null, false), false, "无完成登记不成立（升级不回溯补发提醒）");
 assert.equal(completionReminder(holdBase, { lastTurnEnd: 0, ackedAt: null }, false), false, "lastTurnEnd 非法不作数");
 assert.equal(completionReminder({ id: "m-c1", parentId: "m", origin: "subagent", displayTitle: "子S" }, { lastTurnEnd: 1000, ackedAt: null }, true), false, "子代理不产生完成提醒");
-// 打开/切换当前会话不解除（AC-05）：完成提醒成立与 current 无关。
-// R-01-002/AC-05 打开或切换当前会话不解除完成提醒：判定与 current 无关（C-030）。
+// 打开/切换当前会话不解除：完成提醒成立与 current 无关。
+//  打开或切换当前会话不解除完成提醒：判定与 current 无关（C-030）。
 const holdSnap = { ids: ["sB"], byId: { sB: holdBase }, current: "sA" };
 const confirmEntries = buildEntries({ snapshot: holdSnap, workspaceItems: [], detailsById: {}, completions: acks(1000) });
 assert.deepEqual(
@@ -3398,7 +3376,7 @@ assert.deepEqual(
 assert.deepEqual(
 	awaitBadgeStats(confirmEntries),
 	{ waiting: 1, blocked: 0, total: 1 },
-	"完成提醒计入徽标等待分子但不计阻塞（R-01-002/AC-06）",
+	"完成提醒计入徽标等待分子但不计阻塞",
 );
 assert.deepEqual(
 	buildRecent({ snapshot: holdSnap, workspaceItems: [], now: NOW, detailsById: {}, archivedIds: [], completions: acks(1000) }).map((e) => e.id),
@@ -3408,7 +3386,7 @@ assert.deepEqual(
 // running 抑制：完成提醒在运行期间按运行卡呈现（C-030 呈现层抑制条件不变）。
 const confirmRunning = buildEntries({ snapshot: { ids: ["sB"], byId: { sB: { ...holdBase, running: true } }, current: null }, workspaceItems: [], detailsById: {}, completions: acks(1000) });
 assert.equal(confirmRunning[0].kind, "running", "完成提醒在运行期间被呈现抑制");
-// 显式确认（AC-10）：ackedAt 前移即解除，会话退出活动区、转入历史区。
+// 显式确认：ackedAt 前移即解除，会话退出活动区、转入历史区。
 const ackedMap = acks(1000, 1500);
 assert.deepEqual(
 	buildEntries({ snapshot: holdSnap, workspaceItems: [], detailsById: {}, completions: ackedMap }).map((e) => [e.id, e.kind]),
@@ -3437,7 +3415,7 @@ assert.deepEqual(
 	"阻塞等待优先于完成提醒呈现",
 );
 
-// ---- R-01-002/AC-13 错误提醒：最近回合以错误结束 → 红色等待卡；随新回合覆盖解除；
+// ---- 错误提醒：最近回合以错误结束 → 红色等待卡；随新回合覆盖解除；
 //     无确认按钮（不消费 ack 游标）；刷新恢复；后代/运行抑制；错误信息正文 ----
 const errAcks = (lastTurnEndKind, error, ackedAt = null) =>
 	new Map([["sB", { lastTurnEnd: 1000, lastTurnEndKind, lastTurnEndError: error, ackedAt }]]);
@@ -3455,7 +3433,7 @@ assert.deepEqual(
 assert.deepEqual(
 	buildEntries({ snapshot: holdSnap, workspaceItems: [], detailsById: {}, completions: errAcks("error", "") }).map((e) => [e.id, e.waitClass, e.noteText]),
 	[["sB", "error", ERROR_NOTE_FALLBACK]],
-	"error 回合无错误信息时回落固定文案（R-01-002/AC-09）",
+	"error 回合无错误信息时回落固定文案",
 );
 assert.ok(ERROR_NOTE_MAX > 0, "错误信息截断上限为正数");
 assert.equal(ERROR_NOTE_FALLBACK, "回合以错误结束，请检查会话");
@@ -3471,12 +3449,12 @@ assert.equal(truncateErrorNote(null), "", "非字符串入参返回空串（防�
 assert.deepEqual(
 	awaitBadgeStats(errEntries),
 	{ waiting: 1, blocked: 0, total: 1 },
-	"错误提醒计入徽标等待分子但不计阻塞（R-01-002/AC-06）",
+	"错误提醒计入徽标等待分子但不计阻塞",
 );
 assert.deepEqual(
 	buildRecent({ snapshot: holdSnap, workspaceItems: [], now: NOW, detailsById: {}, archivedIds: [], completions: errAcks("error", "boom") }).map((e) => e.id),
 	[],
-	"错误提醒中会话不入历史区（分区不变量，R-01-010/AC-06）",
+	"错误提醒中会话不入历史区（分区不变量）",
 );
 // 优先级：同一登记上 error 优先于 done（lastTurnEndKind 为 error 时兼有未确认完成）。
 assert.deepEqual(
@@ -3505,16 +3483,16 @@ assert.deepEqual(
 	"委托周期中错误提醒不生效（保持运行呈现）",
 );
 
-// ---- R-01-016/AC-01 等待卡条目承载会话最后已知工作项时间线（数据路径）----
+// ---- 等待卡条目承载会话最后已知工作项时间线（数据路径）----
 const settledTrace = [{ id: "w1", kind: "tool", label: "Bash", summary: "pnpm check", status: "done" }];
 const awaitingTraceEntries = buildEntries({ snapshot: holdSnap, workspaceItems: [], detailsById: { sB: { timeline: settledTrace } }, completions: acks(1000) });
 assert.equal(awaitingTraceEntries[0].kind, "awaiting", "完成提醒中会话以 awaiting 卡呈现");
-assert.deepEqual(awaitingTraceEntries[0].timeline, settledTrace, "awaiting 条目承载会话最近工作项时间线（R-01-016/AC-01）");
+assert.deepEqual(awaitingTraceEntries[0].timeline, settledTrace, "awaiting 条目承载会话最近工作项时间线");
 const pendingTraceEntries = buildEntries({ snapshot: pendingSnap, workspaceItems: [], detailsById: { sP: { timeline: settledTrace } } });
 assert.equal(pendingTraceEntries[0].kind, "awaiting", "待确认会话以 awaiting 卡呈现");
-assert.deepEqual(pendingTraceEntries[0].timeline, settledTrace, "待确认 awaiting 条目同样承载时间线（R-01-016/AC-01）");
+assert.deepEqual(pendingTraceEntries[0].timeline, settledTrace, "待确认 awaiting 条目同样承载时间线");
 
-// ---- R-01-010/AC-07 活动区→历史区迁移判定 ----
+// ---- 活动区→历史区迁移判定 ----
 assert.deepEqual(
 	movedToRecentIds(new Set(["sA", "sB"]), [{ id: "sA" }], [{ id: "sB" }]),
 	["sB"],
@@ -3524,7 +3502,7 @@ assert.deepEqual(movedToRecentIds(new Set(["sB"]), [], []), [], "彻底消失（
 assert.deepEqual(movedToRecentIds(new Set(), [{ id: "sB" }], []), [], "上一帧不在活动区不判定为迁移");
 assert.deepEqual(movedToRecentIds(new Set(["sB"]), [{ id: "sB" }], []), [], "仍在活动区不判定为迁移");
 
-// ---- R-01-010/AC-07 历史区→活动区迁移判定（反向，与 movedToRecentIds 镜像）----
+// ---- 历史区→活动区迁移判定（反向，与 movedToRecentIds 镜像）----
 assert.deepEqual(
 	movedToActiveIds(new Set(["rA", "rB"]), [{ id: "rB" }], [{ id: "rA" }]),
 	["rB"],
@@ -3534,7 +3512,7 @@ assert.deepEqual(movedToActiveIds(new Set(["rB"]), [], []), [], "彻底消失（
 assert.deepEqual(movedToActiveIds(new Set(), [{ id: "rB" }], []), [], "上一帧不在历史区不判定为反向迁移");
 assert.deepEqual(movedToActiveIds(new Set(["rB"]), [], [{ id: "rB" }]), [], "仍在历史区不判定为反向迁移");
 
-// ---- R-01-003/AC-02、R-01-010/AC-01 已结束子代理不入最近历史 ----
+// ---- 已结束子代理不入最近历史 ----
 const recentSubSnap = {
 	ids: ["m", "m-c1"],
 	byId: {
@@ -3549,7 +3527,7 @@ assert.ok(
 	"最近历史仅主会话，已结束子代理不入历史区",
 );
 
-// ---- R-01-010/AC-01 归档会话不入最近历史（不可选中，列出即成死卡） ----
+// ---- 归档会话不入最近历史（不可选中，列出即成死卡） ----
 const recentArchived = buildRecent({ snapshot: {
 		ids: ["sKeep", "sGone"],
 		byId: {
@@ -3576,7 +3554,7 @@ assert.deepEqual(
 	"归档集同样接受 Set 形态",
 );
 
-// R-01-010/AC-01：归档集合同时驱动活动区过滤；未确认完成提醒也不得在归档后滞留。
+// 归档集合同时驱动活动区过滤；未确认完成提醒也不得在归档后滞留。
 const activeArchivedSnap = {
 	ids: ["sKeep", "sGone"],
 	byId: {
@@ -3630,14 +3608,14 @@ assert.deepEqual(
 	"归档子会话后不因残留后代活动把未归档母会话留在活动区",
 );
 
-// ---- R-01-014/AC-01 列表在途显示加载指示而非空态 ----
+// ---- 列表在途显示加载指示而非空态 ----
 assert.equal(listLoadState(null), "loading", "快照缺失视为列表在途");
 assert.equal(listLoadState({ phase: "pending" }), "loading", "phase 为 pending 视为列表在途");
 assert.equal(listLoadState({ phase: "ready" }), "ready", "phase 为 ready 才允许空态");
 assert.equal(listLoadState({ phase: "ready", state: "error" }), "error", "列表错误轴归一为 error");
 assert.equal(listLoadState({ phase: "ready", error: { code: "x" } }), "error", "携带 error 字段归一为 error");
 
-// ---- R-01-014/AC-06 数量标识在途显示加载指示而非冒充计数 ｜ R-01-002/AC-06 脉冲门控 ----
+// ---- 数量标识在途显示加载指示而非冒充计数 ｜  脉冲门控 ----
 const badgeTip = (running, total) => `运行中的会话 ${running} / 总活动会话 ${total}`;
 assert.deepEqual(
 	countBadgeState("loading", 0, 0),
@@ -3649,12 +3627,12 @@ assert.equal(countBadgeState("error", 0, 0).mode, "count", "错误轴不归一�
 assert.deepEqual(
 	countBadgeState("ready", 0, 0),
 	{ mode: "count", text: "0/0", ariaText: "0 个活动会话，0 个正在运行", tip: badgeTip(0, 0), awaiting: false },
-	"就绪空态仍显示 0/0（R-01-001/AC-06）",
+	"就绪空态仍显示 0/0",
 );
 assert.deepEqual(
 	countBadgeState("ready", 1, 3, 1),
 	{ mode: "count", text: "2/3", ariaText: "3 个活动会话，2 个正在运行，1 个等待你答复", tip: badgeTip(2, 3), awaiting: true },
-	"分子为运行中数（total−waiting），aria 先运行后等待（R-01-001/AC-04、AC-05）",
+	"分子为运行中数（total−waiting），aria 先运行后等待",
 );
 assert.deepEqual(
 	countBadgeState("ready", 2, 3, 1),
@@ -3664,16 +3642,16 @@ assert.deepEqual(
 assert.deepEqual(
 	countBadgeState("ready", 2, 3, 0),
 	{ mode: "count", text: "1/3", ariaText: "3 个活动会话，1 个正在运行，2 个已完成", tip: badgeTip(1, 3), awaiting: true },
-	"仅完成提醒同样开启脉冲：两类等待行为一致（R-01-002/AC-06，C-037 翻案 C-028）",
+	"仅完成提醒同样开启脉冲：两类等待行为一致（C-037 翻案 C-028）",
 );
-assert.equal(badgeTip(2, 3), "运行中的会话 2 / 总活动会话 3", "悬停 tips 简明说明运行中/总活动会话（R-01-001/AC-08）");
+assert.equal(badgeTip(2, 3), "运行中的会话 2 / 总活动会话 3", "悬停 tips 简明说明运行中/总活动会话");
 
-// ---- R-01-014/AC-05 补充数据失败降级为空字段并可重试 ----
+// ---- 补充数据失败降级为空字段并可重试 ----
 // （dsh 0.1.5 起 per-session models RPC 移除，模型提取随日志读取统一进行：失败置空
-//  语义由 R-01-012/AC-18 的空白归一单测与本文件日志读取门禁锚点共同
+//  语义由  的空白归一单测与本文件日志读取门禁锚点共同
 //  承载——失败不置标记、下一可见期允许重试。）
 
-// ---- R-01-015/AC-02 拖拽宽度夹取 ｜ R-01-015/AC-04 持久化恢复归一 ----
+// ---- 拖拽宽度夹取 ｜  持久化恢复归一 ----
 assert.equal(clampPaneWidth(280), 280, "范围内宽度原样保留");
 assert.equal(clampPaneWidth(199.6), 200, "拖拽越过下界夹取到最小 200px");
 assert.equal(clampPaneWidth(480.4), 480, "拖拽越过上界夹取到最大 480px");
@@ -3684,30 +3662,30 @@ assert.equal(clampPaneWidth("abc"), 280, "非法持久化值回退默认 280px")
 assert.equal(clampPaneWidth(999), 480, "越界持久化值夹取进允许范围");
 assert.equal(clampPaneWidth(-5), 200, "负值持久化值夹取到最小 200px");
 
-// ---- R-01-021/AC-06 显示档位持久化归一（缺失/非法回退默认中间档）与三档循环 ----
+// ---- 显示档位持久化归一（缺失/非法回退默认中间档）与三档循环 ----
 assert.equal(normalizeDensity("compact"), "compact", "紧凑持久化值恢复为紧凑显示");
 assert.equal(normalizeDensity("medium"), "medium", "中间持久化值恢复为中间显示");
 assert.equal(normalizeDensity("full"), "full", "完整持久化值恢复为完整显示");
 assert.equal(normalizeDensity(null), "medium", "无持久化记录回退默认中间档");
 assert.equal(normalizeDensity(""), "medium", "空串回退默认中间档");
 assert.equal(normalizeDensity("abc"), "medium", "非法持久化值回退默认中间档");
-assert.equal(nextDensity("full"), "compact", "完整档的下一档为紧凑——循环自小到大（R-01-021/AC-01）");
-assert.equal(nextDensity("medium"), "full", "中间档的下一档为完整（R-01-021/AC-01）");
-assert.equal(nextDensity("compact"), "medium", "紧凑档的下一档为中间（R-01-021/AC-01）");
-assert.equal(nextDensity("junk"), "full", "非法值经归一视作默认中间档再循环（R-01-021/AC-01）");
+assert.equal(nextDensity("full"), "compact", "完整档的下一档为紧凑——循环自小到大");
+assert.equal(nextDensity("medium"), "full", "中间档的下一档为完整");
+assert.equal(nextDensity("compact"), "medium", "紧凑档的下一档为中间");
+assert.equal(nextDensity("junk"), "full", "非法值经归一视作默认中间档再循环");
 
-// ---- R-01-025 档位资源纪律：紧凑档主会话日志窗口裁剪谓词 ----
-// R-01-025/AC-01：紧凑档且非子代理时裁剪判定为真——主会话不建立或保持日志窗口。
-assert.equal(logWindowSuppressed("compact", false), true, "紧凑档主会话日志窗口裁剪（R-01-025/AC-01）");
-// R-01-025/AC-03：子代理日志窗口承载标题行可见的模型上下文，恒不裁剪。
-assert.equal(logWindowSuppressed("compact", true), false, "紧凑档子代理日志窗口不裁剪——模型上下文可见（R-01-025/AC-03）");
-assert.equal(logWindowSuppressed("medium", false), false, "中间档不裁剪数据面——预览行与时间线末行可见（R-01-025/AC-05）");
+// ---- 档位资源纪律：紧凑档主会话日志窗口裁剪谓词 ----
+// 紧凑档且非子代理时裁剪判定为真——主会话不建立或保持日志窗口。
+assert.equal(logWindowSuppressed("compact", false), true, "紧凑档主会话日志窗口裁剪");
+// 子代理日志窗口承载标题行可见的模型上下文，恒不裁剪。
+assert.equal(logWindowSuppressed("compact", true), false, "紧凑档子代理日志窗口不裁剪——模型上下文可见");
+assert.equal(logWindowSuppressed("medium", false), false, "中间档不裁剪数据面——预览行与时间线末行可见");
 assert.equal(logWindowSuppressed("full", false), false, "完整档不裁剪数据面");
-assert.equal(logWindowSuppressed("junk", false), false, "非法档位经归一视作中间档即不裁剪（R-01-025/AC-01）");
-assert.equal(logWindowSuppressed(null, undefined), false, "缺失档位不裁剪（R-01-025/AC-01）");
+assert.equal(logWindowSuppressed("junk", false), false, "非法档位经归一视作中间档即不裁剪");
+assert.equal(logWindowSuppressed(null, undefined), false, "缺失档位不裁剪");
 
-// ---- R-01-023 在跑后台任务的卡片标注、等待态门控与徽标口径 ----
-// AC-01/AC-02：在跑后台任务不是活动来源——回合已结束且无未确认提醒的会话不产生活动区条目，
+// ---- 在跑后台任务的卡片标注、等待态门控与徽标口径 ----
+// /：在跑后台任务不是活动来源——回合已结束且无未确认提醒的会话不产生活动区条目
 // 落入最近历史并携带任务视图（历史卡标注数量）。
 const jobbedSnapshot = {
 	ids: ["jA", "jB", "jC"],
@@ -3729,12 +3707,12 @@ const liveJobViews = [
 	{ id: "job-2", kind: "bash", label: "watch tail.log", status: "running", startedAt: 2000 },
 ];
 const plainEntries = buildEntries({ snapshot: jobbedSnapshot, workspaceItems: [], detailsById: {}, jobsBySession: jobViews });
-assert.equal(plainEntries.find((entry) => entry.id === "jA"), undefined, "R-01-023/AC-02 回合已结束且无未确认提醒时，在跑任务不使会话进入活动区");
+assert.equal(plainEntries.find((entry) => entry.id === "jA"), undefined, " 回合已结束且无未确认提醒时，在跑任务不使会话进入活动区");
 assert.ok(plainEntries.find((entry) => entry.id === "jB") !== undefined, "真实运行中会话不受任务视图影响照常显示");
 const jobbedRecent = buildRecent({ snapshot: jobbedSnapshot, workspaceItems: [], now: 999_999, detailsById: {}, archivedIds: [], completions: null, delegatingIds: null, turnEnds: null, jobsBySession: jobViews });
 const recentJobbed = jobbedRecent.find((entry) => entry.id === "jA");
-assert.ok(recentJobbed !== undefined, "R-01-023/AC-01 有在跑任务的已结束会话落入最近历史（不从两区消失）");
-assert.deepEqual(recentJobbed.liveJobs, liveJobViews, "R-01-023/AC-01 历史卡条目携带在跑任务视图：仅 live 状态、startedAt 升序");
+assert.ok(recentJobbed !== undefined, " 有在跑任务的已结束会话落入最近历史（不从两区消失）");
+assert.deepEqual(recentJobbed.liveJobs, liveJobViews, " 历史卡条目携带在跑任务视图：仅 live 状态、startedAt 升序");
 // 未确认完成提醒：等待态呈现、提醒照常成立（不再被在跑任务抑制），任务子卡挂母卡下。
 const jobCompletions = new Map([
 	["jA", { lastTurnEnd: 1000, lastTurnEndKind: "completed", lastTurnEndError: null, ackedAt: null }],
@@ -3742,27 +3720,27 @@ const jobCompletions = new Map([
 ]);
 const jobbedEntries = buildEntries({ snapshot: jobbedSnapshot, workspaceItems: [], detailsById: {}, completions: jobCompletions, delegatingIds: null, archivedIds: [], waitingStarts: null, jobsBySession: jobViews });
 const jobbedA = jobbedEntries.find((entry) => entry.id === "jA");
-assert.ok(jobbedA !== undefined, "R-01-023/AC-01 存在未确认完成提醒的会话保留在活动区");
-assert.equal(jobbedA.kind, "awaiting", "R-01-023/AC-02 在跑任务不把会话抬成运行态呈现");
-assert.equal(jobbedA.waitClass, "done", "R-01-023/AC-02 完成提醒照常成立（不被在跑任务抑制）");
+assert.ok(jobbedA !== undefined, " 存在未确认完成提醒的会话保留在活动区");
+assert.equal(jobbedA.kind, "awaiting", " 在跑任务不把会话抬成运行态呈现");
+assert.equal(jobbedA.waitClass, "done", " 完成提醒照常成立（不被在跑任务抑制）");
 assert.deepEqual(
 	jobbedA.liveJobs,
 	liveJobViews,
-	"R-01-023/AC-01 等待态条目携带在跑任务视图：仅 live 状态、startedAt 升序、已结束任务剔除",
+	" 等待态条目携带在跑任务视图：仅 live 状态、startedAt 升序、已结束任务剔除",
 );
-assert.equal(jobbedEntries.find((entry) => entry.id === "jC").waitClass, "error", "R-01-023/AC-02 无在跑任务的错误提醒不受影响（对照组）");
-// R-01-023 任务子卡条目：与子代理同形的缩进子卡，跟随母会话直接后继、结束即消失。
+assert.equal(jobbedEntries.find((entry) => entry.id === "jC").waitClass, "error", " 无在跑任务的错误提醒不受影响（对照组）");
+//  任务子卡条目：与子代理同形的缩进子卡，跟随母会话直接后继、结束即消失。
 assert.deepEqual(
 	jobbedEntries.filter((entry) => entry.kind === "job").map((entry) => [entry.id, entry.parentId, entry.depth, entry.title, entry.jobKind, entry.jobStatus]),
 	[
 		["job:jA:job-1", "jA", 1, "sync data", "bash", "stopping"],
 		["job:jA:job-2", "jA", 1, "watch tail.log", "bash", "running"],
 	],
-	"R-01-023/AC-01 每个在跑后台任务产出一张 job 子卡（复合 id、缩进 depth+1、携带任务字段与工具类型）",
+	" 每个在跑后台任务产出一张 job 子卡（复合 id、缩进 depth+1、携带任务字段与工具类型）",
 );
 const jobbedAIndex = jobbedEntries.findIndex((entry) => entry.id === "jA");
 assert.equal(jobbedEntries[jobbedAIndex + 1]?.kind, "job", "job 子卡紧随母会话条目之后（preorder 位置）");
-// R-01-023 归一边界：快照缺失/形状非法均容错为无任务。
+//  归一边界：快照缺失/形状非法均容错为无任务。
 assert.deepEqual(liveJobsOf(null, "jA"), [], "jobsBySession 缺失归一为无任务");
 assert.deepEqual(liveJobsOf({}, "jA"), [], "无该会话条目归一为无任务");
 assert.deepEqual(liveJobsOf({ jA: "nope" }, "jA"), [], "非数组任务视图归一为无任务");
@@ -3770,7 +3748,7 @@ assert.deepEqual(liveJobsOf({ jA: [null, "x", { id: "job-ok", label: "ok", statu
 assert.deepEqual(
 	liveJobsOf({ jA: [{ id: "job-ws", kind: "bash", label: "   ", status: "running", startedAt: 1 }] }, "jA"),
 	[{ id: "job-ws", kind: "bash", label: "", status: "running", startedAt: 1 }],
-	"纯空白 label 视为任务内容不可得（R-01-023/AC-06 数据源头）",
+	"纯空白 label 视为任务内容不可得（数据源头）",
 );
 // T-181 ①：jobs 快照的窗格相关签名——消费面即 liveJobsOf 五元组，签名不变的推送不点亮渲染轮。
 assert.equal(jobsPaneSignature(null), "", "jobsBySession 缺失归一空签名");
@@ -3780,7 +3758,7 @@ assert.ok(sigRunning.includes("jA>") && sigRunning.includes("job-1|bash|sync|run
 assert.notEqual(
 	jobsPaneSignature({ jA: [{ id: "job-1", kind: "bash", label: "sync", status: "running", startedAt: 1 }] }),
 	jobsPaneSignature({ jA: [{ id: "job-1", kind: "bash", label: "sync", status: "stopping", startedAt: 1 }] }),
-	"状态迁移改变签名（任务子卡状态点着色随之重绘，AC-09）",
+	"状态迁移改变签名（任务子卡状态点着色随之重绘）",
 );
 assert.notEqual(
 	jobsPaneSignature({ jA: [{ id: "job-1", kind: "bash", label: "sync", status: "running", startedAt: 1 }] }),
@@ -3887,7 +3865,7 @@ const overlayBase = { ids: ["ovA", "ovB"], byId: { ovA: { id: "ovA" }, ovB: { id
 const statusOverlayOf = createStatusOverlayMemo();
 const overlayOnce = statusOverlayOf(overlayBase, overlayStatus);
 assert.equal(statusOverlayOf(overlayBase, overlayStatus), overlayOnce, "覆盖层同引用短路复用同一对象（T-186）");
-assert.equal(overlayOnce.byId.ovA.pendingInteraction, "question", "覆盖层回填 pendingInteraction.kind（R-01-002/AC-03）");
+assert.equal(overlayOnce.byId.ovA.pendingInteraction, "question", "覆盖层回填 pendingInteraction.kind");
 assert.equal(overlayOnce.byId.ovB, overlayBase.byId.ovB, "未命中状态面的行保持原行引用");
 assert.equal(statusOverlayOf(overlayBase, null), overlayBase, "状态面缺席原样返回基快照");
 const overlayRebuilt = statusOverlayOf(overlayBase, overlayStatus);
@@ -3925,11 +3903,11 @@ const recentEquivalenceArgs = {
 	jobsBySession: { tJob: [{ id: "job-9", kind: "bash", label: "watch tail.log", status: "running", startedAt: 2000 }] },
 };
 const recentFull = buildRecent(recentEquivalenceArgs);
-assert.deepEqual(recentFull.map((entry) => entry.id), ["tA", "tJob", "tB", "tTie1", "tTie2"], "两段式全量与既有过滤谓词语义一致（同刻聚集按 id 字典序；有在跑任务的会话照常入选，R-01-023/AC-01）");
+assert.deepEqual(recentFull.map((entry) => entry.id), ["tA", "tJob", "tB", "tTie1", "tTie2"], "两段式全量与既有过滤谓词语义一致（同刻聚集按 id 字典序；有在跑任务的会话照常入选）");
 assert.deepEqual(
 	recentFull.find((entry) => entry.id === "tJob").liveJobs,
 	[{ id: "job-9", kind: "bash", label: "watch tail.log", status: "running", startedAt: 2000 }],
-	"R-01-023/AC-01 最近历史条目携带在跑任务视图（数量标注数据源）",
+	" 最近历史条目携带在跑任务视图（数量标注数据源）",
 );
 assert.equal(recentFull.total, undefined, "未传 limit 不附 total（返回全量候选）");
 for (const size of [0, 1, 3, recentFull.length, recentFull.length + 5]) {
@@ -3938,7 +3916,7 @@ for (const size of [0, 1, 3, recentFull.length, recentFull.length + 5]) {
 const recentPaged = buildRecent({ ...recentEquivalenceArgs, limit: 3 });
 assert.equal(recentPaged.total, recentFull.length, "total=过滤后候选总数（recentTotal 语义承载，T-186）");
 assert.equal(recentFull[0].model, "Model M", "物化只发生在入选前缀（metadata 查表字段等价，T-186）");
-assert.equal(recentFull[0].activityAt, 1_800, "activityAt 精化（turnEnds 取较新者，R-01-010/AC-08）");
+assert.equal(recentFull[0].activityAt, 1_800, "activityAt 精化（turnEnds 取较新者）");
 // 对抗性夹具（T-186 审核 F1）：ids 原序与 activityAt 序相反 + 同刻平局对——limit 前缀
 // 必须按时间序（activityAt 降序、平局按 id 字典序）取「最近 N 条」，而非名册序前 N。
 // 期望序列按排序语义手工写出（非同实现自比），并与全量结果前缀互证（两种断言都要）。
@@ -3989,7 +3967,7 @@ const busyWaits = new Map([["wA", { openWaitStart: 1234 }], ["wN", { openWaitSta
 const waitingStartsOfBusy = createWaitingStartsMemo();
 const waitsOnce = waitingStartsOfBusy(busyWaits, 7);
 assert.equal(waitingStartsOfBusy(busyWaits, 7), waitsOnce, "busy 版本未变复用同一 waitingStarts Map（T-186）");
-assert.deepEqual([...waitsOnce], [["wA", 1234]], "仅毫秒 openWaitStart 派生等待时刻表（R-01-001/AC-07）");
+assert.deepEqual([...waitsOnce], [["wA", 1234]], "仅毫秒 openWaitStart 派生等待时刻表");
 busyWaits.set("wX", { openWaitStart: 99 });
 assert.equal(waitingStartsOfBusy(busyWaits, 7), waitsOnce, "版本未变时复用上帧 Map——原地变更不以引用承载，版本号是唯一记账（T-186）");
 const waitsNext = waitingStartsOfBusy(busyWaits, 8);
@@ -3998,9 +3976,9 @@ assert.deepEqual([...waitsNext], [["wA", 1234], ["wX", 99]], "重建读取当前
 assert.deepEqual(
 	awaitBadgeStats(jobbedEntries),
 	{ waiting: 2, blocked: 0, total: 3 },
-	"R-01-023/AC-04 徽标分子只计回合运行中：等待态（完成/错误提醒）计入等待数，在跑任务不参与运行中分子",
+	" 徽标分子只计回合运行中：等待态（完成/错误提醒）计入等待数，在跑任务不参与运行中分子",
 );
-// R-01-023/AC-04：运行中分子按运行态统计——委托周期母卡（kind running、自身回合未运行）
+// 运行中分子按运行态统计——委托周期母卡（kind running、自身回合未运行）
 // 计入运行中；等待态计入等待数；任务子条目不计入。
 assert.deepEqual(
 	awaitBadgeStats([
@@ -4010,60 +3988,60 @@ assert.deepEqual(
 		{ id: "job-1", kind: "job" },
 	]),
 	{ waiting: 1, blocked: 0, total: 3 },
-	"R-01-023/AC-04 运行态（含委托周期母卡）计入运行中分子、等待态计入等待数、任务子条目不计入",
+	" 运行态（含委托周期母卡）计入运行中分子、等待态计入等待数、任务子条目不计入",
 );
-// R-01-023/AC-03：任务全部结束后移除数量标注，归属与提醒判定不变。
+// 任务全部结束后移除数量标注，归属与提醒判定不变。
 const settledViews = { jA: [{ id: "job-2", kind: "bash", label: "watch tail.log", status: "completed", startedAt: 2000, finishedAt: 3000 }] };
 const settledEntries = buildEntries({ snapshot: jobbedSnapshot, workspaceItems: [], detailsById: {}, completions: jobCompletions, delegatingIds: null, archivedIds: [], waitingStarts: null, jobsBySession: settledViews });
-assert.equal(settledEntries.find((entry) => entry.id === "jA")?.waitClass, "done", "R-01-023/AC-03 任务全部结束后完成提醒判定不变（照旧成立）");
-assert.equal(settledEntries.find((entry) => entry.id === "jA")?.liveJobs, undefined, "R-01-023/AC-03 任务全部结束后移除数量标注");
-assert.ok(buildRecent({ snapshot: jobbedSnapshot, workspaceItems: [], now: 999_999, detailsById: {}, archivedIds: [], completions: null, delegatingIds: null, turnEnds: null, jobsBySession: settledViews }).some((entry) => entry.id === "jA"), "R-01-023/AC-03 任务结束后最近历史候选不变");
-assert.equal(buildRecent({ snapshot: jobbedSnapshot, workspaceItems: [], now: 999_999, detailsById: {}, archivedIds: [], completions: null, delegatingIds: null, turnEnds: null, jobsBySession: settledViews }).find((entry) => entry.id === "jA")?.liveJobs, undefined, "R-01-023/AC-03 任务结束后最近历史条目不携带任务视图（数量标注消失）");
-// R-01-023/AC-05：任务卡工具名行——视图与条目携带工具类型，友好映射已知值、未知原样、不可得为空。
-assert.equal(jobbedA.liveJobs[0].kind, "bash", "R-01-023/AC-05 在跑任务视图携带工具类型");
-assert.equal(jobbedEntries.find((entry) => entry.kind === "job")?.jobKind, "bash", "R-01-023/AC-05 job 子条目携带工具类型");
+assert.equal(settledEntries.find((entry) => entry.id === "jA")?.waitClass, "done", " 任务全部结束后完成提醒判定不变（照旧成立）");
+assert.equal(settledEntries.find((entry) => entry.id === "jA")?.liveJobs, undefined, " 任务全部结束后移除数量标注");
+assert.ok(buildRecent({ snapshot: jobbedSnapshot, workspaceItems: [], now: 999_999, detailsById: {}, archivedIds: [], completions: null, delegatingIds: null, turnEnds: null, jobsBySession: settledViews }).some((entry) => entry.id === "jA"), " 任务结束后最近历史候选不变");
+assert.equal(buildRecent({ snapshot: jobbedSnapshot, workspaceItems: [], now: 999_999, detailsById: {}, archivedIds: [], completions: null, delegatingIds: null, turnEnds: null, jobsBySession: settledViews }).find((entry) => entry.id === "jA")?.liveJobs, undefined, " 任务结束后最近历史条目不携带任务视图（数量标注消失）");
+// 任务卡工具名行——视图与条目携带工具类型，友好映射已知值、未知原样、不可得为空。
+assert.equal(jobbedA.liveJobs[0].kind, "bash", " 在跑任务视图携带工具类型");
+assert.equal(jobbedEntries.find((entry) => entry.kind === "job")?.jobKind, "bash", " job 子条目携带工具类型");
 assert.deepEqual(
 	["bash", "pwsh", "subagent", "workflow", "", 42, null, undefined].map(jobKindLabel),
 	["Bash", "PowerShell", "子代理", "workflow", "", "", "", ""],
-	"R-01-023/AC-05 工具名友好映射：已知映射、未知原样、不可得为空串",
+	" 工具名友好映射：已知映射、未知原样、不可得为空串",
 );
-// R-01-023/AC-06：任务内容不可得——条目内容为空，渲染层整行隐藏（bundle 契约与人工验收承载 DOM 行为）。
+// 任务内容不可得——条目内容为空，渲染层整行隐藏（bundle 契约与人工验收承载 DOM 行为）。
 const emptyLabelViews = { jA: [{ id: "job-9", kind: "bash", label: "", status: "running", startedAt: 100 }] };
 const emptyLabelEntry = buildEntries({ snapshot: jobbedSnapshot, workspaceItems: [], detailsById: {}, completions: jobCompletions, delegatingIds: null, archivedIds: [], waitingStarts: null, jobsBySession: emptyLabelViews }).find((entry) => entry.kind === "job");
-assert.ok(emptyLabelEntry !== undefined, "R-01-023/AC-06 前置：内容不可得的在跑任务仍产出子卡");
-assert.equal(emptyLabelEntry.title, "", "R-01-023/AC-06 任务内容不可得时条目内容为空串");
-// R-01-023/AC-11：数量注闪烁门控——等待态且非阻塞等待（回合已结束）闪烁；最近历史卡、
+assert.ok(emptyLabelEntry !== undefined, " 前置：内容不可得的在跑任务仍产出子卡");
+assert.equal(emptyLabelEntry.title, "", " 任务内容不可得时条目内容为空串");
+// 数量注闪烁门控——等待态且非阻塞等待（回合已结束）闪烁；最近历史卡、
 // 自身回合运行中、阻塞等待与无在跑任务均不闪烁；入参非法按无任务处理。
 const chipAwaitingJobs = { kind: "awaiting", waitClass: "done", pendingKind: undefined, selfRunning: false, liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] };
 assert.deepEqual(
 	jobsChipState(chipAwaitingJobs),
 	{ text: "后台 ×1", hidden: false, blinking: true },
-	"R-01-023/AC-11 等待态卡片（回合已结束）仍有在跑后台任务时数量注闪烁",
+	" 等待态卡片（回合已结束）仍有在跑后台任务时数量注闪烁",
 );
 assert.equal(
 	jobsChipState({ kind: "awaiting", waitClass: "error", liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] }).blinking,
 	true,
-	"R-01-023/AC-11 错误提醒卡（回合已结束）同样闪烁——闪烁语义只看回合是否结束",
+	" 错误提醒卡（回合已结束）同样闪烁——闪烁语义只看回合是否结束",
 );
 assert.equal(
 	jobsChipState({ kind: "running", selfRunning: true, liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] }).blinking,
 	false,
-	"R-01-023/AC-11 自身回合运行中数量注不闪烁",
+	" 自身回合运行中数量注不闪烁",
 );
 assert.equal(
 	jobsChipState({ kind: "awaiting", pendingKind: "approval", waitClass: "blocked", liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] }).blinking,
 	false,
-	"R-01-023/AC-11 阻塞等待（回合尚未结束）期间数量注不闪烁",
+	" 阻塞等待（回合尚未结束）期间数量注不闪烁",
 );
 assert.equal(
 	jobsChipState({ kind: "recent", liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] }).blinking,
 	false,
-	"R-01-023/AC-11 最近历史卡片数量注静止",
+	" 最近历史卡片数量注静止",
 );
 assert.deepEqual(
 	jobsChipState({ kind: "awaiting", liveJobs: [] }),
 	{ text: "", hidden: true, blinking: false },
-	"R-01-023/AC-11 在跑任务全部结束时数量注隐藏且不闪烁",
+	" 在跑任务全部结束时数量注隐藏且不闪烁",
 );
 assert.deepEqual(
 	[jobsChipState(null), jobsChipState(undefined), jobsChipState("x"), jobsChipState({})],
@@ -4073,52 +4051,52 @@ assert.deepEqual(
 		{ text: "", hidden: true, blinking: false },
 		{ text: "", hidden: true, blinking: false },
 	],
-	"R-01-023/AC-11 入参缺失或形状非法按无任务处理不抛错",
+	" 入参缺失或形状非法按无任务处理不抛错",
 );
-// R-01-023/AC-11（T-175）：selfRunning 入渲染签名——任务在跑期间自身回合结束/重启驱动
+// （T-175）：selfRunning 入渲染签名——任务在跑期间自身回合结束/重启驱动
 // 闪烁门控重绘（liveJobs 不变时其余签名分量可能全部不变）。
 assert.notEqual(
 	cardSignature(jobbedEntries),
 	cardSignature(jobbedEntries.map((entry) => (entry.id === "jA" ? { ...entry, selfRunning: !entry.selfRunning } : entry))),
-	"R-01-023/AC-11 母会话自身回合运行态翻转驱动重绘签名变化",
+	" 母会话自身回合运行态翻转驱动重绘签名变化",
 );
 
-// ---- R-01-025 任务子卡不构建与时长时钟门控（T-174） ----
-// R-01-025/AC-08：运行卡逐秒时钟需求判定 runningClockWanted——在跑后台任务不产生运行呈现，
+// ---- 任务子卡不构建与时长时钟门控（T-174） ----
+// 运行卡逐秒时钟需求判定 runningClockWanted——在跑后台任务不产生运行呈现
 // 等待态母卡（回合已结束）自身无逐秒推进分量，低档位（job 子条目被剔除后）不驱动时钟；
 // job 子条目、开放回合会话、委托周期母卡与运行中子代理照常驱动。
 const jobsAwaitingMother = [{ id: "solo", kind: "awaiting", waitClass: "done", selfRunning: false, liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] }];
 assert.equal(
 	runningClockWanted(jobsAwaitingMother, new Set()),
 	false,
-	"R-01-025/AC-08 等待态母卡（仅有在跑任务）不驱动逐秒时钟（低档位 job 子条目被剔除后的形态）",
+	" 等待态母卡（仅有在跑任务）不驱动逐秒时钟（低档位 job 子条目被剔除后的形态）",
 );
 assert.equal(
 	runningClockWanted([...jobsAwaitingMother, { id: "job:solo:job-1", kind: "job", jobStatus: "running" }], new Set()),
 	true,
-	"R-01-025/AC-08 job 子条目在场（完整档）时驱动逐秒时钟——切回完整档恢复任务时长推进",
+	" job 子条目在场（完整档）时驱动逐秒时钟——切回完整档恢复任务时长推进",
 );
 assert.equal(
 	runningClockWanted([{ id: "deleg", kind: "running", selfRunning: false, liveJobs: [{ id: "job-1", status: "running", startedAt: 1 }] }], new Set()),
 	true,
-	"R-01-025/AC-08 委托周期母卡（回合运行呈现由后代支撑）照常驱动逐秒时钟",
+	" 委托周期母卡（回合运行呈现由后代支撑）照常驱动逐秒时钟",
 );
 assert.equal(
 	runningClockWanted([{ id: "live", kind: "running", selfRunning: true }], new Set()),
 	true,
-	"R-01-025/AC-08 自身回合运行中的会话照常驱动逐秒时钟（累计运行时长逐秒推进，R-01-020）",
+	" 自身回合运行中的会话照常驱动逐秒时钟（累计运行时长逐秒推进）",
 );
 assert.equal(
 	runningClockWanted([{ id: "deleg", kind: "running", selfRunning: false }], new Set()),
 	true,
-	"R-01-025/AC-08 委托周期运行呈现的母会话照常驱动逐秒时钟（既有语义保持）",
+	" 委托周期运行呈现的母会话照常驱动逐秒时钟（既有语义保持）",
 );
 assert.equal(
 	runningClockWanted([{ id: "sub1", kind: "subagent" }], new Set(["sub1"])),
 	true,
-	"R-01-025/AC-08 运行中子代理照常驱动逐秒时钟（R-01-009/AC-14）",
+	" 运行中子代理照常驱动逐秒时钟",
 );
-assert.equal(runningClockWanted([], new Set()), false, "R-01-025/AC-08 空活动区不维持逐秒时钟");
+assert.equal(runningClockWanted([], new Set()), false, " 空活动区不维持逐秒时钟");
 
 // ---- 重建 client bundle 并校验产物契约 ----
 await mkdir(join(root, ".dsh-plugin"), { recursive: true });
@@ -4128,17 +4106,17 @@ execFileSync(process.execPath, [join(root, "scripts/build-client.mjs")], {
 });
 const bundle = await readFile(join(root, ".dsh-plugin/client.js"), "utf8");
 
-// R-01-021/AC-01：档位切换锚定补偿为沉降窗逐帧补偿——dsh 0.2.0 起切回高档位的
+// 档位切换锚定补偿为沉降窗逐帧补偿——dsh 0.2.0 起切回高档位的
 // 窗口经 retain→ready 异步重建，内容分多帧长回，单帧补偿会漏掉后期增长（T-159）。
 assert.ok(
 	bundle.includes("densityAnchorDeadline") && bundle.includes("scrollEl.scrollTop += shiftedTop - pendingDensityAnchor;") && bundle.includes("if (Date.now() > densityAnchorDeadline)"),
-	"档位切换锚定补偿在沉降窗内逐帧执行、仅按窗超时撤除（R-01-021/AC-01，T-159 审核修复回归）",
+	"档位切换锚定补偿在沉降窗内逐帧执行、仅按窗超时撤除（T-159 审核修复回归）",
 );
 const clientSource = await readFile(join(root, "src/client.mjs"), "utf8");
 assert.ok(
 	clientSource.includes('lastTurnEndKind: typeof record?.lastTurnEndKind === "string"') &&
 		clientSource.includes('lastTurnEndError: typeof record?.lastTurnEndError === "string"'),
-	"SSE ack 快照完整保留错误提醒的 kind 与正文（R-01-002/AC-13，T-088）",
+	"SSE ack 快照完整保留错误提醒的 kind 与正文（T-088）",
 );
 // bundle 必须是可解析的合法 JS（new Function 只编译不执行）——防止 CSS 模板内
 // 误插反引号这类"字符串检查能过、但 loader 导入即失败"的损坏。
@@ -4147,18 +4125,18 @@ assert.doesNotThrow(
 	"bundle 必须是合法 JS（可被 loader 导入注册）",
 );
 assert.ok(!bundle.includes("sessionsListHas"), "点击不得以第二份 list 快照提前拦截");
-// 折叠分组为时间线唯一来源；指令槽位派生与渲染不残留（R-01-018 已删除，C-019）
+// 折叠分组为时间线唯一来源；指令槽位派生与渲染不残留（已删除，C-019）
 assert.ok(
 	bundle.includes("foldedConversationTimeline") && bundle.includes("foldWorkGroups"),
-	"折叠分组派生函数进入 bundle（R-01-017）",
+	"折叠分组派生函数进入 bundle",
 );
 assert.ok(
 	bundle.includes("openTurnStartFromEvents") && bundle.includes("requireOpenTurnStart"),
-	"开放回合起点 history 兜底进入 bundle（R-01-009/AC-06 冷窗口兜底）",
+	"开放回合起点 history 兜底进入 bundle（冷窗口兜底）",
 );
 assert.ok(
 	bundle.includes("historyInstructionAnchor") && bundle.includes("memoTimelineAnchor") && bundle.includes("foldedHistoryTimeline") && !bundle.includes("withInstructionAnchor"),
-	"history 锚行作为核心时间线输入且 client 不再二次裁剪（R-01-009/AC-11、R-01-012/AC-12、C-035）",
+	"history 锚行作为核心时间线输入且 client 不再二次裁剪（C-035）",
 );
 // T-181 派生/唤醒收敛三机制入 bundle：render 侧复用 flush 侧非 settle 变体（条件
 // 表达式字面钉住）、隐藏页延迟派生（pending 记账 + 回前台补齐）、时钟可见性门控、
@@ -4174,14 +4152,14 @@ assert.ok(
 // 子代理事件流打开前置（dsh 0.2.0 retain 语义，T-159 承接 T-151）：retain 前先经
 // sessions.subagentAddress 解析持久父地址（宿主仍按地址校验子代理会话路由），地址
 // 不可得时先单发 refreshProjections 拉取母会话投影再重试；旧地址安装/显式打开路径
-// 已随 0.2.0 会话面重构移除（R-01-012/AC-03，T-151 缺陷修复的后继）。
+// 已随 0.2.0 会话面重构移除（T-151 缺陷修复的后继）。
 assert.ok(
 	clientSource.includes("function liveSessionFace") &&
 		clientSource.indexOf("sessions?.subagentAddress?.(") >= 0 &&
 		clientSource.indexOf("sessions?.subagentAddress?.(") < clientSource.indexOf("sessions?.retain?.(") &&
 		clientSource.includes("ensureParentProjections(parentId)") &&
 		clientSource.includes("sessions.refreshProjections("),
-	"子代理 retain 前先解析持久父地址、投影未就绪先拉取再重试（R-01-012/AC-03，T-151/T-159）",
+	"子代理 retain 前先解析持久父地址、投影未就绪先拉取再重试（T-151/T-159）",
 );
 assert.ok(
 	!clientSource.includes("configureSubagent") &&
@@ -4193,87 +4171,87 @@ assert.ok(
 assert.ok(!bundle.includes("renderSlot") && !bundle.includes("dap-slot"), "指令槽位渲染无残留（C-019）");
 assert.ok(!bundle.includes("rememberLastUser") && !bundle.includes("lastUserFromEvents") && !bundle.includes("foldedTimelineWithSlot") && !bundle.includes("foldWorkGroupsWithSlot"), "槽位派生家族无残留（C-019）");
 assert.ok(!bundle.includes('document.addEventListener("click"'), "不得在 document 上拦截点击");
-// R-01-008/AC-02 移动端抽屉经标题区整体激活收起（与桌面同一控件，无独立 × 按钮）
-assert.ok(!bundle.includes("dap-close") && !bundle.includes("onCloseClick"), "不再保留独立关闭按钮：移动端与桌面同为标题区整体控件（R-01-008/AC-02）");
+//  移动端抽屉经标题区整体激活收起（与桌面同一控件，无独立 × 按钮）
+assert.ok(!bundle.includes("dap-close") && !bundle.includes("onCloseClick"), "不再保留独立关闭按钮：移动端与桌面同为标题区整体控件");
 assert.ok(
 	clientSource.includes("const onHeaderActivate = () => {\n\t\t\tif (window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`).matches) {\n\t\t\t\ttogglePane(false);"),
-	"移动端断点标题行激活即收起抽屉，而非折叠窄条（R-01-008/AC-02、R-01-011/AC-06）",
+	"移动端断点标题行激活即收起抽屉，而非折叠窄条",
 );
-// R-01-011/AC-07 收起方向图标仅在标题行悬停/聚焦时显现，常态不占位
+//  收起方向图标仅在标题行悬停/聚焦时显现，常态不占位
 assert.ok(
 	bundle.includes("[data-dsh-activity-pane] .dap-titlebar:hover .dap-collapse-hint") &&
 		bundle.includes("[data-dsh-activity-pane] .dap-titlebar:focus-visible .dap-collapse-hint"),
-	"收起方向图标经标题区悬停/聚焦显隐（R-01-011/AC-07）",
+	"收起方向图标经标题区悬停/聚焦显隐",
 );
-// R-01-011/AC-03 标题区整体作为桌面收起控件（无独立按钮）
+//  标题区整体作为桌面收起控件（无独立按钮）
 assert.ok(bundle.includes('class="dap-titlebar" role="button"'), "标题区整体作为可激活控件");
 assert.ok(bundle.includes('header?.addEventListener("click", onHeaderActivate)'), "标题行绑定 click 收起");
 assert.ok(bundle.includes('header?.addEventListener("keydown", onHeaderKeydown)'), "标题行支持 Enter/Space 键盘激活");
 assert.ok(!bundle.includes("onCollapseClick") && !bundle.includes('class="dap-collapse"'), "不再保留独立收起按钮：标题行整体承担折叠");
-// R-01-011/AC-04 折叠窄条竖排标题 + 计数、整体可点
+//  折叠窄条竖排标题 + 计数、整体可点
 assert.ok(bundle.includes('class="dap-rail-title"'), "折叠窄条显示竖排标题");
 assert.ok(bundle.includes("writing-mode: vertical-rl"), "窄条标题竖排呈现");
 assert.ok(/\.dap-rail \{[^]*?flex: 1;/.test(bundle), "窄条撑满窗格高度，整面均为展开命中区");
 assert.ok(bundle.includes('[data-collapsed="true"] .dap-rail:hover,'), "折叠窄条悬停/聚焦高亮，与展开态标题行反馈对等");
-// R-01-011/AC-06 移动端标题行激活解释为收起抽屉
+//  移动端标题行激活解释为收起抽屉
 assert.ok(bundle.includes("matchMedia(`(max-width: ${MOBILE_BREAKPOINT})`)"), "标题行收起经移动断点门控");
 assert.ok(bundle.includes('rail?.addEventListener("click", onRailClick)'), "折叠窄条绑定自身 click");
 assert.ok(bundle.includes('class="dap-rail" type="button"'), "折叠窄条使用原生 button 语义");
-// R-01-015/AC-01 拖拽手柄实时调宽、主会话弹性让位
+//  拖拽手柄实时调宽、主会话弹性让位
 assert.ok(bundle.includes('class="dap-resize" aria-hidden="true"'), "窗格右缘提供拖拽调宽手柄");
 assert.ok(bundle.includes('resize?.addEventListener("pointerdown", onResizeDown)'), "拖拽手柄绑定 pointerdown");
 assert.ok(bundle.includes('resize.addEventListener("pointermove", onResizeMove)'), "拖拽经 pointermove 实时调宽");
 assert.ok(bundle.includes('pane.style.setProperty("--dap-width", `${paneWidth}px`)'), "拖拽实时写入 --dap-width 令主会话弹性让位");
 assert.ok(bundle.includes("resize.setPointerCapture(event.pointerId)"), "拖拽经 pointer capture 跟踪指针");
 assert.ok(bundle.includes("resizeNotifyHandle = requestAnimationFrame("), "拖拽期间经 rAF 合帧派发 resize 通知（overlay 实时跟随）");
-// R-01-015/AC-02 拖拽目标宽度经夹取
+//  拖拽目标宽度经夹取
 assert.ok(bundle.includes("clampPaneWidth(startWidth + move.clientX - startX)"), "拖拽目标宽度经 clampPaneWidth 夹取 200–480px");
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane][data-density="compact"]'),
-	"紧凑呈现经窗格根属性驱动 CSS 隐藏次要行（R-01-021/AC-02）",
+	"紧凑呈现经窗格根属性驱动 CSS 隐藏次要行",
 );
 assert.ok(
 	bundle.includes('class="dap-tools"') && bundle.includes('class="dap-density"'),
-	"显示档位切换按钮随窗格骨架创建于标题行工具区（R-01-021/AC-05）",
+	"显示档位切换按钮随窗格骨架创建于标题行工具区",
 );
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane][data-density="medium"] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-foot') &&
 		bundle.includes('[data-dsh-activity-pane][data-density="medium"] .dap-card[data-kind="awaiting"][data-wait="done"] :is(.dap-await-head, .dap-note-row)') &&
 		bundle.includes('[data-dsh-activity-pane][data-density="medium"] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-note') &&
 		bundle.includes('[data-dsh-activity-pane][data-density="medium"] .dap-card[data-kind="awaiting"][data-wait="done"] .dap-confirm'),
-	"中间档完成提醒卡末行经 data-wait 作用域 CSS 收合为单行——横向 foot、包裹层 display:contents、正文隐藏、按钮 margin-left:auto 居右（R-01-021/AC-08）",
+	"中间档完成提醒卡末行经 data-wait 作用域 CSS 收合为单行——横向 foot、包裹层 display:contents、正文隐藏、按钮 margin-left:auto 居右",
 );
-// R-01-021/AC-09（紧凑档确认入口，C-098）：✓ 图标确认按钮随骨架创建于标题行最右，
+// （紧凑档确认入口，C-098）：✓ 图标确认按钮随骨架创建于标题行最右
 // 挂可访问名称「移入历史」，[hidden] 显式覆盖（display 规则优先级高于隐藏属性）。
 assert.ok(
 	bundle.includes('button.className = "dap-confirm-icon"') &&
 		bundle.includes('button.setAttribute("aria-label", "移入历史")') &&
 		bundle.includes("[data-dsh-activity-pane] .dap-confirm-icon[hidden] { display: none; }"),
-	"紧凑档完成提醒卡 ✓ 确认按钮随骨架创建、可访问名称「移入历史」且隐藏经显式覆盖（R-01-021/AC-09、R-01-002/AC-10）",
+	"紧凑档完成提醒卡 ✓ 确认按钮随骨架创建、可访问名称「移入历史」且隐藏经显式覆盖",
 );
-assert.ok(bundle.includes("writeStoredDensity(densityLevel)"), "显示档位切换持久化于 localStorage（R-01-021/AC-06）");
-// R-01-025 档位资源纪律：紧凑档数据面门控与渲染面跳写的 bundle 契约
+assert.ok(bundle.includes("writeStoredDensity(densityLevel)"), "显示档位切换持久化于 localStorage");
+//  档位资源纪律：紧凑档数据面门控与渲染面跳写的 bundle 契约
 assert.ok(
 	clientSource.includes("function logWindowSuppressedFor(id") &&
 		clientSource.includes("if (logWindowSuppressedFor(id)) return;"),
-	"captureSessionLog 入口经单点判定用时校验：紧凑档主会话不订阅事件流、不发起 open、不读窗口（R-01-025/AC-01）",
+	"captureSessionLog 入口经单点判定用时校验：紧凑档主会话不订阅事件流、不发起 open、不读窗口",
 );
 assert.ok(
 	clientSource.includes("(subagent || !logWindowSuppressed(densityLevel, subagent)) &&") &&
 		clientSource.includes("if (logWindowSuppressed(densityLevel, subagent)) return null;") &&
 		clientSource.includes("if (logWindowSuppressed(densityLevel, subagent)) return;") &&
 		clientSource.includes("detail.historyDeepReadDone = true;"),
-	"紧凑档主会话跳过日志分页深翻且在途深翻不续页；切档中止的在途深翻不落地不标记完成，切回后可重新入队（R-01-025/AC-03）",
+	"紧凑档主会话跳过日志分页深翻且在途深翻不续页；切档中止的在途深翻不落地不标记完成，切回后可重新入队",
 );
 assert.ok(
 	clientSource.includes("if (!subagent && !logWindowSuppressedFor(id, byId)) {"),
-	"紧凑档主会话跳过模型目录订阅与一次性 load，切回更高档位经既有语义补齐（R-01-025/AC-06）",
+	"紧凑档主会话跳过模型目录订阅与一次性 load，切回更高档位经既有语义补齐",
 );
 assert.ok(
 	clientSource.indexOf("if (logWindowSuppressedFor(id)) return;") < clientSource.indexOf("const live = liveSessionFace(id);") &&
 		clientSource.includes("const face = peekSessionFace(id);") &&
 		!clientSource.includes("const face = liveSessionFace(id);"),
-	"紧凑档主会话不发起日志水合：档位门控先于 retain（retain.ready 即宿主共享初始历史打开），轮内状态订阅只借用既有引用面、无引用运行卡降级 sessionStatus/busy（R-01-025/AC-01、AC-02；T-159 审核发现 1）",
+	"紧凑档主会话不发起日志水合：档位门控先于 retain（retain.ready 即宿主共享初始历史打开），轮内状态订阅只借用既有引用面、无引用运行卡降级 sessionStatus/busy（；T-159 审核发现 1）",
 );
 assert.ok(
 	clientSource.includes("function enforceDensityDataDiscipline()") &&
@@ -4282,39 +4260,39 @@ assert.ok(
 		clientSource.includes("releaseSessionRef(id);") &&
 		clientSource.includes("const currentId = currentIdOf(listSnap);") &&
 		clientSource.includes("if (currentId == null) return;"),
-	"渲染期持续执法：对非当前主会话日志窗口先 unsubscribe 再除名并释放其 retain 引用（当前会话豁免，快照未就绪整轮跳过），子代理窗口保留（R-01-025/AC-01）",
+	"渲染期持续执法：对非当前主会话日志窗口先 unsubscribe 再除名并释放其 retain 引用（当前会话豁免，快照未就绪整轮跳过），子代理窗口保留",
 );
 assert.ok(
 	clientSource.includes("if (traceContainer !== null && densityLevel !== \"compact\") renderTimelineArea(traceContainer, entry, { lastOnly: densityLevel === \"medium\" });"),
-	"紧凑档不构建被隐藏的时间线内容，中间档 lastOnly 语义不变（R-01-025/AC-05）",
+	"紧凑档不构建被隐藏的时间线内容，中间档 lastOnly 语义不变",
 );
 assert.equal(
 	(clientSource.match(/if \(traceContainer !== null && densityLevel !== "compact"\) renderTimelineArea/g) ?? []).length,
 	3,
-	"运行卡、等待卡与子代理卡三处时间线渲染均在紧凑档跳过（R-01-025/AC-05）",
+	"运行卡、等待卡与子代理卡三处时间线渲染均在紧凑档跳过",
 );
 assert.equal(
 	(clientSource.match(/if \(densityLevel === "full"\) renderTokenStats\(el, entry\);/g) ?? []).length,
 	4,
-	"运行卡、子代理卡、最近卡与等待卡的 token 统计行仅在完整档写入（R-01-025/AC-05）",
+	"运行卡、子代理卡、最近卡与等待卡的 token 统计行仅在完整档写入",
 );
 assert.ok(
 	clientSource.includes("if (progressRow !== null && densityLevel === \"full\")"),
-	"进度行仅在完整档写入，中间/紧凑档由 CSS 隐藏（R-01-025/AC-05）",
+	"进度行仅在完整档写入，中间/紧凑档由 CSS 隐藏",
 );
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-tools {') &&
 		bundle.includes('[data-dsh-activity-pane] .dap-density {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: 22px;'),
-	"切换按钮常显于标题行右侧工具区（R-01-021/AC-05）",
+	"切换按钮常显于标题行右侧工具区",
 );
-// R-01-022/AC-01 标题行左侧独立区仓库入口（GitHub 链接、新标签页打开）
+//  标题行左侧独立区仓库入口（GitHub 链接、新标签页打开）
 assert.ok(
 	bundle.includes('<a class="dap-repo" href="https://github.com/ccll/dsh-activity-pane" target="_blank" rel="noreferrer noopener"'),
-	"仓库入口随窗格骨架创建于标题行左侧独立区，指向 GitHub 仓库页并以 target=_blank 与 noreferrer noopener 在新标签页打开（R-01-022/AC-01）",
+	"仓库入口随窗格骨架创建于标题行左侧独立区，指向 GitHub 仓库页并以 target=_blank 与 noreferrer noopener 在新标签页打开",
 );
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-repo {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: 22px;\n  height: 22px;\n  border-radius: 999px;\n  background: #1d1f25;'),
-	"仓库入口与档位切换按钮同视觉语言且无边框（22px 圆形纯图标、视觉强度弱于带描边的档位切换按钮，R-01-022/AC-01、T-139）",
+	"仓库入口与档位切换按钮同视觉语言且无边框（22px 圆形纯图标、视觉强度弱于带描边的档位切换按钮，T-139）",
 );
 // T-144：仓库入口移至标题行最左独立区、与档位切换按钮分处标题行两端——模板顺序上仓库入口最先出现。
 assert.ok(
@@ -4322,32 +4300,32 @@ assert.ok(
 		&& bundle.indexOf('<a class="dap-repo"') < bundle.indexOf('<button class="dap-density"'),
 	"仓库入口位于标题行最左独立区、与档位切换按钮分处标题行两端且悬停提示为「报告问题，点赞收藏」（T-139、T-144、T-145）",
 );
-// R-01-015/AC-03 折叠窄条与移动端抽屉不提供拖拽
+//  折叠窄条与移动端抽屉不提供拖拽
 assert.ok(bundle.includes('[data-collapsed="true"] .dap-resize { display: none; }'), "折叠窄条不提供拖拽调宽");
 assert.ok(bundle.includes("[data-dsh-activity-pane] .dap-resize { display: none; }"), "移动端抽屉不提供拖拽调宽");
-// R-01-015/AC-04 调宽持久化与启动恢复
+//  调宽持久化与启动恢复
 assert.ok(bundle.includes("localStorage.getItem(WIDTH_STORAGE_KEY)"), "启动读取持久化宽度恢复");
 assert.ok(bundle.includes("writeStoredPaneWidth(paneWidth)"), "拖拽结束写入持久化宽度");
-assert.ok(bundle.includes('resize?.removeEventListener("pointerdown", onResizeDown)'), "unbind 移除拖拽监听（R-02-003/AC-02）");
+assert.ok(bundle.includes('resize?.removeEventListener("pointerdown", onResizeDown)'), "unbind 移除拖拽监听");
 assert.ok(bundle.includes("unbindPaneControls"), "窗格控制监听可清理");
 assert.ok(bundle.includes("notifyLayoutChange"), "布局变化通知 sibling overlay 重测");
 assert.ok(bundle.includes('window.dispatchEvent(new Event("resize"))'), "布局变化派发标准 resize 通知");
 assert.ok(bundle.includes("pane !== renderedPane"), "新窗格实例必须重置渲染签名");
 assert.ok(
 	clientSource.includes("const sig = JSON.stringify([listState, cardSignature(visibleEntries), pulseSurface, recentTimeSignature, awaitAgeSignature, densityLevel, panelId]);"),
-	"列表 phase、历史时间文案、等待卡状态年龄、显示档位与全局面板态必须参与结构化渲染签名，空列表不得冻结在加载/失败状态（T-087），档位切换触发时间线按新档位重建（R-01-021/AC-08），状态年龄随分钟级时钟重绘（R-01-002/AC-14），面板切换刷新前台/后台态（R-01-006/AC-03）",
+	"列表 phase、历史时间文案、等待卡状态年龄、显示档位与全局面板态必须参与结构化渲染签名，空列表不得冻结在加载/失败状态（T-087），档位切换触发时间线按新档位重建，状态年龄随分钟级时钟重绘，面板切换刷新前台/后台态",
 );
 assert.ok(
 	clientSource.includes("scroll?.querySelector?.(`.${LIST_CLASS} .${CARD_CLASS}[data-current]`)") &&
 		!clientSource.includes("scroll?.querySelector?.(`.${CARD_CLASS}[data-current]`)"),
-	"当前卡片自动滚动仅定位活动列表，完成卡迁入历史后不追随历史区（R-01-006/AC-02）",
+	"当前卡片自动滚动仅定位活动列表，完成卡迁入历史后不追随历史区",
 );
 assert.ok(
 	clientSource.includes("source.contains(focusedElement)") &&
 		clientSource.includes("cardsById.get(focusAfterMigrationId)?.el.focus()"),
-	"活动卡迁移时将已有键盘焦点交给仍在活动区的相邻卡片（R-01-005/AC-01）",
+	"活动卡迁移时将已有键盘焦点交给仍在活动区的相邻卡片",
 );
-// R-01-013/AC-02 回归：卡片标题必须随快照更新——单卡渲染异常不得冻结其余卡片
+//  回归：卡片标题必须随快照更新——单卡渲染异常不得冻结其余卡片
 // （此前渲染签名先于卡片循环提交且无异常隔离，故障卡及其后全部卡片永久滞留旧标题，
 //  历史卡因此停在首条消息形态的 fallback 标题，与左侧栏脱节）。
 assert.ok(
@@ -4381,22 +4359,21 @@ assert.ok(
 	bundle.includes("list.insertBefore(rec.el, ref)"),
 	"卡片仅在顺序/归属变化时移动 DOM（insertBefore 位置守卫）",
 );
-// ---- R-01-009/AC-02、R-01-009/AC-05、R-01-012/AC-01..04、R-01-013/AC-01..06、AC-12 ----
-assert.ok(bundle.includes("foldedConversationTimeline"), "活动卡时间线由折叠分组唯一来源派生（R-01-012、R-01-017）");
-assert.ok(!bundle.includes("dap-trace-time"), "工作项时间线不渲染行级耗时元素，对齐主会话窗口（R-01-009/AC-07、C-012）");
-assert.ok(!bundle.includes("PROGRESS_THINK_BASE") && !bundle.includes("progressFloor"), "回合进度纯时间驱动，无思考基线/单调下限残留（R-01-009/AC-06、C-014）");
-assert.ok(bundle.includes("progressHalfLifeSec"), "bundle 含半衰期速率校准函数（R-01-009/AC-06、C-025、C-044）");
+// ---- ..04、..06、 ----
+assert.ok(bundle.includes("foldedConversationTimeline"), "活动卡时间线由折叠分组唯一来源派生");
+assert.ok(!bundle.includes("dap-trace-time"), "工作项时间线不渲染行级耗时元素，对齐主会话窗口（C-012）");
+assert.ok(!bundle.includes("PROGRESS_THINK_BASE") && !bundle.includes("progressFloor"), "回合进度纯时间驱动，无思考基线/单调下限残留（C-014）");
+assert.ok(bundle.includes("progressHalfLifeSec"), "bundle 含半衰期速率校准函数（C-025、C-044）");
 assert.ok(
 	bundle.includes("halfLifeSec: progressHalfLifeSec({ rateTokS: projectionStats.rateTokS })"),
-	"进度赋值每帧按最新实测速率现算半衰期（R-01-009/AC-06、C-044）",
+	"进度赋值每帧按最新实测速率现算半衰期（C-044）",
 );
 assert.ok(
 	!bundle.includes("halfLifeSec: anchor.halfLifeSec"),
 	"锚点状态不再承载半衰期（C-044：k 不随锚点捕获冻结）",
 );
-// R-01-009/AC-10
-// R-01-017 无条件折叠（C-017）：检测探测与原生行呈现机器不得残留
-assert.ok(!bundle.includes("dshcf") && !bundle.includes("autoCollapseActive"), "无 dsh-auto-collapse 探测残留（R-01-017、C-017）");
+//  无条件折叠（C-017）：检测探测与原生行呈现机器不得残留
+assert.ok(!bundle.includes("dshcf") && !bundle.includes("autoCollapseActive"), "无 dsh-auto-collapse 探测残留（C-017）");
 assert.ok(!bundle.includes("nativeWorkItemRow") && !bundle.includes("cloneNativeIcon") && !bundle.includes("nativeIconsByTraceKey"), "原生行匹配/图标克隆机器无残留（C-017）");
 assert.ok(!bundle.includes("mergeTraceStatus") && !bundle.includes("allowNativePresentation"), "行状态直接采用核心派生值，无合并/切换层（C-017）");
 assert.ok(bundle.includes(".page("), "冷会话使用 remote 日志分页一次性补齐（Session V3）");
@@ -4404,24 +4381,24 @@ assert.ok(bundle.includes(".modelCatalog("), "模型/reasoning 使用部署级 m
 assert.ok(bundle.includes("dap-token-stats"), "token 统计 DOM 位于进度条之后");
 assert.ok(
 	bundle.includes('makeEl("span", "dap-token-main")') && bundle.includes('makeEl("span", "dap-token-time")'),
-	"统计行双段结构：左列文本 + 右置时长（R-01-009/AC-05）",
+	"统计行双段结构：左列文本 + 右置时长",
 );
-assert.ok(bundle.includes("function renderTokenStats"), "运行卡统计行继续复用既有渲染逻辑（R-01-009/AC-05）");
-// R-01-009/AC-13 等待卡保留进入等待前最后已知的 token 统计
+assert.ok(bundle.includes("function renderTokenStats"), "运行卡统计行继续复用既有渲染逻辑");
+//  等待卡保留进入等待前最后已知的 token 统计
 assert.ok(
 	bundle.includes('return [head, row, makeEl("div", "dap-trace"), makeStatsRow(), foot];'),
-	"等待卡骨架在时间线后保留统计行（R-01-009/AC-13）",
+	"等待卡骨架在时间线后保留统计行",
 );
 assert.ok(
 	bundle.includes("renderTokenStats(el, entry);") && bundle.includes("removeAwaitingHeadDuration(el);"),
-	"等待卡复用统计行并清理胶囊同行的旧耗时节点（R-01-009/AC-12、AC-13）",
+	"等待卡复用统计行并清理胶囊同行的旧耗时节点",
 );
 assert.ok(
 	bundle.includes("function removeAwaitingHeadDuration") && bundle.includes('awaitHead.append(capsule, makeEl("span", "dap-await-age"));'),
-	"等待类型胶囊独立成行且右侧携带状态年龄（R-01-002/AC-14），固定耗时回到统计行（R-01-009/AC-12）",
+	"等待类型胶囊独立成行且右侧携带状态年龄，固定耗时回到统计行",
 );
-assert.ok(bundle.includes("lastTurnDuration({"), "等待卡耗时由最近完整回合边界派生（R-01-009/AC-12）");
-assert.ok(bundle.includes("`输入 ${fmtTokens("), "统计行含输入/输出中文短标签（R-01-009/AC-05）");
+assert.ok(bundle.includes("lastTurnDuration({"), "等待卡耗时由最近完整回合边界派生");
+assert.ok(bundle.includes("`输入 ${fmtTokens("), "统计行含输入/输出中文短标签");
 assert.ok(
 	bundle.indexOf("parts.push(`${Math.round(entry.rateTokS)} tok/s`") <
 		bundle.indexOf("parts.push(`缓存 ${entry.cacheHitPct}%`)") &&
@@ -4429,19 +4406,18 @@ assert.ok(
 			bundle.indexOf("parts.push(`输入 ${fmtTokens(entry.inputTokens) ?? entry.inputTokens}`)") &&
 		bundle.indexOf("parts.push(`输入 ${fmtTokens(entry.inputTokens) ?? entry.inputTokens}`)") <
 			bundle.indexOf("parts.push(`输出 ${fmtTokens(entry.outputTokens) ?? entry.outputTokens}`)"),
-	"左列顺序对齐主窗口：tok/s、缓存命中、输入、输出（R-01-009/AC-05）",
+	"左列顺序对齐主窗口：tok/s、缓存命中、输入、输出",
 );
-assert.ok(!bundle.includes("≈"), "速率不再携带约等于符号（R-01-009/AC-05）");
+assert.ok(!bundle.includes("≈"), "速率不再携带约等于符号");
 assert.ok(bundle.includes("dap-history-line"), "历史卡包含用户/agent 两条消息预览行");
-// R-01-013/AC-12 最近历史卡保留最近回合统计
+//  最近历史卡保留最近回合统计
 assert.ok(
 	bundle.includes('return [head, row, userLine, agentLine, makeStatsRow(), makeEl("div", "dap-note")];'),
 	"历史卡统计行位于助手预览后、活动时间前",
 );
-assert.ok(bundle.includes("statsFromProjection"), "历史卡统计复用列表投影派生函数（R-01-013/AC-12）");
-assert.ok(bundle.includes("lastRuntimeStats"), "会话结束时保留最后已知运行统计（R-01-013/AC-12）");
-assert.ok(bundle.includes("recentDurationFallbackIds"), "历史卡缺回合边界时复用 history 补读（R-01-013/AC-12）");
-// R-01-003/AC-04
+assert.ok(bundle.includes("statsFromProjection"), "历史卡统计复用列表投影派生函数");
+assert.ok(bundle.includes("lastRuntimeStats"), "会话结束时保留最后已知运行统计");
+assert.ok(bundle.includes("recentDurationFallbackIds"), "历史卡缺回合边界时复用 history 补读");
 assert.ok(bundle.includes("parentId: m.isSub ? String(parentId) : null"), "活动卡条目保留直属母会话 id");
 assert.ok(bundle.includes("function trackRuns(entries)"), "母会话轨道拓扑由纯函数 trackRuns 一次求出");
 assert.ok(bundle.includes('[data-dsh-activity-pane] .dap-tracks {'), "列表内置绝对定位轨道层");
@@ -4456,23 +4432,23 @@ assert.ok(
 	bundle.includes("function trackBoxes(run, rectOf, indentPx)") && bundle.includes("trackBoxes(run, rectOf, INDENT_PX)"),
 	"竖轨与横线几何（母会话底缘 → 末级子卡中心、逐子卡横线、统一取整）在纯函数 trackBoxes 中推导并被可执行断言钉住，渲染层只做测量与写入",
 );
-// R-01-003/AC-04（T-152）：后台任务子卡与子代理同规则上轨——kind 过滤放宽在 bundle 内可见。
+// （T-152）：后台任务子卡与子代理同规则上轨——kind 过滤放宽在 bundle 内可见。
 assert.ok(
 	bundle.includes('entry.kind !== "subagent" && entry.kind !== "job"'),
-	"trackRuns 的 kind 过滤同时放行子代理与后台任务子卡（R-01-003/AC-04）",
+	"trackRuns 的 kind 过滤同时放行子代理与后台任务子卡",
 );
-// R-01-023/AC-05：任务卡两行骨架与内容行紧凑隐藏；R-01-023/AC-07：job 卡底色与子代理卡可辨区分。
+// 任务卡两行骨架与内容行紧凑隐藏；：job 卡底色与子代理卡可辨区分。
 assert.ok(
 	bundle.includes('makeEl("span", "dap-job-kind")') && bundle.includes('makeEl("div", "dap-job-content")') && bundle.includes('makeEl("span", "dap-job-label")'),
-	"任务子卡两行骨架：工具名行 + 内容行（R-01-023/AC-05）",
+	"任务子卡两行骨架：工具名行 + 内容行",
 );
 assert.ok(
 	bundle.includes(".dap-job-content[hidden] { display: none; }"),
-	"任务内容不可得时整行隐藏且显式覆盖 display:flex（R-01-023/AC-06）",
+	"任务内容不可得时整行隐藏且显式覆盖 display:flex",
 );
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane][data-density="compact"] .dap-card :is(') && bundle.includes(".dap-job-content"),
-	"任务内容行随紧凑档隐藏、中间档保留（R-01-023/AC-05 呈现）",
+	"任务内容行随紧凑档隐藏、中间档保留（呈现）",
 );
 {
 	const jobBg = bundle.indexOf('[data-dsh-activity-pane] .dap-card[data-kind="job"] {');
@@ -4481,7 +4457,7 @@ assert.ok(
 	const subBgBlock = bundle.slice(subBg, bundle.indexOf("}", subBg));
 	assert.ok(
 		jobBgBlock.includes("color-mix(in srgb, #65a0ff") && !subBgBlock.includes("color-mix(in srgb, #65a0ff"),
-		"任务子卡底色在子代理卡底色上轻染任务蓝、两者 CSS 值可辨区分（R-01-023/AC-07）",
+		"任务子卡底色在子代理卡底色上轻染任务蓝、两者 CSS 值可辨区分",
 	);
 	const lightJobBg = bundle.indexOf('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="job"] {');
 	const lightJobBgBlock = bundle.slice(lightJobBg, bundle.indexOf("}", lightJobBg));
@@ -4489,59 +4465,59 @@ assert.ok(
 	const lightSubBgBlock = bundle.slice(lightSubBg, bundle.indexOf("}", lightSubBg));
 	assert.ok(
 		lightJobBg !== -1 && lightJobBgBlock.includes("color-mix(in srgb, #65a0ff") && !lightSubBgBlock.includes("color-mix(in srgb, #65a0ff"),
-		"浅色主题任务子卡底色同样轻染任务蓝、与子代理卡可辨区分（R-01-023/AC-07）",
+		"浅色主题任务子卡底色同样轻染任务蓝、与子代理卡可辨区分",
 	);
 }
-// R-01-023/AC-09（T-159）：任务子卡状态点活性脉冲——着色、光晕与动画全部按状态门控，
+// （T-159）：任务子卡状态点活性脉冲——着色、光晕与动画全部按状态门控
 // 基态只承载几何；running/stopping 与主会话卡标题状态点同源同节奏（双轴复审修复）。
 {
 	const jobDot = bundle.indexOf("[data-dsh-activity-pane] .dap-job-dot {");
 	const jobDotBlock = bundle.slice(jobDot, bundle.indexOf("}", jobDot));
 	assert.ok(
 		jobDot !== -1 && jobDotBlock.includes("border-radius: 50%") && !jobDotBlock.includes("box-shadow") && !jobDotBlock.includes("animation"),
-		"任务子卡状态点基态只承载几何、活性呈现全部按状态门控（R-01-023/AC-09）",
+		"任务子卡状态点基态只承载几何、活性呈现全部按状态门控",
 	);
 	const jobRun = bundle.indexOf('[data-dsh-activity-pane] .dap-job-dot[data-status="running"] {');
 	const jobRunBlock = bundle.slice(jobRun, bundle.indexOf("}", jobRun));
 	assert.ok(
 		jobRun !== -1 && jobRunBlock.includes("background: #65a0ff") && jobRunBlock.includes("box-shadow: 0 0 6px rgba(101, 160, 255, 0.8)"),
-		"运行中状态点带任务蓝着色与同色相光晕（R-01-023/AC-09）",
+		"运行中状态点带任务蓝着色与同色相光晕",
 	);
 	const jobStop = bundle.indexOf('[data-dsh-activity-pane] .dap-job-dot[data-status="stopping"] {');
 	const jobStopBlock = bundle.slice(jobStop, bundle.indexOf("}", jobStop));
 	assert.ok(
 		jobStop !== -1 && jobStopBlock.includes("background: #f5a524") && jobStopBlock.includes("box-shadow: 0 0 6px rgba(245, 165, 36, 0.8)"),
-		"停止中状态点换琥珀色相与光晕（R-01-023/AC-09）",
+		"停止中状态点换琥珀色相与光晕",
 	);
 	const jobPulse = bundle.indexOf('[data-dsh-activity-pane] .dap-job-dot[data-status="running"],');
 	const jobPulseBlock = bundle.slice(jobPulse, bundle.indexOf("}", jobPulse));
 	assert.ok(
 		jobPulse !== -1 && jobPulseBlock.includes('[data-status="stopping"]') && jobPulseBlock.includes("animation: dap-pulse 1.2s ease-in-out infinite"),
-		"状态点仅 running/stopping 以 dap-pulse 1.2s 闪烁、与主卡状态点同源（R-01-023/AC-09）",
+		"状态点仅 running/stopping 以 dap-pulse 1.2s 闪烁、与主卡状态点同源",
 	);
 }
-// R-01-023/AC-11：数量注闪烁门控——判定收口 core 纯函数，闪烁态经卡根 data-jobs-blink
+// 数量注闪烁门控——判定收口 core 纯函数，闪烁态经卡根 data-jobs-blink
 // 属性写入（单一门控源，运行/等待/最近历史三类卡片共用 applyJobsChip），CSS 以 dap-pulse
-// 同源同节奏闪烁（等待态且回合已结束仍存在在跑后台任务时），并同门控暂停 R-01-009/AC-09
-// 的圆点呼吸（时间线执行中行圆点与卡片标题状态点静止）；等待态末行脉冲由 R-01-002/AC-08
+// 同源同节奏闪烁（等待态且回合已结束仍存在在跑后台任务时），并同门控暂停
+// 的圆点呼吸（时间线执行中行圆点与卡片标题状态点静止）；等待态末行脉冲由
 // 承载，不受该门控约束。
 assert.ok(
 	bundle.includes("const { text, hidden } = jobsChipState(entry);")
 		&& bundle.includes("if (el.dataset.jobsBlink !== blink) el.dataset.jobsBlink = blink;")
 		&& bundle.includes("function applyJobsChip(el, entry)"),
-	"数量注与闪烁门控由 jobsChipState 单点判定、经 applyJobsChip 写卡根 data-jobs-blink（R-01-023/AC-11）",
+	"数量注与闪烁门控由 jobsChipState 单点判定、经 applyJobsChip 写卡根 data-jobs-blink",
 );
 // 三类卡片共用同一写入点与骨架节点：等待态与最近历史卡骨架都含数量注，渲染分支都调用
-// applyJobsChip（AC-01 历史卡标注的可执行证据），不再各自手写属性。
+// applyJobsChip（历史卡标注的可执行证据），不再各自手写属性。
 assert.equal(
 	bundle.split('makeEl("span", "dap-jobs-chip"), makeWorkspacePill()').length - 1,
 	3,
-	"运行、等待与最近历史三类卡片骨架均含数量注节点（R-01-023/AC-01）",
+	"运行、等待与最近历史三类卡片骨架均含数量注节点",
 );
 assert.equal(
 	bundle.split("applyJobsChip(el, entry);").length - 1,
 	3,
-	"运行、等待与最近历史三类卡片渲染分支均写入数量注与闪烁门控（R-01-023/AC-01、AC-11）",
+	"运行、等待与最近历史三类卡片渲染分支均写入数量注与闪烁门控",
 );
 assert.ok(
 	bundle.includes('const row = el.querySelector(".dap-row");')
@@ -4553,29 +4529,29 @@ assert.ok(
 	const chipBlinkBlock = bundle.slice(chipBlink, bundle.indexOf("}", chipBlink));
 	assert.ok(
 		chipBlink !== -1 && chipBlinkBlock.includes("animation: dap-pulse 1.2s ease-in-out infinite"),
-		"数量注闪烁由 CSS 动画承载、与状态点同源同节奏（R-01-023/AC-11）",
+		"数量注闪烁由 CSS 动画承载、与状态点同源同节奏",
 	);
 	const dotStop = bundle.indexOf('[data-dsh-activity-pane] .dap-card[data-jobs-blink="true"] .dap-trace-item[data-status="running"]::before');
 	const dotStopBlock = bundle.slice(dotStop, bundle.indexOf("}", dotStop));
 	assert.ok(
 		dotStop !== -1 && dotStopBlock.includes("animation: none"),
-		"闪烁态暂停时间线执行中圆点呼吸（R-01-023/AC-11、R-01-009/AC-09 暂停）",
+		"闪烁态暂停时间线执行中圆点呼吸（暂停）",
 	);
 	const dotStopTitle = bundle.indexOf('[data-dsh-activity-pane] .dap-card[data-jobs-blink="true"] .dap-dot {');
 	const dotStopTitleBlock = bundle.slice(dotStopTitle, bundle.indexOf("}", dotStopTitle));
 	assert.ok(
 		dotStopTitle !== -1 && dotStopTitleBlock.includes("animation: none"),
-		"闪烁态暂停卡片标题状态点呼吸（R-01-023/AC-11）",
+		"闪烁态暂停卡片标题状态点呼吸",
 	);
 }
-// R-01-020（T-175 复盘）：懒回填 GET 响应按 id 只补缺（applyBusyBackfill），不用陈旧
+// （T-175 复盘）：懒回填 GET 响应按 id 只补缺（applyBusyBackfill），不用陈旧
 // 点读回退 SSE 已推送的新鲜状态；请求禁缓存；旧的全量应用调用必须已从 GET 路径消失。
 assert.ok(
 	bundle.includes("function applyBusyBackfill(state)")
 		&& bundle.includes("applyBusyBackfill(state);")
 		&& bundle.includes('{ cache: "no-store" }')
 		&& !bundle.includes("applyBusyState(state)"),
-	"懒回填响应只补缺（旧全量应用不再出现在 GET 路径）、GET 禁缓存，SSE 全量快照是唯一整体替换通道（R-01-020/AC-05）",
+	"懒回填响应只补缺（旧全量应用不再出现在 GET 路径）、GET 禁缓存，SSE 全量快照是唯一整体替换通道",
 );
 assert.ok(
 	bundle.includes("rec.el.getBoundingClientRect()") && !bundle.includes("rec.el.offsetTop"),
@@ -4622,60 +4598,59 @@ assert.ok(
 		bundle.includes("renderCardIntoList(activeList, entry, cardsById, index, 1, colorByWorkspace, foreground)"),
 	"几何耦合钉住：INDENT_PX=16、轨道 left 由母会话卡片左缘测量推导（+半槽+1px border，取整后与横线起笔相接）与活动区卡片 offset=1（轨道层为首子节点），改任一必须同步",
 );
-// R-01-003/AC-05
 assert.ok(bundle.includes("function activeSessionIds(byId = {})"), "活动子代理沿 parentId 链补齐活动祖先");
-// ---- R-01-016/AC-01 等待卡保留最近工作项时间线 ----
+// ---- 等待卡保留最近工作项时间线 ----
 assert.ok(
 	bundle.includes('awaitHead.append(capsule, makeEl("span", "dap-await-age"));') &&
 		bundle.includes('return [head, row, makeEl("div", "dap-trace"), makeStatsRow(), foot];'),
-	"awaiting 骨架在标题行与统计行、末行两段（胶囊+正文）之间含时间线，末行首行胶囊右侧携带状态年龄（R-01-002/AC-14），固定耗时由统计行承载（R-01-016/AC-01、R-01-009/AC-12，C-043）",
+	"awaiting 骨架在标题行与统计行、末行两段（胶囊+正文）之间含时间线，末行首行胶囊右侧携带状态年龄，固定耗时由统计行承载（C-043）",
 );
-// ---- R-01-002/AC-10 完成提醒卡「移入历史」按钮 ----
+// ---- 完成提醒卡「移入历史」按钮 ----
 assert.ok(
 	bundle.includes('noteRow.append(makeEl("div", "dap-note"), makeConfirmButton());'),
-	"awaiting 正文行为「正文+按钮」行容器，胶囊已移至首行；按钮仅完成提醒卡显示（R-01-002/AC-08、AC-10，C-043）",
+	"awaiting 正文行为「正文+按钮」行容器，胶囊已移至首行；按钮仅完成提醒卡显示（C-043）",
 );
-assert.ok(bundle.includes('button.className = "dap-confirm"') && bundle.includes('button.textContent = "移入历史"'), "完成提醒卡按钮以「移入历史」文案呈现（R-01-002/AC-10，C-040）");
+assert.ok(bundle.includes('button.className = "dap-confirm"') && bundle.includes('button.textContent = "移入历史"'), "完成提醒卡按钮以「移入历史」文案呈现（C-040）");
 assert.ok(
 	bundle.includes('confirm.addEventListener("click"') && bundle.includes("event.stopPropagation()") && bundle.includes("confirm.addEventListener(\"keydown\", (event) => event.stopPropagation())") && bundle.includes('ackCompletion(id)'),
-	"按钮点击/键盘激活写回 ack 且阻断卡片跳转（R-01-002/AC-10）",
+	"按钮点击/键盘激活写回 ack 且阻断卡片跳转",
 );
-assert.ok(bundle.includes('confirm.hidden = entry.waitClass !== "done"'), "仅完成提醒卡显示「移入历史」按钮，阻塞等待卡不显示（R-01-002/AC-10）");
-assert.ok(bundle.includes("new window.EventSource(`${PANE_API_BASE}/acks/stream`)"), "完成确认状态经 SSE 通道订阅（R-01-002/AC-11、AC-12）");
-// R-01-002/AC-12 缺陷回归：移动 PWA 后台恢复后 ack 通道必须自愈（EventSource CLOSED/半开
+assert.ok(bundle.includes('confirm.hidden = entry.waitClass !== "done"'), "仅完成提醒卡显示「移入历史」按钮，阻塞等待卡不显示");
+assert.ok(bundle.includes("new window.EventSource(`${PANE_API_BASE}/acks/stream`)"), "完成确认状态经 SSE 通道订阅");
+//  缺陷回归：移动 PWA 后台恢复后 ack 通道必须自愈（EventSource CLOSED/半开
 // 不再自动重连），否则完成等待中的会话被误判入历史区直至整页重载。
 assert.ok(
 	bundle.includes('document.addEventListener("visibilitychange", onVisibilityResume)') && bundle.includes('window.addEventListener("pageshow", onPageShow)'),
-	"回到前台/bfcache 还原触发 ack 通道自愈（R-01-002/AC-12）",
+	"回到前台/bfcache 还原触发 ack 通道自愈",
 );
 assert.ok(
 	bundle.includes("function resumePushChannels()") && bundle.includes("function connectAcksStream()") && bundle.includes("acksSource?.close()"),
-	"ack 通道自愈经无条件重建 SSE 连接收敛（连接即收全量快照，R-01-002/AC-12；T-149 起同名自愈覆盖 jobs 通道）",
+	"ack 通道自愈经无条件重建 SSE 连接收敛（连接即收全量快照，；T-149 起同名自愈覆盖 jobs 通道）",
 );
 assert.ok(
 	bundle.includes('document.removeEventListener("visibilitychange", onVisibilityResume)') && bundle.includes('window.removeEventListener("pageshow", onPageShow)'),
-	"卸载时移除 ack 通道自愈监听（R-01-002/AC-12）",
+	"卸载时移除 ack 通道自愈监听",
 );
-// R-01-001/AC-03 缺陷回归（T-191）：移动 PWA 挂起后壳层 gateway 半开死连接无法自检，
+//  缺陷回归（T-191）：移动 PWA 挂起后壳层 gateway 半开死连接无法自检
 // 卡片运行状态（sessions.list/sessionStatus 推送）停滞至整页重载——窗格在回前台且
 // 隐藏时长达到阈值时经软依赖 connection.reconnect() 请求壳层重建连接兜底收敛。
 assert.ok(
 	bundle.includes('document.addEventListener("visibilitychange", onConnectionVisibilityResume)') && bundle.includes('window.addEventListener("pageshow", onConnectionPageShow)'),
-	"回前台（visibilitychange 双沿 + bfcache pageshow）触发壳层连接自愈评估（R-01-001/AC-03）",
+	"回前台（visibilitychange 双沿 + bfcache pageshow）触发壳层连接自愈评估",
 );
 assert.ok(
 	bundle.includes("function resumeShellConnection(") && bundle.includes("ctx.get(\"connection\")") && bundle.includes(".reconnect()"),
-	"壳层连接自愈经软依赖 connection.reconnect() 重建 generation，服务缺失静默降级（R-01-001/AC-03，T-191）",
+	"壳层连接自愈经软依赖 connection.reconnect() 重建 generation，服务缺失静默降级（T-191）",
 );
 assert.ok(
 	bundle.includes('document.removeEventListener("visibilitychange", onConnectionVisibilityResume)') && bundle.includes('window.removeEventListener("pageshow", onConnectionPageShow)'),
-	"卸载时移除壳层连接自愈监听（R-01-001/AC-03）",
+	"卸载时移除壳层连接自愈监听",
 );
 assert.ok(
 	bundle.includes('window.matchMedia?.("(hover: none) and (pointer: coarse)")') && bundle.includes("if (!isTouchFormFactor()) return;"),
-	"壳层连接自愈触发面限于触屏形态（主输入无 hover 且主指针为触屏），桌面浏览器与桌面安装版 PWA 不重建（R-01-001/AC-03，T-192）",
+	"壳层连接自愈触发面限于触屏形态（主输入无 hover 且主指针为触屏），桌面浏览器与桌面安装版 PWA 不重建（T-192）",
 );
-// R-01-007/AC-03、AC-04、AC-05（T-197，C-103）：桌面窗格常驻，显隐与展开/收起只由
+// （T-197，C-103）：桌面窗格常驻，显隐与展开/收起只由
 // 用户操作决定；中列按「窗格 + 主内容」行布局，当前 entry（会话视图或全局面板）的根盒
 // 弹性填充余宽。全局面板标记判据与自动隐藏路径必须完全移除。
 assert.ok(
@@ -4683,80 +4658,78 @@ assert.ok(
 		bundle.includes("function mainContentFlexItem") &&
 		bundle.includes("function entryFlexItem") &&
 		bundle.includes('flex.style.flex = "1 1 0%"'),
-	"窗格常驻、当前 entry 根弹性填充与可见性单点进入 bundle（R-01-007/AC-03、AC-04，T-197）",
+	"窗格常驻、当前 entry 根弹性填充与可见性单点进入 bundle（T-197）",
 );
 assert.ok(
 	!bundle.includes("GLOBAL_PANEL_ATTR") && !bundle.includes("setPaneHidden(pane, toggle, true)") && !bundle.includes("data-global-panel"),
-	"按宿主全局面板标记自动收起窗格的路径完全移除，显隐不再由代码判定（R-01-007/AC-05，T-197）",
+	"按宿主全局面板标记自动收起窗格的路径完全移除，显隐不再由代码判定（T-197）",
 );
 assert.ok(
 	bundle.includes('e2eParams.get("dap-e2e-resume-reconnect-ms")') && bundle.includes("requestedResumeReconnectRaw !== null") && bundle.includes("RESUME_RECONNECT_MIN_HIDDEN_MS") && bundle.includes("RESUME_RECONNECT_DEDUPE_MS"),
-	"回前台重建阈值与同沿去重经具名常量承载、阈值可经 e2e seam 覆盖且缺参不构成覆盖（R-01-001/AC-03）",
+	"回前台重建阈值与同沿去重经具名常量承载、阈值可经 e2e seam 覆盖且缺参不构成覆盖",
 );
-assert.ok(bundle.includes("fetch(`${PANE_API_BASE}/ack`"), "确认写回经宿主侧 ack 路由（R-01-002/AC-10、AC-11）");
+assert.ok(bundle.includes("fetch(`${PANE_API_BASE}/ack`"), "确认写回经宿主侧 ack 路由");
 assert.ok(
 	!bundle.includes("updateCompletedHolds") && !bundle.includes("heldCompletedIds") && !bundle.includes("prevActiveMainIds"),
 	"响应保持易失记账全套移除（C-030）",
 );
-// ---- R-01-003/AC-05 委托周期保持运行呈现：parent 卡形态已废除 ----
+// ---- 委托周期保持运行呈现：parent 卡形态已废除 ----
 assert.ok(
 	!bundle.includes('entry.kind === "parent"') && !bundle.includes('[data-kind="parent"]'),
-	"parent 分支与样式全部移除，委托母会话保持运行卡呈现（R-01-003/AC-05）",
+	"parent 分支与样式全部移除，委托母会话保持运行卡呈现",
 );
 assert.equal(
 	bundle.split('makeEl("span", "dap-pct")').length - 1,
 	1,
-	"百分比文本元素经 makeProgressRow 共享骨架单点创建（R-01-009/AC-06、AC-14）",
+	"百分比文本元素经 makeProgressRow 共享骨架单点创建",
 );
 assert.equal(
 	bundle.split('querySelector(".dap-pct")').length - 1,
 	1,
-	"百分比文本写入经 renderProgressRow 单点承载（R-01-009/AC-06、AC-14）",
+	"百分比文本写入经 renderProgressRow 单点承载",
 );
-// ---- R-01-016/AC-04 时间线数据在途时显示加载指示、返回就地填充 ----
+// ---- 时间线数据在途时显示加载指示、返回就地填充 ----
 assert.ok(
 	bundle.split("renderTimelineArea(traceContainer, entry").length - 1 === 3 && !bundle.includes("nativePresentationSessionId"),
-	"运行/subagent/等待卡统一复用 renderTimelineArea：在途显示加载行、返回就地填充（R-01-016/AC-04）",
+	"运行/subagent/等待卡统一复用 renderTimelineArea：在途显示加载行、返回就地填充",
 );
-// R-01-013/AC-07、R-01-013/AC-08
 assert.ok(bundle.includes('dataset.role = "user"'), "用户消息行骨架静态标识 user 角色");
 assert.ok(bundle.includes('dataset.role = "agent"'), "agent 回复行骨架静态标识 agent 角色");
 assert.ok(bundle.includes("dap-history-icon"), "历史卡预览行带常驻角色图标段");
 assert.ok(bundle.includes("dap-history-text"), "历史卡预览文本写入图标后的独立文本段");
-// R-01-013/AC-07、AC-08 最近卡预览行对齐时间线形式：角色标签 + 圆点分隔符 + 12px 图标盒
-assert.ok(bundle.includes("dap-history-label"), "历史卡预览行带角色标签段（R-01-013/AC-07、AC-08）");
-assert.ok(bundle.includes('userLabel.textContent = "用户"'), "用户消息行带「用户」标签（R-01-013/AC-07）");
-assert.ok(bundle.includes('agentLabel.textContent = "助手"'), "agent 回复行带「助手」标签（R-01-013/AC-08）");
-assert.ok(bundle.includes("dap-history-separator"), "历史卡预览行标签与文本之间带圆点分隔符（R-01-013/AC-07、AC-08）");
+//  最近卡预览行对齐时间线形式：角色标签 + 圆点分隔符 + 12px 图标盒
+assert.ok(bundle.includes("dap-history-label"), "历史卡预览行带角色标签段");
+assert.ok(bundle.includes('userLabel.textContent = "用户"'), "用户消息行带「用户」标签");
+assert.ok(bundle.includes('agentLabel.textContent = "助手"'), "agent 回复行带「助手」标签");
+assert.ok(bundle.includes("dap-history-separator"), "历史卡预览行标签与文本之间带圆点分隔符");
 assert.ok(
 	bundle.includes(".dap-history-icon svg { display: block; width: 12px; height: 12px; }") &&
 	!bundle.includes(".dap-history-icon svg { display: block; width: 10px; height: 10px; }"),
-	"历史卡角色图标盒 12px，与时间线图标一致（R-01-013/AC-07、AC-08）",
+	"历史卡角色图标盒 12px，与时间线图标一致",
 );
-// R-01-013/AC-08
 assert.ok(bundle.includes("agentIcon.append(createRobotIcon())"), "agent 回复行使用机器人图标");
-// R-01-012/AC-09、AC-11 回归：机器人图标为 Lucide bot 改造的小电视几何——去双耳、双 45° 外撇短斜天线
+//  回归：机器人图标为 Lucide bot 改造的小电视几何——去双耳、双 45° 外撇短斜天线
 //（ISC 许可，来源声明见 LICENSE/README）；几何与清晰化选型见 C-021
-assert.ok(bundle.includes("M10 8L7 5M14 8L17 5"), "机器人图标为双斜短天线小电视几何（R-01-012/AC-09）");
+assert.ok(bundle.includes("M10 8L7 5M14 8L17 5"), "机器人图标为双斜短天线小电视几何");
 assert.ok(!bundle.includes("M2 14h2") && !bundle.includes("M20 14h2") && !bundle.includes("M12 8V4H8"), "机器人图标无双耳与旧单折线天线残留（C-021）");
 assert.ok(
 	bundle.includes('"stroke-width": "2.2"') && !bundle.includes('"stroke-width": "1.3"'),
-	"机器人描边 2.2（12/22 缩放渲染 1.2px），旧 1.3px 细描边不残留（R-01-012/AC-11）",
+	"机器人描边 2.2（12/22 缩放渲染 1.2px），旧 1.3px 细描边不残留",
 );
 assert.ok(
 	!bundle.includes('data-icon="robot"] .dap-trace-icon svg'),
-	"机器人字形与其他时间线图标同用 12px 盒，无 13px 半像素偏移覆盖（R-01-012/AC-11）",
+	"机器人字形与其他时间线图标同用 12px 盒，无 13px 半像素偏移覆盖",
 );
-// R-01-012/AC-11 机器人图标 viewBox 保框（1 3 22 18）保持显示尺度，与同盒 canonical 图标一致
-assert.ok(bundle.includes('viewBox: "1 3 22 18"'), "机器人图标 viewBox 保框保持显示尺度，不因留白显小（R-01-012/AC-11）");
-assert.ok(!bundle.includes('viewBox: "0 0 24 24"'), "机器人图标不使用留白 24 框（R-01-012/AC-11）");
-// R-01-012/AC-03（T-021 副作用守卫：历史卡换图标不影响时间线兜底）
-// R-01-012/AC-09 时间线 assistant 行图标：正文行机器人图标（与最近卡 agent 角色标识同源）、思考行思考图标，按 detail 有无分流而非比较 label 文案
-assert.ok(bundle.includes('? createThinkIcon() : createRobotIcon()'), "时间线 assistant 正文行使用机器人图标、思考行使用思考图标（R-01-012/AC-09）");
-assert.ok(!bundle.includes('label === "Think"') && !bundle.includes('label === "Assistant"'), "图标分流不比较 label 显示文案（R-01-012/AC-09）");
-// R-01-012/AC-10 时间线数据层无英文 Think/Assistant 标签残留
-assert.ok(!bundle.includes('"Think"') && !bundle.includes('"Assistant"'), "bundle 无英文 Think/Assistant 标签残留（R-01-012/AC-10）");
-assert.ok(bundle.includes('"思考"') && bundle.includes('"助手"'), "bundle 含中文「思考」「助手」标签（R-01-012/AC-09、AC-10）");
+//  机器人图标 viewBox 保框（1 3 22 18）保持显示尺度，与同盒 canonical 图标一致
+assert.ok(bundle.includes('viewBox: "1 3 22 18"'), "机器人图标 viewBox 保框保持显示尺度，不因留白显小");
+assert.ok(!bundle.includes('viewBox: "0 0 24 24"'), "机器人图标不使用留白 24 框");
+// （T-021 副作用守卫：历史卡换图标不影响时间线兜底）
+//  时间线 assistant 行图标：正文行机器人图标（与最近卡 agent 角色标识同源）、思考行思考图标，按 detail 有无分流而非比较 label 文案
+assert.ok(bundle.includes('? createThinkIcon() : createRobotIcon()'), "时间线 assistant 正文行使用机器人图标、思考行使用思考图标");
+assert.ok(!bundle.includes('label === "Think"') && !bundle.includes('label === "Assistant"'), "图标分流不比较 label 显示文案");
+//  时间线数据层无英文 Think/Assistant 标签残留
+assert.ok(!bundle.includes('"Think"') && !bundle.includes('"Assistant"'), "bundle 无英文 Think/Assistant 标签残留");
+assert.ok(bundle.includes('"思考"') && bundle.includes('"助手"'), "bundle 含中文「思考」「助手」标签");
 assert.ok(bundle.includes("session.subscribe"), "运行卡通过 native session subscribe 接收实时推送");
 assert.ok(
 	clientSource.includes('const inject = ["sessions", "workspaces", "uiSession", "remote.session", "jobs", "uiWorkspace"];'),
@@ -4768,11 +4741,11 @@ assert.ok(
 );
 assert.ok(
 	bundle.includes("historyDeepReadDone = true") && bundle.includes("historyDeepReadDone !== true"),
-	"日志深翻每可见期至多一次：完成即置位（失败同样置位不热重试），重入可见由详情记账清理放行重试（R-01-014/AC-05）",
+	"日志深翻每可见期至多一次：完成即置位（失败同样置位不热重试），重入可见由详情记账清理放行重试",
 );
 assert.ok(
 	clientSource.includes("deepReadNeeded && !historyLoads.has(id)"),
-	"深翻在途守卫：同一会话深翻在途不重复入队，防 page RPC 风暴与加载指示在途性高频抖动（R-01-014/AC-05）",
+	"深翻在途守卫：同一会话深翻在途不重复入队，防 page RPC 风暴与加载指示在途性高频抖动",
 );
 assert.ok(
 	clientSource.includes("const live = liveSessionFace(id);") && clientSource.includes("if (live === null) return;"),
@@ -4807,18 +4780,14 @@ assert.ok(
 		&& !clockFramesSource.includes("cardSignature"),
 	"时钟帧不写 lastSig（全源唯一提交点在 renderOk）、不经 queueSync、不触派生与签名——全事件路径必经 queueSync 全量校正兜底（T-189 红线）",
 );
-assert.ok(bundle.includes("RECENT_TIME_REFRESH_MS") && bundle.includes("syncRecentTimeClock"), "历史卡相对时间使用独立的分钟级刷新时钟（R-01-013/AC-05）");
-// R-01-014/AC-01
-// R-01-014/AC-02
-// R-01-014/AC-03
-// R-01-014/AC-04
-// ---- R-01-014 加载过程可见与渐进呈现 ----
+assert.ok(bundle.includes("RECENT_TIME_REFRESH_MS") && bundle.includes("syncRecentTimeClock"), "历史卡相对时间使用独立的分钟级刷新时钟");
+// ---- 加载过程可见与渐进呈现 ----
 assert.ok(bundle.includes("listLoadState"), "列表加载态经 listLoadState 归一");
 assert.ok(bundle.includes('listState === "loading" ? "加载中…"'), "列表在途时活动区显示加载指示而非空态");
 assert.ok(bundle.includes('"列表加载失败"'), "列表错误时显示失败文案而非空态");
 assert.ok(bundle.includes("node.dataset.mode"), "加载指示与空态分模式渲染");
 assert.ok(bundle.includes("dap-spinner"), "加载指示使用活动图标");
-// R-01-014/AC-06 数量标识在途显示加载指示而非冒充计数
+//  数量标识在途显示加载指示而非冒充计数
 assert.ok(bundle.includes("countBadgeState"), "数量标识在途态经 countBadgeState 归一");
 assert.ok(bundle.includes("setCountBadgeContent"), "三处数量标识在途接入加载指示");
 assert.ok(bundle.includes("活动会话计数加载中"), "数量标识加载态 aria 文案不冒充计数");
@@ -4836,7 +4805,7 @@ assert.ok(
 	clientSource.includes("if (!subagent && !logWindowSuppressedFor(id, byId)) {") &&
 		clientSource.includes("subscribeModelDirectory(id, detail);") &&
 		clientSource.includes("loadDirectoryOnce(id);"),
-	"仅主会话建立 model directory 订阅与一次性 load（子代理目录不可用不订阅）；紧凑档主会话无可见消费者不订阅（R-01-025/AC-06）",
+	"仅主会话建立 model directory 订阅与一次性 load（子代理目录不可用不订阅）；紧凑档主会话无可见消费者不订阅",
 );
 assert.ok(
 	clientSource.includes('delayedModelCall(() => (typeof directory.load === "function" ? directory.load() : null))'),
@@ -4867,12 +4836,12 @@ assert.ok(
 	"卸载清理流式派生在途 timer，不残留唤醒",
 );
 // 回到前台渲染管线自愈：挂起丢弃在途节流/派生 timer 后，回前台无条件清掉并立即
-// 交付一轮渲染（R-01-001/AC-03 回归）；机制行为由 e2e/specs/mobile-resume.mjs 断言。
+// 交付一轮渲染（回归）；机制行为由 e2e/specs/mobile-resume.mjs 断言。
 assert.ok(
 	bundle.includes("resumeRenderPipeline") && bundle.includes("logDeriveFlush"),
 	"回前台渲染管线自愈（丢弃 timer 补交付）进 bundle",
 );
-// R-01-012/AC-16 模型目录订阅：store 推送更新、随可见性/卸载清理；dsh 0.1.5 起目录
+//  模型目录订阅：store 推送更新、随可见性/卸载清理；dsh 0.1.5 起目录
 // store 惰性加载，订阅后补一次一次性 load（C-024 的 generation 竞争以最新操作胜出）
 assert.ok(bundle.includes('ctx.get("modelDirectories")'), "模型实时选择来自原生 modelDirectories 服务（可选软依赖）");
 assert.ok(bundle.includes("directory.store.subscribe"), "订阅目录 store 推送模型选择变更");
@@ -4884,20 +4853,16 @@ assert.ok(!bundle.includes("events.mux"), "不常驻全局 mux，当前会话使
 assert.ok(
 	bundle.includes('return [head, row, makeEl("div", "dap-trace"), progressRow, makeStatsRow()];')
 		&& bundle.includes('row.append(makeEl("span", "dap-dot"), makeEl("span", "dap-title"), makeEl("span", "dap-jobs-chip"), makeWorkspacePill(), makeEl("span", "dap-total-time"));'),
-	"running 卡 token 统计骨架位于进度条骨架之后、标题行承载后台数量注与行尾工作区名胶囊（R-01-023、R-01-021/AC-10）",
+	"running 卡 token 统计骨架位于进度条骨架之后、标题行承载后台数量注与行尾工作区名胶囊",
 );
 assert.ok(
 	bundle.indexOf('statsRow.append(makeEl("span", "dap-token-main"), makeEl("span", "dap-token-time"))') > -1,
-	"统计行先左列后时长，时长段恒在行尾（R-01-009/AC-05）",
+	"统计行先左列后时长，时长段恒在行尾",
 );
 assert.ok(!bundle.includes("思考中"), "活动卡 bundle 不再渲染独立思考中动作行");
 assert.ok(!bundle.includes("dap-status"), "活动卡 bundle 不再保留独立状态行骨架");
 assert.ok(!bundle.includes("statusLine"), "活动卡 bundle 不再依赖 statusLine 状态文案");
 
-// R-02-001/AC-01
-// R-02-001/AC-02
-// R-02-004/AC-01
-// R-02-004/AC-02
 // ---- 无第三方状态路由，轮内状态不引入新的 HTTP 轮询 ----
 // 校验的是运行时引用：不得注入第三方插件服务、不得请求其状态路由、不得发起状态轮询
 // （文档注释中的上位名提及属来源声明，不构成依赖）。
@@ -4908,7 +4873,7 @@ assert.ok(
 	!bundle.includes("ctx.get(\"dsh-answer-pet\")"),
 	"不得以服务方式依赖第三方宠物插件",
 );
-// R-02-004/AC-02（演进，C-030、C-074、T-149）：HTTP 请求仅两处——完成确认写回（用户操作
+// （演进，C-030、C-074、T-149）：HTTP 请求仅两处——完成确认写回（用户操作
 // 触发的一次性 POST）与累计运行时长懒回填触发（每会话至多一次的一次性 GET），均非状态
 // 轮询；轮内状态与回合统计仍只来自原生订阅推送与 SSE 推送。
 // fetch/EventSource 数量由下两条断言钉住：轮询需要重复请求，受限的调用面即排除轮询形态。
@@ -4916,7 +4881,7 @@ assert.ok(
 	(bundle.match(/fetch\(/g) ?? []).length === 2
 		&& bundle.includes("fetch(`${PANE_API_BASE}/ack`")
 		&& bundle.includes("fetch(`${PANE_API_BASE}/busy?ids="),
-	"HTTP 请求仅确认写回与 busy 懒回填两处，指向宿主侧自家路由（R-01-002/AC-10、R-01-020、C-030、C-074）",
+	"HTTP 请求仅确认写回与 busy 懒回填两处，指向宿主侧自家路由（C-030、C-074）",
 );
 assert.ok(
 	(bundle.match(/new window\.EventSource\(/g) ?? []).length === 2
@@ -4926,16 +4891,16 @@ assert.ok(
 );
 assert.ok(
 	bundle.includes("label.title = labelText"),
-	"job 子卡内容行悬停以原生 tooltip 显示完整任务原文（R-01-023/AC-05）",
+	"job 子卡内容行悬停以原生 tooltip 显示完整任务原文",
 );
 assert.ok(
 	bundle.includes('entry.kind === "job" ? null : bindCardActivation(el, (sessionId) => {')
 		&& bundle.includes('rec.el.removeAttribute("role")')
 		&& !bundle.includes("activationTarget"),
-	"job 子卡为纯展示：不绑激活监听、不设按钮语义与 tab 序（R-01-023/AC-08）",
+	"job 子卡为纯展示：不绑激活监听、不设按钮语义与 tab 序",
 );
 
-// ---- R-02-003/AC-02 卸载时清理注入元素、样式与监听 ----
+// ---- 卸载时清理注入元素、样式与监听 ----
 assert.ok(bundle.includes("style.remove()"), "卸载移除注入样式");
 assert.ok(bundle.includes("bodyObserver?.disconnect()"), "卸载断开 body 观察者");
 assert.ok(bundle.includes("disconnectAncestorObservers"), "卸载断开祖先链观察者");
@@ -4948,17 +4913,12 @@ assert.deepEqual([...loadMaps[0].keys()], ["b"], "可见性清理保留可见记
 assert.deepEqual([...loadMaps[1].keys()], ["b"], "loads 记账与详情同生命周期清理");
 assert.ok(bundle.includes("pruneInvisibleEntries"), "可见性清理统一经 pruneInvisibleEntries");
 
-// R-01-012/AC-05
-// R-01-012/AC-06
-// R-01-012/AC-07
-// R-01-012/AC-08
 // ---- 回归锚点：动作图标、错误呈现与标题摘要分隔符 ----
 assert.ok(bundle.includes("createUserIcon"), "用户工作项使用人物 SVG 图标");
 assert.ok(bundle.includes('item.kind === "user"'), "用户图标按工作项语义固定选择");
 assert.ok(bundle.includes("createBashIcon"), "Bash 使用稳定的 canonical 图标");
-assert.ok(bundle.includes("item.fold === true"), "折叠组行图标按组类别固定选择，不随成员状态或展开态漂移（R-01-012/AC-03、AC-08）");
+assert.ok(bundle.includes("item.fold === true"), "折叠组行图标按组类别固定选择，不随成员状态或展开态漂移");
 assert.ok(bundle.includes('M11.4818 5.57813'), "Bash fallback 使用 DSH IconApiOutline14 路径");
-// R-01-012/AC-03
 // ---- 回归锚点：非当前会话 fallback 与主会话网页同一 canonical 图标表，选中/非选中态不漂移 ----
 assert.ok(bundle.includes("fallbackTraceIcon"), "fallback 图标统一经 canonical 图标工厂");
 assert.ok(bundle.includes("TOOL_ICON_FACTORIES"), "fallback 图标按 toolName 镜像原生 classifyTool 分类");
@@ -4968,25 +4928,24 @@ assert.ok(bundle.includes("createGlobeIcon") && bundle.includes("M7.00018 0.3535
 assert.ok(bundle.includes("createBrowseIcon") && bundle.includes("M11.2426 4.80473"), "read/web_fetch fallback 使用 DSH IconBrowseOutline16 路径");
 assert.ok(bundle.includes("createEditIcon") && bundle.includes("M9.94076 1.34942"), "write/edit fallback 使用 DSH IconEditOutline16 路径");
 assert.ok(bundle.includes("createThinkIcon"), "Think fallback 使用 DSH IconThinkOutline14 图标");
-assert.ok(bundle.includes('item.kind === "context" ? "" : item.text'), "context 注入内容原文不作为摘要兜底上卡（R-01-012/AC-03）");
+assert.ok(bundle.includes('item.kind === "context" ? "" : item.text'), "context 注入内容原文不作为摘要兜底上卡");
 // 原生行匹配/图标克隆/图标缓存机器已随逐项镜像移除（C-017），由上方负向守卫覆盖。
 assert.ok(!bundle.includes('disclosure?.querySelector("svg")'), "不得直接复制 disclosure 内第一个 SVG");
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-trace-item[data-status="error"] .dap-trace-icon') &&
 	bundle.includes('data-status="error"] .dap-trace-label'),
-	"错误分组行经 CSS 整体染色：图标、组标题与摘要跟随错误色（R-01-012/AC-06）",
+	"错误分组行经 CSS 整体染色：图标、组标题与摘要跟随错误色",
 );
 assert.ok(bundle.includes("dap-trace-separator"), "标题与摘要之间有圆点分隔符");
 assert.ok(bundle.includes('main.append(makeEl("span", "dap-trace-separator"))'), "仅在标题和摘要同时存在时插入分隔符");
 assert.ok(bundle.includes('[data-status="error"] .dap-trace-icon'), "错误时动作图标染红");
 assert.ok(bundle.includes('[data-status="error"] .dap-trace-label'), "错误时动作标题染红");
 assert.ok(bundle.includes('[data-status="error"] .dap-trace-summary'), "错误时动作摘要染红");
-assert.ok(bundle.includes('summary.dataset.follow !== follow'), "流式摘要记录跟随态以区分钉行尾与回行首（R-01-012/AC-03）");
-assert.ok(bundle.includes('summary.scrollLeft = follow === "end" ? summary.scrollWidth : 0'), "running 摘要钉行尾跟随流式输出、结束后回行首（R-01-012/AC-03）");
+assert.ok(bundle.includes('summary.dataset.follow !== follow'), "流式摘要记录跟随态以区分钉行尾与回行首");
+assert.ok(bundle.includes('summary.scrollLeft = follow === "end" ? summary.scrollWidth : 0'), "running 摘要钉行尾跟随流式输出、结束后回行首");
 assert.ok(bundle.includes('.dap-trace-summary[data-follow="end"] { text-overflow: clip; }'), "钉行尾跟随时摘要不渲染省略号（镜像原生 ReasoningRow follow-end）");
 
-// R-01-009/AC-09
-// ---- 回归锚点：时间线几何/状态动画（R-01-009/AC-08、AC-09 呈现细节）----
+// ---- 回归锚点：时间线几何/状态动画（呈现细节）----
 // 轨道列从卡片内容左边起步：时间线节点与 7px 标题点使用同尺寸承载盒（left:0、圆心 x=3.5），
 // 与 left 3px 的 1px 竖线保持同一光栅相位；承载盒的 1px border 透明，7px border-box 内仅由
 // padding-box 背景显示 5px 实心核，半透明 drop-shadow 从小圆核的 alpha 轮廓生成，不显露承载盒；
@@ -5002,75 +4961,71 @@ assert.ok(bundle.includes("margin: 1px 0 2px;"), "时间线整体与卡片内容
 assert.ok(bundle.includes("left: 3px; top: 0; bottom: 7px"), "1px 竖线（整数位）与 7px 时间线承载盒、7px 标题点严格同圆心 x=3.5，终点没入最末圆点");
 assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace::before"), "浅色主题时间线竖线色覆盖迁移到容器级规则（T-069）");
 assert.ok(bundle.includes("color: #c7ced9; font-size: 10px; line-height: 14px;"), "工作项文字恢复原有 10px/14px 尺度");
-assert.ok(bundle.includes("width: 14px; height: 14px;") && !bundle.includes("width: 14px; height: 14px; padding: 1px;"), "工作项图标容器为真实 14px 盒、无占位的 padding 环（R-01-012、C-019）");
-assert.ok(bundle.includes("width: fit-content;\n  max-width: 100%;") && bundle.includes("linear-gradient(rgba(139, 152, 165, .55), rgba(139, 152, 165, .55))") && !bundle.includes("repeating-linear-gradient(90deg, rgba(139, 152, 165, .55)") && !bundle.includes("rgba(88, 201, 143, .1)") && !bundle.includes("border-bottom: 1px dashed"), "时间线用户消息行下划线改实线且宽度仅为图标+文字内容宽（背景渐变绘制、不占 14px 行高），无整行虚线与浅绿平底残留（R-01-012/AC-05、C-022）");
-assert.ok(bundle.includes("linear-gradient(var(--dsw-alias-label-tertiary, rgb(129, 133, 140)), var(--dsw-alias-label-tertiary, rgb(129, 133, 140)))"), "浅色主题用户行下划线同改实线（alias 变量色）（R-01-012/AC-05）");
-assert.ok(bundle.includes("anchor: true") && bundle.includes("isUserChatNode"), "指令锚行由核心派生并前置返回，找锚只做廉价 kind 检查（R-01-012/AC-12）");
+assert.ok(bundle.includes("width: 14px; height: 14px;") && !bundle.includes("width: 14px; height: 14px; padding: 1px;"), "工作项图标容器为真实 14px 盒、无占位的 padding 环（C-019）");
+assert.ok(bundle.includes("width: fit-content;\n  max-width: 100%;") && bundle.includes("linear-gradient(rgba(139, 152, 165, .55), rgba(139, 152, 165, .55))") && !bundle.includes("repeating-linear-gradient(90deg, rgba(139, 152, 165, .55)") && !bundle.includes("rgba(88, 201, 143, .1)") && !bundle.includes("border-bottom: 1px dashed"), "时间线用户消息行下划线改实线且宽度仅为图标+文字内容宽（背景渐变绘制、不占 14px 行高），无整行虚线与浅绿平底残留（C-022）");
+assert.ok(bundle.includes("linear-gradient(var(--dsw-alias-label-tertiary, rgb(129, 133, 140)), var(--dsw-alias-label-tertiary, rgb(129, 133, 140)))"), "浅色主题用户行下划线同改实线（alias 变量色）");
+assert.ok(bundle.includes("anchor: true") && bundle.includes("isUserChatNode"), "指令锚行由核心派生并前置返回，找锚只做廉价 kind 检查");
 assert.ok(bundle.includes("display: block; width: 12px; height: 12px;"), "工作项 SVG 保持 12px");
 assert.ok(bundle.includes('svg.setAttribute("width", String(width))'), "canonical 图标经 createInlineIcon 统一写入尺寸（默认 12px）");
-assert.ok(bundle.includes("left: 0; top: 3px;\n  width: 7px; height: 7px;"), "时间线节点恢复 7px 同心承载盒，圆心保持 x=3.5/y=6.5（R-01-009/AC-09、C-062）");
-assert.ok(bundle.includes("box-sizing: border-box; border: 1px solid transparent; border-radius: 50%;"), "7px 承载盒边界透明，仅为 5px 圆核提供同相位定位（R-01-009/AC-09、C-063）");
-assert.ok(bundle.includes("background-color: #778394; background-clip: padding-box;"), "时间线圆点使用实体背景与 padding-box 在透明承载盒内裁出 5px 圆核（R-01-009/AC-09）");
-assert.ok(bundle.includes("background-color: #65a0ff;") && bundle.includes("background-color: #58c98f;") && bundle.includes("background-color: #f06a72;") && bundle.includes("background-color: #f5a524;"), "全部状态仅覆盖 background-color，不以 background shorthand 重置 padding-box 裁剪（R-01-009/AC-09、C-063）");
-assert.ok(!bundle.includes("radial-gradient(circle,"), "时间线圆点不再使用硬停色 radial-gradient（R-01-009/AC-09、C-036、C-061、C-062、C-063）");
-assert.ok(!bundle.includes("box-shadow: 0 0 0 1px rgba(119, 131, 148, .14);"), "普通节点不再按 7px 承载盒绘制可见 box-shadow（R-01-009/AC-09、C-063）");
-assert.ok(!bundle.includes("box-shadow: 0 0 0 1px rgba(101,160,255,.16), 0 0 6px rgba(101,160,255,.65);"), "running 节点不再按 7px 承载盒绘制外围与光晕（R-01-009/AC-09、C-063）");
-assert.ok(bundle.includes("filter: drop-shadow(0 0 1px rgba(119,131,148,.32));"), "普通节点光晕从 5px 圆核 alpha 轮廓生成（R-01-009/AC-09、C-063）");
-assert.ok(bundle.includes("filter: drop-shadow(0 0 1px rgba(101,160,255,.32)) drop-shadow(0 0 3px rgba(101,160,255,.65));"), "running 节点保留基于 5px 圆核的半透明外围与状态光晕（R-01-009/AC-09、C-063）");
+assert.ok(bundle.includes("left: 0; top: 3px;\n  width: 7px; height: 7px;"), "时间线节点恢复 7px 同心承载盒，圆心保持 x=3.5/y=6.5（C-062）");
+assert.ok(bundle.includes("box-sizing: border-box; border: 1px solid transparent; border-radius: 50%;"), "7px 承载盒边界透明，仅为 5px 圆核提供同相位定位（C-063）");
+assert.ok(bundle.includes("background-color: #778394; background-clip: padding-box;"), "时间线圆点使用实体背景与 padding-box 在透明承载盒内裁出 5px 圆核");
+assert.ok(bundle.includes("background-color: #65a0ff;") && bundle.includes("background-color: #58c98f;") && bundle.includes("background-color: #f06a72;") && bundle.includes("background-color: #f5a524;"), "全部状态仅覆盖 background-color，不以 background shorthand 重置 padding-box 裁剪（C-063）");
+assert.ok(!bundle.includes("radial-gradient(circle,"), "时间线圆点不再使用硬停色 radial-gradient（C-036、C-061、C-062、C-063）");
+assert.ok(!bundle.includes("box-shadow: 0 0 0 1px rgba(119, 131, 148, .14);"), "普通节点不再按 7px 承载盒绘制可见 box-shadow（C-063）");
+assert.ok(!bundle.includes("box-shadow: 0 0 0 1px rgba(101,160,255,.16), 0 0 6px rgba(101,160,255,.65);"), "running 节点不再按 7px 承载盒绘制外围与光晕（C-063）");
+assert.ok(bundle.includes("filter: drop-shadow(0 0 1px rgba(119,131,148,.32));"), "普通节点光晕从 5px 圆核 alpha 轮廓生成（C-063）");
+assert.ok(bundle.includes("filter: drop-shadow(0 0 1px rgba(101,160,255,.32)) drop-shadow(0 0 3px rgba(101,160,255,.65));"), "running 节点保留基于 5px 圆核的半透明外围与状态光晕（C-063）");
 assert.ok(bundle.includes(".dap-dot {\n  width: 7px; height: 7px;"), "标题点保持可见 7px，时间线仅显示 5px 圆核形成尺寸层级");
 assert.ok(bundle.includes("padding-left: 14px"), "时间线文字轨道保持 14px 内缩");
 assert.ok(bundle.includes(".dap-subtrace {\n  position: relative;   /* 容器级整条竖线的定位基准 */\n  min-width: 0;"), "子代理容器不再 padding/border/overflow 包裹（不裁切圆点），并为容器级整条竖线提供定位基准（T-069）");
 assert.ok(bundle.includes(".dap-fill { transition: none; }"), "降低动效设置不关闭状态动画（对齐 answer-pet）");
-// R-01-009/AC-08：进度条仅存于运行卡骨架，条纹挂在 .dap-fill::after 载体上——
+// 进度条仅存于运行卡骨架，条纹挂在 .dap-fill::after 载体上——
 // 会话运行全程（含工具/思考阶段与委托周期母会话）持续向右滚动，不再经流式阶段门控。
 // T-128 起载体与滚动动画分离：fill 只保留宽度/裁切，渐变与滚动由 ::after 承载。
 assert.ok(
 	bundle.includes(".dap-fill::after") && bundle.includes("repeating-linear-gradient(90deg, #58c98f 0 10px, #3fbf86 10px 20px)"),
-	"进度条条带载体携带条纹渐变，运行全程呈现（R-01-009/AC-08、T-128）",
+	"进度条条带载体携带条纹渐变，运行全程呈现（T-128）",
 );
-assert.ok(bundle.includes("animation: dap-stripes 0.8s linear infinite;"), "进度条条纹持续向右滚动动画（R-01-009/AC-08）");
+assert.ok(bundle.includes("animation: dap-stripes 0.8s linear infinite;"), "进度条条纹持续向右滚动动画");
 assert.ok(
 	bundle.includes("from { transform: translateX(-40px); }") && bundle.includes("to { transform: translateX(0); }"),
-	"条纹滚动由合成器驱动的 transform 载体承载，负向起步正向右滚（R-01-009/AC-08、T-128）",
+	"条纹滚动由合成器驱动的 transform 载体承载，负向起步正向右滚（T-128）",
 );
 assert.ok(!bundle.includes("background-position: 40px"), "background-position 滚动机制无残留（T-128）");
-assert.ok(!bundle.includes("data-streaming"), "条纹不再经 data-streaming 流式门控（R-01-009/AC-08）");
-assert.ok(!bundle.includes("entry.streaming"), "streaming 派生字段随条纹门控移除（R-01-009/AC-08）");
-assert.ok(bundle.indexOf('const track = makeEl("div", "dap-track");') > bundle.indexOf('return [head, row, makeEl("div", "dap-trace"), noteRow];'), "进度条骨架仅属运行卡，非运行卡不呈现条纹（R-01-009/AC-08）");
+assert.ok(!bundle.includes("data-streaming"), "条纹不再经 data-streaming 流式门控");
+assert.ok(!bundle.includes("entry.streaming"), "streaming 派生字段随条纹门控移除");
+assert.ok(bundle.indexOf('const track = makeEl("div", "dap-track");') > bundle.indexOf('return [head, row, makeEl("div", "dap-trace"), noteRow];'), "进度条骨架仅属运行卡，非运行卡不呈现条纹");
 assert.ok(bundle.includes("animation: dap-pulse 1.15s ease-in-out infinite"), "运行中蓝色节点保留脉冲动画");
 assert.ok(bundle.includes("dataset.traceKey"), "同一流程节点复用 DOM，脉冲动画不因时钟刷新重置");
 assert.ok(!bundle.includes(".dap-trace-item[data-status=\"running\"]::before {\n    animation: none !important;"), "降低动效设置不关闭运行点脉冲");
 
-// R-01-013/AC-09
 // 全部会话卡标题（活动卡、子代理卡、最近卡）统一常规字重（不加粗），无按卡类覆盖。
 assert.ok(bundle.includes("white-space: nowrap; font-size: 12px; line-height: 16px; font-weight: 400;"), "会话卡标题使用常规字重（不加粗）");
 assert.ok(!bundle.includes('[data-kind="recent"] .dap-title {'), "最近卡标题不再有独立字重覆盖（与活动卡共用常规字重）");
 
-// R-01-013/AC-10
 // 最近历史卡整体不透明度低于活动卡，弱化历史区视觉强调。
 assert.ok(bundle.includes("opacity: 0.8;"), "最近历史卡整体不透明度降为 0.8");
 
-// R-01-013/AC-11
 // 最近卡底色与描边保持与窗格底色可分辨、且暗于活动卡：深色中间档底色 + 弱描边；浅色压暗底色 + 弱描边。
-assert.ok(bundle.includes("background: rgba(26, 28, 34, 0.92);\n  border-color: rgba(255, 255, 255, 0.08);"), "深色最近卡底色为暗于活动卡的中间档并带弱描边（R-01-013/AC-11）");
+assert.ok(bundle.includes("background: rgba(26, 28, 34, 0.92);\n  border-color: rgba(255, 255, 255, 0.08);"), "深色最近卡底色为暗于活动卡的中间档并带弱描边");
 assert.ok(
 	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="recent"] {') && bundle.includes("background: rgb(243, 244, 246);\n  border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));"),
-	"浅色最近卡底色暗于活动卡纯白并带弱描边（R-01-013/AC-11）",
+	"浅色最近卡底色暗于活动卡纯白并带弱描边",
 );
 
-// R-01-010/AC-08、AC-09（bundle 契约）
+// （bundle 契约）
 // 历史区时间精化链路进入 bundle：turn/end 提取、turnEnds 注入 buildRecent、渲染读 activityAt。
-assert.ok(bundle.includes("lastTurnEndFromEvents") && bundle.includes("lastTurnEndFromTimings"), "回合结束时刻提取进入 bundle（R-01-010/AC-08）");
-assert.ok(bundle.includes("turnEnds, jobsBySession, currentId"), "turnEnds 与 jobsBySession 注入 buildRecent（R-01-010/AC-09、R-01-023/AC-01；options 收敛后由字段序承载，T-186）");
-assert.ok(bundle.includes("fmtRecentTime(entry.activityAt)"), "最近卡渲染读取精化后的 activityAt（R-01-010/AC-08）");
-assert.ok(bundle.includes("fmtRelativeAge") && bundle.includes("最后活动 ·"), "最近卡同时显示绝对日期时间与相对活动时间（R-01-013/AC-05）");
+assert.ok(bundle.includes("lastTurnEndFromEvents") && bundle.includes("lastTurnEndFromTimings"), "回合结束时刻提取进入 bundle");
+assert.ok(bundle.includes("turnEnds, jobsBySession, currentId"), "turnEnds 与 jobsBySession 注入 buildRecent（；options 收敛后由字段序承载，T-186）");
+assert.ok(bundle.includes("fmtRecentTime(entry.activityAt)"), "最近卡渲染读取精化后的 activityAt");
+assert.ok(bundle.includes("fmtRelativeAge") && bundle.includes("最后活动 ·"), "最近卡同时显示绝对日期时间与相对活动时间");
 
 assert.ok(
 	bundle.indexOf('[data-kind="recent"] {') < bundle.indexOf(".dap-card[data-opening]"),
-	"recent 淡化规则位于 opening 脉冲规则之前，等待态由脉冲接管（R-01-013/AC-10 边界）",
+	"recent 淡化规则位于 opening 脉冲规则之前，等待态由脉冲接管（边界）",
 );
 
-// R-01-008/AC-04
 // 移动端「活动」开关常态嵌入宿主头部标题行行首参与布局（T-163，C-090；视觉上
 // 位于左边栏切换按钮右侧）；标题行不可得且宿主侧栏展开按钮（dsh-web-mobile ⊡，
 // data-mobile-nav="toggle"/"fab"）在屏时落位 hero 贴靠形态（T-167，C-093）；
@@ -5084,7 +5039,7 @@ assert.ok(!bundle.includes(".dap-toggle {\n  position: fixed;"), "浮动开关�
 assert.ok(bundle.includes('toggle.style.position = "relative"'), "嵌入态以 relative 建立定位上下文（不改变布局盒，T-203）");
 assert.ok(bundle.includes('toggle.style.zIndex = "2"'), "嵌入态 z-index 2 高于壳层标签行容器（1），叠置带命中归开关（T-203）");
 assert.ok(bundle.includes("toggle.style.marginLeft"), "嵌入态按宿主左侧控件右缘 + 8px 让位（窄视口浮动侧栏开关，T-203）");
-assert.ok(bundle.includes(".dap-toggle[data-embedded] {\n  position: relative;\n  margin-right: 8px;\n  flex: none;\n  width: max-content; max-width: 64px; min-width: 44px;\n  height: 38px; min-height: 38px;\n  z-index: 2;\n}"), "嵌入态钉住 44px 最小宽与 38px 高并 z-index:2 高于标签行（R-01-008/AC-07、T-203）");
+assert.ok(bundle.includes(".dap-toggle[data-embedded] {\n  position: relative;\n  margin-right: 8px;\n  flex: none;\n  width: max-content; max-width: 64px; min-width: 44px;\n  height: 38px; min-height: 38px;\n  z-index: 2;\n}"), "嵌入态钉住 44px 最小宽与 38px 高并 z-index:2 高于标签行（T-203）");
 assert.ok(bundle.includes(".dap-toggle[data-hero] {\n  position: absolute;\n  z-index: 1060;\n}"), "hero 态 absolute 页面层 z-index:1060（低于壳层遮罩 1250/抽屉 1300/菜单 1100）");
 assert.ok(bundle.includes("target.insertBefore(toggle, cluster)"), "开关落位插入嵌入行首个内容簇之前（行首参与布局；嵌入靶点为 headerLeading 或会话头标题行，T-171）");
 assert.ok(bundle.includes("target.prepend(toggle)"), "无标题簇时开关落位嵌入行行首");
@@ -5109,8 +5064,8 @@ assert.ok(bundle.includes("const ON_SCREEN_X = -10;"), "在屏判据阈值具名
 assert.ok(bundle.includes('"<span class=\\"dap-toggle-count\\"></span>"'), "开关为徽标单挂骨架：仅计数徽标，无图标与文字标签");
 assert.ok(!bundle.includes("dap-toggle-icon"), "面板图标已撤销（东家反馈被误读为边栏按钮）");
 assert.ok(bundle.includes("appearance: none; white-space: nowrap; width: max-content; max-width: 64px;"), "开关显式钉宽并以 max-width:64px 钳制硬上限（真机 fixed 态恒定膨胀兜底）");
-assert.ok(bundle.includes(".dap-toggle {\n  display: none;\n  align-items: center; gap: 5px;\n  min-width: 44px; height: 38px; min-height: 38px; padding: 0;"), "开关命中盒为至少 44px 宽与 38px 高（R-01-008/AC-07）");
-assert.ok(bundle.includes(".dap-toggle .dap-toggle-count {\n  display: inline-flex; align-items: center; justify-content: center;\n  box-sizing: border-box; min-width: 36px; max-width: 64px; height: 24px;\n  line-height: 24px; text-align: center; border-radius: 999px;\n  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;\n  background: color-mix(in srgb, currentColor 16%, transparent);\n  padding: 0 8px; font-size: 12px; font-weight: 700;\n}"), "计数徽标为至少 36px 宽与 24px 高、文字 12px（R-01-008/AC-07）");
+assert.ok(bundle.includes(".dap-toggle {\n  display: none;\n  align-items: center; gap: 5px;\n  min-width: 44px; height: 38px; min-height: 38px; padding: 0;"), "开关命中盒为至少 44px 宽与 38px 高");
+assert.ok(bundle.includes(".dap-toggle .dap-toggle-count {\n  display: inline-flex; align-items: center; justify-content: center;\n  box-sizing: border-box; min-width: 36px; max-width: 64px; height: 24px;\n  line-height: 24px; text-align: center; border-radius: 999px;\n  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;\n  background: color-mix(in srgb, currentColor 16%, transparent);\n  padding: 0 8px; font-size: 12px; font-weight: 700;\n}"), "计数徽标为至少 36px 宽与 24px 高、文字 12px");
 // 开关外层胶囊壳去除（T-168，东家指示只留内部涂色的计数胶囊）：基规则不携带
 // 底色、描边与投影，浅色主题不再覆盖开关底色；可见形态即 .dap-toggle-count 本体。
 assert.ok(bundle.includes("border: none; background: none;"), "开关基规则显式压掉 UA 默认按钮壳（appearance:none 不摘 UA 声明的边框与底色，T-168）");
@@ -5119,7 +5074,6 @@ assert.ok(!bundle.includes("rgba(24, 28, 38, 0.94)"), "开关基规则不再携�
 assert.ok(!bundle.includes("box-shadow: 0 6px 16px rgba(0,0,0,.34)"), "开关基规则不再携带外层投影（T-168）");
 assert.ok(!bundle.includes("body:not([data-ds-dark-theme]) .dap-toggle {"), "浅色主题不再覆盖开关底色（外层胶囊壳已去除，T-168）");
 
-// R-01-008/AC-05
 // 抽屉打开时开关隐藏、关闭后恢复；显隐随 togglePane 单点同步。嵌入态与 hero 态
 // 统一 visibility:hidden 留位隐藏，标题行不因开合重排（T-160 闸口决策、T-167）。
 assert.ok(bundle.includes(".dap-toggle[data-drawer-open] { display: flex; visibility: hidden; pointer-events: none; }"), "插件抽屉打开时开关统一留位隐藏且不拦截点击");
@@ -5129,176 +5083,176 @@ assert.ok(!bundle.includes("data-host-drawer-open"), "宿主侧栏抽屉隐藏�
 assert.ok(bundle.includes('attributeFilter: ["data-sidebar-collapsed"], childList: true'), "锚出现的确定唤醒：frame 观察承载抽屉翻转与直系子节点变动（⊡/开关挂载摘除即检，T-171）");
 assert.ok(bundle.includes("frameObserver?.disconnect();"), "帧状态观察随 cleanup 摘除");
 
-// R-01-002/AC-01、AC-02、AC-09、AC-13 等待三类胶囊（C-043）：末行首行为「圆底类型图标 + 类型
+//  等待三类胶囊（C-043）：末行首行为「圆底类型图标 + 类型
 // 文字」胶囊（阻塞金/完成绿/错误红），胶囊与正文同频同相脉冲；「移入历史」按钮不闪，标题圆点静止。
 assert.ok(
 	bundle.includes('capsule.append(makeEl("span", "dap-capsule-icon"), makeEl("span", "dap-capsule-text"))'),
-	"等待胶囊为图标+文本双段结构（R-01-002/AC-01、AC-02、AC-09、AC-13）",
+	"等待胶囊为图标+文本双段结构",
 );
 assert.ok(bundle.includes("function createCapsuleIcon(kind)"), "胶囊类型图标工厂存在（对勾/文档/问号气泡/已完成对勾/错误感叹号）");
 assert.ok(
 	bundle.includes("CAPSULE_ICON_KINDS.has(entry.pendingKind)"),
-	"胶囊图标归属由 waitClass/pendingKind 结构化字段驱动，未知种类不给图标（R-01-002/AC-01、AC-02）",
+	"胶囊图标归属由 waitClass/pendingKind 结构化字段驱动，未知种类不给图标",
 );
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"] .dap-foot :is(.dap-capsule, .dap-note)'),
-	"三类等待卡的胶囊与正文脉冲由同一 data-wait 作用域规则驱动（R-01-002/AC-08，C-043）",
+	"三类等待卡的胶囊与正文脉冲由同一 data-wait 作用域规则驱动（C-043）",
 );
-// 语义化提问列表（R-01-002/AC-09，C-064）：单问 ul、多问 ol，动态文本不解析 HTML。
+// 语义化提问列表（C-064）：单问 ul、多问 ol，动态文本不解析 HTML。
 assert.ok(
 	bundle.includes('const list = makeEl(ordered ? "ol" : "ul", "dap-question-list")') &&
 		bundle.includes("itemEl.value = item.index") &&
 		bundle.includes("itemEl.textContent = item.text"),
-	"待回复正文以 ul/ol/li 语义元素渲染，编号保留原始位置且动态文字只写 textContent（R-01-002/AC-09，C-064）",
+	"待回复正文以 ul/ol/li 语义元素渲染，编号保留原始位置且动态文字只写 textContent（C-064）",
 );
 assert.ok(
 	bundle.includes(".dap-question-list") && bundle.includes(".dap-question-ellipsis { list-style: none; }"),
-	"提问列表使用卡片内缩进并隐藏省略项 marker（R-01-002/AC-09，C-064）",
+	"提问列表使用卡片内缩进并隐藏省略项 marker（C-064）",
 );
-assert.ok(!bundle.includes("dap-badge-flash") && !bundle.includes("awaitBadgeFlash"), "标题区徽标闪烁机制整体移除：闪烁不再出现在卡片标题行（R-01-002/AC-08，C-040）");
-assert.ok(!bundle.includes("prevWait !== entry.waitClass"), "跨类转换已收敛到等待队列全局同步，不再单卡重复重启（R-01-002/AC-07、AC-08，C-065）");
-assert.ok(!bundle.includes('dot.style.animation = "none"'), "相位重启目标随标题圆点静止而移除，重启只作用于末行元素（R-01-002/AC-08，C-040）");
+assert.ok(!bundle.includes("dap-badge-flash") && !bundle.includes("awaitBadgeFlash"), "标题区徽标闪烁机制整体移除：闪烁不再出现在卡片标题行（C-040）");
+assert.ok(!bundle.includes("prevWait !== entry.waitClass"), "跨类转换已收敛到等待队列全局同步，不再单卡重复重启（C-065）");
+assert.ok(!bundle.includes('dot.style.animation = "none"'), "相位重启目标随标题圆点静止而移除，重启只作用于末行元素（C-040）");
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"] .dap-dot {\n  animation: none;\n  background: var(--dap-wait-color, #58c98f);'),
-	"等待卡标题状态点静止不闪、色相随 --dap-wait-color 类别变量（R-01-002/AC-08，C-043）",
+	"等待卡标题状态点静止不闪、色相随 --dap-wait-color 类别变量（C-043）",
 );
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] {\n  --dap-wait-color: #f5c542;') &&
 		bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {\n  --dap-wait-color: #f06a72;'),
-	"阻塞等待金 / 错误提醒红类别色相经 --dap-wait-color 单点定义（R-01-002/AC-04、AC-13，C-043）",
+	"阻塞等待金 / 错误提醒红类别色相经 --dap-wait-color 单点定义（C-043）",
 );
-assert.equal(awaitBadgeTone([{ kind: "awaiting", waitClass: "blocked" }]), "blocked", "tone 判定收敛到核心纯函数单点（R-01-002/AC-06）");
-assert.ok(bundle.includes('rec.el.setAttribute("data-wait", entry.waitClass)'), "等待类别经 data-wait 属性承载（R-01-002/AC-08）");
-assert.ok(bundle.includes('entry.noteText ?? ""'), "非提问末行正文与提问回落文案仍由核心单点派生（R-01-002/AC-09）");
+assert.equal(awaitBadgeTone([{ kind: "awaiting", waitClass: "blocked" }]), "blocked", "tone 判定收敛到核心纯函数单点");
+assert.ok(bundle.includes('rec.el.setAttribute("data-wait", entry.waitClass)'), "等待类别经 data-wait 属性承载");
+assert.ok(bundle.includes('entry.noteText ?? ""'), "非提问末行正文与提问回落文案仍由核心单点派生");
 // 缺陷回归（C-040）：快照路径的时间线在 buildEntries 后才完成 memo，待回复卡静止后
 // 常无下一帧；时间线就绪后必须在同一帧补全结构化 questionPreview。
 assert.ok(
 	bundle.includes('timelineQuestionPreview(entry.timeline)') &&
 		bundle.includes("entry.questionPreview = question"),
-	"待回复卡在时间线就绪后补全结构化提问预览，不依赖下一帧重绘（R-01-002/AC-09 时序缺陷回归）",
+	"待回复卡在时间线就绪后补全结构化提问预览，不依赖下一帧重绘（时序缺陷回归）",
 );
-// R-01-002/AC-03、AC-04 完成提醒卡绿色成功卡面（C-040、C-104）：深色静态暗绿底+绿描边，浅色取 success 别名向白收。
+//  完成提醒卡绿色成功卡面（C-040、C-104）：深色静态暗绿底+绿描边，浅色取 success 别名向白收。
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {\n  --dap-wait-color: #58c98f;\n  border-color: color-mix(in srgb, #58c98f 34%, transparent);') &&
 		bundle.includes("background: rgba(31, 36, 33, 0.97);"),
-	"完成提醒卡为暗绿底色与绿描边，三类统一降权且强度低于当前会话前台态（R-01-002/AC-03、AC-04，C-104）",
+	"完成提醒卡为暗绿底色与绿描边，三类统一降权且强度低于当前会话前台态（C-104）",
 );
 assert.ok(
 	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {\n  background: color-mix(in srgb, var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237)) 55%, #fff);\n}'),
-	"浅色主题完成提醒卡取宿主 success 三级背景别名并向白收（R-01-002/AC-04，C-104）",
+	"浅色主题完成提醒卡取宿主 success 三级背景别名并向白收（C-104）",
 );
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {\n  --dap-wait-color: #f06a72;'),
-	"错误提醒卡为红色调卡面（与时间线错误红同源）（R-01-002/AC-13，C-043）",
+	"错误提醒卡为红色调卡面（与时间线错误红同源）（C-043）",
 );
 assert.ok(
 	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {\n  background: color-mix(in srgb, rgb(252, 233, 234) 55%, #fff);\n}'),
-	"浅色主题错误提醒卡取淡红错误底并向白收（R-01-002/AC-13，C-043、C-104）",
+	"浅色主题错误提醒卡取淡红错误底并向白收（C-043、C-104）",
 );
-// R-01-002/AC-08 三类等待卡描边/外环强度一致（C-104）：统一 34%，强度只由色相区分。
+//  三类等待卡描边/外环强度一致（C-104）：统一 34%，强度只由色相区分。
 assert.ok(
 	bundle.includes("border-color: color-mix(in srgb, #f5c542 34%, transparent);")
 		&& bundle.includes("border-color: color-mix(in srgb, #58c98f 34%, transparent);")
 		&& bundle.includes("border-color: color-mix(in srgb, #f06a72 34%, transparent);")
 		&& !bundle.includes("color-mix(in srgb, #f5c542 40%, transparent)")
 		&& !bundle.includes("color-mix(in srgb, #f06a72 40%, transparent)"),
-	"三类等待卡描边统一 34%、描边与外环强度一致（R-01-002/AC-08）",
+	"三类等待卡描边统一 34%、描边与外环强度一致",
 );
-// R-01-002/AC-06 数量徽标底色与卡面严格同值：卡面与徽标两侧分别以同一字面值断言，
+//  数量徽标底色与卡面严格同值：卡面与徽标两侧分别以同一字面值断言
 // 任一侧漂移即失败（按出现次数计数不区分卡面/徽标，无法防单侧漂移）。
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] {\n  --dap-wait-color: #f5c542;\n  border-color: color-mix(in srgb, #f5c542 34%, transparent);') &&
 		bundle.includes("background: rgba(42, 40, 30, 0.97);") &&
 		bundle.includes("[data-dsh-activity-pane] .dap-rail-count[data-awaiting] {\n  background: rgba(42, 40, 30, 0.97);") &&
 		bundle.includes(".dap-toggle[data-awaiting] .dap-toggle-count {\n  background: rgba(42, 40, 30, 0.97);"),
-	"阻塞等待卡面与窄条/移动开关徽标同用 rgba(42,40,30,.97)（R-01-002/AC-06）",
+	"阻塞等待卡面与窄条/移动开关徽标同用 rgba(42,40,30,.97)",
 );
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {\n  --dap-wait-color: #f06a72;\n  border-color: color-mix(in srgb, #f06a72 34%, transparent);') &&
 		bundle.includes("background: rgba(37, 31, 32, 0.97);") &&
 		bundle.includes('.dap-toggle[data-awaiting][data-tone="error"] .dap-toggle-count {\n  background: rgba(37, 31, 32, 0.97);'),
-	"错误提醒卡面与徽标同用 rgba(37,31,32,.97)（R-01-002/AC-06）",
+	"错误提醒卡面与徽标同用 rgba(37,31,32,.97)",
 );
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {\n  --dap-wait-color: #58c98f;\n  border-color: color-mix(in srgb, #58c98f 34%, transparent);') &&
 		bundle.includes("background: rgba(31, 36, 33, 0.97);") &&
 		bundle.includes('.dap-toggle[data-awaiting][data-tone="done"] .dap-toggle-count {\n  background: rgba(31, 36, 33, 0.97);'),
-	"完成提醒卡面与徽标同用 rgba(31,36,33,.97)（R-01-002/AC-06）",
+	"完成提醒卡面与徽标同用 rgba(31,36,33,.97)",
 );
 assert.ok(
 	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="blocked"] {\n  background: color-mix(in srgb, rgb(253, 244, 208) 55%, #fff);') &&
 		bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-rail-count[data-awaiting],\nbody:not([data-ds-dark-theme]) .dap-toggle[data-awaiting] .dap-toggle-count {\n  background: color-mix(in srgb, rgb(253, 244, 208) 55%, #fff);"),
-	"浅色阻塞等待卡面与徽标同用向白收的金色底（R-01-002/AC-06）",
+	"浅色阻塞等待卡面与徽标同用向白收的金色底",
 );
 assert.ok(
 	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="done"] {\n  background: color-mix(in srgb, var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237)) 55%, #fff);') &&
 		bundle.includes("body:not([data-ds-dark-theme]) .dap-toggle[data-awaiting][data-tone=\"done\"] .dap-toggle-count {\n  background: color-mix(in srgb, var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237)) 55%, #fff);"),
-	"浅色完成提醒卡面与徽标同用 success 别名向白收（R-01-002/AC-06）",
+	"浅色完成提醒卡面与徽标同用 success 别名向白收",
 );
 assert.ok(
 	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-wait="error"] {\n  background: color-mix(in srgb, rgb(252, 233, 234) 55%, #fff);') &&
 		bundle.includes("body:not([data-ds-dark-theme]) .dap-toggle[data-awaiting][data-tone=\"error\"] .dap-toggle-count {\n  background: color-mix(in srgb, rgb(252, 233, 234) 55%, #fff);"),
-	"浅色错误提醒卡面与徽标同用淡红向白收（R-01-002/AC-06）",
+	"浅色错误提醒卡面与徽标同用淡红向白收",
 );
 assert.ok(
 	!bundle.includes('.dap-card[data-kind="awaiting"][data-wait="done"] .dap-badge') &&
 		bundle.includes('[data-dsh-activity-pane] .dap-capsule {\n  flex: none; display: inline-flex; align-items: center; gap: 4px;') &&
 		bundle.includes('[data-dsh-activity-pane] .dap-capsule-icon {'),
-	"末行徽标结构整体迁移为胶囊：无行尾徽标隐藏规则，胶囊双段规则在位（R-01-002/AC-08，C-043）",
+	"末行徽标结构整体迁移为胶囊：无行尾徽标隐藏规则，胶囊双段规则在位（C-043）",
 );
-// R-01-002/AC-06 计数徽标底色跟随等待构成（C-040、C-043）：三处镜像面 tone=done 取绿、tone=error 取红。
+//  计数徽标底色跟随等待构成（C-040、C-043）：三处镜像面 tone=done 取绿、tone=error 取红。
 assert.ok(
 	bundle.includes("awaitBadgeTone(active)") &&
 		bundle.includes("\n.dap-toggle[data-awaiting][data-tone=\"done\"] .dap-toggle-count {") &&
 		bundle.includes("\n.dap-toggle[data-awaiting][data-tone=\"error\"] .dap-toggle-count {") &&
 		!bundle.includes("[data-dsh-activity-pane] .dap-toggle[data-awaiting][data-tone="),
-	"三处数量徽标按等待构成写入 tone 属性，浮动移动开关以自身作用域接入 done 绿/error 红变体（R-01-002/AC-06）",
+	"三处数量徽标按等待构成写入 tone 属性，浮动移动开关以自身作用域接入 done 绿/error 红变体",
 );
 assert.ok(
 	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="done"],') &&
 		bundle.includes("var(--dsw-alias-state-success-tertiary, rgb(230, 250, 237))"),
-	"浅色主题徽标 done 色调取 success 别名（R-01-002/AC-06）",
+	"浅色主题徽标 done 色调取 success 别名",
 );
 assert.ok(
 	bundle.includes('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-count[data-awaiting][data-tone="error"],') &&
 		bundle.includes("rgb(252, 233, 234)"),
-	"浅色主题徽标 error 色调取淡红错误底（R-01-002/AC-06，C-043）",
+	"浅色主题徽标 error 色调取淡红错误底（C-043）",
 );
-// R-01-001/AC-04、AC-05、AC-06、AC-08 徽标 n/m 计数（分子为运行中数）与悬停 tips；R-01-002/AC-06、AC-07 固定同步脉冲
+//  徽标 n/m 计数（分子为运行中数）与悬停 tips； 固定同步脉冲
 assert.ok(bundle.includes("text: `${running}/${total}`,"), "数量徽标以 n/m 分数形式呈现（分子为运行中数）");
-assert.ok(bundle.includes('el.setAttribute("title", badge.tip)'), "三处数量徽标写入悬停 tips（R-01-001/AC-08）");
-assert.ok(bundle.includes('el.removeAttribute("title")'), "加载态摘除数量徽标悬停 tips（R-01-001/AC-08）");
+assert.ok(bundle.includes('el.setAttribute("title", badge.tip)'), "三处数量徽标写入悬停 tips");
+assert.ok(bundle.includes('el.removeAttribute("title")'), "加载态摘除数量徽标悬停 tips");
 assert.ok(bundle.includes("awaitBadgeStats(active)"), "数量统计由核心纯函数单点派生");
-assert.ok(!bundle.includes("awaitPulsePeriod") && !bundle.includes("--dap-await-period"), "数量徽标不再按等待占比派生或写入脉冲周期（R-01-002/AC-07）");
+assert.ok(!bundle.includes("awaitPulsePeriod") && !bundle.includes("--dap-await-period"), "数量徽标不再按等待占比派生或写入脉冲周期");
 assert.ok(
 	bundle.includes("[data-dsh-activity-pane] .dap-count[data-awaiting] {\n  /* 底色/透明度与等待卡完全一致、无描边与外环") &&
 		bundle.includes("[data-dsh-activity-pane] .dap-rail-count[data-awaiting] {\n  background: rgba(42, 40, 30, 0.97);") &&
 		bundle.includes(".dap-toggle[data-awaiting] .dap-toggle-count {\n  background: rgba(42, 40, 30, 0.97);"),
-	"列头、窄条与移动开关的阻塞等待徽标底色/透明度均与等待卡一致、无描边与外环（R-01-002/AC-06）",
+	"列头、窄条与移动开关的阻塞等待徽标底色/透明度均与等待卡一致、无描边与外环",
 );
 assert.equal(
 	(bundle.match(/data-blocked/g) ?? []).length,
 	0,
-	"脉冲门控不再区分阻塞等待：data-blocked 属性与选择器整体移除，任一等待行动即脉冲（R-01-002/AC-06，C-037）",
+	"脉冲门控不再区分阻塞等待：data-blocked 属性与选择器整体移除，任一等待行动即脉冲（C-037）",
 );
 assert.ok(
 	!bundle.includes("box-shadow: 0 0 0 1px color-mix(in srgb, #e8a33d 35%, transparent);\n  animation: dap-await-pulse"),
-	"三处镜像面等待态均无 1px 外环（R-01-002/AC-06）",
+	"三处镜像面等待态均无 1px 外环",
 );
 assert.ok(
 	bundle.includes("@keyframes dap-await-pulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }"),
-	"脉冲为亮度呼吸而非整体不透明度：底色全程可见不透底（R-01-002/AC-06 东家视觉反馈）",
+	"脉冲为亮度呼吸而非整体不透明度：底色全程可见不透底（东家视觉反馈）",
 );
 assert.ok(!bundle.includes("linear-gradient(180deg, #ffb4b4, #f06a72)") && !bundle.includes("#2a1012"), "数量徽标不再使用红色渐变旧配色（时间线错误态红色不受影响）");
 assert.equal(
 	(bundle.match(/animation: dap-await-pulse 1\.2s ease-in-out infinite/g) ?? []).length,
 	3,
-	"列头/窄条/移动开关三处数量胶囊统一使用固定 1.2s 脉冲（R-01-002/AC-07）",
+	"列头/窄条/移动开关三处数量胶囊统一使用固定 1.2s 脉冲",
 );
 assert.ok(
 	bundle.includes("function syncAwaitPulse(nodes)") && bundle.includes("pulseSignature !== nextPulseSignature") &&
 		bundle.includes('pulseSurface = desktopQuery.matches') && bundle.includes("pulseSignature = nextPulseSignature;"),
-	"等待集合、类别或可见表面变化时统一重启，并在渲染成功后提交签名（R-01-002/AC-07、AC-08）",
+	"等待集合、类别或可见表面变化时统一重启，并在渲染成功后提交签名",
 );
 assert.ok(
 	bundle.includes(
@@ -5306,65 +5260,60 @@ assert.ok(
 	),
 	"浅色主题数量徽标覆盖声明体完整：仅等待卡浅色金色背景向白收、无描边与外环（C-104）",
 );
-assert.ok(bundle.includes("`${total} 个活动会话，${running} 个正在运行`"), "数量徽标 aria-label 以运行中计数开头（R-01-001/AC-04、AC-05）");
-assert.ok(bundle.includes("`，${blocked} 个等待你答复`"), "数量徽标 aria-label 携带阻塞等待计数说明（R-01-002/AC-06）");
-assert.ok(bundle.includes("border-radius: 999px; padding: 1px 8px 1px 3px;\n}\n/* 胶囊圆底类型图标"), "等待胶囊规则正确闭合，后续为圆底图标段（R-01-002/AC-04 结构回归防护）");
+assert.ok(bundle.includes("`${total} 个活动会话，${running} 个正在运行`"), "数量徽标 aria-label 以运行中计数开头");
+assert.ok(bundle.includes("`，${blocked} 个等待你答复`"), "数量徽标 aria-label 携带阻塞等待计数说明");
+assert.ok(bundle.includes("border-radius: 999px; padding: 1px 8px 1px 3px;\n}\n/* 胶囊圆底类型图标"), "等待胶囊规则正确闭合，后续为圆底图标段（结构回归防护）");
 assert.ok(
 	bundle.includes("border-radius: 999px;\n  padding: 0 7px;\n}\n[data-dsh-activity-pane] .dap-count[data-awaiting] {"),
-	"数量徽标基态规则无描边、正确闭合，紧随其后为等待态变体（R-01-001/AC-04 结构回归防护）",
+	"数量徽标基态规则无描边、正确闭合，紧随其后为等待态变体（结构回归防护）",
 );
-// CSS 模板结构完整：花括号配平，不错位吞并后续规则（R-01-002/AC-04 结构回归防护）。
+// CSS 模板结构完整：花括号配平，不错位吞并后续规则（结构回归防护）。
 assert.equal(
 	(bundle.match(/\{/g) ?? []).length,
 	(bundle.match(/\}/g) ?? []).length,
 	"bundle 花括号配平（CSS 模板不错位吞并后续规则）",
 );
 
-// R-01-001/AC-04
 // 数量徽标紧跟标题文字（去掉 margin-left: auto），配色同样柔和化。
 assert.ok(bundle.includes('[data-dsh-activity-pane] .dap-count {\n  flex: none;\n  font-size: 10px;'), "数量徽标紧跟标题文字（不再 margin-left: auto）");
 
-// R-01-003/AC-06、AC-07
 // 工作区徽标「文件夹图标+名称文本」双段：图标与左边栏工作区条目同源，字号不低于 10.5px。
-assert.ok(bundle.includes("createWorkspaceFolderIcon"), "工作区徽标使用与左边栏同源的 canonical 文件夹图标工厂（R-01-003/AC-06）");
-assert.ok(bundle.includes("M5.05582 0.518756L4.50669 0.86654"), "文件夹图标 path 与 dsh-client-ui-primitives IconFolderClose16 同源（R-01-003/AC-06）");
-assert.ok(bundle.includes('[data-dsh-activity-pane] .dap-workspace {\n  width: fit-content; max-width: 100%; display: flex; align-items: center; gap: 3px;\n  overflow: hidden;\n  font-size: 10.5px; line-height: 14px;'), "工作区名称字号提升为 10.5px 且胶囊改「图标+文本」双段布局（R-01-003/AC-07）");
-assert.ok(bundle.includes("[data-dsh-activity-pane] .dap-workspace-icon { flex: none; display: inline-flex; }"), "工作区图标 flex:none 不被挤压截断（R-01-003/AC-06 结构回归防护）");
-assert.ok(bundle.includes(".dap-workspace-text {\n  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"), "省略号截断只作用于工作区名称文本段（R-01-003/AC-06 结构回归防护）");
-assert.ok(bundle.includes("restoreTextField(workspaceText, entry.workspaceTitle)"), "工作区名称只写入文本段，不覆盖图标（R-01-003/AC-06）");
-assert.ok(bundle.includes('workspace.append(workspaceIcon, makeEl("span", "dap-workspace-text"))'), "文件夹图标先于名称文本段加入胶囊（R-01-003/AC-06 顺序锚点）");
-assert.ok(bundle.includes("if (workspaceText !== null) restoreTextField(workspaceText, entry.workspaceTitle)"), "热装旧骨架无文本段时容空跳过，不中断渲染（R-01-003/AC-06 健壮性）");
+assert.ok(bundle.includes("createWorkspaceFolderIcon"), "工作区徽标使用与左边栏同源的 canonical 文件夹图标工厂");
+assert.ok(bundle.includes("M5.05582 0.518756L4.50669 0.86654"), "文件夹图标 path 与 dsh-client-ui-primitives IconFolderClose16 同源");
+assert.ok(bundle.includes('[data-dsh-activity-pane] .dap-workspace {\n  width: fit-content; max-width: 100%; display: flex; align-items: center; gap: 3px;\n  overflow: hidden;\n  font-size: 10.5px; line-height: 14px;'), "工作区名称字号提升为 10.5px 且胶囊改「图标+文本」双段布局");
+assert.ok(bundle.includes("[data-dsh-activity-pane] .dap-workspace-icon { flex: none; display: inline-flex; }"), "工作区图标 flex:none 不被挤压截断（结构回归防护）");
+assert.ok(bundle.includes(".dap-workspace-text {\n  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"), "省略号截断只作用于工作区名称文本段（结构回归防护）");
+assert.ok(bundle.includes("restoreTextField(workspaceText, entry.workspaceTitle)"), "工作区名称只写入文本段，不覆盖图标");
+assert.ok(bundle.includes('workspace.append(workspaceIcon, makeEl("span", "dap-workspace-text"))'), "文件夹图标先于名称文本段加入胶囊（顺序锚点）");
+assert.ok(bundle.includes("if (workspaceText !== null) restoreTextField(workspaceText, entry.workspaceTitle)"), "热装旧骨架无文本段时容空跳过，不中断渲染（健壮性）");
 
-// R-01-003/AC-08、AC-09、AC-10、AC-11、AC-12
 // 工作区徽标按身份派生基色、经同屏前景/背景复合槽位消解后着色：渲染层写入
 // 前景 hue/L/C 与背景变体主题参数，CSS 以 OKLCH 前景色呈现文字、独立背景源色混合底色/描边；胶囊几何与字号不变。
-assert.ok(bundle.includes("resolveWorkspaceColors(visibleEntries.map((entry) => entry.workspaceKey))"), "渲染层按同帧可见身份集合消解十二槽颜色（R-01-003/AC-12）");
-assert.ok(bundle.includes("colorByWorkspace.get(entry.workspaceKey)"), "每张卡使用集合消解后的工作区颜色槽位（R-01-003/AC-08、AC-12）");
-assert.ok(bundle.includes('entry.workspaceTitle !== "" && foreground !== undefined && background !== undefined'), "缺少工作区身份或背景变体时隐藏徽标而不使用默认颜色（R-01-003/AC-08）");
-assert.ok(bundle.includes("style.setProperty(property, next)"), "渲染层把槽位颜色变量写入徽标（R-01-003/AC-08、AC-12）");
-assert.ok(bundle.includes('"--dap-workspace-dark-l": foreground?.darkL'), "渲染层把前景深色主题 L 写入徽标（R-01-003/AC-10、AC-11）");
-assert.ok(bundle.includes('"--dap-workspace-light-l": foreground?.lightL'), "渲染层把前景浅色主题 L 写入徽标（R-01-003/AC-10、AC-11）");
-assert.ok(bundle.includes('"--dap-workspace-bg-dark-l": background?.dark?.l'), "渲染层把背景变体深色主题 L 写入徽标（R-01-003/AC-10、AC-11）");
-assert.ok(bundle.includes('"--dap-workspace-bg-light-l": background?.light?.l'), "渲染层把背景变体浅色主题 L 写入徽标（R-01-003/AC-10、AC-11）");
-assert.ok(bundle.includes("for (const property of Object.keys(colorVariables)) workspaceLabel.style.removeProperty(property)"), "徽标隐藏时移除全部前景/背景颜色变量，不留陈旧着色（R-01-003/AC-08）");
-assert.ok(bundle.includes("var(--dap-workspace-dark-l, 0.78)"), "深色主题使用槽位 OKLCH 明度变量（R-01-003/AC-11）");
-assert.ok(bundle.includes("var(--dap-workspace-dark-c, 0.16)"), "深色主题使用槽位 OKLCH 彩度变量（R-01-003/AC-11）");
-assert.ok(bundle.includes("color: var(--dap-workspace-color)"), "徽标文字直接使用调色板色、不混 currentColor（R-01-003/AC-11）");
-assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-dark-mix, 31%), transparent)"), "深色主题底色使用加强的独立背景变体混合（R-01-003/AC-10、AC-11）");
-assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-color) var(--dap-workspace-bg-dark-border-mix, 52%), transparent)"), "深色主题描边使用高对比前景色混合（R-01-003/AC-10、AC-11）");
-assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {"), "浅色主题单独校准徽标配色（R-01-003/AC-10、AC-11）");
-assert.ok(bundle.includes("var(--dap-workspace-light-l, 0.48)"), "浅色主题使用槽位 OKLCH 明度变量（R-01-003/AC-11）");
-assert.ok(bundle.includes("var(--dap-workspace-light-c, 0.15)"), "浅色主题使用槽位 OKLCH 彩度变量（R-01-003/AC-11）");
-assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-light-mix, 27%), transparent)"), "浅色主题底色使用加强的独立背景变体混合（R-01-003/AC-10、AC-11）");
-assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-color) var(--dap-workspace-bg-light-border-mix, 42%), transparent)"), "浅色主题描边使用高对比前景色混合（R-01-003/AC-10、AC-11）");
-assert.ok(!bundle.includes("color-mix(in srgb, var(--dap-workspace-color) 92%, currentColor)"), "工作区文字不得再以 currentColor 冲淡调色板色（R-01-003/AC-11）");
+assert.ok(bundle.includes("resolveWorkspaceColors(visibleEntries.map((entry) => entry.workspaceKey))"), "渲染层按同帧可见身份集合消解十二槽颜色");
+assert.ok(bundle.includes("colorByWorkspace.get(entry.workspaceKey)"), "每张卡使用集合消解后的工作区颜色槽位");
+assert.ok(bundle.includes('entry.workspaceTitle !== "" && foreground !== undefined && background !== undefined'), "缺少工作区身份或背景变体时隐藏徽标而不使用默认颜色");
+assert.ok(bundle.includes("style.setProperty(property, next)"), "渲染层把槽位颜色变量写入徽标");
+assert.ok(bundle.includes('"--dap-workspace-dark-l": foreground?.darkL'), "渲染层把前景深色主题 L 写入徽标");
+assert.ok(bundle.includes('"--dap-workspace-light-l": foreground?.lightL'), "渲染层把前景浅色主题 L 写入徽标");
+assert.ok(bundle.includes('"--dap-workspace-bg-dark-l": background?.dark?.l'), "渲染层把背景变体深色主题 L 写入徽标");
+assert.ok(bundle.includes('"--dap-workspace-bg-light-l": background?.light?.l'), "渲染层把背景变体浅色主题 L 写入徽标");
+assert.ok(bundle.includes("for (const property of Object.keys(colorVariables)) workspaceLabel.style.removeProperty(property)"), "徽标隐藏时移除全部前景/背景颜色变量，不留陈旧着色");
+assert.ok(bundle.includes("var(--dap-workspace-dark-l, 0.78)"), "深色主题使用槽位 OKLCH 明度变量");
+assert.ok(bundle.includes("var(--dap-workspace-dark-c, 0.16)"), "深色主题使用槽位 OKLCH 彩度变量");
+assert.ok(bundle.includes("color: var(--dap-workspace-color)"), "徽标文字直接使用调色板色、不混 currentColor");
+assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-dark-mix, 31%), transparent)"), "深色主题底色使用加强的独立背景变体混合");
+assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-color) var(--dap-workspace-bg-dark-border-mix, 52%), transparent)"), "深色主题描边使用高对比前景色混合");
+assert.ok(bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-workspace {"), "浅色主题单独校准徽标配色");
+assert.ok(bundle.includes("var(--dap-workspace-light-l, 0.48)"), "浅色主题使用槽位 OKLCH 明度变量");
+assert.ok(bundle.includes("var(--dap-workspace-light-c, 0.15)"), "浅色主题使用槽位 OKLCH 彩度变量");
+assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-background-color) var(--dap-workspace-bg-light-mix, 27%), transparent)"), "浅色主题底色使用加强的独立背景变体混合");
+assert.ok(bundle.includes("color-mix(in oklch, var(--dap-workspace-color) var(--dap-workspace-bg-light-border-mix, 42%), transparent)"), "浅色主题描边使用高对比前景色混合");
+assert.ok(!bundle.includes("color-mix(in srgb, var(--dap-workspace-color) 92%, currentColor)"), "工作区文字不得再以 currentColor 冲淡调色板色");
 
-// R-01-010/AC-01、R-01-010/AC-05
 // 两区分隔线上下各保留 10px 留白；历史区无内容时整段隐藏、分隔线不占位。
 assert.ok(bundle.includes("border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent);\n  padding: 10px 8px 0;\n  margin-top: 10px;"), "分隔线上下各 10px 留白");
 assert.ok(bundle.includes(".dap-recent[hidden] { display: none; }"), "历史区无内容时整段隐藏（分隔线不占位）");
 
-// R-01-010/AC-07
 // 活动区→历史区迁移动画：旧卡克隆 ghost FLIP 平移淡降 + 真卡淡入，transitionend 收口，reduced-motion 降级。
 assert.ok(bundle.includes("[data-dsh-activity-pane] > .dap-move-ghost"), "迁移 ghost 挂载于窗格内，卡片样式作用域生效（不虚框）");
 assert.ok(bundle.includes("renderedPane.appendChild(plan.ghost)"), "ghost 挂载于窗格元素内（absolute、窗格相对坐标）");
@@ -5374,7 +5323,7 @@ assert.ok(bundle.includes(".dap-move-in"), "目标最近卡迁移时淡入");
 assert.ok(bundle.includes('"transitionend"'), "ghost 生命周期由 transitionend 收口（不引入定时器）");
 assert.ok(bundle.includes('matchMedia?.("(prefers-reduced-motion: reduce)")'), "reduced-motion 时跳过迁移动画直接落位");
 
-// R-01-010/AC-07（双向）
+// （双向）
 // 历史区→活动区反向迁移：检测接线 prevRenderedRecentIds，ghost 源池为历史卡池、目标池为活动卡池。
 assert.ok(
 	bundle.includes("...movedToActiveIds(prevRenderedRecentIds, active, recent).map((id) => ({ id, from: recentCardsById, to: cardsById }))"),
@@ -5386,7 +5335,7 @@ assert.ok(
 	"上一帧历史区 id 集合随签名提交记账（反向迁移检测前提）",
 );
 
-// R-01-010/AC-10 受影响卡片 FLIP 过渡
+//  受影响卡片 FLIP 过渡
 // 迁移帧内位置变化的其它卡片（含历史区段头）以反向位移 + dap-shift 过渡平滑归位，不瞬间跳变。
 assert.ok(
 	bundle.includes("[data-dsh-activity-pane] .dap-shift {\n  transition: transform 0.3s ease;\n}"),
@@ -5409,10 +5358,9 @@ assert.ok(
 assert.ok(bundle.includes("cancelShift(rec.el);"), "卡片被 prune 时同步取消其平移状态（不残留监听与内联位移）");
 assert.ok(
 	bundle.includes("for (const el of [...shiftCleanups.keys()]) cancelShift(el);"),
-	"卸载时清理全部在飞平移（R-02-003 卸载不残留）",
+	"卸载时清理全部在飞平移（卸载不残留）",
 );
 
-// R-01-004/AC-03
 // 滚动条随滚动或鼠标指针进入窗格显示：thumb 默认透明、data-scrolling/data-pointer-inside 时显示；
 // Firefox 路径在 @supports 门内，native scrollbar 与右缘调宽手柄保持可分别命中。
 assert.ok(bundle.includes(".dap-scroll::-webkit-scrollbar-thumb {\n  background: transparent;"), "滚动条 thumb 默认透明（不滚动时不显示）");
@@ -5429,43 +5377,43 @@ assert.ok(
 assert.ok(!bundle.includes(".dap-resize:hover"), "调宽手柄悬停不绘制高亮区域");
 assert.ok(bundle.includes('pane.addEventListener("pointerenter", onPanePointerEnter)'), "鼠标进入窗格绑定滚动条显示");
 assert.ok(bundle.includes('pane.addEventListener("pointerleave", onPanePointerLeave)'), "鼠标离开窗格绑定滚动条隐藏");
-assert.ok(bundle.includes('pane.removeEventListener("pointerenter", onPanePointerEnter)') && bundle.includes('pane.removeEventListener("pointerleave", onPanePointerLeave)'), "unbind 清理窗格指针监听（R-02-003/AC-02）");
+assert.ok(bundle.includes('pane.removeEventListener("pointerenter", onPanePointerEnter)') && bundle.includes('pane.removeEventListener("pointerleave", onPanePointerLeave)'), "unbind 清理窗格指针监听");
 assert.ok(bundle.includes("@supports not selector(::-webkit-scrollbar)") && bundle.includes("scrollbar-color: transparent transparent"), "Firefox 路径以 @supports 门隔离（防 Chromium 丢弃伪元素规则）");
 assert.ok(bundle.includes("[data-dsh-activity-pane][data-pointer-inside] .dap-scroll {\n    scrollbar-color:"), "Firefox 路径经 data-pointer-inside 显示滚动条");
 assert.ok(bundle.includes('scroll?.addEventListener("scroll", onScroll, { passive: true })'), "滚动监听置位 data-scrolling");
 assert.ok(
 	bundle.includes('scroll?.removeEventListener("scroll", onScroll);') && bundle.includes('if (scrollHideTimer !== null) clearTimeout(scrollHideTimer);'),
-	"unbind 同步清理滚动监听与隐藏定时器（R-02-003/AC-02）",
+	"unbind 同步清理滚动监听与隐藏定时器",
 );
 assert.ok(
 	bundle.includes('recentMore?.removeEventListener("click", onRecentMoreClick);') && !bundle.includes("recentObserver?.disconnect();"),
-	"unbind 同步清理加载更多按钮监听，历史分页不再保留 observer（R-02-003/AC-02）",
+	"unbind 同步清理加载更多按钮监听，历史分页不再保留 observer",
 );
 
-// R-01-019/AC-01～AC-04 历史候选与手动分页渲染契约
-assert.equal(RECENT_PAGE_SIZE, 10, "历史分页批次固定为 10 条（R-01-019/AC-01）");
-assert.ok(bundle.includes("const RECENT_PAGE_SIZE = 10;"), "生成 bundle 保留 10 条历史分页批次配置（R-01-019/AC-01）");
-assert.ok(bundle.includes("limit: recentVisibleCount"), "历史区只渲染当前可见候选前缀（limit 入参注入 buildRecent，R-01-019/AC-01，T-186）");
-assert.ok(bundle.includes('const nextCount = Math.min(recentVisibleCount + RECENT_PAGE_SIZE, recentTotal);'), "按钮激活后追加最多一个 10 条批次（R-01-019/AC-02）");
+//  历史候选与手动分页渲染契约
+assert.equal(RECENT_PAGE_SIZE, 10, "历史分页批次固定为 10 条");
+assert.ok(bundle.includes("const RECENT_PAGE_SIZE = 10;"), "生成 bundle 保留 10 条历史分页批次配置");
+assert.ok(bundle.includes("limit: recentVisibleCount"), "历史区只渲染当前可见候选前缀（limit 入参注入 buildRecent，T-186）");
+assert.ok(bundle.includes('const nextCount = Math.min(recentVisibleCount + RECENT_PAGE_SIZE, recentTotal);'), "按钮激活后追加最多一个 10 条批次");
 assert.ok(
 	bundle.includes('<button class="dap-recent-more" type="button" hidden>加载更多...</button>') &&
 		bundle.includes('recentMore?.addEventListener("click", onRecentMoreClick);'),
-	"历史区底部提供原生加载更多按钮并绑定显式激活（R-01-019/AC-02）",
+	"历史区底部提供原生加载更多按钮并绑定显式激活",
 );
 assert.ok(
 	!bundle.includes("new window.IntersectionObserver") && !bundle.includes('class="dap-recent-tail"') && !bundle.includes("maybeLoadMoreRecent"),
-	"历史分页不再由 IntersectionObserver、尾部 sentinel 或滚动检查自动触发（R-01-019/AC-01、AC-02）",
+	"历史分页不再由 IntersectionObserver、尾部 sentinel 或滚动检查自动触发",
 );
 assert.ok(
 	bundle.includes("recentMore.hidden = !recentHasMore;") && bundle.includes("recentMore.disabled = recentAppendQueued;"),
-	"仍有候选时显示按钮、追加期间禁用，候选耗尽后隐藏（R-01-019/AC-03）",
+	"仍有候选时显示按钮、追加期间禁用，候选耗尽后隐藏",
 );
-assert.ok(bundle.includes('recentHasMore = recent.length < recentTotal;'), "历史候选耗尽后停止追加（R-01-019/AC-03）");
+assert.ok(bundle.includes('recentHasMore = recent.length < recentTotal;'), "历史候选耗尽后停止追加");
 
-// R-01-018 回到顶部悬浮图标按钮
-// R-01-018/AC-01、R-01-018/AC-03：骨架按钮默认 hidden，滚动监听按 TOP_THRESHOLD 阈值揭隐/隐藏；
-// R-01-018/AC-02：激活 scrollTo 回顶，reduced-motion 直接定位；R-01-018/AC-04：窄条态 CSS 隐藏；
-// R-01-018/AC-05：纯图标（无文字、aria-label 可访问名称）、右下角定位、不透明底色。
+//  回到顶部悬浮图标按钮
+// 骨架按钮默认 hidden，滚动监听按 TOP_THRESHOLD 阈值揭隐/隐藏；
+// 激活 scrollTo 回顶，reduced-motion 直接定位；：窄条态 CSS 隐藏；
+// 纯图标（无文字、aria-label 可访问名称）、右下角定位、不透明底色。
 assert.ok(
 	bundle.includes('<button class="dap-top" type="button" aria-label="回到顶部" title="回到顶部" hidden></button>'),
 	"窗格骨架含默认隐藏的「回到顶部」图标按钮：无文字、aria-label 提供可访问名称（键盘激活与 click 同路径）",
@@ -5479,18 +5427,18 @@ assert.ok(
 assert.ok(
 	bundle.includes("[data-dsh-activity-pane] .dap-top {")
 		&& bundle.includes("[data-dsh-activity-pane] .dap-titlebar {\n  flex: 1;\n  min-width: 0;\n  display: flex;\n  align-items: center;\n  gap: 8px;"),
-	"回到顶部按钮保持右下角悬浮；标题行拆为标题区（flex:1 占满剩余宽度，悬停高亮与收起激活的载体）与右侧固定工具区（预留工具按钮扩展）（R-01-018/AC-01、R-01-021/AC-05、R-01-011/AC-07）",
+	"回到顶部按钮保持右下角悬浮；标题行拆为标题区（flex:1 占满剩余宽度，悬停高亮与收起激活的载体）与右侧固定工具区（预留工具按钮扩展）",
 );
 assert.ok(!bundle.includes(".dap-top {\n  position: absolute;\n  bottom: 12px;\n  left: 50%;"), "底部居中定位已移除");
 assert.ok(
 	bundle.includes("border-radius: 999px;\n  background: #1d1f25;")
 		&& !bundle.includes(".dap-top {\n  position: absolute;\n  bottom: 12px;\n  right: 12px;\n  z-index: 6;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: 28px;\n  height: 28px;\n  padding: 0;\n  border: 1px solid color-mix"),
-	"按钮底色为不透明纯色（非 color-mix 半透明，R-01-018/AC-05）",
+	"按钮底色为不透明纯色（非 color-mix 半透明）",
 );
 assert.ok(
 	bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top,\nbody:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density,\nbody:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-repo {\n  background: var(--dsw-alias-bg-layer-2, #ffffff);")
 		&& bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-top,\nbody:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-density {\n  border-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));"),
-	"浅色主题底色取外壳 layer-2 别名（同样不透明；仓库入口无描边只并入底色组，描边别名仅留带边框按钮，R-01-018/AC-05、R-01-022/AC-01）",
+	"浅色主题底色取外壳 layer-2 别名（同样不透明；仓库入口无描边只并入底色组，描边别名仅留带边框按钮）",
 );
 assert.ok(
 	bundle.includes("[data-dsh-activity-pane] .dap-top[hidden] { display: none; }"),
@@ -5504,20 +5452,20 @@ assert.ok(
 );
 assert.ok(
 	bundle.includes('pane.setAttribute("data-collapsed", "false");\n\t\t\tqueueSync();\n\t\t\tnotifyLayoutChange();\n\t\t\t// 折叠期间 display:none 可能令 scrollTop 归零而不派发 scroll 事件，展开时同步一次。\n\t\t\tsyncTopBtn();'),
-	"窄条展开时同步一次按钮显隐（折叠期 scrollTop 归零不一定派发 scroll 事件，R-01-018/AC-03）",
+	"窄条展开时同步一次按钮显隐（折叠期 scrollTop 归零不一定派发 scroll 事件）",
 );
 assert.ok(
 	bundle.includes('scroll?.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });'),
-	"激活回顶：reduced-motion 直接定位，否则平滑滚动（R-01-018/AC-02）",
+	"激活回顶：reduced-motion 直接定位，否则平滑滚动",
 );
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane][data-collapsed="true"] .dap-top { display: none; }'),
-	"桌面折叠窄条态不显示回到顶部按钮（R-01-018/AC-04）",
+	"桌面折叠窄条态不显示回到顶部按钮",
 );
 assert.ok(
 	bundle.includes('topBtn?.addEventListener("click", onTopClick);')
 		&& bundle.includes('topBtn?.removeEventListener("click", onTopClick);'),
-	"按钮 click 监听随 bindPaneControls 绑定并在 unbind 清理（R-02-003/AC-02）",
+	"按钮 click 监听随 bindPaneControls 绑定并在 unbind 清理",
 );
 
 // ---- 回归锚点：浅色主题适配 ----
@@ -5533,12 +5481,12 @@ assert.ok(!bundle.includes("@media (prefers-color-scheme"), "主题跟随外壳 
 // 覆盖块必须不接管 ::before 状态圆点基色：基色规则若被覆盖会以更高优先级
 // 压掉 running/done/error/stopped 状态色。
 assert.ok(!bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-trace-item::before"), "浅色覆盖不接管 ::before 圆点（保留状态色）");
-// R-01-006/AC-01、AC-03、AC-06 当前会话高亮在浅色下同样生效：浅色 .dap-card/:hover/
+//  当前会话高亮在浅色下同样生效：浅色 .dap-card/:hover/
 // [data-kind] 覆盖的优先级均高于基态 [data-current] 规则，浅色块必须在其后重声明描边/
 // 外环/光晕；浅色底上亮蓝对比不足，前台态取深一档蓝（C-104）。
 assert.ok(
 	bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current] {\n  --dap-current-color: #2f7cf6;\n  border-color: color-mix(in srgb, var(--dap-current-color) 88%, transparent);\n  box-shadow:\n    0 0 0 1.5px color-mix(in srgb, var(--dap-current-color) 55%, transparent),\n    0 0 16px color-mix(in srgb, var(--dap-current-color) 30%, transparent),\n    inset 0 0 10px color-mix(in srgb, var(--dap-current-color) 12%, transparent);"),
-	"浅色块重声明当前会话前台态：深档蓝 + 1.5px 外环 + 16px 光晕 + 内发光（R-01-006/AC-06，C-104）",
+	"浅色块重声明当前会话前台态：深档蓝 + 1.5px 外环 + 16px 光晕 + 内发光（C-104）",
 );
 const lightCurrentAt = bundle.indexOf("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current] {");
 assert.ok(
@@ -5546,18 +5494,18 @@ assert.ok(
 		&& lightCurrentAt > bundle.indexOf('body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-kind="recent"] {'),
 	"浅色 [data-current] 重声明位于 :hover 与 [data-kind=recent] 覆盖之后（同优先级后定义者胜）",
 );
-// R-01-006/AC-01、AC-06 前台态基态规则：外环/光晕/内发光三层，深色取亮蓝。
+//  前台态基态规则：外环/光晕/内发光三层，深色取亮蓝。
 assert.ok(
 	bundle.includes("[data-dsh-activity-pane] .dap-card[data-current] {\n  --dap-current-color: #8fbcff;\n  border-color: color-mix(in srgb, var(--dap-current-color) 90%, transparent);\n  box-shadow:\n    0 0 0 1.5px color-mix(in srgb, var(--dap-current-color) 60%, transparent),\n    0 0 16px color-mix(in srgb, var(--dap-current-color) 45%, transparent),\n    inset 0 0 10px color-mix(in srgb, var(--dap-current-color) 20%, transparent);"),
-	"深色前台态以 1.5px 外环 + 16px 光晕 + 内发光成为窗格最高视觉层（R-01-006/AC-06，C-104）",
+	"深色前台态以 1.5px 外环 + 16px 光晕 + 内发光成为窗格最高视觉层（C-104）",
 );
-// R-01-006/AC-01 等待卡同为当前会话时仍以蓝色前台态覆盖等待色描边：[data-current]
+//  等待卡同为当前会话时仍以蓝色前台态覆盖等待色描边：[data-current]
 // 基态与 [data-kind="awaiting"] 同优先级且定义在前，须由组合选择器（0-4-0）重声明。
 assert.ok(
 	bundle.includes('[data-dsh-activity-pane] .dap-card[data-kind="awaiting"][data-current] {\n  border-color: color-mix(in srgb, var(--dap-current-color) 90%, transparent);\n  box-shadow:\n    0 0 0 1.5px color-mix(in srgb, var(--dap-current-color) 60%, transparent),\n    0 0 16px color-mix(in srgb, var(--dap-current-color) 45%, transparent),\n    inset 0 0 10px color-mix(in srgb, var(--dap-current-color) 20%, transparent);\n}'),
 	"等待当前卡重声明蓝色前台态（组合选择器压过等待态色描边）",
 );
-// R-01-006/AC-03、AC-06 后台态：选中但全局面板在屏——描边/外环/光晕全面弱于前台态，
+//  后台态：选中但全局面板在屏——描边/外环/光晕全面弱于前台态
 // 且须定义在等待当前卡组合之后（同优先级后定义者胜）。
 const dimAt = bundle.indexOf("[data-dsh-activity-pane] .dap-card[data-current]:not([data-foreground]) {");
 assert.ok(
@@ -5566,12 +5514,12 @@ assert.ok(
 );
 assert.ok(
 	bundle.includes("[data-dsh-activity-pane] .dap-card[data-current]:not([data-foreground]) {\n  border-color: color-mix(in srgb, var(--dap-current-color) 50%, transparent);\n  box-shadow:\n    0 0 0 1px color-mix(in srgb, var(--dap-current-color) 42%, transparent),\n    0 0 14px color-mix(in srgb, var(--dap-current-color) 26%, transparent),\n    inset 0 0 10px color-mix(in srgb, var(--dap-current-color) 10%, transparent);\n}"),
-	"深色后台态：50% 描边 + 1px 外环 + 14px 柔光 + 轻内发光，明显可辨且全面低于前台态（R-01-006/AC-03，C-104）",
+	"深色后台态：50% 描边 + 1px 外环 + 14px 柔光 + 轻内发光，明显可辨且全面低于前台态（C-104）",
 );
 assert.ok(
 	!bundle.includes('[data-density="compact"] .dap-card[data-current]') &&
 		!bundle.includes('[data-density="medium"] .dap-card[data-current]'),
-	"前台/后台态与等待卡降权规则不按显示档位分叉，三档同值（R-01-006/AC-06）",
+	"前台/后台态与等待卡降权规则不按显示档位分叉，三档同值",
 );
 assert.ok(
 	(() => {
@@ -5579,7 +5527,7 @@ assert.ok(
 		const body = bundle.slice(start, bundle.indexOf("}", start) + 1);
 		return body.length > 0 && !body.includes("background");
 	})(),
-	"后台态规则只改描边/环/柔光，不添加整卡底色或彩色铺面（R-01-006/AC-03 新口径，T-202）",
+	"后台态规则只改描边/环/柔光，不添加整卡底色或彩色铺面（新口径，T-202）",
 );
 assert.ok(
 	(() => {
@@ -5587,121 +5535,121 @@ assert.ok(
 		const body = bundle.slice(start, bundle.indexOf("}", start) + 1);
 		return body.length > 0 && !body.includes("background");
 	})(),
-	"浅色后台态规则同样不添加整卡底色（R-01-006/AC-03，T-202）",
+	"浅色后台态规则同样不添加整卡底色（T-202）",
 );
 assert.ok(
 	bundle.includes("body:not([data-ds-dark-theme]) [data-dsh-activity-pane] .dap-card[data-current]:not([data-foreground]) {\n  border-color: color-mix(in srgb, var(--dap-current-color) 46%, transparent);\n  box-shadow:\n    0 0 0 1px color-mix(in srgb, var(--dap-current-color) 38%, transparent),\n    0 0 12px color-mix(in srgb, var(--dap-current-color) 20%, transparent),\n    inset 0 0 10px color-mix(in srgb, var(--dap-current-color) 8%, transparent);\n}"),
-	"浅色后台态：46% 描边 + 1px 外环 + 12px 柔光 + 轻内发光，全面低于浅色前台态（R-01-006/AC-03，C-104）",
+	"浅色后台态：46% 描边 + 1px 外环 + 12px 柔光 + 轻内发光，全面低于浅色前台态（C-104）",
 );
-// R-01-006/AC-06 视觉阶梯：等待三类描边统一 34%、当前前台态 90%/88%，后台态居中偏低。
+//  视觉阶梯：等待三类描边统一 34%、当前前台态 90%/88%，后台态居中偏低。
 const waitRingAt = bundle.indexOf("box-shadow: 0 0 0 1px color-mix(in srgb, var(--dap-wait-color) 22%, transparent), 0 4px 12px rgba(0,0,0,.22);");
-assert.ok(waitRingAt > 0, "等待三类外环收小到 22% 且投影减弱（R-01-006/AC-06，C-104）");
+assert.ok(waitRingAt > 0, "等待三类外环收小到 22% 且投影减弱（C-104）");
 assert.ok(
 	!bundle.includes("color-mix(in srgb, #58c98f 55%, transparent)")
 		&& !bundle.includes("color-mix(in srgb, #f5c542 55%, transparent)")
 		&& !bundle.includes("color-mix(in srgb, #f06a72 55%, transparent)"),
-	"等待三类描边不再维持 55% 高强度（低于当前会话前台态，R-01-006/AC-06）",
+	"等待三类描边不再维持 55% 高强度（低于当前会话前台态）",
 );
-// R-01-006/AC-03、AC-05 后台态由布局 store 的 panelInfo 单点驱动：选中态与在屏态分离，
+//  后台态由布局 store 的 panelInfo 单点驱动：选中态与在屏态分离
 // 面板切换经订阅触发重绘并把面板态并入渲染签名（不并入则不随页面切换刷新）。
 assert.ok(
 	clientSource.includes("function activePanelId()") &&
 		clientSource.includes('ctx.get("layout")?.panelInfo?.getSnapshot?.()?.activePanelId ?? null'),
-	"后台态判据单点读取 layout.panelInfo.activePanelId，服务缺失按会话视图处理（R-01-006/AC-03）",
+	"后台态判据单点读取 layout.panelInfo.activePanelId，服务缺失按会话视图处理",
 );
 assert.ok(
 	clientSource.includes("panelUnsubscribe = layoutService?.panelInfo?.subscribe?.(queueSync) ?? null")
 		&& clientSource.includes("panelUnsubscribe?.();"),
-	"panelInfo 快照变化订阅驱动重绘并在卸载/代际更替时释放（R-01-006/AC-05）",
+	"panelInfo 快照变化订阅驱动重绘并在卸载/代际更替时释放",
 );
 assert.ok(
 	clientSource.includes("const panelId = activePanelId();") &&
 		clientSource.includes("densityLevel, panelId])"),
-	"面板态并入渲染签名，页面切换即刷新前台/后台态（R-01-006/AC-03）",
+	"面板态并入渲染签名，页面切换即刷新前台/后台态",
 );
 assert.ok(
 	clientSource.includes('rec.el.toggleAttribute("data-foreground", entry.isCurrent && foreground === true)'),
-	"data-current 只表示选中、data-foreground 表示会话在屏，两属性分离（R-01-006/AC-03）",
+	"data-current 只表示选中、data-foreground 表示会话在屏，两属性分离",
 );
-// R-01-006/AC-04 面板页同会话激活：选中但面板在屏时经 openSession 一次 reveal，不排重试链。
+//  面板页同会话激活：选中但面板在屏时经 openSession 一次 reveal，不排重试链。
 assert.ok(
 	clientSource.includes("isSessionDisplayed({ targetId: sessionId, currentId, panelId })")
 		&& clientSource.includes("openSession(ctx.get(\"uiWorkspace\"), openTargetFor(sessionId));"),
-	"面板页激活当前会话卡经 openSession reveal 并跳过到达重试链（R-01-006/AC-04）",
+	"面板页激活当前会话卡经 openSession reveal 并跳过到达重试链",
 );
 
-// ---- R-01-012/AC-17～AC-18、R-01-009/AC-14～AC-15 子代理卡模型/进度/统计契约 ----
+// ---- 子代理卡模型/进度/统计契约 ----
 // 子代理模型经既有 history 溯源提取（models RPC 对子代理被宿主 agent-busy 拒绝）。
-assert.ok(bundle.includes("modelFromHistoryEvents") && bundle.includes("chatLatestAssistantSettled"), "子代理模型溯源提取与触发信号进入 bundle（R-01-012/AC-17）");
+assert.ok(bundle.includes("modelFromHistoryEvents") && bundle.includes("chatLatestAssistantSettled"), "子代理模型溯源提取与触发信号进入 bundle");
 assert.ok(
 	clientSource.includes("if (planSubagentModelRead) {") && clientSource.includes("detail.modelReadDone = true;"),
-	"history 读取落地时为子代理提取模型溯源并记账每次可见期单次尝试（R-01-012/AC-17）",
+	"history 读取落地时为子代理提取模型溯源并记账每次可见期单次尝试",
 );
 assert.ok(
 	clientSource.includes("chatLatestAssistantSettled(detailSnapshot)"),
-	"模型读取时机锚定已定案助手行或非运行状态（R-01-012/AC-17）",
+	"模型读取时机锚定已定案助手行或非运行状态",
 );
 assert.ok(
 	clientSource.includes("entry.kind === \"subagent\" && historyLoads.has(entry.id)"),
-	"子代理溯源读取在途时模型区显示加载指示（R-01-014/AC-02、R-01-012/AC-17）",
+	"子代理溯源读取在途时模型区显示加载指示",
 );
 // 溯源 id → 显示名：目录分组经主会话既有两条到达路径就地收割，渲染时对子代理条目解析。
 assert.ok(
 	clientSource.includes("const catalogEntries = Object.create(null);"),
-	"目录条目索引为无原型对象，模型 id 恰为继承键名时不得穿透回退（R-01-012/AC-17）",
+	"目录条目索引为无原型对象，模型 id 恰为继承键名时不得穿透回退",
 );
 assert.ok(
 	clientSource.includes("harvestCatalog(snap.groups);") &&
 		clientSource.includes("harvestCatalog(value.groups);"),
-	"目录分组在 store 订阅与一次性 modelCatalog 两条到达路径就地收割（R-01-012/AC-17）",
+	"目录分组在 store 订阅与一次性 modelCatalog 两条到达路径就地收割",
 );
 assert.ok(
 	clientSource.includes("detail.model.reasoning = reasoningEffortFromHistoryEvents(events) ?? \"\";"),
-	"子代理 history 落地时折叠最新请求头 effort（R-01-012/AC-17）",
+	"子代理 history 落地时折叠最新请求头 effort",
 );
 assert.ok(
 	clientSource.includes("if (catalogEntry?.name) entry.model = catalogEntry.name;") &&
 		clientSource.includes("if (!entry.reasoning && catalogEntry?.reasoning) entry.reasoning = catalogEntry.reasoning;"),
-	"渲染时子代理溯源 id 经目录解析为显示名与 effort 回退，未覆盖保留原始（R-01-012/AC-17、AC-18）",
+	"渲染时子代理溯源 id 经目录解析为显示名与 effort 回退，未覆盖保留原始",
 );
 // 运行中子代理卡与主会话运行卡同构：进度行 + 统计行进骨架，渲染按同一锚点与曲线。
 assert.ok(
 	clientSource.includes("return [row, makeEl(\"div\", \"dap-subtrace\"), progressRow, makeStatsRow()];") &&
 		clientSource.includes("row.append(makeEl(\"span\", \"dap-dot\"), makeEl(\"span\", \"dap-title\"), model, makeEl(\"span\", \"dap-total-time\"));"),
-	"子代理卡骨架：模型名入标题行右侧，进度行与统计行承载（R-01-009/AC-14、R-01-012/AC-17）",
+	"子代理卡骨架：模型名入标题行右侧，进度行与统计行承载",
 );
 assert.ok(
 	clientSource.includes("progressOf({ elapsedMs, halfLifeSec: progressHalfLifeSec({ rateTokS: projectionStats.rateTokS }) })"),
-	"运行中子代理卡按与运行卡相同的锚点口径现算进度（R-01-009/AC-14）",
+	"运行中子代理卡按与运行卡相同的锚点口径现算进度",
 );
 assert.ok(
 	clientSource.includes("syncLiveness(runLikeIds, runningClockWanted(active, runLikeIds))") &&
 		bundle.includes('entry?.kind === "subagent" && runLikeIds.has(entry.id)'),
-	"运行卡时钟条件纳入运行中子代理卡（R-01-009/AC-14；判定收口 runningClockWanted，R-01-025/AC-08，T-174）",
+	"运行卡时钟条件纳入运行中子代理卡（；判定收口 runningClockWanted，T-174）",
 );
 // 非运行子代理卡：进度条整行隐藏、统计与最近回合耗时冻结。
 assert.ok(
 	clientSource.includes("} else if (!progressRow.hidden) {") && clientSource.includes("progressRow.hidden = true;"),
-	"锚点空闲时子代理卡进度行整行隐藏（R-01-009/AC-15）",
+	"锚点空闲时子代理卡进度行整行隐藏",
 );
 assert.ok(
 	clientSource.includes("entry.progress = null;") && bundle.includes("[data-dsh-activity-pane] .dap-progress[hidden] { display: none; }"),
-	"非运行子代理卡冻结统计并隐藏进度行（R-01-009/AC-15）",
+	"非运行子代理卡冻结统计并隐藏进度行",
 );
 
-// ---- R-01-002/AC-10～AC-12 宿主侧完成确认契约（C-030）----
-// R-01-002/AC-12 刷新/重连恢复：状态由宿主侧持久化承载，不依赖客户端在线观测。
+// ---- 宿主侧完成确认契约（C-030）----
+//  刷新/重连恢复：状态由宿主侧持久化承载，不依赖客户端在线观测。
 const hostSource = await readFile(join(root, "src/host.mjs"), "utf8");
 const hostEntry = await readFile(join(root, ".dsh-plugin/index.mjs"), "utf8");
 execFileSync(process.execPath, ["--check", join(root, "src/host.mjs")], { stdio: "pipe" });
 execFileSync(process.execPath, ["--check", join(root, ".dsh-plugin/index.mjs")], { stdio: "pipe" });
 assert.ok(hostEntry.includes("from '../src/host.mjs'") && hostEntry.includes("export { apply, inject, name }"), "宿主侧入口转发 src/host.mjs（免构建）");
-assert.ok(hostSource.includes("ctx.on('session/event'") && hostSource.includes("event?.type !== 'turn/end'"), "宿主侧订阅 session/event 并过滤 turn/end（AC-03）");
+assert.ok(hostSource.includes("ctx.on('session/event'") && hostSource.includes("event?.type !== 'turn/end'"), "宿主侧订阅 session/event 并过滤 turn/end");
 assert.ok(hostSource.includes("event.time"), "以事件顶层 time 登记回合结束时刻");
-assert.ok(hostSource.includes("storageDomain.open(domainSpec)") && hostSource.includes("acks: domainTable(ackRecord)"), "完成确认状态持久化于 storageDomain 表（AC-12）");
+assert.ok(hostSource.includes("storageDomain.open(domainSpec)") && hostSource.includes("acks: domainTable(ackRecord)"), "完成确认状态持久化于 storageDomain 表");
 assert.ok(hostSource.includes("const API_PATH = '/dsh-activity-pane/api'") && hostSource.includes("path: API_PATH"), "宿主侧路由挂载于 /dsh-activity-pane/api");
-assert.ok(hostSource.includes("'/acks/stream'") && hostSource.includes("text/event-stream"), "SSE 推送通道（AC-11、AC-12）");
-assert.ok(hostSource.includes("'/ack'") && hostSource.includes("ackedAt: Date.now()"), "ack 写回路由（AC-10～AC-12）");
+assert.ok(hostSource.includes("'/acks/stream'") && hostSource.includes("text/event-stream"), "SSE 推送通道");
+assert.ok(hostSource.includes("'/ack'") && hostSource.includes("ackedAt: Date.now()"), "ack 写回路由");
 assert.ok(hostSource.includes("streamClients") && hostSource.includes("for (const res of streamClients)"), "SSE 连接集合随卸载全数关闭");
 assert.ok(
 	hostSource.includes("ctx.connection?.requestRejection?.(req)") && hostSource.includes("res.end('unauthorized')"),
@@ -5741,16 +5689,16 @@ assert.ok(e2eHelperSource.includes("const PANE_READY_TIMEOUT_MS = 30_000"), "单
 assert.ok(!e2eHelperSource.includes("ERR_PANE_STALL"), "helpers 不保留列表停滞专用恢复错误码");
 assert.ok(e2eHelperSource.includes('throw new Error("窗格列表加载失败")'), "明确列表失败立即抛错，不等待超时或进入恢复");
 
-// ---- GitHub CI 触发策略（C-050，T-086）----
+// ---- GitHub CI 触发策略（RFC-0002：main 改为 PR 门禁，取代 C-050/C-060 的 PR 结论）----
 const ciWorkflowSource = await readFile(join(root, ".github/workflows/ci.yml"), "utf8");
 const ciTriggerBlock = ciWorkflowSource.match(/^on:\n([\s\S]*?)^permissions:/m)?.[1] ?? "";
 assert.equal(
 	ciTriggerBlock,
-	"  workflow_dispatch:\n  push:\n    branches: [main]\n\n",
-	"hosted CI trigger 仅允许 workflow_dispatch 与 main push，不得加入 PR、tag 或其它 push filter",
+	"  workflow_dispatch:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\n\n",
+	"hosted CI trigger 允许 workflow_dispatch、main push 与 main pull_request，不得加入 tag 或其它 push filter",
 );
 assert.ok(!ciWorkflowSource.includes("runner.tool_cache"), "job 级 env 不引用尚不可用的 runner context");
-assert.ok(ciWorkflowSource.includes("fetch-depth: 0"), "CI checkout 保留完整历史以验证 terminal task commit 证据");
+assert.ok(ciWorkflowSource.includes("fetch-depth: 0"), "CI checkout 保留完整历史以支撑 diff 基线与发布校验");
 assert.ok(ciWorkflowSource.includes("timeout-minutes: 30"), "顺序 E2E 拥有明确 hosted timeout");
 assert.ok(ciWorkflowSource.includes("node-version: 24.16.0"), "hosted Node 与本地稳定基线一致");
 

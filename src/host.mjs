@@ -1,5 +1,5 @@
-// dsh-activity-pane 宿主侧：完成确认与错误提醒状态（R-01-002/AC-03、AC-05、AC-10～AC-13、R-01-010/AC-06，C-030、C-043），
-// 以及会话累计运行时长记账（R-01-020，C-074）。
+// dsh-activity-pane 宿主侧：完成确认与错误提醒状态（C-030、C-043）
+// 以及会话累计运行时长记账（C-074）。
 //
 // 职责：
 //   1. 订阅 `session/event` 的 `turn/end`，把事件顶层 `time` 登记为会话的 `lastTurnEnd`，
@@ -9,7 +9,7 @@
 //   3. `GET /dsh-activity-pane/api/acks` 全量快照；`GET /dsh-activity-pane/api/acks/stream` SSE 推送
 //      （连接即发全量 `state`、变更按会话增量广播 `patch`）。
 //   4. 订阅 `session/event` 按回合与等待边界（`approval/asked`–`decided`、`ask_user_question`
-//      的 `tool/call`–`tool/result`）配对累计每会话运行过程时长（R-01-020）：
+//      的 `tool/call`–`tool/result`）配对累计每会话运行过程时长
 //      持久化于独立 domain 表 `turn_stats`（`{ busyMs, openTurnStart, openWaitStart,
 //      openWaitKind, openWaitId, waitedMs, watermarkSeq }`），无记录/水位缺口/水位超前会话经
 //      `sessionQuery.listEvents` 懒回填（统一 reconcileTurnStats 收敛，启动扫描强制结算
@@ -24,7 +24,7 @@
 // 都在缓存上闭合，变更点同步写缓存后立即广播 patch；KvTable 退化为落盘通道，脏键经
 // createDirtyFlusher 尾沿合帧写盘（FLUSH_INTERVAL_MS，内部运行参数非契约）。合帧窗口内
 // 进程崩溃至多丢该窗口的落盘写：下次懒回填经 reconcileTurnStats 从事件全量重放自愈
-// （R-01-020/AC-04 恢复语义承载，水位不回退）；插件卸载把冲刷与关域合并进同一 disposer 顺序 await。
+// （恢复语义承载，水位不回退）；插件卸载把冲刷与关域合并进同一 disposer 顺序 await。
 // 设计约束（C-030）：不写会话日志、不依赖 sessionProjections、不引入客户端轮询；
 // 完成提醒成立 = 主会话 && 非 running && 无阻塞等待 && 非委托周期 && lastTurnEnd > ackedAt，
 // 错误提醒成立 = 主会话 && 非 running && 无阻塞等待 && 非委托周期 && lastTurnEndKind === 'error'
@@ -68,7 +68,7 @@ const domainSpec = defineDomain({
 	},
 })
 
-/** 每会话累计运行时长记账（R-01-020）：busyMs 运行过程时长累计（null=尚无有效计时）、
+/** 每会话累计运行时长记账：busyMs 运行过程时长累计（null=尚无有效计时）、
  *  openTurnStart 当前开放回合起点（无开放回合为 null）、openWaitStart/openWaitKind 当前
  *  未配对等待区间（回合内阻塞等待：approval/question）、waitedMs 本回合已配对等待时长
  *  累计、watermarkSeq 实时登记已覆盖的最大事件 seq（回填与实时登记以水位衔接，seq ≤
@@ -133,7 +133,7 @@ export function apply(ctx) {
 	/** SSE 连接集合：连接即发 `state` 全量，此后变更广播 `patch`。 */
 	const streamClients = new Set()
 	const busyStreamClients = new Set()
-	/** 懒回填单飞：每会话至多一个在途回填，重复触发共享同一 promise（R-01-020/AC-05）。 */
+	/** 懒回填单飞：每会话至多一个在途回填，重复触发共享同一 promise。 */
 	const backfills = new Map()
 
 	ctx.inject(['storageDomain'], async (domainCtx) => {
@@ -159,7 +159,7 @@ export function apply(ctx) {
 			await turnDomain.close()
 		}, 'dsh-activity-pane: busyFlushDomainClose')
 		resolveDomain()
-		// 启动扫描（R-01-020/AC-04）：宿主重启后不存在仍在运行的回合——残留开放回合的
+		// 启动扫描：宿主重启后不存在仍在运行的回合——残留开放回合的
 		// 记账按日志最后事件时刻强制结算关闭，否则总耗时按 now − openTurnStart 无限增长。
 		// 无 watermarkTime 的存量记录（本字段引入前写入）强制全量重放复核一次——无论重编
 		// 后日志 seq 是否已超越旧水位（部分重叠重编）都能收敛，重写后带上该字段、不再
@@ -171,7 +171,7 @@ export function apply(ctx) {
 		}
 	})
 
-	/** 单会话 busy 下发视图（R-01-020）：{ busyMs, openTurnStart, waitedMs, openWaitStart }
+	/** 单会话 busy 下发视图：{ busyMs, openTurnStart, waitedMs, openWaitStart }
 	 *  （水位与等待种类为宿主内部记账，不下发）。 */
 	function busyRecordView(record) {
 		return {
@@ -220,7 +220,7 @@ export function apply(ctx) {
 	 *  同键 put 串行；批次间经 flusher 的 inflight 互斥串行——同键落盘严格有序，值取
 	 *  put 调用瞬间的最新缓存态，磁盘值序列是内存值序列的子序列。写盘失败 logger 告警
 	 *  不吞错，内存态（权威状态）继续，下次变更再标脏重写；窗口内进程崩溃由懒回填
-	 *  reconcileTurnStats 从事件全量重放自愈（R-01-020/AC-04，水位不回退）。 */
+	 *  reconcileTurnStats 从事件全量重放自愈（水位不回退）。 */
 	async function flushRecords(table, cache, keys) {
 		for (const id of keys) {
 			const record = cache.get(id)
@@ -233,7 +233,7 @@ export function apply(ctx) {
 		}
 	}
 
-	/** 懒回填（R-01-020/AC-05，C-074）：经 sessionQuery.listEvents 读取会话事件，统一经
+	/** 懒回填（C-074）：经 sessionQuery.listEvents 读取会话事件，统一经
 	 *  reconcileTurnStats 收敛——无记录、水位非法或水位超前于日志最大 seq（事件 seq 空间
 	 *  被重编，如 dsh 0.1.5 V3 迁移）的会话自空状态全量重放；已有记录会话仅增量应用
 	 *  seq > watermarkSeq 的事件（宿主离线期间经其它入口发生的回合），以水位衔接保证
@@ -265,7 +265,7 @@ export function apply(ctx) {
 					!turnStatsEqual(next, current)
 				if (changed) {
 					// 内存即改（T-188）：回填结果写入权威缓存后立即按变更 id 增量广播；
-					// 落盘经 busyFlusher 尾沿合帧，崩溃窗口由懒回填全量重放自愈（R-01-020/AC-04）。
+					// 落盘经 busyFlusher 尾沿合帧，崩溃窗口由懒回填全量重放自愈。
 					turnStatsState.set(id, { ...turnStatsFrom(next), watermarkSeq: next.watermarkSeq, watermarkTime: next.watermarkTime })
 					busyFlusher?.markDirty(id)
 					broadcastPatch(busyStreamClients, busyViewsById([id]), [id])
@@ -288,7 +288,7 @@ export function apply(ctx) {
 		return out
 	}
 
-	// turn/end 登记（R-01-002/AC-03、AC-11～AC-13、C-043）：保留既有 ackedAt（回合更替
+	// turn/end 登记（C-043）：保留既有 ackedAt（回合更替
 	// 不清确认游标），lastTurnEnd 前移即让旧提醒失效、新提醒成立；同回合登记结束原因与
 	// 错误信息（错误提醒的持久事实来源）。
 	// 内存即改（T-188）：await domainReady 之后的读-改-写-标脏-广播是全同步段——单线程
@@ -324,7 +324,7 @@ export function apply(ctx) {
 		}
 	})
 
-	// 累计运行时长实时登记（R-01-020/AC-02、AC-04、AC-05、AC-07，C-074）：turn/start–turn/end
+	// 累计运行时长实时登记（C-074）：turn/start–turn/end
 	// 配对记账，回合内阻塞等待经 approval/asked–decided 与 ask_user_question 的 tool/call–
 	// tool/result 配对扣除；completed/blocked/max-tokens/aborted/error 全部结束原因均计入；
 	// 事件按会话序提交，seq ≤ watermark 的事件幂等跳过；无效果的边界事件（如非提问工具的
@@ -351,13 +351,13 @@ export function apply(ctx) {
 					await ensureTurnStatsFresh(id)
 				} else {
 					// 回填在途时排队等待其写入完成，再按水位应用实时事件，避免回填快照
-					// 覆盖（回退）实时事件的效果或造成缺口丢失（R-01-020/AC-04）。
+					// 覆盖（回退）实时事件的效果或造成缺口丢失。
 					const inflight = backfills.get(id)
 					if (inflight) await inflight
 				}
 				let current = turnStatsState.get(id)
 				if (Number.isFinite(current?.watermarkSeq) && seq <= current.watermarkSeq) {
-					// 重编检测（R-01-020/AC-04）：稳定 seq 空间内低水位事件的时刻不可能比水位处
+					// 重编检测：稳定 seq 空间内低水位事件的时刻不可能比水位处
 					// 事件更新；时刻反而更新说明事件 seq 空间被重编（如 dsh 0.1.5 V3 迁移），
 					// 持久化水位已失效，增量口径不再封死后续事件。无 watermarkTime 的存量记录
 					//（本字段引入前写入，其水位未经重编检测校验）同样不可信——两者统一丢弃旧
@@ -383,7 +383,7 @@ export function apply(ctx) {
 				// 在途回填等 await 点之后到缓存写入之间无其它 await，缓存变更按事件派发序落定；
 				// 事件序 = 串行域执行序 = 缓存变更序 = patch 广播序。落盘延后由 flusher 尾沿
 				// 执行：批次间经 inflight 互斥串行，同键 put 值取调用瞬间缓存态，磁盘值序列是
-				// 缓存值序列的子序列，最终一致；窗口内崩溃由懒回填重放自愈（R-01-020/AC-04），
+				// 缓存值序列的子序列，最终一致；窗口内崩溃由懒回填重放自愈
 				// 不再依赖 KvTable.put 的「先落盘后内存」串行点（该点原本兼作并发读-改-写的
 				// 竞态防护，解耦后由串行域 + 同步缓存段取代）。
 				turnStatsState.set(id, { ...turnStatsFrom(next), watermarkSeq: seq, watermarkTime: Number.isFinite(time) ? time : turnStatsFrom(current).watermarkTime ?? null })
@@ -418,7 +418,7 @@ export function apply(ctx) {
 			}
 			if (route === '/acks/stream' && method === 'GET') {
 				// SSE：连接即发全量快照，此后每次变更广播；浏览器 EventSource 自动重连，
-				// 重连时再收一次全量，状态必然收敛（R-01-002/AC-12）。
+				// 重连时再收一次全量，状态必然收敛。
 				res.writeHead(200, {
 					'Content-Type': 'text/event-stream',
 					'Cache-Control': 'no-cache',
@@ -466,7 +466,7 @@ export function apply(ctx) {
 				// 只读下发：响应立即返回快照；查询参数 ids（逗号分隔会话 id）指定客户端当前
 				// 可见的主会话——响应按 ids 裁剪（解析不出合法 id 或超量形态整体回退全量），
 				// 并对其中无记录者触发懒回填（fire-and-forget），回填完成经 /busy/stream
-				// 增量 patch 推送（R-01-020/AC-05，T-188）。
+				// 增量 patch 推送（T-188）。
 				const raw = url.searchParams.get('ids')
 				const scopedIds = parseBusyIdsParam(raw, BUSY_IDS_MAX)
 				// 回填触发口径与全量时代一致：携带 ids 的请求对每个非空片段（trim 后）都触发

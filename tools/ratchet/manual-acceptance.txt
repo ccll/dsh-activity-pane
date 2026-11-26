@@ -1,0 +1,7 @@
+# 人工验收只减清单：一行一个 `id :: reason :: YYYY-MM-DD`；到期未续期即 fail，须移除或续期。
+accept-completion-stats :: 等待卡的上一轮统计与耗时冻结语义（观感/真机） :: 2027-03-31
+accept-mobile-thermal :: 真机移动端常驻功耗与抽屉滑入观感 :: 2027-03-31
+accept-native-timeline :: 原生工作项时间线实时刷新与摘要一致性 :: 2027-03-31
+accept-shell-remount :: 外壳视图级重挂载后窗格自愈与长跑空闲 :: 2027-03-31
+accept-ui-badge-colors :: 工作区徽标色相/槽位稳定/深浅主题协调 :: 2027-03-31
+accept-ui-connectors :: 母子会话连接线与多级层级对齐 :: 2027-03-31

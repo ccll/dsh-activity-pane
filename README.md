@@ -69,6 +69,12 @@ The npm package ships prebuilt, so no local build step is needed. If the pane do
 
 If this plugin makes managing your DSH sessions easier, please consider giving it a ⭐ on [GitHub](https://github.com/ccll/dsh-activity-pane) — it takes a second and helps other DSH users discover it. Ideas and bug reports are welcome in [Issues](https://github.com/ccll/dsh-activity-pane/issues) and [Discussions](https://github.com/ccll/dsh-activity-pane/discussions).
 
+## Contributing
+
+Working units are GitHub issues; changes land through pull requests. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the claim protocol, commit convention and gates, and `docs/roadmap.md` / `docs/architecture.md` for where things stand and how they are built. Agents start from [AGENTS.md](AGENTS.md).
+
+Run `node tools/xtask.mjs ci` before opening a pull request.
+
 ## License
 
 MIT — see [LICENSE](LICENSE) for the full text.

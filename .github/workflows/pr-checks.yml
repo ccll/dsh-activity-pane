@@ -64,8 +64,8 @@ jobs:
         run: |
           issue=$(printf '%s' "$PR_BODY" | grep -oE 'Fixes #[0-9]+' | head -1 | grep -oE '[0-9]+')
           if [ -z "$issue" ]; then echo "正文未写 \`Fixes #<issue>\`。"; exit 1; fi
-          lower=$(gh pr list --state open --search "in:title #$issue" --json number --jq \
-            "[.[] | select(.number < $PR)] | length" 2>/dev/null || echo 0)
+          lower=$(gh pr list --state open --json number,body --jq \
+            "[.[] | select(.number < $PR and ((.body // "") | test(\"Fixes #${issue}([^0-9]|$)\")))] | length")
           if [ "$lower" != "0" ]; then
             echo "同一 issue 下已有编号更小的开放 PR（$lower 个）：编号最小者胜，请关闭本 PR 或改认领其它 issue。"
             exit 1
@@ -77,3 +77,15 @@ jobs:
         run: |
           echo "$HEAD_REF" | grep -qE '^(claim|fix|feat|docs|perf|refactor)/[0-9]+-[a-z0-9-]+$' || {
             echo "分支名须为 `<claim|fix|feat|docs|perf|refactor>/<issue>-<slug>`：$HEAD_REF"; exit 1; }
+
+      - name: "视觉改动需截图或声明视觉影响（claim: #17）"
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          changed=$(git diff --name-only "origin/main...HEAD")
+          if printf '%s\n' "$changed" | grep -qE '^src/client\.mjs$|^\.dsh-plugin/client\.js$'; then
+            printf '%s' "$PR_BODY" | grep -qE '!\[[^]]*\]\(|^视觉影响: 无' || {
+              echo "改了渲染层：请在 PR 正文附一张截图（Markdown 图片），或显式写一行「视觉影响: 无」。"
+              exit 1
+            }
+          fi

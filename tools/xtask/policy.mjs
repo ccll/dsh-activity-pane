@@ -16,13 +16,17 @@ const MAX_TITLE_RUNES = 100;
 /** emoji + 中文类型 + (scope): 描述；scope 为小写字母数字连字符。 */
 const TITLE_RE = /^(\p{Extended_Pictographic}\uFE0F?) (功能|改进|修复|文档|测试|计划|维护|配置|重构|发布)\(([a-z0-9][a-z0-9-]*)\): (.+)$/u;
 const EXCEPTION_PREFIXES = ["Merge ", "Revert ", "fixup! ", "squash! "];
+/** 认领提交：空提交 `claim: #N`（协议要求），豁免类型格式与正文三段。 */
+const CLAIM_RE = /^claim: #\d+$/;
+/** 分支命名：<claim|fix|feat|docs|perf|refactor>/<issue>-<slug>。 */
+const BRANCH_RE = /^(claim|fix|feat|docs|perf|refactor)\/\d+-[a-z0-9-]+$/;
 const REQUIRED_HEADINGS = ["原因", "影响", "取舍"];
 
 /** 单个提交信息的校验错误；合规返回 null。 */
 function validateMessage(text) {
 	const lines = text.split(/\r?\n/);
 	const title = (lines[0] ?? "").trim();
-	if (EXCEPTION_PREFIXES.some((prefix) => title.startsWith(prefix))) {
+	if (EXCEPTION_PREFIXES.some((prefix) => title.startsWith(prefix)) || CLAIM_RE.test(title)) {
 		return { exception: true, title };
 	}
 	const titleMatch = title.match(TITLE_RE);
@@ -63,7 +67,7 @@ function checkMessages(rep, messages) {
 	for (const { label, text } of messages) {
 		const result = validateMessage(text);
 		if (result.exception) {
-			rep.skip(`policy/提交信息 ${label}`, `例外提交（Merge/Revert/fixup/squash）`);
+			rep.skip(`policy/提交信息 ${label}`, `例外提交（Merge/Revert/fixup/squash/claim）`);
 			continue;
 		}
 		if (result.error) rep.fail(`policy/提交信息 ${label}`, result.error);
@@ -91,7 +95,7 @@ function replayMessages(rep, base) {
 		}
 		const result = validateMessage(message);
 		if (result.exception) {
-			rep.skip(`policy/提交信息 ${commit.slice(0, 8)}`, "例外提交（Merge/Revert/fixup/squash）");
+			rep.skip(`policy/提交信息 ${commit.slice(0, 8)}`, "例外提交（Merge/Revert/fixup/squash/claim）");
 			continue;
 		}
 		if (result.error) rep.fail(`policy/提交信息 ${commit.slice(0, 8)}`, result.error);
@@ -185,6 +189,7 @@ export function runPolicy(rep, argv = []) {
 	if (opts.push) {
 		const branch = currentBranch();
 		if (branch === BRANCH_MAIN) rep.fail("policy/分支", "禁止直接推送 main；请走 claim/<issue>-<slug> 分支与 PR");
+		else if (!BRANCH_RE.test(branch)) rep.fail("policy/分支", `分支名须为 <claim|fix|feat|docs|perf|refactor>/<issue>-<slug>：${branch}`);
 		else rep.ok("policy/分支", `当前分支 ${branch}，允许推送`);
 	}
 

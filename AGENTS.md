@@ -18,6 +18,8 @@
 - agent 永不合并、永不给主干加保护豁免（主干 ruleset：必需 PR + 必需 status check）。
 - 提交标题 `emoji 中文类型(scope): 结果`，正文三段 `## 原因`/`## 影响`/`## 取舍`（`xtask policy --message`）。
 - 提交身份必须是真实账号，占位符 `Test <test@example.com>` 之类直接拒绝（`xtask policy`）。
+- 草稿 PR 只跑快检（`ci --fast`），标为 ready 后才跑全量 `verify`（`.github/workflows/ci.yml`）。
+- 视觉改动在 PR 正文附截图，或写一行 `视觉影响: 无`（`.github/workflows/pr-checks.yml`）。
 - 不许手改 `.dsh-plugin/client.js`；改 `src/` 就在同一提交重建它（`xtask bundle --check`）。
 - 期望值只能因判据错误而改，不许为通过而放宽、忽略或改写测试输入（`xtask ratchet` + goldens）。
 - 新增 e2e spec 必须登记；人工验收到期即失败（`xtask ratchet`）。

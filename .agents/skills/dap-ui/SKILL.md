@@ -21,3 +21,4 @@ description: 改窗格布局、显示档位、移动抽屉、开关落位、滚�
 - DOM 契约：根属性 `[data-dsh-activity-pane]`，类名前缀 `.dap-`；e2e 只认这些选择器。
 - 移动改动按 WebKit + 移动 UA + 触屏 + 390×844 验证；桌面探针通过不代表真机成立。
 - 对照 spec：`e2e/specs/desktop-layout.mjs`、`e2e/specs/compact-density.mjs`、`e2e/specs/mobile-drawer.mjs`。
+- 视觉改动必须在 PR 正文附截图（桌面 1280×720 与窄窗口各一张），或写一行 `视觉影响: 无`。

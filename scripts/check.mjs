@@ -5694,9 +5694,12 @@ const ciWorkflowSource = await readFile(join(root, ".github/workflows/ci.yml"), 
 const ciTriggerBlock = ciWorkflowSource.match(/^on:\n([\s\S]*?)^permissions:/m)?.[1] ?? "";
 assert.equal(
 	ciTriggerBlock,
-	"  workflow_dispatch:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\n\n",
-	"hosted CI trigger 允许 workflow_dispatch、main push 与 main pull_request，不得加入 tag 或其它 push filter",
+	"  workflow_dispatch:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\n    types: [opened, synchronize, reopened, ready_for_review]\n\n",
+	"hosted CI trigger 允许 workflow_dispatch、main push 与 main pull_request（含 ready_for_review），不得加入 tag 或其它 push filter",
 );
+assert.ok(/^  verify:$/m.test(ciWorkflowSource), "必需检查 verify 任务保留：ruleset 按该名称要求状态检查");
+assert.ok(ciWorkflowSource.includes("github.event.pull_request.draft == false"), "verify 只在 PR 非草稿、main push 或手工触发时跑全量");
+assert.ok(ciWorkflowSource.includes("node tools/xtask.mjs ci --fast"), "草稿 PR 阶段只跑快检，不装 DSH 运行时与浏览器");
 assert.ok(!ciWorkflowSource.includes("runner.tool_cache"), "job 级 env 不引用尚不可用的 runner context");
 assert.ok(ciWorkflowSource.includes("fetch-depth: 0"), "CI checkout 保留完整历史以支撑 diff 基线与发布校验");
 assert.ok(ciWorkflowSource.includes("timeout-minutes: 30"), "顺序 E2E 拥有明确 hosted timeout");

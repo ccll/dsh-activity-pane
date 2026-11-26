@@ -57,6 +57,14 @@
 
 权威入口是 `node tools/xtask.mjs ci`。它按改动路径决定跑哪些检查，并打印每条检查是执行还是跳过及原因。
 
+门禁分两级，避免每次 push 都等 7 分钟：
+
+- 草稿 PR 只跑 `fast`：`node tools/xtask.mjs ci --fast`，约 1 分钟，含单元断言与客户端产物字节校验。
+- PR 标为 ready（或 push 到 main、手工触发）后跑 `verify`：全量 27 个 e2e，约 7.5 分钟。
+- `verify` 是主干必需状态检查；草稿阶段不产生它，所以草稿 PR 不可合并——这与 claim 协议一致。
+
+视觉改动的 PR 正文必须附一张截图（Markdown 图片），或显式写一行 `视觉影响: 无`。改了 `src/client.mjs` 或 `.dsh-plugin/client.js` 时由 `pr-checks.yml` 判定；写"无"就等于立字据，评审可以推翻它。
+
 | 命令 | 用途 |
 |---|---|
 | `node tools/xtask.mjs ci --fast` | 编辑循环，秒级：策略、技能、文档、清单、只减清单、bundle、单元检查 |

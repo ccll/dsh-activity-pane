@@ -50,7 +50,7 @@ jobs:
             }
           '
 
-      - name: 认领提交存在（claim: #N）
+      - name: "认领提交存在（claim: #N）"
         run: |
           git log --format=%s "origin/main..HEAD" | tee /tmp/subjects.txt
           grep -qE '^claim: #[0-9]+$' /tmp/subjects.txt || {

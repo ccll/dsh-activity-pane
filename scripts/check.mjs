@@ -5660,6 +5660,78 @@ assert.ok(
 	"宿主原地替换槽容器时流式观察者换绑到新节点，不留已分离旧节点（借鉴 -mig 并行实现）",
 );
 
+// 插件生命周期契约（2026-11-27 本机事故回归）：webServer 路由必须由插件 fiber 持有——
+// 宿主 profile 配置重载 / 模块热重载会 dispose 旧 fiber 再重新 apply；裸 register 丢弃
+// disposer 时旧路由滞留前缀表，新实例以 duplicate route 启动失败，旧 handler 闭包的 ctx
+// 已失效（读取服务抛 inactive context），acks/busy 全部 400、完成提醒随刷新消失且事件
+// 登记停摆，直到重启宿主。断言卸载释放路由、同一 webServer 上重新 apply 可再次注册。
+assert.ok(
+	hostSource.includes("ctx.effect(() => ctx.webServer.register({") && hostSource.includes("kind: 'prefix'"),
+	"HTTP 路由注册由插件 fiber 持有（ctx.effect）并显式声明 prefix，卸载时随 fiber 释放",
+);
+const hostModule = await import("../src/host.mjs");
+const lifecycleRoutes = new Map();
+const lifecycleWebServer = {
+	register(route) {
+		if (lifecycleRoutes.has(route.path)) throw new Error(`webserver: duplicate ${route.kind} route "${route.path}"`);
+		lifecycleRoutes.set(route.path, route);
+		return () => {
+			if (lifecycleRoutes.get(route.path) === route) lifecycleRoutes.delete(route.path);
+		};
+	},
+};
+const fakeStorageDomain = () => {
+	const tables = new Map();
+	return {
+		table(name) {
+			let table = tables.get(name);
+			if (table === undefined) {
+				table = { entries: () => [], get: () => undefined, put: async () => {}, delete: async () => {} };
+				tables.set(name, table);
+			}
+			return table;
+		},
+		close: async () => {},
+	};
+};
+const mountHostPlugin = async () => {
+	const disposers = [];
+	const ctx = {
+		effect(callback) {
+			const dispose = callback();
+			if (typeof dispose === "function") disposers.push(dispose);
+		},
+		inject(_deps, callback) {
+			void callback(ctx);
+		},
+		on() {},
+		logger: { warn() {}, info() {} },
+		storageDomain: { open: async () => fakeStorageDomain() },
+		webServer: lifecycleWebServer,
+		sessionQuery: { listEvents: async () => [] },
+		connection: { requestRejection: () => undefined },
+	};
+	const cleanup = hostModule.apply(ctx);
+	await new Promise((resolve) => setTimeout(resolve, 0)); // domain 注入回调落定
+	return { disposers, cleanup };
+};
+const unmountHostPlugin = async ({ disposers, cleanup }) => {
+	for (const dispose of disposers.splice(0).reverse()) await dispose?.();
+	cleanup?.();
+};
+const firstMount = await mountHostPlugin();
+const mountedRoute = lifecycleRoutes.get("/dsh-activity-pane/api");
+assert.ok(
+	mountedRoute?.kind === "prefix" && typeof mountedRoute.handler === "function",
+	"首次 apply 在 /dsh-activity-pane/api 注册前缀路由",
+);
+await unmountHostPlugin(firstMount);
+assert.ok(!lifecycleRoutes.has("/dsh-activity-pane/api"), "插件卸载时释放 HTTP 路由（不留 stale handler）");
+const secondMount = await mountHostPlugin();
+assert.ok(lifecycleRoutes.has("/dsh-activity-pane/api"), "同一 webServer 上重新 apply 成功注册，不撞 duplicate route");
+await unmountHostPlugin(secondMount);
+assert.ok(!lifecycleRoutes.has("/dsh-activity-pane/api"), "第二次卸载同样释放路由");
+
 
 // ---- E2E runner 浏览器生命周期契约（C-046、C-047，T-085）----
 const e2eRunnerSource = await readFile(join(root, "e2e/run.mjs"), "utf8");

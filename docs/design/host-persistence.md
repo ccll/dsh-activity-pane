@@ -51,6 +51,11 @@
 - `POST /ack`：`sessionId` 缺失或非字符串返回 400；写回只改 `ackedAt`。
 - busy 下发视图只含 `busyMs`、`openTurnStart`、`waitedMs`、`openWaitStart`；水位与等待种类不下发。
 - SSE 连接集合由宿主维护，写失败即从集合移除；卸载时全部 `end`。
+- 路由生命周期：`ctx.webServer.register({ kind: 'prefix', path: API_PATH, handler })` 经 `ctx.effect` 交给插件 fiber 持有；
+  fiber dispose 时释放路由，重新 apply 可在同一 `webServer` 上再次挂载。宿主在运行期可能 dispose 再重新 apply
+  （模块热重载，或 profile 重载重建该条目）——裸 register 丢弃 disposer 会让旧路由滞留前缀表，新实例以
+  `duplicate route` 启动失败，旧 handler 闭包的 ctx 已失效（读取 `connection` 抛 inactive context），
+  acks/busy 全部 400、完成提醒随刷新消失，直到重启宿主（2026-11-27 本机事故根因）。
 
 ## 内存权威与落盘
 
@@ -77,7 +82,8 @@
 
 ## 验证
 
-- `scripts/check.mjs`：`applyTurnEventToStats`、`reconcileTurnStats`、`totalBusyDisplayMs`、`buildChannelPatch`、`parseBusyIdsParam`、`createDirtyFlusher` 的单元断言。
+- `scripts/check.mjs`：`applyTurnEventToStats`、`reconcileTurnStats`、`totalBusyDisplayMs`、`buildChannelPatch`、`parseBusyIdsParam`、`createDirtyFlusher` 的单元断言；
+  插件生命周期契约（apply → fiber disposer → 重新 apply）钉住卸载释放 HTTP 路由与重载后可再注册。
 - `e2e/specs/completion-sync.mjs`：跨客户端确认同步与恢复。
 - `e2e/specs/error-reminder.mjs`：provider→宿主→SSE→浏览器路径。
 - `e2e/specs/busy-backfill-race.mjs`：回填与实时登记交错。

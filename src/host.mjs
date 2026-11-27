@@ -399,7 +399,14 @@ export function apply(ctx) {
 	// A1-08：自定义 webServer 路由不继承宿主鉴权门——每个请求先过
 	// connection.requestRejection，401/403 直接拒绝，避免 acks/busy 读写通道
 	// 成为绕过 bootstrap token/signed cookie 的安全空洞。
-	ctx.webServer.register({
+	// 生命周期（C-030 回归）：路由注册必须经 ctx.effect 交给插件 fiber 持有——宿主在
+	// 运行期 dispose 本插件再重新 apply 时（模块热重载、profile 重载重建该条目等），
+	// 裸 register 丢弃返回的 disposer 会让旧路由滞留在 webServer 前缀表，重新 apply
+	// 撞 duplicate route 直接失败，且旧 handler 闭包的 ctx 已失效（读取 connection 抛
+	// inactive context）——所有子路径退化成 400，事件登记与 SSE 一并停摆直到重启宿主
+	//（2026-11-27 本机实例事故）。
+	ctx.effect(() => ctx.webServer.register({
+		kind: 'prefix',
 		path: API_PATH,
 		handler(req, res) {
 			const rejection = ctx.connection?.requestRejection?.(req)
@@ -512,7 +519,7 @@ export function apply(ctx) {
 			res.writeHead(404, { 'Content-Type': 'application/json' })
 			res.end(JSON.stringify({ ok: false, error: 'not found' }))
 		},
-	})
+	}), 'dsh-activity-pane: HTTP API route')
 
 	// 卸载：关闭全部 SSE 连接；冲刷与关域的合并 disposer 见 storageDomain 注入回调
 	//（cordis 卸载对多个 effect 的 disposer 是 Promise.all 并发，仅同一 disposer 内的

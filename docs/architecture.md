@@ -101,7 +101,11 @@ flowchart LR
 
 - 借用：retain 返回的引用只在已保留代际上借用会话面；代际终结后不再访问旧 binding。
 - 释放点：可见性 prune、紧凑档拆窗、服务代际更替、插件卸载。
-- 卸载顺序：断开全部 SSE → 取消订阅 → 释放 retain 引用 → 冲刷脏键并关域（同一 disposer 内串行 await）。
+- 卸载顺序：断开全部 SSE → 取消订阅 → 释放 retain 引用 → 释放 HTTP 路由 → 冲刷脏键并关域（同一 disposer 内串行 await）。
+- 热重载不变量：宿主在运行期可能 dispose 旧 fiber 并重新 apply（模块热重载，或 profile 重载重建该条目）；
+  HTTP 路由注册经 `ctx.effect` 随 fiber 释放，重新 apply 必须能在同一 `webServer` 上再次挂载——
+  旧路由滞留会让新实例以 `duplicate route` 启动失败，通道全部退化为 400，事件登记停摆
+  （2026-11-27 本机事故，见 `docs/design/host-persistence.md`）。
 
 ## 数据与状态模型要点
 
